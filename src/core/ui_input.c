@@ -1,5 +1,5 @@
 // What events do: editing a row, the menu tabs, knobs and macros, and synth_ui_handle() (the entry point for UI events).
-#include "core/ui_internal.h"
+#include "core/ui_screen.h"
 #include "hal/hal_input.h"
 #include <stdio.h>
 
@@ -35,77 +35,10 @@ static bool handle_ms(synth_ui_t *ui, rack_t *rack, const seq_t *seq, int slot, 
 }
 
 // SAMPLES tab: 1 File (highlight in the library), 2 Tgt (0 = a new sampler, k = the k-th sampler in the rack), 3 Assign, 4 Scan.
-int sampler_count(const rack_t *r) { int n = 0; for (int i = 0; i < r->count; i++) n += r->slot[i].type == MOD_SAMPLER; return n; }
-int sampler_slot(const rack_t *r, int k) {           // slot of the k-th sampler (k from 1)
-    for (int i = 0; i < r->count; i++) if (r->slot[i].type == MOD_SAMPLER && --k == 0) return i;
-    return RACK_NONE;
-}
-static void handle_samples(synth_ui_t *ui, rack_t *rack, int row, int dir) {
-    const int files = audio_sample_count();
-    const int targets = sampler_count(rack) + 1;
-    switch (row) {
-        case 1: if (files > 0) ui->smp_cur = (ui->smp_cur + dir + files) % files; break;
-        case 2: ui->smp_tgt = (ui->smp_tgt + dir + targets) % targets; break;
-        case 3: {
-            if (files <= 0 || !audio_sample_prepare(ui->smp_cur)) break;       // a .wav / .mp3 is converted now
-            int slot = ui->smp_tgt > 0 ? sampler_slot(rack, ui->smp_tgt) : RACK_NONE;
-            if (slot == RACK_NONE) {                          // a new sampler at the end of the rack
-                if (!rack_insert(rack, rack->count, MOD_SAMPLER)) break;
-                slot = rack->count - 1;
-                ui->smp_tgt = sampler_count(rack);
-            }
-            rack->slot[slot].v[MP_SM_FILE] = (float)(ui->smp_cur + 1);
-            rack->slot[slot].v[MP_SM_SLICE] = 0;
-            ui->rack_dirty = true;                            // applied when the menu closes, like every rack edit
-            break;
-        }
-        case 4: audio_samples_rescan(); break;
-    }
-    if (ui->smp_cur >= audio_sample_count()) ui->smp_cur = 0;
-}
-
 // EG page 1 rows: 1 Pt, 2 Time, 3 Lvl, 4 Crv (of the selected point).
 static bool handle_eg(synth_ui_t *ui, rack_t *rack, int slot, int row, int dir) {
     if (row == 1) { ui->eg_pt = (ui->eg_pt + dir + 4) % 4; return false; }
     return rack_mparam_adjust(&rack->slot[slot], 3 * ui->eg_pt + (row - 2), dir);
-}
-
-// FM editor rows (see tab_rows). Edits change the working copy rack->cfg.fm and apply live.
-static bool handle_fm(synth_ui_t *ui, rack_t *rack, tab_t tab, int row, int dir) {
-    dx7_patch_t *p = &rack->cfg.fm;
-    int op = ui->fm_op;
-    switch (tab) {
-    case TAB_FM_ALGO:
-        if (row == 1) return dx7_algorithm_adjust(p, dir);
-        if (row == 2) return dx7_feedback_adjust(p, dir);
-        ui->fm_op = (op + dir + DX7_OPS) % DX7_OPS;
-        return false;
-    case TAB_FM_OP:
-        if (row == 1) { ui->fm_op = (op + dir + DX7_OPS) % DX7_OPS; return false; }
-        return dx7_op_adjust(p, op, (dx7_op_param_t)(row - 2), dir);
-    default:    // TAB_FM_ENV
-        if (row == 1) { ui->fm_op = (op + dir + DX7_OPS) % DX7_OPS; return false; }
-        if (row == 2) { ui->fm_pt = (ui->fm_pt + dir + 4) % 4; return false; }
-        return dx7_eg_adjust(p, op, ui->fm_pt, row == 3 ? DXE_LEVEL : DXE_TIME, dir);
-    }
-}
-
-// General tab rows: 1..4 = Type, Patch, Voices, Vol (cfg_param_id_t order). Structural changes
-// (type, voices, patch while in FM mode) are applied when the menu closes; volume is live.
-#define CFG_ROWS CFGP_GENERAL_COUNT
-static bool handle_cfg(synth_ui_t *ui, rack_t *rack, int row, int dir) {
-    cfg_effect_t fx = synth_config_adjust(&rack->cfg, (cfg_param_id_t)(row - 1), dir);
-    if (fx == CFG_REBUILD) ui->rack_dirty = true;
-    if (row == 1) ui->menu_tab = tab_index_of(rack, TAB_GENERAL);   // the tab list depends on the synth type
-    return fx == CFG_LIVE;
-}
-
-// FX RACK tab rows: 1 Slot, 2 Type (a new type rebuilds the master chain), 3..6 the parameters of the effect in the slot (live).
-static bool handle_fx(synth_ui_t *ui, rack_t *rack, int row, int dir) {
-    fx_slot_t *s = &rack->cfg.fxr.slot[ui->fx_slot];
-    if (row == 1) { ui->fx_slot = (ui->fx_slot + dir + FXR_SLOTS) % FXR_SLOTS; return false; }
-    if (row == 2) { if (fxr_cycle_type(s, dir)) ui->rebuild = true; return false; }
-    return fxr_adjust(s, row - 3, dir);
 }
 
 /* ---------------- page rows: one step, absolute (knob) and macros ---------------- */
@@ -295,10 +228,9 @@ bool synth_ui_handle(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t 
     if (e == UI_PLAY) { seq_set_running(seq, !seq->running); return false; }
     if (e == UI_ROW_TOP) { ui->row = 0; ui->latched = false; return false; }
 
-    // Screens that are not declarative yet understand only the old events: the joystick moves the row / changes the value,
-    // encoder B changes the value, a push of the joystick activates. (The RACK tab is declarative: see scr_rack.c.)
-    const bool declarative = ui->in_rack && tab_kind(rack, ui->menu_tab) == TAB_RACK;
-    if (!declarative) {
+    // Every tab of the menu is a declarative screen (ui_screen.h) and gets the events as they are. The main view (pages) is not converted yet:
+    // it understands only the old events, so the joystick moves the row / changes the value, encoder B changes the value, a push of the joystick activates.
+    if (!ui->in_rack) {
         switch (e) {
             case UI_NAV_UP: e = UI_UP; break;
             case UI_NAV_DOWN: e = UI_DOWN; break;
@@ -333,27 +265,9 @@ bool synth_ui_handle(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t 
         return false;
     }
 
-    if (declarative) return scr_rack_event(ui, rack, e);
-
     if (ui->in_rack) {
-        tab_t tab = tab_kind(rack, ui->menu_tab);
-        int rows = tab_rows(tab);                                      // row 0 is the tab selector
-        switch (e) {
-            case UI_DOWN:  ui->row = (ui->row + 1) % (rows + 1); break;
-            case UI_UP:    ui->row = (ui->row + rows) % (rows + 1); break;
-            case UI_LEFT:
-            case UI_RIGHT: {
-                int dir = e == UI_RIGHT ? 1 : -1;
-                if (ui->row == 0)                  ui->menu_tab = (ui->menu_tab + dir + tab_count(rack)) % tab_count(rack);
-                else if (tab == TAB_SAMPLES)       handle_samples(ui, rack, ui->row, dir);
-                else if (tab == TAB_GENERAL)       return handle_cfg(ui, rack, ui->row, dir);
-                else if (tab == TAB_FX)            return handle_fx(ui, rack, ui->row, dir);
-                else                               return handle_fm(ui, rack, tab, ui->row, dir);
-                break;
-            }
-            default: break;
-        }
-        return false;
+        const ui_ctx_t ctx = {ui, rack, 0};
+        return screen_event(screen_for_tab(tab_kind(rack, ui->menu_tab)), &ctx, e);
     }
 
     page_t pg;

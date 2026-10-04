@@ -85,8 +85,8 @@ void draw_fx_picture(u8g2_t *g, gui_rect_t box, const fxrack_t *fr, int sel);
 void draw_algo(u8g2_t *g, gui_rect_t box, const dx7_patch_t *p, int sel_op);
 void draw_eg_editor(u8g2_t *g, gui_rect_t box, const dx7_op_t *o, int sel);
 
-#define RACK_SCREEN_ELEMENTS 7      // elements of the RACK tab (scr_rack.c checks it)
+/* ---- ui_draw.c ---- */
+void draw_synth_info(u8g2_t *g, const gui_style_t *st, gui_rect_t box, const rack_t *rack);      // the info box of the GENERAL tab and of the FM page
 
-/* ---- scr_rack.c: the RACK tab, the first declarative screen (see ui_screen.h) ---- */
-bool scr_rack_event(synth_ui_t *ui, rack_t *rack, ui_event_t e);
-void scr_rack_draw(u8g2_t *g, const gui_style_t *st, gui_rect_t area, const synth_ui_t *ui, rack_t *rack);
+/* ---- scr_samples.c ---- */
+void file_label(int index, char *buf, int n);        // a sample file name for a list row ("kick", "pad_c4*" while pending), "--" for none

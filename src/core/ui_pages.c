@@ -1,6 +1,6 @@
 // The page tables: what each module / global page shows, the page list generated from the rack, and the menu tabs.
 // (Types and shared declarations: ui_internal.h.)
-#include "core/ui_internal.h"
+#include "core/ui_screen.h"
 #include <stdio.h>
 
 /* ---- pages are generated from the rack: every module contributes its own pages, then the
@@ -142,17 +142,7 @@ const char *tab_name(tab_t t) {
     return n[t];
 }
 
-int tab_rows(tab_t t) {
-    switch (t) {
-        case TAB_RACK:    return RACK_SCREEN_ELEMENTS;
-        case TAB_GENERAL: return CFGP_GENERAL_COUNT;
-        case TAB_FX:      return 2 + FXR_PARAMS;     // Slot, Type, four parameters
-        case TAB_SAMPLES: return 4;     // File, Tgt, Assign, Scan
-        case TAB_FM_ALGO: return 3;     // Algo, Fb, Op
-        case TAB_FM_OP:   return 5;     // Op, Lvl, Crs, Fine, Fix
-        default:          return 4;     // Op, Pt, Lvl, Time
-    }
-}
+int tab_rows(tab_t t) { return screen_for_tab(t)->n; }      // every tab is a declarative screen: its rows are its elements
 
 int tab_index_of(const rack_t *r, tab_t t) {
     for (int i = 0; i < tab_count(r); i++) if (tab_kind(r, i) == t) return i;

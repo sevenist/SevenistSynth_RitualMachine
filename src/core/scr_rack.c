@@ -2,6 +2,7 @@
 // strip of module sprites, the selection frame and arrow, the connection lanes and the editing fields are drawn from it, and
 // the joystick / encoder events are handled by the generic screen code.
 //
+// (declarative screen, see ui_screen.h)
 //   [header: < RACK >]                              focus: joystick up from the strip
 //   [ strip: the modules as large sprites ]         joystick left / right scroll through the slots (no latch needed)
 //   ( connection lanes: audio chain, modulator links )
@@ -18,8 +19,6 @@
 _Static_assert(RACK_PITCH == MODULE_SPRITE_W + 4, "RACK_PITCH (ui_internal.h) must be the module sprite width + 4: regenerate the sprites or change it");
 
 enum { E_STRIP, E_TYPE, E_INSERT, E_TGT, E_PRM, E_DPTH, E_DELETE, E_COUNT };
-
-_Static_assert(E_COUNT == RACK_SCREEN_ELEMENTS, "update RACK_SCREEN_ELEMENTS in ui_internal.h");
 
 #define STRIP_TOP 7                     // room above the sprites for the selection arrow
 
@@ -237,21 +236,4 @@ static void after_edit(const ui_ctx_t *c) {
     if (row >= 1 && elements[row - 1].enabled && !elements[row - 1].enabled(c)) { c->ui->row = 1; c->ui->latched = false; }
 }
 
-static const screen_def_t rack_screen = {elements, E_COUNT, layout, back_delete, after_edit, draw_extra};
-
-static void header_step(const ui_ctx_t *c, int dir) {
-    const int tabs = tab_count(c->rack);
-    c->ui->menu_tab = (c->ui->menu_tab + dir + tabs) % tabs;
-}
-
-bool scr_rack_event(synth_ui_t *ui, rack_t *rack, ui_event_t e) {
-    const ui_ctx_t c = {ui, rack};
-    const bool changed = screen_event(&rack_screen, &c, e, header_step);
-    keep_visible(&c);
-    return changed;
-}
-
-void scr_rack_draw(u8g2_t *g, const gui_style_t *st, gui_rect_t area, const synth_ui_t *ui, rack_t *rack) {
-    const ui_ctx_t c = {(synth_ui_t *)ui, rack};         // drawing only reads
-    screen_draw(&rack_screen, g, st, &c, area);
-}
+const screen_def_t scr_rack_screen = {elements, E_COUNT, false, layout, back_delete, after_edit, draw_extra};

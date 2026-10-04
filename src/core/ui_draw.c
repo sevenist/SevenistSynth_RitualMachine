@@ -1,5 +1,5 @@
 // The screens: the header, the parameter lists, the hand-drawn screens (sequencer, rack, effects, FM editor...) and synth_ui_draw().
-#include "core/ui_internal.h"
+#include "core/ui_screen.h"
 #include "core/sprites.h"
 #include "core/module_sprites.h"
 #include "core/dx7_algos.h"
@@ -172,115 +172,16 @@ static void draw_eg_page(u8g2_t *g, const gui_style_t *st, gui_rect_t list, gui_
 
 /* ---------------- samples ---------------- */
 
-static void file_label(int index, char *buf, int n) {
-    audio_sample_info_t in;
-    if (index >= 0 && audio_sample_info(index, &in)) snprintf(buf, n, "%.8s%s", in.name, in.pending ? "*" : "");
-    else snprintf(buf, n, "--");
-}
-
-// SAMPLES tab: list (File, Tgt, Assign, Scan) + the overview of the highlighted file with its length, root and slices.
-static void draw_samples_tab(u8g2_t *g, const gui_style_t *st, gui_rect_t list, gui_rect_t box, const synth_ui_t *ui, const rack_t *r) {
-    audio_sample_info_t in;
-    const bool have = audio_sample_info(ui->smp_cur, &in);
-    char file[16], tgt[8], cnt[12];
-    file_label(have ? ui->smp_cur : -1, file, sizeof file);
-    int slot = ui->smp_tgt > 0 ? sampler_slot(r, ui->smp_tgt) : RACK_NONE;
-    if (slot == RACK_NONE) snprintf(tgt, sizeof tgt, "New"); else rack_slot_name(r, slot, tgt, sizeof tgt);
-    snprintf(cnt, sizeof cnt, "%d files", audio_sample_count());
-    const char *label[4] = {"File", "Tgt", "Assign", "Scan"};
-    const char *value[4] = {file, tgt, ">", cnt};
-    const int row_h = gui_row_h(g, st);
-    gui_rect_t row = gui_rect(list.x, list.y + st->list_top, list.w - 1, row_h);
-    for (int i = 0; i < 4; i++) {
-        gui_draw_field(g, st, row, label[i], value[i], ui->row == i + 1);
-        row = gui_below(row, st->gap, row_h);
-    }
-    char buf[24];
-    if (have && !in.pending) {
-        snprintf(buf, sizeof buf, "%.1fs", (double)in.frames / (double)(in.rate ? in.rate : 1));
-        gui_draw_text_left(g, st, gui_rect(list.x, gui_bottom(list) - 2 * row_h, list.w, row_h), buf);
-        char nm[8];
-        seq_note_name(in.root, nm, sizeof nm);
-        snprintf(buf, sizeof buf, "root %s  %d sl", nm, in.slices);
-        gui_draw_text_left(g, st, gui_rect(list.x, gui_bottom(list) - row_h, list.w, row_h), buf);
-    }
-    draw_sample_graph(g, box, have ? &in : NULL, -1, 0.0f, true);
-}
-
 /* ---------------- master effects: a sketch of what the settings do ---------------- */
 
 // FX RACK tab: Slot, Type and the four parameters of the effect in that slot, next to its picture.
-static void draw_fx_tab(u8g2_t *g, const gui_style_t *st0, gui_rect_t list, gui_rect_t box, const synth_ui_t *ui, const rack_t *r) {
-    gui_style_t st = *st0;
-    st.padding = 0; st.gap = 0;                                  // compact rows: six fit under the header
-    const fxrack_t *fr = &r->cfg.fxr;
-    const fx_slot_t *s = &fr->slot[ui->fx_slot];
-    char slot[8], val[FXR_PARAMS][16];
-    snprintf(slot, sizeof slot, "%d/%d", ui->fx_slot + 1, FXR_SLOTS);
-    const char *label[6] = {"Slot", "Type"}, *value[6] = {slot, fxr_type_code(s->type)};
-    int n = 2;
-    for (int i = 0; i < fxr_param_count(s->type); i++) {
-        label[n] = fxr_label(s->type, i);
-        fxr_format(s, i, val[i], sizeof val[i]);
-        value[n] = val[i];
-        n++;
-    }
-    const int row_h = gui_row_h(g, &st);
-    gui_rect_t row = gui_rect(list.x, list.y + st.list_top, list.w - 1, row_h);
-    for (int i = 0; i < n; i++) {
-        gui_draw_field(g, &st, row, label[i], value[i], ui->row == i + 1);
-        row = gui_below(row, st.gap, row_h);
-    }
-    draw_fx_picture(g, box, fr, ui->fx_slot);
-}
-
 /* ---------------- general settings ---------------- */
 
 // Info box next to the general parameters: which engine builds the sound.
-static void draw_synth_info(u8g2_t *g, const gui_style_t *st, gui_rect_t box, const rack_t *rack);
 
 /* ---------------- FM editor ---------------- */
 
-static void draw_fm_tab(u8g2_t *g, const gui_style_t *st0, gui_rect_t list, gui_rect_t box,
-                        const synth_ui_t *ui, const rack_t *rack, tab_t tab) {
-    gui_style_t st = *st0;
-    st.padding = 0; st.gap = 0;                              // compact rows: up to 5 fit under the header
-    const dx7_patch_t *p = &rack->cfg.fm;
-    char val[24], opn[16];
-    snprintf(opn, sizeof opn, "OP%d", ui->fm_op + 1);
-    const char *label[5] = {0}; char v[5][24] = {{0}};
-    int n = 0;
-    if (tab == TAB_FM_ALGO) {
-        label[0] = "Algo"; snprintf(v[0], 24, "%d", p->algorithm);
-        label[1] = "Fb";   dx7_feedback_format(p, v[1], 24);
-        label[2] = "Op";   snprintf(v[2], 24, "%s", opn);
-        n = 3;
-    } else if (tab == TAB_FM_OP) {
-        label[0] = "Op"; snprintf(v[0], 24, "%s", opn);
-        for (int i = 0; i < DXP_COUNT; i++) { label[1 + i] = dx7_op_label((dx7_op_param_t)i); dx7_op_format(p, ui->fm_op, (dx7_op_param_t)i, v[1 + i], 24); }
-        n = 5;
-    } else {
-        label[0] = "Op"; snprintf(v[0], 24, "%s", opn);
-        label[1] = "Pt"; snprintf(v[1], 24, "%d/4", ui->fm_pt + 1);
-        label[2] = "Lvl"; dx7_eg_format(p, ui->fm_op, ui->fm_pt, DXE_LEVEL, v[2], 24);
-        label[3] = "Time"; dx7_eg_format(p, ui->fm_op, ui->fm_pt, DXE_TIME, v[3], 24);
-        n = 4;
-    }
-    int row_h = gui_row_h(g, &st);
-    gui_rect_t row = gui_rect(list.x, list.y + st.list_top, list.w - 1, row_h);
-    for (int i = 0; i < n; i++) {
-        gui_draw_field(g, &st, row, label[i], v[i], ui->row == i + 1);
-        row = gui_below(row, st.gap, row_h);
-    }
-    // patch name under the list
-    (void)val;
-    gui_draw_text_left(g, &st, gui_rect(list.x, gui_bottom(list) - row_h * 2 + 2, list.w, row_h), p->name);
-
-    if (tab == TAB_FM_ENV) draw_eg_editor(g, box, &p->op[ui->fm_op], ui->fm_pt);
-    else                   draw_algo(g, box, p, ui->fm_op);
-}
-
-static void draw_synth_info(u8g2_t *g, const gui_style_t *st, gui_rect_t box, const rack_t *rack) {
+void draw_synth_info(u8g2_t *g, const gui_style_t *st, gui_rect_t box, const rack_t *rack) {
     char buf[24];
     int rh = gui_row_h(g, st);
     gui_rect_t r = gui_rect(box.x, box.y + rh - 1, box.w, rh);
@@ -347,27 +248,9 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
     u8g2_DrawHLine(g, header.x, gui_bottom(header), header.w);
     gui_take_top(&screen, st->gap + 1);          // rule + gap
 
-    if (ui->in_rack) {
-        tab_t tab = tab_kind(rack, ui->menu_tab);
-        if (tab == TAB_RACK) {
-            scr_rack_draw(g, st, screen, ui, (rack_t *)rack);
-        } else if (tab == TAB_FX) {
-            gui_rect_t list = gui_take_left(&screen, st->list_w);
-            draw_fx_tab(g, st, list, gui_rect(st->graph.x, st->graph.y, st->graph.w, st->graph.h), ui, rack);
-        } else if (tab == TAB_SAMPLES) {
-            gui_rect_t list = gui_take_left(&screen, st->list_w);
-            draw_samples_tab(g, st, list, gui_rect(st->graph.x, st->graph.y, st->graph.w, st->graph.h), ui, rack);
-        } else if (tab != TAB_GENERAL) {
-            gui_rect_t list = gui_take_left(&screen, st->list_w);
-            draw_fm_tab(g, st, list, gui_rect(st->graph.x, st->graph.y, st->graph.w, st->graph.h), ui, rack, tab);
-        } else {
-            static const int ids[CFGP_GENERAL_COUNT] = {CFGP_TYPE, CFGP_PATCH, CFGP_VOICES, CFGP_VOLUME};
-            gui_rect_t list = gui_take_left(&screen, st->list_w);
-            gui_rect_t box = gui_rect(st->graph.x, st->graph.y, st->graph.w, st->graph.h);
-            draw_cfg_list(g, st, list, rack, ids, CFGP_GENERAL_COUNT, ui->row);
-            u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
-            draw_synth_info(g, st, box, rack);
-        }
+    if (ui->in_rack) {                           // every tab of the menu is a declarative screen (ui_screen.h)
+        const ui_ctx_t ctx = {(synth_ui_t *)ui, (rack_t *)rack, 0};         // drawing only reads
+        screen_draw(screen_for_tab(tab_kind(rack, ui->menu_tab)), g, st, &ctx, screen);
         u8g2_SendBuffer(g);
         return;
     }

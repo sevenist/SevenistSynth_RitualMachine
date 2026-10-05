@@ -46,7 +46,7 @@ typedef struct {
 #define PRM_TGT  100
 #define PRM_TPRM 101
 
-typedef enum { TAB_RACK, TAB_GENERAL, TAB_FM_ALGO, TAB_FM_OP, TAB_FM_ENV, TAB_FX, TAB_SAMPLES } tab_t;
+typedef enum { TAB_RACK, TAB_GENERAL, TAB_FM_ALGO, TAB_FM_OP, TAB_FM_ENV, TAB_FX, TAB_SAMPLES, TAB_KEYS } tab_t;
 
 /* ---- ui_pages.c ---- */
 void get_page(const synth_ui_t *ui, const rack_t *rack, int idx, page_t *out);

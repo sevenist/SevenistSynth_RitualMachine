@@ -1,6 +1,7 @@
 // The page tables: what each module / global page shows, the page list generated from the rack, and the menu tabs.
 // (Types and shared declarations: ui_internal.h.)
 #include "core/ui_screen.h"
+#include "hal/hal_input.h"
 #include <stdio.h>
 
 /* ---- pages are generated from the rack: every module contributes its own pages, then the
@@ -109,7 +110,7 @@ void get_page(const synth_ui_t *ui, const rack_t *rack, int idx, page_t *out) {
 void synth_ui_init(synth_ui_t *ui, const rack_t *rack) {
     ui->page = 0; ui->row = 0; ui->cursor = 0; ui->rack_cur = 0; ui->rack_scroll = 0; ui->rack_type = MOD_OSC;
     ui->rack_dirty = false; ui->rebuild = false; ui->in_rack = false; ui->menu_tab = 0; ui->fm_op = 0; ui->fm_pt = 0;
-    ui->run_anim = GUI_ANIM_INVALID; ui->ms_lane = 0; ui->ms_step = 0; ui->smp_cur = 0; ui->smp_tgt = 0; ui->eg_pt = 0; ui->fx_slot = 0;
+    ui->run_anim = GUI_ANIM_INVALID; ui->ms_lane = 0; ui->ms_step = 0; ui->smp_cur = 0; ui->smp_tgt = 0; ui->key_cur = KEY_COLS; ui->eg_pt = 0; ui->fx_slot = 0;
     synth_ui_rebuild_pages(ui, rack);
     macros_default(ui, rack);
 }
@@ -127,20 +128,22 @@ bool synth_ui_shows_playhead(const synth_ui_t *ui, const rack_t *rack) {
 }
 
 /* ---------------- menu tabs ----------------
- * Modular synth: RACK, GENERAL, FX 1, FX 2.  FM synth: GENERAL, ALGORITHM, OPERATOR, ENVELOPE (the DX7 editor), FX 1, FX 2. */
+ * Modular synth: RACK, GENERAL, SAMPLES, FX RACK, KEYS.  FM synth: GENERAL, ALGORITHM, OPERATOR, ENVELOPE (the DX7 editor), FX RACK, KEYS. */
 
-int tab_count(const rack_t *r) { return synth_type_is_fm(r->cfg.type) ? 5 : 4; }
+int tab_count(const rack_t *r) { return synth_type_is_fm(r->cfg.type) ? 6 : 5; }
 
 tab_t tab_kind(const rack_t *r, int idx) {
-    static const tab_t modular[4] = {TAB_RACK, TAB_GENERAL, TAB_SAMPLES, TAB_FX};
-    static const tab_t fm[5] = {TAB_GENERAL, TAB_FM_ALGO, TAB_FM_OP, TAB_FM_ENV, TAB_FX};
-    return synth_type_is_fm(r->cfg.type) ? fm[idx % 5] : modular[idx % 4];
+    static const tab_t modular[5] = {TAB_RACK, TAB_GENERAL, TAB_SAMPLES, TAB_FX, TAB_KEYS};
+    static const tab_t fm[6] = {TAB_GENERAL, TAB_FM_ALGO, TAB_FM_OP, TAB_FM_ENV, TAB_FX, TAB_KEYS};
+    return synth_type_is_fm(r->cfg.type) ? fm[idx % 6] : modular[idx % 5];
 }
 
 const char *tab_name(tab_t t) {
-    static const char *const n[] = {"RACK", "GENERAL", "ALGORITHM", "OPERATOR", "ENVELOPE", "FX RACK", "SAMPLES"};
+    static const char *const n[] = {"RACK", "GENERAL", "ALGORITHM", "OPERATOR", "ENVELOPE", "FX RACK", "SAMPLES", "KEYS"};
     return n[t];
 }
+
+bool synth_ui_on_keys_tab(const synth_ui_t *ui, const rack_t *rack) { return ui->in_rack && tab_kind(rack, ui->menu_tab) == TAB_KEYS; }
 
 int tab_rows(tab_t t) { return screen_for_tab(t)->n; }      // every tab is a declarative screen: its rows are its elements
 

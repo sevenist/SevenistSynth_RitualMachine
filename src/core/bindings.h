@@ -1,6 +1,7 @@
 #pragma once
 // The link between hardware controls and what they do: ONE table (bindings.c). Changing what a button, encoder or knob does
-// means changing a row there; no other file needs to know which control triggers which action.
+// means changing a row there; no other file needs to know which control triggers which action. The keys of the matrix are the
+// exception: their functions come from the key layout chosen at run time (core/keymap.h), with the same actions.
 //
 //   control (hal/hal_input.h) + kind of event + modifier state  ->  action + argument
 //
@@ -67,8 +68,8 @@ const char *control_name(control_id_t c);               // "ENC A", "KEY 2.1" (a
 #define JOY_REPEAT_FIRST_MS  400                        // key repeat while held
 #define JOY_REPEAT_MS        140
 
-// Keyboard: MIDI note of the first key (bottom-left of the matrix) and the octave range. Note 0..127 are all reachable:
-// with the base note 60 and 20 keys, octave -5 covers 0..19 and octave +4 covers 108..127.
+// Keyboard: MIDI note a key's "note 0" plays (core/keymap.h: the bottom-left note key of the built-in layouts) and the octave range.
+// Note 0..127 are all reachable: octave -5 starts at note 0, octave +4 reaches 108 + the highest key.
 #define KEYBOARD_BASE_NOTE   60
 #define KEYBOARD_OCTAVE_MIN  (-5)
 #define KEYBOARD_OCTAVE_MAX  4

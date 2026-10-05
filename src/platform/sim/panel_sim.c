@@ -8,9 +8,9 @@
 
 /* The simulator's second window: a drawing of the front panel. Layout in pixels (window PANEL_W x PANEL_H):
  *
- *   left strip (x 20..90)    matrix keyboard (x 130..390)                right section (x 430..640)
- *     master volume knob       a knob above each of the 4 columns          3 knobs
- *     encoder A                extra row of 4 keys, then the 4 x 4 block   joystick pad + push button
+ *   left strip (x 20..90)    matrix keyboard (x 130..556)                right section (x 586..796)
+ *     master volume knob       a knob above each of the first 4 columns    3 knobs
+ *     encoder A                function row of 8 keys, then 4 x 8 notes    joystick pad + push button
  *     encoder B                                                            3 buttons
  *     play button
  *
@@ -18,7 +18,10 @@
 
 extern SDL_Surface *u8g_sdl_screen;       // the display window's surface (u8g2 SDL backend)
 
-#define PANEL_W 660
+#define PANEL_W 816
+#define KEY_PITCH 54             // matrix keys: distance between columns
+#define RIGHT_X 156              // the right section sits this far right of where the 4-column panel had it
+#define COL_KNOBS 4
 #define PANEL_H PANEL_DRAW_HEIGHT
 
 typedef enum { W_KNOB, W_ENC, W_BTN, W_JOY } wtype_t;
@@ -33,7 +36,7 @@ typedef struct {
     const char  *key;        // the computer key that does the same (shown on the widget)
 } widget_t;
 
-#define MAX_WIDGETS 48
+#define MAX_WIDGETS 64
 static widget_t widgets[MAX_WIDGETS];
 static int n_widgets;
 
@@ -50,29 +53,31 @@ static Uint32 last_draw;
 static void add(widget_t w) { if (n_widgets < MAX_WIDGETS) widgets[n_widgets++] = w; }
 
 static void build_layout(void) {
-    static const char *const key_labels[KEY_ROWS][KEY_COLS] = {{"F1", "F2", "F3", "F4"}, {"1", "2", "3", "4"}, {"Q", "W", "E", "R"}, {"A", "S", "D", "F"}, {"Z", "X", "C", "V"}};
-    static const char *const col_labels[KEY_COLS] = {"K1", "K2", "K3", "K4"};
+    static const char *const key_labels[KEY_ROWS][KEY_COLS] = {{"F1", "F2", "F3", "F4", "F5", "F6", "F7", "F8"}, {"1", "2", "3", "4", "5", "6", "7", "8"},
+                                                               {"Q", "W", "E", "R", "T", "Y", "U", "I"}, {"A", "S", "D", "F", "G", "H", "J", "K"},
+                                                               {"Z", "X", "C", "V", "B", "N", "M", ","}};
+    static const char *const col_labels[COL_KNOBS] = {"K1", "K2", "K3", "K4"};
     // left strip
     add((widget_t){W_KNOB, CTL_VOLUME, CTL_NONE,       55, 62, 26, 0, "VOLUME", ""});
     add((widget_t){W_ENC,  CTL_ENC_A,  CTL_ENC_A_SW,   55, 150, 22, 0, "ENC A", "[ ] \\"});
     add((widget_t){W_ENC,  CTL_ENC_B,  CTL_ENC_B_SW,   55, 236, 22, 0, "ENC B", "; ' /"});
     add((widget_t){W_BTN,  CTL_PLAY,   CTL_NONE,       20, 292, 70, 34, "PLAY", "SPACE"});
-    // matrix: a knob above each column, then the extra row and the 4 x 4 block
-    for (int c = 0; c < KEY_COLS; c++)
-        add((widget_t){W_KNOB, (control_id_t)(CTL_COL_KNOB_0 + c), CTL_NONE, 160 + c * 70, 62, 17, 0, col_labels[c], ""});
+    // matrix: a knob above each of the first 4 columns, then the function row and the 4 x 8 note keys
+    for (int c = 0; c < COL_KNOBS; c++)
+        add((widget_t){W_KNOB, (control_id_t)(CTL_COL_KNOB_0 + c), CTL_NONE, 130 + c * KEY_PITCH + 24, 62, 17, 0, col_labels[c], ""});
     for (int r = 0; r < KEY_ROWS; r++)
         for (int c = 0; c < KEY_COLS; c++)
-            add((widget_t){W_BTN, (control_id_t)CTL_KEY(r, c), CTL_NONE, 130 + c * 70, 104 + r * 52 + (r >= 1 ? 10 : 0), 60, 44, "", key_labels[r][c]});
+            add((widget_t){W_BTN, (control_id_t)CTL_KEY(r, c), CTL_NONE, 130 + c * KEY_PITCH, 104 + r * 52 + (r >= 1 ? 10 : 0), KEY_PITCH - 6, 44, "", key_labels[r][c]});
     // right section
     for (int k = 0; k < 3; k++) {
         static const char *const names[3] = {"R1", "R2", "R3"};
-        add((widget_t){W_KNOB, (control_id_t)(CTL_KNOB_R1 + k), CTL_NONE, 470 + k * 65, 62, 19, 0, names[k], ""});
+        add((widget_t){W_KNOB, (control_id_t)(CTL_KNOB_R1 + k), CTL_NONE, RIGHT_X + 470 + k * 65, 62, 19, 0, names[k], ""});
     }
-    add((widget_t){W_JOY, CTL_JOY_X, CTL_JOY_Y, 535, 172, 50, 0, "JOYSTICK", "ARROWS"});
-    add((widget_t){W_BTN, CTL_JOY_SW, CTL_NONE, 495, 258, 80, 40, "PUSH", "R CTRL"});
-    add((widget_t){W_BTN, CTL_BTN_1, CTL_NONE, 440, 330, 56, 36, "B1", "ENTER"});
-    add((widget_t){W_BTN, CTL_BTN_2, CTL_NONE, 505, 330, 56, 36, "B2", "BKSP"});
-    add((widget_t){W_BTN, CTL_BTN_3, CTL_NONE, 570, 330, 56, 36, "B3", "L SHIFT"});
+    add((widget_t){W_JOY, CTL_JOY_X, CTL_JOY_Y, RIGHT_X + 535, 172, 50, 0, "JOYSTICK", "ARROWS"});
+    add((widget_t){W_BTN, CTL_JOY_SW, CTL_NONE, RIGHT_X + 495, 258, 80, 40, "PUSH", "R CTRL"});
+    add((widget_t){W_BTN, CTL_BTN_1, CTL_NONE, RIGHT_X + 440, 330, 56, 36, "B1", "ENTER"});
+    add((widget_t){W_BTN, CTL_BTN_2, CTL_NONE, RIGHT_X + 505, 330, 56, 36, "B2", "BKSP"});
+    add((widget_t){W_BTN, CTL_BTN_3, CTL_NONE, RIGHT_X + 570, 330, 56, 36, "B3", "L SHIFT"});
 }
 
 /* ---------------- drawing primitives ---------------- */
@@ -204,7 +209,7 @@ void panel_render(void) {
     SDL_Rect vp = {0, off_y, PANEL_W, PANEL_H};
     SDL_RenderSetViewport(rend, &vp);
     color(90, 96, 110);                                            // section frames
-    SDL_Rect f1 = {10, 20, 90, 330}, f2 = {120, 20, 290, 350}, f3 = {420, 20, 230, 360};
+    SDL_Rect f1 = {10, 20, 90, 330}, f2 = {120, 20, 290 + RIGHT_X, 350}, f3 = {420 + RIGHT_X, 20, 230, 360};
     SDL_RenderDrawRect(rend, &f1); SDL_RenderDrawRect(rend, &f2); SDL_RenderDrawRect(rend, &f3);
     for (int i = 0; i < n_widgets; i++) {
         switch (widgets[i].type) {

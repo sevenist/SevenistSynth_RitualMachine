@@ -17,6 +17,7 @@ extern "C" {
 // State of the input layer (see core/bindings.h): modifier, keyboard octave, sounding notes, joystick as buttons.
 typedef struct {
     bool         shift;                 // the Shift hold-action is active
+    control_id_t shift_key;             // the matrix key that holds Shift (CTL_NONE: none; the Shift button of the binding table is separate)
     int          octave;                // keyboard octave offset, KEYBOARD_OCTAVE_MIN..MAX
     uint8_t      held[CTL_COUNT];       // note + 1 started by a key control (0 = none), so its release stops the right note
     int          axis_x, axis_y;        // joystick axes 0..INPUT_VALUE_MAX
@@ -34,6 +35,11 @@ typedef struct {
     bool           dirty;       // the screen needs a redraw after this step
     uint32_t       sd_gen;      // the TF card generation the app has seen (hal_audio.h)
     bool           sd_notice;   // the "card too slow" screen is up: the next button press dismisses it
+    bool           keys_notice; // the "keys reset" screen is up until the reset key is released
+    bool           menu_open;   // the menu was open at the previous step (closing it saves the key layout)
+    uint32_t       boot_ms;     // when app_init ran: the key-layout reset only works in the first seconds
+    bool           reset_held;  // the reset key went down in the first seconds and is still held
+    uint32_t       reset_since; // ... since then
     char           status[48];  // last control -> action, for the simulator panel / debugging ("ENC A > Row +1")
 } app_t;
 

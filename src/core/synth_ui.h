@@ -55,6 +55,7 @@ typedef struct {
     int  eg_pt;            // EG page: selected point 0..3
     int  smp_cur;          // SAMPLES tab: highlighted file (catalog index) and the target (0 = a new sampler, k = the k-th sampler of the rack)
     int  smp_tgt;
+    int  key_cur;          // KEYS tab: the selected key (row * KEY_COLS + col)
     int  menu_tab;         // 0 = RACK, 1 = GENERAL (tabs of the menu, row 0 switches them)
     bool latched;          // the focused element is latched: the joystick changes its value (declarative screens, see ui_screen.h)
     bool in_rack;          // the rack editor (special page, opened with MENU) is showing
@@ -86,6 +87,9 @@ bool synth_ui_set_volume(synth_ui_t *ui, rack_t *rack, int value);              
 bool synth_ui_macro(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int k, int value);       // macro k = 0..2
 bool synth_ui_macro_learn(synth_ui_t *ui, const rack_t *rack, int k);        // macro k takes the parameter under the cursor
 void synth_ui_macro_describe(const synth_ui_t *ui, const rack_t *rack, int k, char *out, int n);   // "R1 > FL1 Cut"
+
+// True while the KEYS tab of the menu is on screen (a matrix key then selects itself in the list).
+bool synth_ui_on_keys_tab(const synth_ui_t *ui, const rack_t *rack);
 
 // True while the sequencer page is on screen (it needs redrawing on every step).
 bool synth_ui_shows_seq(const synth_ui_t *ui);

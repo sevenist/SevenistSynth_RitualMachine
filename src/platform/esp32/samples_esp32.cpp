@@ -2,7 +2,8 @@
 // .wav / .mp3 import on the board). One task on core 0 at low priority does everything that touches the card: mount, scan, and the loader
 // (engine_synth_io_pump, ADR-022), so the audio task never waits for it. It also watches the card: inserted, too slow (then it is left alone and
 // the synth runs as if there were none), removed or swapped. Like the desktop's samples/ folder, new files are appended to the
-// catalog after the known ones, so the index a rack stores stays valid.
+// catalog after the known ones, so the index a rack stores stays valid. The settings files of hal_storage.h (keys.cfg) are read and
+// written here too, as jobs the UI posts: the card driver has no locks, so nothing else may touch the card.
 #if defined(ARDUINO_ARCH_ESP32)
 #include <Arduino.h>
 #include <ctype.h>
@@ -12,6 +13,7 @@
 #include <string.h>
 #include <unistd.h>
 #include "engine/sampler/smp_format.h"
+#include "hal/hal_storage.h"
 #include "platform/engine/engine_synth.h"
 #include "platform/engine/sample_catalog.h"
 #include "platform/esp32/sd_card.h"
@@ -216,6 +218,69 @@ void report() {
 }
 #endif
 
+// ---- settings files (hal_storage.h): one job at a time, posted by the UI task, run here ----
+// state: 0 = free, 1 = posted (the card task owns the job), 2 = done (the poster owns it). A poster that gave up waiting leaves it at 1 or 2;
+// the next post waits for / takes it over, so the card task never writes into a job that is being refilled.
+struct FileJob {
+    char name[32];
+    char data[STORAGE_FILE_MAX];
+    int  len;                                      // write: bytes in data; read: capacity in, bytes read out (-1 = failed)
+    bool write;
+    volatile int state;
+};
+FileJob g_job;
+constexpr uint32_t kJobWaitMs = 1500;
+
+bool write_file(const char *path, const char *tmp, const char *data, int len) {
+    const int fd = ::open(tmp, O_WRONLY | O_CREAT | O_TRUNC);
+    if (fd < 0) return false;
+    const bool ok = ::write(fd, data, len) == len && fsync(fd) == 0;
+    ::close(fd);
+    if (!ok) { ::unlink(tmp); return false; }
+    ::unlink(path);                                // FATFS cannot rename over a file; the old one stays until the new one is complete
+    return ::rename(tmp, path) == 0;
+}
+
+void run_file_job() {
+    FileJob &j = g_job;
+    char path[48], tmp[52];
+    snprintf(path, sizeof path, SD_MOUNT_POINT "/%s", j.name);
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    if (!sd_card_mounted()) {
+        j.len = -1;
+    } else if (j.write) {
+        const bool ok = write_file(path, tmp, j.data, j.len);
+        Serial.printf("[SD] %s %s (%d bytes)\n", ok ? "wrote" : "could not write", path, j.len);
+        j.len = ok ? j.len : -1;
+    } else {
+        const int fd = ::open(path, O_RDONLY);
+        int n = -1;
+        if (fd >= 0) { n = static_cast<int>(::read(fd, j.data, sizeof j.data - 1)); ::close(fd); }
+        j.len = n;
+    }
+    j.state = 2;
+}
+
+// Posts the job and waits for it. false: no card task, or the card task did not get to it in time.
+bool post_job() {
+    if (!g_task) return false;
+    g_job.state = 1;
+    for (uint32_t t0 = millis(); g_job.state != 2;) {
+        if (millis() - t0 > kJobWaitMs) return false;
+        vTaskDelay(1);
+    }
+    return true;
+}
+
+// The previous job is still running after its poster gave up: let it finish first.
+bool job_free() {
+    for (uint32_t t0 = millis(); g_job.state == 1;) {
+        if (millis() - t0 > kJobWaitMs) return false;
+        vTaskDelay(1);
+    }
+    return true;
+}
+
 void io_task(void *) {
     uint32_t t_poll = 0;
     bool first = true;
@@ -224,6 +289,7 @@ void io_task(void *) {
         const uint32_t now = millis();
         if (first || now - t_poll >= (g_state == SD_SLOW ? kPollSlowMs : kPollMs)) { first = false; t_poll = now; poll_card(); }
         if (ulTaskNotifyTake(pdTRUE, 0) && g_state == SD_OK) scan();      // the Scan row of the sample list
+        if (g_job.state == 1) run_file_job();      // a settings file (keys.cfg ...), also on a card too slow for samples
         if (g_state == SD_OK) {
             const bool more = engine_synth_io_pump();   // reads still in flight: go on at once, a stream may be about to run dry
             if (more && ++burst < kBurst) continue;
@@ -244,6 +310,30 @@ void samples_esp32_start() {
 int samples_esp32_rescan() {
     if (g_task) xTaskNotifyGive(g_task);
     return g_n;
+}
+
+extern "C" int storage_read(const char *name, char *buf, int cap) {
+    if (g_state == SD_NONE || !job_free()) return -1;
+    snprintf(g_job.name, sizeof g_job.name, "%s", name);
+    g_job.write = false;
+    if (!post_job() || g_job.len < 0) return -1;
+    const int n = g_job.len < cap - 1 ? g_job.len : cap - 1;
+    memcpy(buf, g_job.data, n);
+    buf[n] = 0;
+    g_job.state = 0;
+    return n;
+}
+
+extern "C" bool storage_write(const char *name, const char *data, int len) {
+    if (g_state == SD_NONE || len < 0 || len > STORAGE_FILE_MAX || !job_free()) return false;
+    snprintf(g_job.name, sizeof g_job.name, "%s", name);
+    memcpy(g_job.data, data, len);
+    g_job.len = len;
+    g_job.write = true;
+    if (!post_job()) return false;
+    const bool ok = g_job.len >= 0;
+    g_job.state = 0;
+    return ok;
 }
 
 bool samples_esp32_ready(int index) { return index >= 0 && index < g_n && !g_cat[index].pending; }

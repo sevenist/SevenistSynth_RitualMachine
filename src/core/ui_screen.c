@@ -186,6 +186,7 @@ const screen_def_t *screen_for_tab(tab_t t) {
         case TAB_FM_ALGO: return &scr_fm_algo_screen;
         case TAB_FM_OP:   return &scr_fm_op_screen;
         case TAB_FM_ENV:  return &scr_fm_env_screen;
+        case TAB_KEYS:    return &scr_keys_screen;
         default:          return &scr_rack_screen;
     }
 }

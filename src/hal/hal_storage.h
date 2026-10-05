@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define STORAGE_FILE_MAX 4096                       // the largest settings file
+#define STORAGE_FILE_MAX 2048                       // the largest settings file (keys.cfg: under 1 KB)
 
 // Reads the file `name` ("keys.cfg") into buf (at most cap - 1 bytes, then a 0). Returns the length, or -1 when there is no card or no file.
 int  storage_read(const char *name, char *buf, int cap);

@@ -1,10 +1,6 @@
 #include "core/bindings.h"
 #include <stdio.h>
 
-// A key of the matrix plays the note `arg` semitones above the base note (bottom-left key = 0, +1 to the right, +4 per row up,
-// the extra row on top = 16..19).
-#define NOTE_KEY(r, c) {CTL_KEY(r, c), IN_PRESS, MODS_ANY, ACT_NOTE, (KEY_ROWS - 1 - (r)) * KEY_COLS + (c)}
-
 /* ===========================================================================================================================
  * THE BINDING TABLE. One row = one link:   { control, event kind, modifier state, action, argument }
  *
@@ -23,12 +19,7 @@ const binding_t bindings[] = {
     {CTL_ENC_B_SW,   IN_PRESS, MODS_ANY,   ACT_SELECT,          0},       // push: activate (Insert, Delete, Run ...)
     {CTL_PLAY,       IN_PRESS, MODS_ANY,   ACT_PLAY,            0},
 
-    /* ---- matrix keyboard: notes ---- */
-    NOTE_KEY(0, 0), NOTE_KEY(0, 1), NOTE_KEY(0, 2), NOTE_KEY(0, 3),       // extra row
-    NOTE_KEY(1, 0), NOTE_KEY(1, 1), NOTE_KEY(1, 2), NOTE_KEY(1, 3),
-    NOTE_KEY(2, 0), NOTE_KEY(2, 1), NOTE_KEY(2, 2), NOTE_KEY(2, 3),
-    NOTE_KEY(3, 0), NOTE_KEY(3, 1), NOTE_KEY(3, 2), NOTE_KEY(3, 3),
-    NOTE_KEY(4, 0), NOTE_KEY(4, 1), NOTE_KEY(4, 2), NOTE_KEY(4, 3),       // bottom row: the lowest notes
+    /* ---- matrix keyboard: the keys are not in this table, their layout is chosen at run time (core/keymap.h) ---- */
 
     /* ---- matrix keyboard: the knob above each column edits row 1..4 of the current page ---- */
     {CTL_COL_KNOB_0, IN_VALUE, MODS_ANY,   ACT_PAGE_KNOB,       1},

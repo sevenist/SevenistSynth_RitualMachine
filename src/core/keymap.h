@@ -21,6 +21,9 @@ typedef struct { uint8_t act; int8_t arg; } key_fn_t;      // action_id_t + its 
 enum { KEYMAP_USER = 3, KEYMAP_LAYOUTS = 4 };              // layouts 0..2 are built in, 3 is the user's
 #define KEYMAP_NOTE_MAX 47                                  // a key can play base note + 0..47 (four octaves)
 #define KEYMAP_FILE "keys.cfg"
+#define KEYMAP_RESET_KEY        CTL_KEY(0, 0)               // held at power-on: back to the first built-in layout
+#define KEYMAP_RESET_WINDOW_MS  4000                        // ... when pressed this soon after start (the board's boot delay is not counted)
+#define KEYMAP_RESET_HOLD_MS    2000                        // ... and held this long
 
 void        keymap_init(void);                              // first built-in layout, User = a copy of it, nothing to save
 int         keymap_layout(void);

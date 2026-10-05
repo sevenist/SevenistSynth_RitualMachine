@@ -1,5 +1,6 @@
 #include "core/app.h"
 #include "core/gui.h"
+#include "core/keymap.h"
 #include "core/sprites.h"
 #include "hal/hal_audio.h"
 #include <stdio.h>
@@ -12,7 +13,13 @@ void app_init(app_t *app, u8g2_t *display) {
     app->dirty = false;
     app->sd_gen = audio_sd_generation();
     app->sd_notice = false;
+    app->keys_notice = false;
+    app->menu_open = false;
+    app->boot_ms = audio_millis();
+    app->reset_held = false;
     app->status[0] = 0;
+    keymap_init();
+    keymap_load();                      // the simulator has its card at once; the board's card shows up later (check_sd)
     app->display = display;
     synth_params_default(&app->params);
     seq_init(&app->seq);
@@ -125,6 +132,39 @@ static void app_dispatch(app_t *app, input_event_t e) {
     }
 }
 
+/* ---------------- the matrix keys: their function comes from the key layout (core/keymap.h) ---------------- */
+
+static void key_event(app_t *app, input_event_t e, uint32_t now) {
+    const int key = e.ctl - CTL_KEY_FIRST;
+    if (e.kind == IN_RELEASE) {
+        note_off(app, e.ctl);
+        if (app->in.shift_key == e.ctl) { app->in.shift = false; app->in.shift_key = CTL_NONE; }
+        if (e.ctl == KEYMAP_RESET_KEY) app->reset_held = false;
+        return;
+    }
+    if (e.kind != IN_PRESS) return;
+    if (e.ctl == KEYMAP_RESET_KEY && now - app->boot_ms < KEYMAP_RESET_WINDOW_MS) { app->reset_held = true; app->reset_since = now; }
+    const key_fn_t f = keymap_get(key);
+    if (synth_ui_on_keys_tab(&app->ui, &app->rack)) {       // the KEYS tab: a key selects itself in the list; only notes, Shift and Menu still act
+        app->ui.key_cur = key;
+        app->dirty = true;
+        if (f.act != ACT_NOTE && f.act != ACT_SHIFT && f.act != ACT_MENU) return;
+    }
+    if (f.act == ACT_SHIFT) app->in.shift_key = e.ctl;
+    const binding_t b = {e.ctl, IN_PRESS, MODS_ANY, (action_id_t)f.act, f.arg};
+    app_run_action(app, &b, e);
+}
+
+// The top-left function key held for KEYMAP_RESET_HOLD_MS, pressed during the first seconds after power-on: back to the first built-in layout.
+static void key_reset_check(app_t *app, uint32_t now) {
+    if (!app->reset_held || now - app->reset_since < KEYMAP_RESET_HOLD_MS) return;
+    app->reset_held = false;
+    keymap_reset();
+    keymap_save();                      // no card yet: saved when it shows up (check_sd)
+    app->keys_notice = true;
+    app->dirty = true;
+}
+
 /* ---------------- joystick as four buttons ---------------- */
 
 static control_id_t joy_direction(const input_state_t *in) {
@@ -153,7 +193,25 @@ static void joy_repeat(app_t *app, uint32_t now) {
     app->in.joy_next_ms = now + JOY_REPEAT_MS;
 }
 
-/* ---------------- the TF card notice ---------------- */
+/* ---------------- notices: the key layout was reset, the TF card is too slow ---------------- */
+
+static void draw_keys_notice(app_t *app) {
+    u8g2_t *g = app->display;
+    u8g2_ClearBuffer(g);
+    u8g2_SetFont(g, u8g2_font_5x7_tr);
+    u8g2_DrawFrame(g, 0, 0, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
+    u8g2_DrawBox(g, 0, 0, u8g2_GetDisplayWidth(g), 10);
+    u8g2_SetDrawColor(g, 0);
+    u8g2_DrawStr(g, 4, 8, "KEYS RESET");
+    u8g2_SetDrawColor(g, 1);
+    u8g2_DrawStr(g, 4, 21, "The keys are back to");
+    char l[32];
+    snprintf(l, sizeof l, "the layout %s.", keymap_layout_name(0));
+    u8g2_DrawStr(g, 4, 30, l);
+    u8g2_DrawStr(g, 4, 42, "Release the key.");
+    u8g2_SendBuffer(g);
+}
+
 
 // Shown when a card is in but too slow to stream from. The synth runs as if there were no card; any button press goes to the normal screen.
 static void draw_sd_notice(app_t *app) {
@@ -183,11 +241,13 @@ static void draw_sd_notice(app_t *app) {
 }
 
 // The card changed (inserted, removed, or its files were listed): the sampler modules look their file up again, and a slow card raises the notice.
+// The key layout follows the card: a card that shows up gives its keys.cfg, unless the keys were changed meanwhile (then they are written to it).
 static void check_sd(app_t *app) {
     const uint32_t gen = audio_sd_generation();
     if (gen == app->sd_gen) return;
     app->sd_gen = gen;
     app->sd_notice = audio_sd_state() == SD_SLOW;
+    if (audio_sd_state() != SD_NONE) { if (keymap_dirty()) keymap_save(); else keymap_load(); }
     audio_build(&app->rack, &app->params);
     app->dirty = true;
 }
@@ -200,6 +260,7 @@ bool app_step(app_t *app, input_event_t e) {
     const uint32_t now = audio_millis();
 
     check_sd(app);
+    if (app->keys_notice && e.kind == IN_RELEASE) { app->keys_notice = false; app->dirty = true; }     // the reset key is let go
     if (app->sd_notice && e.kind != IN_NONE) {           // the notice is up: a button press dismisses it, every other input is ignored (nothing edits the screen behind it)
         if (e.kind == IN_PRESS) { app->sd_notice = false; app->dirty = true; }
         e.kind = IN_NONE;
@@ -209,11 +270,18 @@ bool app_step(app_t *app, input_event_t e) {
         if (e.ctl == CTL_JOY_X || e.ctl == CTL_JOY_Y) {
             if (e.ctl == CTL_JOY_X) app->in.axis_x = e.value; else app->in.axis_y = e.value;
             joy_update(app, now);
+        } else if (e.ctl >= CTL_KEY_FIRST && e.ctl <= CTL_KEY_LAST) {
+            key_event(app, e, now);
         } else {
             app_dispatch(app, e);
         }
     }
     joy_repeat(app, now);
+    key_reset_check(app, now);
+
+    if (app->menu_open && !app->ui.in_rack && keymap_dirty() && !keymap_save())        // the menu was closed: the key layout goes to the card
+        snprintf(app->status, sizeof app->status, "Keys not saved (no card)");
+    app->menu_open = app->ui.in_rack;
 
     if (app->ui.rebuild) {              // the rack editor was just left: rebuild the synth from it
         app->ui.rebuild = false;
@@ -240,7 +308,9 @@ bool app_step(app_t *app, input_event_t e) {
 
     // Redraw only when something visible changed: a full-frame flush over I2C is slow and must not starve the audio loop.
     // Notes and the modifier do not change the screen.
-    if (app->sd_notice) {
+    if (app->keys_notice) {
+        if (app->dirty) draw_keys_notice(app);
+    } else if (app->sd_notice) {
         if (app->dirty) draw_sd_notice(app);
     } else if (app->dirty || ((stepped || animated) && synth_ui_shows_playhead(&app->ui, &app->rack)))
         synth_ui_draw(&app->ui, &app->params, &app->seq, &app->rack, app->display);

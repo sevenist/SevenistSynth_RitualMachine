@@ -1,6 +1,6 @@
 #pragma once
 // HWV1 (the old prototype) layout: how its physical parts are presented to the application as the HAL's controls (hal/hal_input.h).
-// The HAL describes the NEW panel (encoders, 3 buttons, play, 4 x 5 keys, 3 right knobs); the old board has a 4 x 8 + 4 key
+// The HAL describes the NEW panel (encoders, 3 buttons, play, up to 8 x 5 keys, 3 right knobs); the old board has a 4 x 8 + 4 key
 // keyboard, 7 relative knobs and a joystick, so this file is the one place that decides the correspondence. Edit the tables to change it.
 //
 // Orientation (measured on the board with the key log): TCA row 4 is the function-key row at the top, TCA row 0 the bottom note row,
@@ -26,17 +26,19 @@
 
 // ---- keys -------------------------------------------------------------------------------------------------------------------
 // Indexed [physical row from the top][column from the left]: physical row 0 = TCA row 4 (function keys), physical row 4 = TCA row 0.
-// The left 4 x 4 block of the notes is the HAL's rows 1..4; the HAL's extra row 0 and the right half of the note keys are unmapped
-// (CTL_NONE) for now. Function keys (the 4 leftmost keys of the top row): Shift (hold), Menu, Back (delete module), Play.
+// Every key is a matrix key of the HAL at the same place: the 4 function keys (the 4 leftmost of the top row) are the HAL's function row 0,
+// the 4 x 8 note keys its rows 1..4. What they do comes from the key layout (core/keymap.h; by default the function keys are Shift, Menu,
+// Back, Play). HWV1_KEY_PRESENT tells the KEYS tab which keys exist.
 #define K(r, c) ((control_id_t)CTL_KEY(r, c))
 static const control_id_t kHwv1KeyMap[HW_KBD_ROWS][HW_KBD_COLS] = {
-    {CTL_BTN_3, CTL_BTN_1, CTL_BTN_2, CTL_PLAY, CTL_NONE, CTL_NONE, CTL_NONE, CTL_NONE},
-    {K(1, 0),  K(1, 1),  K(1, 2),  K(1, 3),  CTL_NONE,  CTL_NONE,  CTL_NONE,  CTL_NONE},
-    {K(2, 0),  K(2, 1),  K(2, 2),  K(2, 3),  CTL_NONE,  CTL_NONE,  CTL_NONE,  CTL_NONE},
-    {K(3, 0),  K(3, 1),  K(3, 2),  K(3, 3),  CTL_NONE,  CTL_NONE,  CTL_NONE,  CTL_NONE},
-    {K(4, 0),  K(4, 1),  K(4, 2),  K(4, 3),  CTL_NONE,  CTL_NONE,  CTL_NONE,  CTL_NONE},
+    {K(0, 0), K(0, 1), K(0, 2), K(0, 3), CTL_NONE, CTL_NONE, CTL_NONE, CTL_NONE},
+    {K(1, 0), K(1, 1), K(1, 2), K(1, 3), K(1, 4),  K(1, 5),  K(1, 6),  K(1, 7)},
+    {K(2, 0), K(2, 1), K(2, 2), K(2, 3), K(2, 4),  K(2, 5),  K(2, 6),  K(2, 7)},
+    {K(3, 0), K(3, 1), K(3, 2), K(3, 3), K(3, 4),  K(3, 5),  K(3, 6),  K(3, 7)},
+    {K(4, 0), K(4, 1), K(4, 2), K(4, 3), K(4, 4),  K(4, 5),  K(4, 6),  K(4, 7)},
 };
 #undef K
+#define HWV1_KEY_PRESENT(row, col) ((row) > 0 || (col) < 4)
 
 // ---- relative knobs ---------------------------------------------------------------------------------------------------------
 // 7 potentiometers without end stops. Each one is read as a sin / cos pair on two mux channels (pot n -> channels 2+2n and 3+2n) and

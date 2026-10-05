@@ -75,7 +75,7 @@ gui_rect_t ui_picture_box(const gui_style_t *st);
 // The screen of a menu tab.
 const screen_def_t *screen_for_tab(tab_t t);
 
-extern const screen_def_t scr_rack_screen, scr_general_screen, scr_samples_screen, scr_fx_screen, scr_fm_algo_screen, scr_fm_op_screen, scr_fm_env_screen;
+extern const screen_def_t scr_rack_screen, scr_general_screen, scr_samples_screen, scr_fx_screen, scr_fm_algo_screen, scr_fm_op_screen, scr_fm_env_screen, scr_keys_screen;
 
 #ifdef __cplusplus
 }

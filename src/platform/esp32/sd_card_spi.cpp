@@ -1,9 +1,10 @@
-// The TF card of the first prototype (HWV1): a small SD driver in SPI mode, read-only, registered with FATFS at SD_MOUNT_POINT.
+// The TF card of the first prototype (HWV1): a small SD driver in SPI mode, registered with FATFS at SD_MOUNT_POINT.
 //
 // Why not ESP-IDF's sdspi host: on this board it spends about 40 ms before EVERY command (a plain CMD13 status takes 40 ms, with both pins
 // quiet until the 55 us transfer at the very end; same for two different cards, both SPI hosts, any clock), which made a 4 KB read cost
 // 80 ms. A bare SPI transfer on the same bus takes the time the clock says, so this driver uses only the SPI master layer and does the
-// SD protocol itself: initialisation (CMD0 / CMD8 / ACMD41 / CMD58), CMD17 / CMD18 reads, CMD9 / CMD10 for capacity and identity.
+// SD protocol itself: initialisation (CMD0 / CMD8 / ACMD41 / CMD58), CMD17 / CMD18 reads, CMD24 single-block writes (each one checked with
+// CMD13), CMD9 / CMD10 for capacity and identity. Writes are for the small settings files (hal_storage.h): one block per command is plenty.
 // (The IDF host stays available with -DHWV1_SD_IDF, see sd_card.cpp.)
 //
 // Everything runs on the caller's task (the sample I/O task), polling transfers, no locks. Loops that can wait on a slow card give the
@@ -40,6 +41,7 @@ FATFS *g_fs = nullptr;
 // Transfer buffers in internal RAM (DMA capable): the answer / data of a block, and the 0xFF the host clocks out while the card talks.
 alignas(4) uint8_t g_rx[kSector + 4];
 alignas(4) uint8_t g_ff[kSector + 4];
+alignas(4) uint8_t g_tx[kSector + 4];                // a block to write: start token, data, 2 CRC bytes
 
 int64_t now_us() { return esp_timer_get_time(); }
 
@@ -169,7 +171,34 @@ bool read_sectors(uint32_t sector, uint8_t *dst, uint32_t count) {
     return ok;
 }
 
-/* ---------------- FATFS glue (read only) ---------------- */
+// One block through CMD24: start token, data, CRC (not checked by the card in SPI mode), then the card's data response (xxx0 0101 = accepted)
+// and the busy time of the programming (up to 250 ms for SDSC, 500 ms for SDHC). CMD13 afterwards reports a write that failed inside the card.
+bool write_sector(uint32_t sector, const uint8_t *src) {
+    if (!g_up) return false;
+    const uint32_t addr = g_sdhc ? sector : sector * kSector;
+    cs(true);
+    bool ok = command(24, addr, 0xFF) == 0x00;
+    if (ok) {
+        xfer_byte();                                 // one byte gap before the token
+        g_tx[0] = 0xFE;
+        memcpy(g_tx + 1, src, kSector);
+        g_tx[kSector + 1] = g_tx[kSector + 2] = 0xFF;
+        ok = xfer(g_tx, g_rx, kSector + 3);
+        uint8_t resp = 0xFF;
+        for (int i = 0; ok && i < 16 && resp == 0xFF; i++) resp = xfer_byte();
+        ok = ok && (resp & 0x1F) == 0x05;
+        ok = wait_ready(600) && ok;                  // wait out the programming even after a rejected block
+    }
+    deselect();
+    if (!ok) return false;
+    cs(true);                                        // CMD13: R2 = R1 + one more status byte, both 0 when the write went through
+    const uint8_t r1 = command(13, 0, 0xFF);
+    const uint8_t r2 = xfer_byte();
+    deselect();
+    return r1 == 0x00 && r2 == 0x00;
+}
+
+/* ---------------- FATFS glue ---------------- */
 
 DSTATUS ff_status(BYTE) { return 0; }
 DSTATUS ff_init(BYTE) { return 0; }
@@ -182,10 +211,14 @@ DRESULT ff_read(BYTE, BYTE *buff, LBA_t sector, UINT count) {
     }
     return RES_OK;
 }
-DRESULT ff_write(BYTE, const BYTE *, LBA_t, UINT) { return RES_WRPRT; }
+DRESULT ff_write(BYTE, const BYTE *buff, LBA_t sector, UINT count) {
+    for (UINT i = 0; i < count; i++)
+        if (!write_sector(static_cast<uint32_t>(sector) + i, buff + i * kSector)) return RES_ERROR;
+    return RES_OK;
+}
 DRESULT ff_ioctl(BYTE, BYTE cmd, void *buf) {
     switch (cmd) {
-    case CTRL_SYNC: return RES_OK;
+    case CTRL_SYNC: return RES_OK;                   // every write already waited until the card finished programming it
     case GET_SECTOR_COUNT: *static_cast<LBA_t *>(buf) = g_sectors; return RES_OK;
     case GET_SECTOR_SIZE: *static_cast<WORD *>(buf) = kSector; return RES_OK;
     case GET_BLOCK_SIZE: *static_cast<DWORD *>(buf) = 1; return RES_OK;

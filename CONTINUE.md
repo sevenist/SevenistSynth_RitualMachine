@@ -70,6 +70,20 @@ a table read plus a few multiplies costs on this in-order core, so further gains
 engine: the build made after these numbers adds a **fast path** (steady pitch and gate: one tight loop per engine). **It had not been measured on the board when this was written**: after flashing, rerun
 `serial_test.py --engines "0,1,4,6;2,3,5,7" --chords 2` and `serial_test.py --chords 1,3,6`; expect each engine about 40-50 cycles per sample lower (about 4-5k per voice). If the per-engine numbers equal the table above, the old binary is still on the board.
 
+## Full keyboard and key layouts (2026-10-05; built and host-tested, NOT flashed)
+
+- All 36 keys of the prototype are mapped: the HAL matrix is now 8 x 5 (`KEY_COLS 8`); HWV1's 4 function keys are HAL row 0 (they were BTN 3 / BTN 1 / BTN 2 / PLAY), its
+  4 x 8 note keys rows 1..4. `input_key_present()` (new in `hal_input.h`) says which keys a board has.
+- Key functions come from a **layout** (`core/keymap.c`): 3 built in (*Keys 8x4* default, *Two 4x4*, *Notes+Nav*) + *User*, edited in the new **KEYS** menu tab
+  (last tab in both modular and FM). User decisions: the three layouts as presets, user keys on the TF card (`keys.cfg`, text), only keyboard keys in the page,
+  lock-out escape = Reset row + F1 held 2 s within 4 s of boot. Details in DEVELOPING.md ("Key layouts").
+- Card writes: `sd_card_spi.cpp` got CMD24 single-block writes (+ CMD13 check); file jobs run on the `sd_io` task (`samples_esp32.cpp`, `hal/hal_storage.h`). **Risk the
+  user accepted: a write bug can damage the card's file system; back the card up before the first test.**
+- Verified: simulator + firmware build; a scratch test (all layouts, User copy, text round trip, save on menu close, card in / out, KEYS-tab key selection, boot reset;
+  it found and fixed a wrap-around that fired the reset at once). Not verified: anything on the board (key map orientation of the right half, card writes, keys.cfg on a real card).
+- Board test to do: every note key plays (right half included), F1..F4 = Shift / Menu / Back / Play, KEYS tab edit + menu close -> `[SD] wrote /sdcard/keys.cfg` in the log,
+  reboot keeps the layout, the file reads on a PC, the F1 reset, the samples still stream after a write.
+
 ## Next performance steps (in the order I would take them)
 
 1. Flash the fast-path build, measure, record the numbers here (and in ADR-035's table). Ask the user to **listen** to the list of unlistened changes above and to say which sound changes they dislike; each has a flag or a one-line revert (see ADR-035).
@@ -79,7 +93,7 @@ engine: the build made after these numbers adds a **fast path** (steady pitch an
 4. Fixed cost: reverb 20.5k (the tank halves ~5k each at half rate; trimming one of the four input allpasses or the second decay diffuser saves 2-3k and changes the character; a cheaper diffusion structure was proposed, not tried),
    delay 8.4k (PSRAM Hermite read + write per sample, 5.2k).
 5. Before a release remove the dev flags (list in DEVELOPING.md) and decide `DEV_OUTPUT_GAIN_PCT` (currently 1 %, set by the user while testing at night), `ENGINE_FX_MONO`, `ENGINE_REVERB_HALF`.
-6. Open hardware items: LED driver (FastLED push in `leds_esp32.cpp`), speaker amplifier check, display / audio separation check by ear, map the right half of the keyboard and the extra row if wanted, the TF card.
+6. Open hardware items: LED driver (FastLED push in `leds_esp32.cpp`), speaker amplifier check, display / audio separation check by ear, the TF card.
 
 ## Decisions that went against my recommendation (recorded with their risks in ENGINE_DESIGN.md)
 

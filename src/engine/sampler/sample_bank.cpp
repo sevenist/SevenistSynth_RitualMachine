@@ -261,15 +261,25 @@ void SampleBank::issue_streams(uint64_t now_us) {
                     in_head = b >= lo && b < lo + cnt;
                 }
                 if (in_head) continue;
-                const int rs = static_cast<int>(b % kRingBlocks);
-                const uint64_t want = (static_cast<uint64_t>(sn.gen) << 32) | static_cast<uint32_t>(b) | 0x8000000000000000ull;
-                if (st->slot_tag(rs) == want) continue;                              // already there
-                if (st->busy[rs]) continue;                                           // being read (this or an older generation)
-                // the slot must not hold a block that is still wanted
-                bool wanted = false;
-                const uint64_t cur = st->slot_tag(rs);
-                if (cur) { const uint32_t cb = static_cast<uint32_t>(cur & 0xFFFFFFFFu); for (int k = 0; k < n; k++) if (blk[k] == cb && static_cast<uint32_t>(cur >> 32) == sn.gen) wanted = true; }
-                if (wanted) continue;
+                const uint64_t want = Stream::make_tag(sn.gen, static_cast<uint32_t>(b));
+                bool have = false;                                                    // already there, or on its way
+                for (int s = 0; s < kRingBlocks && !have; s++) have = st->slot_tag(s) == want || (st->busy[s] && st->fetching[s] == want);
+                if (have) continue;
+                // any slot that is not being read and does not hold a block that is still wanted (empty ones and stale generations first)
+                int rs = -1;
+                for (int s = 0; s < kRingBlocks; s++) {
+                    if (st->busy[s]) continue;
+                    const uint64_t cur = st->slot_tag(s);
+                    bool wanted = false;
+                    if (cur) {
+                        const uint32_t cb = static_cast<uint32_t>(cur & 0xFFFFFFFFu), cg = static_cast<uint32_t>((cur >> 32) & 0x7FFFFFFFu);
+                        if (cg == (sn.gen & 0x7FFFFFFFu)) for (int k = 0; k < n; k++) if (blk[k] == cb) wanted = true;
+                    }
+                    if (wanted) continue;
+                    if (rs < 0 || cur == 0) rs = s;
+                    if (cur == 0) break;
+                }
+                if (rs < 0) continue;                                                 // every slot holds a wanted block: nothing can be placed now
                 if (until[i] < best_until) { best_until = until[i]; best_stream = si; best_ring = rs; best_blk = b; best_snap = sn; }
             }
         }
@@ -282,7 +292,7 @@ void SampleBank::issue_streams(uint64_t now_us) {
         IoRead r{sl.file, static_cast<uint32_t>((best_blk + 1) * kSmpBlockBytes), kSmpBlockBytes, st->slot_memory(best_ring), static_cast<uint32_t>(jid)};
         if (!dev_->submit(r, now_us)) return;
         st->busy[best_ring] = true;
-        st->fetching[best_ring] = best_blk;
+        st->fetching[best_ring] = Stream::make_tag(best_snap.gen, static_cast<uint32_t>(best_blk));
         jobs_[jid] = Job{J_BLOCK, 0, static_cast<int16_t>(best_stream), static_cast<int16_t>(best_ring), 0, best_snap.gen, static_cast<uint32_t>(best_blk), best_snap.sample};
         jobs_in_flight_++;
     }

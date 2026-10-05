@@ -27,6 +27,7 @@ PROF_RE = re.compile(r"\[PROF\] cycles per block \(budget (\d+)\), total (\d+):(
 MOD_RE = re.compile(r"(\w+)=(\d+)\(x(\d+)\)")
 SEC_RE = re.compile(r"\[SEC\] (.*)")
 OSC_RE = re.compile(r"\[OSC\] [^:]*:(.*)")
+SD_RE = re.compile(r"\[SD\] (\d+) reads in (\d+) ms: (\d+) KB/s, avg (\d+) us, worst ever (\d+) us; opens (\d+), seeks (\d+), errors (\d+) \| \[SMP\] stream blocks \+(\d+), underruns (\d+) \(\+(\d+)\)")
 ENGINE_NAMES = ["karp", "modal", "fm2", "fold", "ssaw", "vowel", "add", "dust"]
 
 
@@ -98,6 +99,7 @@ def summarize(lines):
     """Mean / max of the numbers in the [AUDIO] and [PROF] lines of one phase."""
     a_avg, a_worst, over, blocks, builds, reason = [], [], 0, 0, None, ""
     totals, budget, mods, sec, osc = [], 0, {}, None, {}
+    sd = dict(reads=0, ms=0, kbs=[], avg=[], worst=0, errors=0, blocks=0, under=0, seen=0)
     for _, x in lines:
         m = AUDIO_RE.search(x)
         if m:
@@ -116,6 +118,11 @@ def summarize(lines):
         m = SEC_RE.search(x)
         if m:
             sec = m.group(1)
+        m = SD_RE.search(x)
+        if m:
+            sd["seen"] += 1
+            sd["reads"] += int(m.group(1)); sd["ms"] += int(m.group(2)); sd["kbs"].append(int(m.group(3))); sd["avg"].append(int(m.group(4)))
+            sd["worst"] = max(sd["worst"], int(m.group(5))); sd["errors"] = int(m.group(8)); sd["blocks"] += int(m.group(9)); sd["under"] += int(m.group(11))
         m = OSC_RE.search(x)
         if m:
             for name, cyc in re.findall(r"(\w+)=(\d+)", m.group(1)):
@@ -123,7 +130,7 @@ def summarize(lines):
             mb = re.search(r"inside the engine switch: (\d+)", x)
             if mb:
                 osc.setdefault("switch", []).append(int(mb.group(1)))
-    return dict(osc=osc, a_avg=a_avg, a_worst=a_worst, over=over, blocks=blocks, builds=builds, reason=reason, totals=totals, budget=budget, mods=mods, sec=sec)
+    return dict(osc=osc, a_avg=a_avg, a_worst=a_worst, over=over, blocks=blocks, builds=builds, reason=reason, totals=totals, budget=budget, mods=mods, sec=sec, sd=sd)
 
 
 def mean(v):
@@ -141,6 +148,10 @@ def report(name, s):
         out.append(f"   cycles per engine block: {mean(s['totals']):.0f} of {s['budget']} ({pct:.0f} %)   [{len(s['totals'])} reports]")
         top = sorted(((mean(v), k) for k, v in s["mods"].items()), reverse=True)
         out.append("   modules: " + ", ".join(f"{k} {c:.0f}" for c, k in top if c >= 1)[:600])
+    sd = s["sd"]
+    if sd["seen"]:
+        rate = 1000.0 * sd["reads"] / sd["ms"] if sd["ms"] else 0.0
+        out.append(f"   card: {rate:.0f} reads/s, {mean(sd['kbs']):.0f} KB/s, avg read {mean(sd['avg']):.0f} us (worst ever {sd['worst']} us), errors {sd['errors']}; sampler underruns in this phase: {sd['under']}")
     if s["builds"] is not None:
         out.append(f"   graph builds so far: {s['builds']} (last: {s['reason']})")
     if s["sec"]:
@@ -182,6 +193,7 @@ def main():
     try:
         for c in args.cmd or []:
             port.send(c)
+            time.sleep(1.5)                         # a patch change rebuilds the synth; sampler heads load from the card
         if args.raw:
             t0 = time.time()
             seen = 0

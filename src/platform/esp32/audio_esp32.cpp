@@ -13,6 +13,7 @@
 #include "engine/modules/osc_engines.h"
 #include "engine/dsp/config.h"
 #include "platform/esp32/bench_esp32.h"
+#include "platform/esp32/samples_esp32.h"
 #include "board_pins.h"
 
 namespace {
@@ -158,6 +159,7 @@ extern "C" void audio_init(void) {
     i2s_channel_enable(tx);
     Serial.println("[AUDIO] running");
     xTaskCreatePinnedToCore(audio_task_main, "audio", 8192, nullptr, configMAX_PRIORITIES - 2, &audio_task, 1);
+    samples_esp32_start();                              // TF card library + the sample loader (its own task on core 0)
 }
 
 extern "C" void audio_shutdown(void) {
@@ -168,10 +170,10 @@ extern "C" void audio_shutdown(void) {
 
 extern "C" void audio_set_params(const rack_t *r, const synth_params_t *p) { engine_synth_set_params(r, p); }
 extern "C" void audio_build(const rack_t *r, const synth_params_t *p)      { engine_synth_build(r, p); }
-extern "C" int audio_sample_count(void)                                     { return engine_synth_sample_count(); }   // the TF card library is not wired up yet
+extern "C" int audio_sample_count(void)                                     { return engine_synth_sample_count(); }   // filled by the TF card scan (samples_esp32.cpp)
 extern "C" bool audio_sample_info(int i, audio_sample_info_t *out)         { return engine_synth_sample_info(i, out); }
-extern "C" bool audio_sample_prepare(int)                                 { return false; }
-extern "C" int audio_samples_rescan(void)                                  { return engine_synth_sample_count(); }
+extern "C" bool audio_sample_prepare(int i)                                { return samples_esp32_ready(i); }     // only cooked .smp files on the card: nothing to convert
+extern "C" int audio_samples_rescan(void)                                  { return samples_esp32_rescan(); }     // the I/O task looks at the card; new files appear as it reads them
 extern "C" void audio_set_clock(int bpm, int steps, int swing, int running) { engine_synth_set_clock(bpm, steps, swing, running); }
 extern "C" void audio_motion_restart(void)                                 { engine_synth_motion_restart(); }
 extern "C" void audio_note_on(int midi_note)                               { engine_synth_note_on(midi_note); }

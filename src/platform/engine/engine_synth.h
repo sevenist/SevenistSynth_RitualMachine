@@ -37,7 +37,10 @@ void engine_synth_render(int16_t *stereo, int frames);
 int  engine_synth_sample_count(void);
 bool engine_synth_sample_info(int index, audio_sample_info_t *out);
 // [I/O THREAD or test loop] runs the sample loader; call it every millisecond or so (the desktop starts a thread for it).
-void engine_synth_io_pump(void);
+// Returns true while reads are still in flight (call again at once); false when the streams are filled (sleep a tick).
+bool engine_synth_io_pump(void);
+// Streaming health since boot: playheads that found a block missing (audible), and stream blocks read from the card.
+void engine_synth_sampler_stats(uint32_t *underruns, uint32_t *block_reads);
 
 #ifdef ENGINE_PROFILE
 // [AUDIO THREAD] per-module CPU cost since the previous call: `cb` gets the module name, its cycles per rendered block (all voices summed) and its

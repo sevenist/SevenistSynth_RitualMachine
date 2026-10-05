@@ -186,7 +186,7 @@ Cooked `.smp`: a 4 KB header (rate, frames, root note, tune, loop points and mod
 Bandwidth is 96 KB/s per voice at 48 kHz. Not done: stereo samples, ADPCM (the format has a version field for both).
 
 ### ADR-022: Streaming = RAM heads + per-voice ring + earliest-deadline-first loader (Accepted, `sampler/*`)
-- `StorageDevice` (`sampler/storage.h`): asynchronous `submit` / `poll`, never blocks. `SimStorage` models a slow serial
+- `StorageDevice` (`sampler/storage.h`): asynchronous `submit` / `poll`, never blocks. `SimStorage` (`platform/sim/sim_storage.h`) models a slow serial
   card (latency, bandwidth, periodic stalls) against an explicit clock, so every streaming behaviour is reproducible
   in tests. The ESP32 TF-card / PSRAM / flash drivers implement the same interface (stage 7).
 - `SampleBank::load(name, head_ms)`: keeps the first `head_ms` (default 150), a short head for every slice, and a tail
@@ -357,6 +357,16 @@ rebuild. Costs: KS 4 KB per voice; aliasing is naive like the shaper (ADR-013); 
   Defaults: chorus (off), delay (dry), reverb (dry), empty (audibly neutral like before).
 - Risks: the convolver costs `taps x 2` MACs per sample (a 256-tap cab is about 25 MMAC/s: measure on the S3); the compressor and the shifter are not
   measured against a reference beyond the tests; IRs from the card are possible through the chunk API but not wired to the library yet.
+
+### ADR-022 addendum: ring slots are chosen by the loader, the overview lives in the header (Accepted; found on the board)
+
+- **Bug:** a block always sat in ring slot `block % 8`. A loop's end blocks (e - 2 .. e) and start blocks (s - 1 .. s + 3) are both wanted around the wrap, and when they share residues mod 8 the loop start could not be prefetched: every lap
+  dropped out (a hold-and-decay underrun at the loop point). The demo pad (28800..96000 = blocks 14..46) is such a loop; the existing loop test happened to avoid it.
+  Test `a_long_loop_wraps_without_underruns_wherever_its_blocks_fall_in_the_ring` (four alignments, 3 laps, values checked at both wraps) failed with an underrun per lap and passes now.
+- **Fix:** the loader puts a block in any slot that is not in flight and does not hold a still-wanted block (empty and stale ones first); the audio thread finds a block by scanning the 8 slot tags (a handful of atomic loads once per block, only when the
+  cached block runs out). The set of wanted blocks (<= 8) is unchanged, so the ring size is too. Cost: none measurable on the host.
+- **`.smp` header:** bytes 100..163 now hold the 64-bucket amplitude overview the sample list draws. Old files have zeros there and are still read (the reader computes the overview: 64 card reads per file at scan time on the board, so re-cook them).
+- **Loader API:** `engine_synth_io_pump()` returns whether reads are still in flight; the I/O task keeps going (up to 8 rounds) instead of sleeping a tick after every pair of reads. `engine_synth_sampler_stats()` exposes the underrun and block-read counters.
 
 ### ADR-030 addendum: .wav / .mp3 are listed at once and converted when assigned
 The library lists `.wav` and `.mp3` next to `.smp` (entry marked with `*`, `pending`, the graph says "converts on assign"). The decode (24-bit / float / any channel

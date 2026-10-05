@@ -18,7 +18,9 @@
 //   33      1     slice count (0..16)
 //   34      2     reserved
 //   36      64    slice start frames (16 x u32)
-//   100..4095     zero
+//   100     64    amplitude overview for the sample list (64 buckets, max |sample| >> 7); all zero = not stored (files cooked
+//                 before it existed), the reader then computes it from the audio
+//   164..4095     zero
 // Audio block b (0-based) is at file offset (b + 1) * 4096 and holds frames [b * 2048, (b + 1) * 2048).
 #include <cstdint>
 #include <cstring>
@@ -29,6 +31,8 @@ namespace sc {
 constexpr uint32_t kSmpBlockBytes = 4096;
 constexpr uint32_t kSmpBlockFrames = kSmpBlockBytes / 2;
 constexpr int kSmpMaxSlices = 16;
+constexpr int kSmpPeaks = 64;
+constexpr uint32_t kSmpPeaksOffset = 100;
 enum SmpLoop : uint8_t { SMP_LOOP_OFF = 0, SMP_LOOP_FWD = 1, SMP_LOOP_PINGPONG = 2 };
 
 struct SmpHeader {
@@ -40,7 +44,9 @@ struct SmpHeader {
     uint8_t loop_mode = SMP_LOOP_OFF;
     uint8_t slice_count = 0;
     uint32_t slice[kSmpMaxSlices] = {};
+    uint8_t peaks[kSmpPeaks] = {};
 
+    bool has_peaks() const { for (uint8_t p : peaks) if (p) return true; return false; }
     bool has_loop() const { return loop_end > loop_start + 1; }
     uint32_t blocks() const { return (frames + kSmpBlockFrames - 1) / kSmpBlockFrames; }
     uint32_t file_bytes() const { return (blocks() + 1) * kSmpBlockBytes; }
@@ -67,6 +73,7 @@ inline void smp_write_header(uint8_t *block, const SmpHeader &h) {
     block[32] = h.loop_mode;
     block[33] = h.slice_count;
     for (int i = 0; i < kSmpMaxSlices; i++) put32(block + 36 + 4 * i, h.slice[i]);
+    std::memcpy(block + kSmpPeaksOffset, h.peaks, kSmpPeaks);
 }
 
 // Validates and parses the first block of a file.
@@ -82,13 +89,29 @@ inline bool smp_parse_header(const uint8_t *block, uint32_t bytes, SmpHeader &h)
     h.loop_mode = block[32];
     h.slice_count = block[33] > kSmpMaxSlices ? static_cast<uint8_t>(kSmpMaxSlices) : block[33];
     for (int i = 0; i < kSmpMaxSlices; i++) h.slice[i] = get32(block + 36 + 4 * i);
+    if (bytes >= kSmpPeaksOffset + kSmpPeaks) std::memcpy(h.peaks, block + kSmpPeaksOffset, kSmpPeaks);
     return h.sample_rate > 0 && h.frames > 0;
+}
+
+// The amplitude overview of a whole sample (what the sample list draws): per bucket the largest |sample|, scaled to 0..255.
+inline void smp_compute_peaks(const int16_t *pcm, uint32_t frames, uint8_t out[kSmpPeaks]) {
+    for (int b = 0; b < kSmpPeaks; b++) {
+        const uint64_t f0 = static_cast<uint64_t>(frames) * static_cast<uint64_t>(b) / kSmpPeaks;
+        const uint64_t f1 = static_cast<uint64_t>(frames) * static_cast<uint64_t>(b + 1) / kSmpPeaks;
+        const uint64_t hi = f1 > f0 + 1 ? f1 : f0 + 1;
+        const uint64_t stride = (hi - f0) / 512 > 1 ? (hi - f0) / 512 : 1;
+        int peak = 0;
+        for (uint64_t f = f0; f < hi && f < frames; f += stride) { const int v = pcm[f] < 0 ? -pcm[f] : pcm[f]; if (v > peak) peak = v; }
+        out[b] = static_cast<uint8_t>(peak >> 7 > 255 ? 255 : peak >> 7);
+    }
 }
 
 // Builds a complete file image in memory (tests, tools).
 inline std::vector<uint8_t> smp_build(const SmpHeader &h, const int16_t *pcm) {
     std::vector<uint8_t> f(h.file_bytes(), 0);
-    smp_write_header(f.data(), h);
+    SmpHeader hh = h;
+    if (!hh.has_peaks()) smp_compute_peaks(pcm, h.frames, hh.peaks);
+    smp_write_header(f.data(), hh);
     for (uint32_t i = 0; i < h.frames; i++) put16(&f[kSmpBlockBytes + 2 * i], static_cast<uint16_t>(pcm[i]));
     return f;
 }

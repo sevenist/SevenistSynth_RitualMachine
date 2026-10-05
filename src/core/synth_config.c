@@ -3,13 +3,14 @@
 
 static const char *const type_names[SYNTH_TYPE_COUNT] = {"Modular", "FM"};
 
-static const char *const labels[CFGP_GENERAL_COUNT] = {"Type", "Patch", "Voices", "Vol"};
+static const char *const labels[CFGP_GENERAL_COUNT] = {"Type", "Patch", "Voices", "Vol", "Out"};
 
 void synth_config_init(synth_config_t *c) {
     c->type = SYNTH_MODULAR;
     c->fm_patch = 0;
     c->voices = SYNTH_MAX_VOICES;
     c->volume = 1.0f;
+    c->mono = 1;
     dx7_load_factory(&c->fm, 0);
     fxr_init(&c->fxr);
 }
@@ -44,6 +45,11 @@ cfg_effect_t synth_config_adjust(synth_config_t *c, cfg_param_id_t id, int dir) 
         c->volume = f;
         return CFG_LIVE;
     }
+    case CFGP_OUTPUT:
+        v = c->mono + dir;
+        if (v < 0 || v > 1) return CFG_UNCHANGED;
+        c->mono = (uint8_t)v;
+        return CFG_LIVE;
     default: return CFG_UNCHANGED;
     }
 }
@@ -54,6 +60,7 @@ void synth_config_format(const synth_config_t *c, cfg_param_id_t id, char *out, 
     case CFGP_PATCH:  snprintf(out, n, "DX7 %03d", c->fm_patch + 1); break;
     case CFGP_VOICES: snprintf(out, n, "%d", c->voices); break;
     case CFGP_VOLUME: snprintf(out, n, "%.2f", c->volume); break;
+    case CFGP_OUTPUT: snprintf(out, n, "%s", c->mono ? "Mono" : "Stereo"); break;
     default: out[0] = 0;
     }
 }

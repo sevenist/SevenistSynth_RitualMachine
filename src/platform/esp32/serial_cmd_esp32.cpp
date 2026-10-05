@@ -11,10 +11,19 @@ constexpr int kMaxTest = 8;
 const int kChord[kMaxTest] = {48, 52, 55, 59, 62, 65, 69, 72};     // C E G B D F A C: eight distinct notes, so no voice retriggers another
 bool held[128];                                                    // notes started by these commands
 int chord_held = 0;
+app_t *g_app = nullptr;
 
 void note_on(int n) { if (n < 0 || n > 127) return; if (held[n]) audio_note_off(n); audio_note_on(n); held[n] = true; }
 void note_off(int n) { if (n < 0 || n > 127 || !held[n]) return; audio_note_off(n); held[n] = false; }
 void release_all() { for (int n = 0; n < 128; n++) note_off(n); chord_held = 0; }
+
+// A new rack in the running application: the UI forgets its cursor, the synth is rebuilt (what leaving the menu does).
+void use_rack() {
+    release_all();
+    synth_ui_init(&g_app->ui, &g_app->rack);
+    audio_build(&g_app->rack, &g_app->params);
+    g_app->dirty = true;
+}
 
 void run(char *line) {
     char *arg = strchr(line, ' ');
@@ -43,10 +52,36 @@ void run(char *line) {
         Serial.printf("[CMD] eng set for %d oscillators\n", idx);
         return;
     }
+    if (!strcmp(line, "samples")) {
+        audio_sample_info_t in;
+        const int n = audio_sample_count();
+        for (int i = 0; i < n; i++) if (audio_sample_info(i, &in)) Serial.printf("[CMD] sample %d %s %u frames %u Hz root %d loop %u..%u mode %d\n", i, in.name, (unsigned)in.frames, (unsigned)in.rate, in.root, (unsigned)in.loop_start, (unsigned)in.loop_end, in.loop_mode);
+        Serial.printf("[CMD] %d sample(s)\n", n);
+        return;
+    }
+    if (!strcmp(line, "patch") && g_app) {
+        char name[16] = {};
+        int a = 0, b = 0;
+        sscanf(arg ? arg : "", "%15s %d %d", name, &a, &b);
+        if (!strcmp(name, "startup")) rack_init_startup(&g_app->rack);
+        else if (!strcmp(name, "sampler")) rack_init_sampler(&g_app->rack, a, b);
+        else { Serial.printf("[CMD] unknown patch '%s'\n", name); return; }
+        use_rack();
+        Serial.printf("[CMD] patch %s %d %d\n", name, a, b);
+        return;
+    }
+    if (!strcmp(line, "voices") && g_app) {
+        g_app->rack.cfg.voices = (uint8_t)(v < 1 ? 1 : (v > SYNTH_MAX_VOICES ? SYNTH_MAX_VOICES : v));
+        use_rack();
+        Serial.printf("[CMD] voices %d\n", g_app->rack.cfg.voices);
+        return;
+    }
     if (!strcmp(line, "status")) { Serial.printf("[CMD] status chord %d, uptime %lu ms, free heap %u\n", chord_held, (unsigned long)millis(), (unsigned)ESP.getFreeHeap()); return; }
     Serial.printf("[CMD] unknown '%s'\n", line);
 }
 }  // namespace
+
+extern "C" void serial_cmd_attach(app_t *app) { g_app = app; }
 
 extern "C" void serial_cmd_poll(void) {
     static char buf[48];

@@ -170,6 +170,15 @@ void rack_init_startup(rack_t *r) {
     r->cfg.fxr.slot[2].v[0] = 40;
 }
 
+// Measurement patch for the sampler: nothing but a sampler and one filter (wide open), every master effect dry, so what is measured or heard is the sampler path.
+void rack_init_sampler(rack_t *r, int file, int loop) {
+    rack_clear(r);
+    rack_insert(r, 0, MOD_SAMPLER);
+    r->slot[0].v[MP_SM_FILE] = (float)(file + 1);
+    r->slot[0].v[MP_SM_LOOP] = (float)loop;
+    rack_insert(r, 1, MOD_FILTER);
+}
+
 static void ms_pattern_default(ms_pattern_t *p) {
     memset(p, 0, sizeof *p);
     for (int l = 0; l < MS_LANES; l++) {

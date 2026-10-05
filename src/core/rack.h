@@ -80,6 +80,7 @@ typedef struct {
 } rack_t;
 
 void rack_init(rack_t *r);    // small demo rack (osc, filter, saturator, LFO; the tests build on it)
+void rack_init_sampler(rack_t *r, int file, int loop);   // dev / measurement patch: one sampler (catalog index `file`, loop mode 0 file / 1 off / 2 fwd / 3 ping-pong) into one filter, every effect off
 void rack_init_startup(rack_t *r);   // the patch the device starts with: four oscillator engines into a filter, delay and reverb on
 void rack_clear(rack_t *r);   // no modules, default general settings
 

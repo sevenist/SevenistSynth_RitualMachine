@@ -22,7 +22,7 @@ typedef enum {
 #define SYNTH_MAX_VOICES 8
 
 typedef enum {
-    CFGP_TYPE, CFGP_PATCH, CFGP_VOICES, CFGP_VOLUME,                 // GENERAL tab
+    CFGP_TYPE, CFGP_PATCH, CFGP_VOICES, CFGP_VOLUME, CFGP_OUTPUT,    // GENERAL tab
     CFGP_GENERAL_COUNT,
     CFGP_COUNT = CFGP_GENERAL_COUNT
 } cfg_param_id_t;
@@ -31,7 +31,8 @@ typedef struct {
     uint8_t type;        // synth_type_t
     uint8_t fm_patch;    // factory patch the edit copy `fm` was loaded from, 0..127 (shown as 1..128)
     uint8_t voices;      // 1..SYNTH_MAX_VOICES
-    float   volume;      // master volume 0..2
+    float   volume;      // master volume 0..2 (applied at the very end of the chain, after the master effects)
+    uint8_t mono;        // 0 = stereo output, 1 = (L + R) / 2 on both channels
     dx7_patch_t fm;      // the FM patch being played / edited (a copy: factory edits do not change the bank)
     fxrack_t fxr;        // the master effects rack (four slots, see core/fxrack.h)
 } synth_config_t;

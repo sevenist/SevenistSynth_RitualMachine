@@ -19,6 +19,20 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
   the vowel / dust filters in float, the dust level compensation.
 - The user's earlier plans: save / load of racks and FM patches "after some fixes"; the engine / UI work of the previous sessions (ADR-028..034) was never listened to either (levels untuned; they asked to skip that step).
 
+## TF card and sampler on the board (first tests by the user, then a fix round; NOTHING of the fix round is verified on the board)
+
+The user played the cooked demo `.smp` files from the card and reported: loop points misplaced / shifted, only 2-3 voices, the card read "too much".
+- **Loop: found and fixed on the host** (ADR-022 addendum). A fixed `block % 8` ring slot made a loop's end and start blocks collide, so the loop start was never prefetched and every lap dropped out. The new test fails without the fix. Ask the user to listen to `pad_c4` again.
+- **Card reads, fixed by reasoning, not measured:** the ring and heads live in PSRAM, which the SD host cannot fill by DMA, so the driver (from my memory of the ESP-IDF source) reads one sector per command; `SdStorage` now reads through an internal DMA bounce buffer and skips redundant seeks.
+  Also removed: the 64 reads per file the scan did at boot (the overview is stored in the `.smp` header now; old files still work but re-cook them: `.\build.ps1` after putting the sources in `samples_src/`, or `python tools/make_demo_samples.py` for the demos).
+- **2-3 voices: cause NOT established.** Two suspects, in this order: (1) CPU, not the card: the default patch costs about 24k cycles per voice (see the table below), 3 notes = 75 % of the budget, so 3-4 voices of that patch is its limit; a sampler rack with a light patch should do much better.
+  (2) the card (reads per second and the PSRAM bounce above). To tell them apart flash with `-DHWV1_DEBUG_AUDIO -DENGINE_PROFILE` (currently commented out in platformio.ini) and read: `[AUDIO] ... blocks over budget` (CPU), `[PROF]` with the Sampler line (cost per voice),
+  and the new `[SD]` / `[SMP]` line (card KB/s, average read time, `underruns` = dry streams). If `blocks over budget` is 0 while `underruns` rises, it is the card; if it is the other way round, it is the CPU.
+- Possible next steps if the card is still the limit (each is a design choice for the user): voices that play the same sample share the blocks they read (today every voice reads its own copy); fast seek in FATFS (an sdkconfig option the Arduino prebuilt libs do not expose);
+  a faster SPI clock (`HWV1_SD_FREQ_KHZ`, 20000 now); the planned SDMMC 4-bit slot of the next prototype.
+- Task priorities are written down in DEVELOPING.md ("Tasks and priorities"): FreeRTOS was already in place; `sd_io` now runs at 5 (above the UI loop, below input and audio).
+- New workflow: `samples_src/` (+ `build.ps1`, `-Sd E:` to copy to the card). Names to know: files with names longer than 23 characters are cut; only `.smp` is read on the board.
+
 ## Latest measurements (prototype, startup patch, mono FX + half-rate reverb, budget 160000 cycles per 32-frame block)
 
 Measured with `tools/serial_test.py` on the last build that was on the board (engines still with the generic per-sample loop; the loop fast path below was built after it):

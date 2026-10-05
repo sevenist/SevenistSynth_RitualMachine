@@ -14,8 +14,12 @@ The engine's design, every decision with its reasons and the measurements behind
 cd D:\DEV\SevenSynthCore\ui\oled_sim
 .\build.ps1                      # clean build ~5 s, one changed file ~1.5 s (per-file objects in build\obj, parallel)
 .\build\oled_sim.exe             # SDL2.dll must be on PATH (C:\msys64\ucrt64\bin)
-.\tools\build_engine_tests.ps1 -Matrix    # 132 engine tests in six sample-rate / block-size configurations
+.\tools\build_engine_tests.ps1 -Matrix    # 133 engine tests in six sample-rate / block-size configurations
 ```
+
+**Samples:** put `.wav` / `.mp3` files in `samples_src/` and run `.\build.ps1`: every new or changed file is converted to `samples/<name>.smp` (the cooked format; stereo is mixed to mono,
+the loop and root note come from the WAV `smpl` chunk, or a note at the end of the name: `pad_c4.wav`, `bass_fs2.wav`). The simulator plays `samples/`; `.\build.ps1 -Sd E:` also copies the `.smp` files to the
+TF card (`E:\samples`). `-NoSamples` skips the step. See `samples_src/README.txt`.
 
 If `oled_sim.exe` is running, `build.ps1` cannot overwrite it and builds `build\oled_sim_new.exe` instead (close the
 window to get the normal name back). `.\build.ps1 -Clean` rebuilds everything.
@@ -58,7 +62,8 @@ oled_sim/
 ├─ build.ps1             desktop build (per-file objects, dependency tracking). Params: -Platform sim (default), -Clean
 ├─ ENGINE_DESIGN.md      the engine's design document: ADRs, measurements, budget, known limits
 ├─ platformio.ini        ESP32 firmware build (Waveshare ESP32-S3-Pico; runs on the first prototype), flags documented inside
-├─ tests/engine/         132 unit / integration tests (own tiny runner), see "Testing"
+├─ samples_src/          YOUR .wav / .mp3 files: build.ps1 converts the new ones to samples/*.smp (README.txt inside)
+├─ tests/engine/         133 unit / integration tests (own tiny runner), see "Testing"
 ├─ tools/                generators, measuring tools and the serial test tool for the board (see "Tools")
 ├─ .claude/skills/       project skills for Claude Code (esp32-optimize: the measure / change / test / flash / re-measure loop)
 ├─ lib/u8g2/             graphics lib + its SDL display/key backend (not versioned)
@@ -89,11 +94,11 @@ oled_sim/
    │  ├─ core/              module API, graph description, plan compiler, engine (voices, command queue), heap
    │  ├─ modules/           builtin, synth (Osc Env Lfo Filter Vca Mix Mult Shaper Const), fx (Delay Spectral Vocoder Chorus
    │  │                     Reverb), dx7_voice (FM), sampler_modules (Sampler Granular)
-   │  └─ sampler/           .smp format, storage interface + simulated card, sample bank, streaming loader
+   │  └─ sampler/           .smp format, storage interface, sample bank, streaming loader
    └─ platform/
       ├─ engine/            shared by desktop and ESP32: rack -> graph mapper, DX7 patch conversion, the C API
       │                     (engine_synth.h) the HAL calls
-      ├─ sim/               desktop: SDL display, SDL audio thread, keyboard (#ifdef PLATFORM_SIM)
+      ├─ sim/               desktop: SDL display, SDL audio thread, keyboard, the samples/ folder on a SimStorage (sim_storage.h: a slow-card model, also used by the tests) (#ifdef PLATFORM_SIM)
       └─ esp32/             the firmware for the first prototype (#if defined(ARDUINO_ARCH_ESP32), pins and drivers inside #ifdef HWV1): I2S audio task + profiling, SH1107 display,
                             TCA8418 keyboard, analog mux + quadrature knobs, joystick, LED stub, power, dev serial commands, boot benchmark (see "ESP32 firmware and performance work")
 ```
@@ -280,7 +285,8 @@ Rack -> engine mapping and the master chain are described in ENGINE_DESIGN.md (A
 | `gen_dx7.py` | `src/core/dx7_factory.c` and `src/core/dx7_algos.c` (needs `lib/amy`) | `python tools/gen_dx7.py` |
 | `gen_engine_tables.py` | `src/engine/dsp/tables.cpp` (sine, exp2, tan, tanh, FFT twiddles, window, CORDIC) | `python tools/gen_engine_tables.py` |
 | `make_demo_samples.py` | five synthetic demo samples into `samples/` (the simulator's card folder) | `python tools/make_demo_samples.py` |
-| `wav2smp.py` | WAV (8..32 bit, mono/stereo, `smpl` loops) -> cooked `.smp` sample | `python tools/wav2smp.py in.wav out.smp --root 60 --slices 0 12000` |
+| `smp_convert.cpp` | every `.wav` / `.mp3` of a folder -> `.smp` (new or changed files only; shares `platform/sim/sample_convert.h` with the simulator's importer). build.ps1 builds and runs it on `samples_src/` | `build\smp_convert.exe samples_src samples [--force]` |
+| `wav2smp.py` | one WAV (8..32 bit, mono/stereo, `smpl` loops) -> cooked `.smp` sample, with `--slices` / `--loop` / `--root` options the converter has no way to give | `python tools/wav2smp.py in.wav out.smp --root 60 --slices 0 12000` |
 | `build_engine_tests.ps1` | builds and runs the engine tests; `-Matrix` for all configurations, `-Filter name` for a few | see the file header |
 | `ui_dump.c` | renders the screens to ASCII without SDL or audio (layout checks) | command at the top of the file |
 | `serial_test.py` | talks to the prototype over its serial port: holds chords of 1 / 3 / 6 notes, switches oscillator engines live, prints render time, cycles per module and the memory use | `C:/.platformio/penv/Scripts/python.exe tools/serial_test.py` (see "ESP32 firmware and performance work") |
@@ -327,6 +333,7 @@ C:\.platformio\penv\Scripts\python.exe tools\serial_test.py   # measure on COM8 
 | `leds_esp32.cpp` | LED HAL (`hal_leds.h`): frame buffer and key -> LED map; the driver that pushes it is a TODO |
 | `audio_esp32.cpp` | I2S (MSB format, no MCLK) and the audio task on core 1; sizes the fast heap (internal RAM) and the bulk heap (PSRAM); applies `DEV_OUTPUT_GAIN_PCT`; prints the `[AUDIO]` / `[PROF]` / `[SEC]` / `[OSC]` / `[HEAP]` lines |
 | `bench_esp32.*` | boot micro benchmark (`HWV1_BENCH`): cycles per operation, RAM vs PSRAM |
+| `sd_card.*`, `storage_sd.*`, `samples_esp32.*` | the TF card: `sd_card` mounts it as FAT at `/sdcard` (the only file that knows the wiring: ESP-IDF sdspi on HWV1, pins in `board_pins.h`, `HWV1_SD_FREQ_KHZ` = 20000), `SdStorage` is the sampler's `StorageDevice`, `samples_esp32` is the I/O task (core 0, priority 5, see "Tasks and priorities"): mount, list `/sdcard/samples/*.smp` into the catalog (the header of each file carries the amplitude overview, so a scan reads one block per file), run the loader. Cook files on the PC (`samples_src/` + build.ps1); there is no .wav / .mp3 import on the board. `SdStorage` reads through an 8 KB internal DMA-capable bounce buffer (a PSRAM destination would make the SD driver issue one command per 512 bytes) |
 | `serial_cmd_esp32.*` | dev commands over the serial port (`DEV_SERIAL_CMD`) |
 
 ### Build flags (`platformio.ini`)
@@ -353,6 +360,8 @@ The host tests take the same engine flags: `.\tools\build_engine_tests.ps1 -Defs
 - `[BOARD]` power / amplifier pins at boot; `[BENCH]` cycles per operation (the table in ENGINE_DESIGN.md ADR-035 came from here); `[KEY]` raw key events.
 - `[AUDIO] render avg A us, worst W us, budget B us per 64 frames, N blocks over budget of M, graph builds G (last: reason)`: the audio task's time to render 64 frames against the 1333 us it has. A block over budget is an audible
   dropout. A `worst` of 80-250 ms with `graph builds` rising means a knob changed the graph's shape (rebuild stall; the reason text says which cable or node).
+- `[SD] N reads in T ms: X KB/s, avg A us, worst ever W us; opens, seeks, errors | [SMP] stream blocks +B, underruns U (+d)` every 2 s while samples stream (needs `HWV1_DEBUG_AUDIO`): what the card delivered and whether a sampler playhead ran dry
+  (`underruns` rising = audible dropouts; avg read time near 1000 us or more = the card is the limit).
 - `[PROF] cycles per block (budget 160000), total T: Name=cycles(xN) ...` per module type, summed over voices (xN = instances). `[SEC]` stage timers inside Reverb and Delay, `[OSC]` per oscillator engine, `[HEAP]` fast heap used / spilled bytes.
 
 ### The serial test tool
@@ -367,6 +376,20 @@ C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --raw --seconds 3   
 It opens the port with DTR / RTS low (no reset). Its commands need `DEV_SERIAL_CMD` in the flashed build ("no answer to ping" otherwise), and it discards the first 2 s after each change. The notes it plays go straight to the engine and
 do not appear on the UI. If two runs give identical per-engine numbers after you changed the code, the old binary is still on the board.
 
+### Tasks and priorities
+
+The firmware already runs on FreeRTOS (the Arduino core is built on ESP-IDF, dual core): nothing else has to be added, the work is deciding who runs where and how urgent each task is. Higher number = more urgent.
+
+| Task | Core | Priority | Does | Why there |
+| --- | --- | --- | --- | --- |
+| `audio` | 1 | 23 (`configMAX_PRIORITIES - 2`) | engine render + I2S write | a missed block is a click; core 1 is otherwise idle |
+| `input` | 0 | 8 | keyboard / mux / joystick scan | short and periodic, must not lose events |
+| `sd_io` | 0 | 5 | card mount / scan, the sample loader | has deadlines (a dry stream is audible) but only milliseconds of CPU; sleeps 2 ticks after 8 reads in a row and during a scan (the card driver busy-waits, so without that the core-0 idle task starves and the task watchdog fires) |
+| Arduino `loop()` | 0 | 1 | app, sequencer, display | no deadline: a late frame is invisible |
+
+Rules: nothing on core 1 except `audio`; anything that waits on hardware (card, I2C) must block (DMA / semaphore), never spin; the loader holds the engine mutex while it reads, so a UI build can wait a few ms behind a card read (never the audio task).
+If something new needs the CPU on core 0, give it a priority by its deadline, not by its importance.
+
 ### Performance rules (details and numbers in ENGINE_DESIGN.md ADR-035)
 
 - Budget 160000 cycles per 32-frame block. Check `blocks over budget` with 1, 3 and 6 held notes of the real patch (`rack_init_startup` = 4 oscillator engines into a filter, delay and reverb on).
@@ -379,7 +402,7 @@ do not appear on the UI. If two runs give identical per-engine numbers after you
 ## Not implemented yet (next steps)
 
 - **Sampler in the application: done for one sample per module** (ADR-030). Left: zones (multisample keyboards, velocity layers) in the UI,
-  the granular module in the rack, a sampler synth type, the TF card driver and I/O task on the ESP32, saving racks with file *names*.
+  the granular module in the rack, a sampler synth type, saving racks with file *names*. The TF card driver and I/O task exist (untuned: see CONTINUE.md for what to measure).
 - **Motion sequencer: done** (ADR-029). Left for later: more targets (needs mapper support: resonance, mix, modulator rates), a
   lane copy / clear / randomise helper, sending the lane position to the screen from the engine instead of `seq.pos`.
 - Modulation of resonance and of other modulators in the mapper (the engine can do both: they are cables).

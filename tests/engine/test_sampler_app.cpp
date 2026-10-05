@@ -3,7 +3,7 @@
 #include <algorithm>
 #include <vector>
 #include "rig.h"
-#include "engine/sampler/sim_storage.h"
+#include "platform/sim/sim_storage.h"
 #include "engine/sampler/smp_format.h"
 #include "platform/engine/engine_synth.h"
 #include "platform/engine/sample_catalog.h"

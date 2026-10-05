@@ -34,6 +34,19 @@ def read_smpl_loop(path):
     return None
 
 
+def peaks(pcm, buckets=64):
+    """Amplitude overview stored in the header (same rule as smp_compute_peaks in smp_format.h)."""
+    frames = len(pcm)
+    out = bytearray(buckets)
+    for b in range(buckets):
+        f0 = frames * b // buckets
+        f1 = max(f0 + 1, frames * (b + 1) // buckets)
+        stride = max(1, (f1 - f0) // 512)
+        peak = max((abs(pcm[f]) for f in range(f0, min(f1, frames), stride)), default=0)
+        out[b] = min(255, peak >> 7)
+    return out
+
+
 def load_pcm(path):
     with wave.open(path, "rb") as w:
         ch, width, rate, n = w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()
@@ -84,6 +97,7 @@ def main():
     struct.pack_into("<IIIHHHhIIBB", header, 4, 1, rate, frames, 1, 16, a.root, a.tune, ls, le, mode, len(slices))
     for i, s in enumerate(slices):
         struct.pack_into("<I", header, 36 + 4 * i, s)
+    header[100:164] = peaks(pcm)
 
     nblocks = (frames + BLOCK // 2 - 1) // (BLOCK // 2)
     body = bytearray(nblocks * BLOCK)

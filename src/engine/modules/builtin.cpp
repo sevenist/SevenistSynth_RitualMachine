@@ -63,16 +63,30 @@ public:
 class MasterOut : public Module {
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"MasterOut", Scope::Global, 2, 0, 1, true, {"L", "R"}, {}, {{"level", kUnity, 0, kUnity}}};
+        static const ModuleInfo i = {"MasterOut", Scope::Global, 2, 0, 3, true, {"L", "R"}, {},
+                                     {{"level", kUnity, 0, kUnity}, {"boost", 0, 0, 1}, {"mono", 0, 0, 1}}};
         return i;
     }
-    void set_param(int idx, int32_t v) override { if (idx == 0) level_ = static_cast<q15>(v); }
+    // level: q15 gain; boost = 1 doubles it (saturating), so the master volume reaches 2.0; mono = 1 sends (L + R) / 2 to both outputs.
+    void set_param(int idx, int32_t v) override {
+        if (idx == 0) level_ = static_cast<q15>(v);
+        else if (idx == 1) boost_ = v != 0;
+        else if (idx == 2) mono_ = v != 0;
+    }
     SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
-        block_gain(ctx.out_l, p.in[0], level_, ctx.frames);
-        block_gain(ctx.out_r, p.in[1], level_, ctx.frames);
+        const q15 *l = p.in[0], *r = p.in[1];
+        for (int i = 0; i < ctx.frames; i++) {
+            q15 a = l[i], b = r[i];
+            if (mono_) a = b = static_cast<q15>((static_cast<int32_t>(a) + b) >> 1);
+            a = mul15(a, level_); b = mul15(b, level_);
+            if (boost_) { a = add15(a, a); b = add15(b, b); }
+            ctx.out_l[i] = a;
+            ctx.out_r[i] = b;
+        }
     }
 private:
     q15 level_ = kUnity;
+    bool boost_ = false, mono_ = false;
 };
 
 template <typename T>

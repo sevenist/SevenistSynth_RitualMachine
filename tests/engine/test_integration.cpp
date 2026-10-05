@@ -166,6 +166,7 @@ TEST(master_effects_add_a_tail_an_echo_and_stereo_width) {
         a.rack.cfg.fxr.slot[1].v[2] = static_cast<int16_t>(dly);                 // slot 2 = delay: Mix, Time
         a.rack.cfg.fxr.slot[1].v[0] = 250;
         a.rack.cfg.fxr.slot[0].v[0] = static_cast<int16_t>(chorus);              // slot 1 = chorus: Mode
+        a.rack.cfg.mono = 0;                                                     // stereo output: the test looks at the width
         a.build();
         engine_synth_note_on(55);
         std::vector<double> held = a.run(0.05);                           // the note has to sound for a moment: on + off in one block never opens the gate

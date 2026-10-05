@@ -68,11 +68,14 @@ public:
 
     uint32_t generation() const { return gen_.load(std::memory_order_acquire); }
 
-    // [AUDIO] the ring block `blk` of the current generation, or nullptr when it has not arrived
+    // [AUDIO] the ring block `blk` of the current generation, or nullptr when it has not arrived. A block can sit in any ring slot
+    // (the loader picks a free one), so the slots are searched by tag: a loop whose end blocks and start blocks would have shared
+    // a slot under a fixed block % kRingBlocks placement can have both resident.
     const q15 *block(uint32_t gen, uint32_t blk) const {
-        const int s = static_cast<int>(blk % static_cast<uint32_t>(kRingBlocks));
         const uint64_t want = (static_cast<uint64_t>(gen) << 32) | blk | 0x8000000000000000ull;
-        return tag_[s].load(std::memory_order_acquire) == want ? ring_ + static_cast<size_t>(s) * kSmpBlockFrames : nullptr;
+        for (int s = 0; s < kRingBlocks; s++)
+            if (tag_[s].load(std::memory_order_acquire) == want) return ring_ + static_cast<size_t>(s) * kSmpBlockFrames;
+        return nullptr;
     }
 
     // [LOADER]
@@ -90,13 +93,14 @@ public:
     uint64_t slot_tag(int s) const { return tag_[s].load(std::memory_order_acquire); }
     void invalidate_slot(int s) { tag_[s].store(0, std::memory_order_release); }
     void publish_slot(int s, uint32_t gen, uint32_t blk) {
-        tag_[s].store((static_cast<uint64_t>(gen) << 32) | blk | 0x8000000000000000ull, std::memory_order_release);
+        tag_[s].store(make_tag(gen, blk), std::memory_order_release);
     }
     q15 *slot_memory(int s) { return ring_ + static_cast<size_t>(s) * kSmpBlockFrames; }
 
     // loader-private bookkeeping
-    bool busy[kRingBlocks] = {};
-    int64_t fetching[kRingBlocks] = {};
+    bool busy[kRingBlocks] = {};            // a read into this slot is in flight
+    uint64_t fetching[kRingBlocks] = {};    // ... and the tag (generation, block) it will publish
+    static uint64_t make_tag(uint32_t gen, uint32_t blk) { return (static_cast<uint64_t>(gen) << 32) | blk | 0x8000000000000000ull; }
 
 private:
     q15 *ring_ = nullptr;

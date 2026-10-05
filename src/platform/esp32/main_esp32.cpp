@@ -26,6 +26,9 @@ void setup() {
     board_audio_enable();
     audio_init();
     app_init(&app, display_init());
+#ifdef DEV_SERIAL_CMD
+    serial_cmd_attach(&app);
+#endif
 }
 
 void loop() {

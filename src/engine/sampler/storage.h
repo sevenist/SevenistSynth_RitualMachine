@@ -1,7 +1,7 @@
 #pragma once
 // Storage abstraction for the sampler (ADR-022). Reads are asynchronous: the sampler never waits for the card.
-// An implementation per backend: TF card driver (ESP32, runs on the I/O core), memory-mapped flash / PSRAM
-// (completes at once), and SimStorage (desktop / tests) which models latency, bandwidth and stalls of a slow card
+// An implementation per backend, all outside engine/: SdStorage (platform/esp32, the TF card, runs on the I/O task), memory-mapped flash / PSRAM
+// (completes at once), and SimStorage (platform/sim, desktop / tests) which models latency, bandwidth and stalls of a slow card
 // against an explicit clock, so underruns can be reproduced deterministically.
 //
 // All times are microseconds on the caller's clock (the engine's block counter on the desktop, esp_timer on target).

@@ -81,9 +81,8 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
 
     /* ---- voice ---- */
     b.add(RN_NOTE, T_NOTE_IN);
-    const double vol = cfg.volume;
     NodeDesc *vo = b.add(RN_VOICE_OUT, T_VOICE_OUT);
-    vo->param[VO_LEVEL] = q(vol / 2.0);
+    vo->param[VO_LEVEL] = q(0.5);                                    // fixed: the master volume is applied by MasterOut, after the effects
 
     if (out.fm) {
         out.dx7_node = RN_DX7;
@@ -353,7 +352,9 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
     NodeDesc *bus = b.add(RN_BUS, T_BUS_IN);
     NodeDesc *ma = b.add(RN_MASTER, T_MASTER_OUT);
     if (bus && ma) {
-        ma->param[0] = kUnity;
+        ma->param[0] = q(std::min(cfg.volume, 1.0f));                // volume 0..2 = level 0..1 x boost 1..2 (same total gain as before: vol / 2 of the old VoiceOut level x 2)
+        ma->param[1] = cfg.volume > 1.0f ? 1 : 0;
+        ma->param[2] = cfg.mono;
         int srcl = RN_BUS, srcr = RN_BUS, portl = 0, portr = 1;
         for (int k = 0; k < FXR_SLOTS; k++) {
             const fx_slot_t &fs = cfg.fxr.slot[k];

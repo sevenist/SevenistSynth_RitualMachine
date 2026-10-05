@@ -2,7 +2,7 @@
 #include "rig.h"
 #include "engine/modules/sampler_modules.h"
 #include "engine/sampler/sample_bank.h"
-#include "engine/sampler/sim_storage.h"
+#include "platform/sim/sim_storage.h"
 
 using namespace sc;
 using namespace tst;
@@ -129,6 +129,8 @@ TEST(smp_container_round_trip_and_alignment) {
     CHECK_EQ(r.loop_mode, SMP_LOOP_PINGPONG);
     CHECK_EQ(r.slice[2], 3333);
     CHECK(r.has_loop());
+    CHECK(r.has_peaks());                                                              // the overview is stored in the header
+    CHECK_EQ(r.peaks[63], 2500 >> 7);                                                  // the last bucket holds frames 4922..4999: |4999 - 2500| at most
     // frame 3000 lives in block 1 (frames 2048..4095), 4 KB aligned
     const size_t off = kSmpBlockBytes * 2 + 2 * (3000 - kSmpBlockFrames);
     CHECK_EQ(static_cast<int16_t>(get16(&f[off])), 500);
@@ -286,6 +288,33 @@ TEST(loops_ping_pong_and_reverse_follow_the_loader) {
     CHECK_NEAR(r[1], val(N - 2), 4);
     CHECK_NEAR(r[5000] - r[0], -5000.0 * 48000.0 / kSampleRate, 6);
     CHECK_EQ(rig.bank.stats.underruns.load(), 0);
+}
+
+// The loop of the demo pad (28800..96000 = blocks 14..46): its end blocks and its start blocks fall on the same ring slots
+// when the slot is chosen as block % kRingBlocks, so the loop start could not be prefetched and every lap dropped out.
+TEST(a_long_loop_wraps_without_underruns_wherever_its_blocks_fall_in_the_ring) {
+    for (uint32_t ls : {28800u, 28800u + 2048u, 28800u + 3 * 2048u, 20000u}) {            // several alignments of the loop against the ring
+        const uint32_t N = 115200, le = ls + 67200;
+        auto val = [](double frame) { return std::round(frame * 0.25) - 14000.0; };
+        SmpHeader h = header(N);
+        h.sample_rate = kSampleRate;
+        h.loop_start = ls; h.loop_end = le; h.loop_mode = SMP_LOOP_FWD;
+        SamplerRig rig(card(8000, 3000000));
+        int id = rig.add_and_load("padloop", make_smp(h, [&](uint32_t i) { return static_cast<int>(val(i)); }));
+        GraphDesc g;
+        sampler_graph(rig, g, [&](NodeDesc *s) { s->param[SMPR_SAMPLE] = id; s->param[SMPR_TRACK] = 0; s->param[SMPR_INTERP] = 0; });
+        CHECK(rig.eng.load(g) == Err::Ok);
+        rig.eng.note_on(69);
+        std::vector<double> y;
+        rig.run_trace(SamplerRig::blocks_for(static_cast<double>(le + 2 * (le - ls)) / kSampleRate + 0.2), &y);
+        const size_t period = le - ls;
+        CHECK_NEAR(y[le - 10], val(le - 10), 2);
+        CHECK_NEAR(y[le + 10], val(ls + 10), 3);                                       // the first wrap lands on the loop start
+        CHECK_NEAR(y[le + 10 + period], val(ls + 10), 3);                              // and the second one
+        CHECK_NEAR(y[le + 3000 + period], val(ls + 3000), 3);
+        std::printf("    loop %u..%u: underruns %u\n", ls, le, rig.bank.stats.underruns.load());
+        CHECK_EQ(rig.bank.stats.underruns.load(), 0);
+    }
 }
 
 TEST(zones_pick_samples_by_note_and_velocity_and_voices_share_the_card) {

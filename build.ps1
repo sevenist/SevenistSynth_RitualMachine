@@ -2,12 +2,44 @@
 #
 # Every source file is compiled to its own object in build/obj and recompiled only when it, or a header it includes
 # (tracked with -MMD), changed; compiles run in parallel. C files are built with gcc, the C++ engine with g++ -std=c++17.
-param([string]$Platform = "sim", [switch]$Clean, [string]$Display = "")   # selects src/platform/<Platform>; -Display 128x128 builds for another screen size (with -Clean)
+#
+# Samples: every .wav / .mp3 you put in samples_src/ is converted to samples/<name>.smp (the format the engine streams; only new or changed files,
+# by tools/smp_convert.cpp). The simulator reads samples/; copy the .smp files to the TF card's samples/ folder, or let -Sd do it:
+#   .\build.ps1 -Sd E:          also copies the converted samples to E:\samples (the card's drive letter)
+#   .\build.ps1 -NoSamples      skip the conversion
+param([string]$Platform = "sim", [switch]$Clean, [string]$Display = "", [string]$Defs = "", [switch]$NoSamples, [string]$Sd = "")   # selects src/platform/<Platform>; -Display 128x128 builds for another screen size, -Defs "-DENGINE_SR=44100" passes engine flags (both with -Clean)
 $ErrorActionPreference = "Stop"
 $u8g2 = "lib/u8g2"
 $objDir = "build/obj"
 if ($Clean -and (Test-Path $objDir)) { Remove-Item -Recurse -Force $objDir }
 New-Item -ItemType Directory -Force $objDir | Out-Null
+
+# ---- samples: samples_src/*.wav|*.mp3 -> samples/*.smp (and optionally to the TF card) ----
+if (-not $NoSamples -and (Test-Path samples_src)) {
+    $conv = "build/smp_convert.exe"
+    $inputs = @("tools/smp_convert.cpp", "src/platform/sim/sample_convert.h", "src/engine/sampler/smp_format.h") | ForEach-Object { Get-Item $_ }
+    if (-not (Test-Path $conv) -or ($inputs | Where-Object { $_.LastWriteTime -gt (Get-Item $conv).LastWriteTime })) {
+        $log = Join-Path $env:TEMP "smp_convert_cc.log"
+        $p = Start-Process g++ -ArgumentList @("-O2", "-std=c++17", "-Isrc", "-Ilib/minimp3", "tools/smp_convert.cpp", "-o", $conv) -NoNewWindow -PassThru -Wait -RedirectStandardError $log -RedirectStandardOutput "$log.out"
+        if ($p.ExitCode -ne 0) { Get-Content $log | ForEach-Object { Write-Host $_ }; Write-Host "Sample converter build FAILED" -ForegroundColor Red; exit 1 }
+    }
+    & $conv samples_src samples
+    if ($LASTEXITCODE -ne 0) { Write-Host "Some samples could not be converted (see above)" -ForegroundColor Yellow }
+}
+if ($Sd) {
+    $drive = ($Sd.TrimEnd([char]92, [char]58)) + ":" + [char]92
+    if (-not (Test-Path $drive)) { Write-Host "No drive ${Sd}: samples not copied" -ForegroundColor Yellow }
+    else {
+        $dest = $drive + "samples"
+        New-Item -ItemType Directory -Force $dest | Out-Null
+        $n = 0
+        foreach ($f in Get-ChildItem samples -Filter *.smp -ErrorAction SilentlyContinue) {
+            $t = Join-Path $dest $f.Name
+            if (-not (Test-Path $t) -or (Get-Item $t).Length -ne $f.Length -or (Get-Item $t).LastWriteTime -lt $f.LastWriteTime) { Copy-Item $f.FullName $t -Force; $n++ }
+        }
+        Write-Host ("samples: {0} file(s) copied to {1}" -f $n, $dest)
+    }
+}
 
 $cSrc   = @(Get-ChildItem src/core/*.c) + @(Get-ChildItem src/platform/$Platform/*.c) +
           @(Get-ChildItem $u8g2/csrc/*.c) + @(Get-ChildItem $u8g2/sys/sdl/common/*.c)
@@ -16,6 +48,7 @@ $cppSrc = @(Get-ChildItem src/engine -Recurse -Filter *.cpp) + @(Get-ChildItem s
 
 $common = @("-O2", "-DPLATFORM_$($Platform.ToUpper())", "-Isrc", "-I$u8g2/csrc", "-IC:/msys64/ucrt64/include/SDL2", "-Ilib/minimp3", "-MMD")
 if ($Display -match '^(\d+)x(\d+)$') { $common += @("-DDISPLAY_WIDTH=$($Matches[1])", "-DDISPLAY_HEIGHT=$($Matches[2])") }
+if ($Defs) { $common += @($Defs -split '\s+' | Where-Object { $_ }) }
 $cFlags   = $common
 $cppFlags = $common + @("-std=c++17", "-fno-exceptions", "-fno-rtti", "-Wall", "-Wextra", "-Wno-unused-parameter")
 

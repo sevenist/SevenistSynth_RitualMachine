@@ -247,11 +247,20 @@ bool engine_synth_sample_info(int index, audio_sample_info_t *out) {
     return true;
 }
 
-void engine_synth_io_pump(void) {
-    if (!s_ready) return;
+bool engine_synth_io_pump(void) {
+    if (!s_ready) return false;
     Synth &s = s_synth;
     std::lock_guard<std::mutex> lk(s.mx);
-    if (s.bank_on) s.bank.pump(s.eng.blocks() * static_cast<uint64_t>(kBlock) * 1000000ull / static_cast<uint64_t>(kSampleRate));
+    if (!s.bank_on) return false;
+    s.bank.pump(s.eng.blocks() * static_cast<uint64_t>(kBlock) * 1000000ull / static_cast<uint64_t>(kSampleRate));
+    return !s.bank.idle();
+}
+
+void engine_synth_sampler_stats(uint32_t *underruns, uint32_t *block_reads) {
+    const bool on = s_ready && s_synth.bank_on;
+    const SamplerStats &st = s_synth.bank.stats;
+    if (underruns) *underruns = on ? st.underruns.load(std::memory_order_relaxed) : 0;
+    if (block_reads) *block_reads = on ? st.block_reads.load(std::memory_order_relaxed) : 0;
 }
 
 #ifdef ENGINE_PROFILE

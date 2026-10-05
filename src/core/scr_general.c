@@ -18,6 +18,7 @@ static const el_def_t elements[] = {
     {"Patch",  EL_VALUE, 1, 0, 1, cfg_value, cfg_adjust, NULL, NULL, NULL, cfg_label, CFGP_PATCH},
     {"Voices", EL_VALUE, 2, 0, 1, cfg_value, cfg_adjust, NULL, NULL, NULL, cfg_label, CFGP_VOICES},
     {"Vol",    EL_VALUE, 3, 0, 1, cfg_value, cfg_adjust, NULL, NULL, NULL, cfg_label, CFGP_VOLUME},
+    {"Out",    EL_VALUE, 4, 0, 1, cfg_value, cfg_adjust, NULL, NULL, NULL, cfg_label, CFGP_OUTPUT},
 };
 #define N_ELEMENTS ((int)(sizeof elements / sizeof elements[0]))
 

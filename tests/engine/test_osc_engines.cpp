@@ -95,6 +95,23 @@ TEST(modal_material_moves_the_partials_from_harmonic_to_bell) {
     CHECK(inharm[1] > 30.0 * inharm[0]);
 }
 
+TEST(modal_fundamental_decays_with_its_designed_time_constant) {
+    // The modes are decaying phasors; the rotation is normalised to unit length so the decay is the designed one. Mode 0 (the fundamental) at morph 24000:
+    // r per sample is interpolated between table rows 11 and 12 (t0 = 40 ms * 2^(6.64 mi / 16)).
+    const double f = 220.0;
+    const int morph = 24000, mi = morph >> 11, fr = morph & 2047;
+    auto r_of = [](int row) { return std::exp(-1.0 / (40.0 * std::pow(2.0, 6.64 * row / 16.0) * 0.001 * kSampleRate)); };
+    const double r0 = r_of(mi) + (r_of(mi + 1) - r_of(mi)) * fr / 2048.0;
+    EngineBench b(OSCX_MODAL, 0, morph);
+    std::vector<double> y = b.play(57, 0.8);
+    const size_t a1 = static_cast<size_t>(0.05 * kSampleRate), z1 = static_cast<size_t>(0.15 * kSampleRate);
+    const size_t a2 = static_cast<size_t>(0.35 * kSampleRate), z2 = static_cast<size_t>(0.45 * kSampleRate);
+    const double ratio = std::sqrt(power_at(y, a2, z2, f) / power_at(y, a1, z1, f));
+    const double want = std::pow(r0, 0.3 * kSampleRate);
+    std::printf("    modal fundamental: amplitude after 0.3 s = %.3f of the earlier one, designed %.3f\n", ratio, want);
+    CHECK(std::fabs(ratio - want) < 0.05 * want);
+}
+
 TEST(fm2_index_adds_sidebands_and_ratio_moves_them) {
     const double f = 220.0;
     EngineBench pure(OSCX_FM2, 0, 16384);

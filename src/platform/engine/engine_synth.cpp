@@ -142,7 +142,8 @@ const char *engine_synth_build_reason(void) { return s_reason; }
 
 unsigned engine_synth_build_count(void) { return s_builds; }
 
-void engine_synth_heap_stats(size_t *fast_used, size_t *fast_cap, size_t *fast_high, size_t *bulk_used) {
+void engine_synth_heap_stats(size_t *fast_used, size_t *fast_cap, size_t *fast_high, size_t *bulk_used, size_t *spilled) {
+    if (spilled) *spilled = s_synth.fast.spilled();
     if (fast_used) *fast_used = s_synth.fast.used();
     if (fast_cap) *fast_cap = s_synth.fast.capacity();
     if (fast_high) *fast_high = s_synth.fast.high_water();

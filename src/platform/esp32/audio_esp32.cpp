@@ -94,9 +94,9 @@ void audio_task_main(void *) {
                     for (auto &v : g_sec_prof) v = 0;
                     static const char *const names[sc::OSCX_ENGINES] = {"karp", "modal", "fm2", "fold", "ssaw", "vowel", "add", "dust"};
                     {
-                        size_t fu = 0, fc = 0, fh = 0, bu = 0;
-                        engine_synth_heap_stats(&fu, &fc, &fh, &bu);
-                        Serial.printf("[HEAP] fast heap (internal RAM) %u of %u bytes used, high water %u; bulk heap (PSRAM) %u used\n", (unsigned)fu, (unsigned)fc, (unsigned)fh, (unsigned)bu);
+                        size_t fu = 0, fc = 0, fh = 0, bu = 0, sp = 0;
+                        engine_synth_heap_stats(&fu, &fc, &fh, &bu, &sp);
+                        Serial.printf("[HEAP] fast heap (internal RAM) %u of %u bytes used, high water %u; bulk heap (PSRAM) %u used, %u bytes of module data spilled there\n", (unsigned)fu, (unsigned)fc, (unsigned)fh, (unsigned)bu, (unsigned)sp);
                     }
                     char oline[160];
                     int ol = 0;

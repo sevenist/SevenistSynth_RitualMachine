@@ -17,7 +17,7 @@ namespace {
 
 constexpr int32_t kSemi = 256;
 constexpr int kKsLen = 2048;                         // string buffer: the lowest pitch is sample rate / 2046 (23 Hz at 48 kHz)
-constexpr int kModes = 8, kHarm = 12, kSaws = 7;
+constexpr int kModes = 8, kHarm = 12, kSaws = 5;
 
 inline int32_t scaled(q15 m, int32_t range) { return static_cast<int32_t>((static_cast<int64_t>(m) * range) >> 15); }
 inline q15 clamp_unit(int32_t v) { return static_cast<q15>(v < 0 ? 0 : (v > 32767 ? 32767 : v)); }
@@ -72,8 +72,8 @@ public:
 
     void reset() override {
         std::memset(ph_, 0, sizeof ph_);
-        std::memset(mph_, 0, sizeof mph_);
-        std::memset(amode_, 0, sizeof amode_);
+        std::memset(mx_, 0, sizeof mx_);
+        std::memset(my_, 0, sizeof my_);
         if (ks_) std::memset(ks_, 0, sizeof(int16_t) * kKsLen);
         lp_ = 0; w_ = 0; gate_ = false; fm_ph_ = 0;
         for (auto &s : sv_) s = SvfStateF{};
@@ -105,6 +105,28 @@ public:
             prepare(inc, timbre, morph);
             prep_ok_ = true; prep_engine_ = engine_; prep_inc_ = inc; prep_timbre_ = timbre; prep_morph_ = morph;
         }
+        // Fast path: a steady pitch and a gate that does not change inside the block (a held note, the usual case) need no per-sample gate test,
+        // trigger check or engine dispatch: one tight loop per engine. The loop around the engines was about 50 cycles per sample.
+        bool edge = false;
+        if (!varying) for (int i = 0; i < n; i++) if ((gate[i] > 16384) != gate_) { edge = true; break; }
+        if (!varying && !edge) {
+            q15 *out = p.out[0];
+            const q15 lv = level_;
+            switch (engine_) {
+                case OSCX_KARP: for (int i = 0; i < n; i++) out[i] = mul15(sat16(karp()), lv); break;
+                case OSCX_MODAL: for (int i = 0; i < n; i++) out[i] = mul15(sat16(modal(inc, false, i)), lv); break;
+                case OSCX_FM2: for (int i = 0; i < n; i++) out[i] = mul15(sat16(fm2(inc, timbre)), lv); break;
+                case OSCX_FOLD: for (int i = 0; i < n; i++) out[i] = mul15(sat16(fold(inc, timbre, morph)), lv); break;
+                case OSCX_SSAW: for (int i = 0; i < n; i++) out[i] = mul15(sat16(ssaw(inc, timbre, morph)), lv); break;
+                case OSCX_VOWEL: for (int i = 0; i < n; i++) out[i] = mul15(sat16(vowel(inc)), lv); break;
+                case OSCX_ADD: for (int i = 0; i < n; i++) out[i] = mul15(sat16(additive(inc)), lv); break;
+                default: for (int i = 0; i < n; i++) out[i] = mul15(sat16(dust()), lv); break;
+            }
+#if defined(ENGINE_PROFILE) && defined(ARDUINO_ARCH_ESP32)
+            g_osc_prof[engine_ & 7] += esp_cpu_get_cycle_count() - prof_t0;
+#endif
+            return;
+        }
         for (int i = 0; i < n; i++) {
             if (varying) inc = pitch_to_inc(pitch_ + scaled(cv[i], kPitchCvSpan) + (mp ? scaled(mp[i], pmod_) : 0), a4_);
             const bool g = gate[i] > 16384;
@@ -113,7 +135,7 @@ public:
             int32_t y;
             switch (engine_) {
                 case OSCX_KARP: y = karp(); break;
-                case OSCX_MODAL: y = modal(inc, varying); break;
+                case OSCX_MODAL: y = modal(inc, varying, i); break;
                 case OSCX_FM2: y = fm2(inc, timbre); break;
                 case OSCX_FOLD: y = fold(inc, timbre, morph); break;
                 case OSCX_SSAW: y = ssaw(inc, timbre, morph); break;
@@ -148,7 +170,7 @@ private:
                     dec_[k] = t_->dtab[mi][k] + static_cast<int32_t>((static_cast<int64_t>(t_->dtab[mi + 1][k] - t_->dtab[mi][k]) * fr) >> 11);
                     ratio_[k] = t_->harm[k] + static_cast<int32_t>((static_cast<int64_t>(t_->bell[k] - t_->harm[k]) * timbre) >> 15);
                 }
-                modal_incs(inc);
+                modal_coefs(inc);
                 break;
             }
             case OSCX_FM2: {
@@ -157,7 +179,7 @@ private:
                 break;
             }
             case OSCX_SSAW: {
-                static const int32_t off[kSaws] = {0, -426, 426, -885, 885, -1475, 1475};     // relative increment at spread 1 (Q15): +-4.5 % at the edge
+                static const int32_t off[kSaws] = {0, -737, 737, -1475, 1475};                  // relative increment at spread 1 (Q15): +-4.5 % at the edge, evenly spaced
                 for (int k = 0; k < kSaws; k++) {
                     const int32_t rel = static_cast<int32_t>((static_cast<int64_t>(off[k]) * timbre) >> 15);
                     saw_inc_[k] = static_cast<uint32_t>(static_cast<int64_t>(inc) + ((static_cast<int64_t>(inc) * rel) >> 15));
@@ -223,7 +245,7 @@ private:
             }
             w_ = d & (kKsLen - 1);
         } else if (engine_ == OSCX_MODAL) {
-            for (int k = 0; k < kModes; k++) { amode_[k] = t_->amp[k] << 15; mph_[k] = 0; }
+            for (int k = 0; k < kModes; k++) { mx_[k] = 0; my_[k] = t_->amp[k] << 15; }          // start in sine phase, at full amplitude
         }
     }
 
@@ -239,22 +261,32 @@ private:
         return out;
     }
 
-    // Phase step of every mode (the pitch step times the mode's frequency ratio); 0 marks a mode above Nyquist. Constant across a block unless the
-    // pitch moves within it, so it is computed once per block and again per sample only in that case.
-    void modal_incs(uint32_t inc) {
+    // Each mode is a decaying phasor: (x, y) is rotated by the mode's frequency and scaled by its decay every sample, so it rings as r^n sin(n theta) with
+    // four multiplies instead of a sine lookup. The rotation (cos, sin of theta, from the table) is first normalised to exactly unit length (one Newton
+    // step of 1/sqrt), because a length error of 1e-5 per sample would otherwise change the decay time of a slow mode by a large factor.
+    // Computed once per block (the prepare cache) and, if the pitch moves inside a block, every 4 samples. A mode above Nyquist gets zero coefficients.
+    void modal_coefs(uint32_t inc) {
         for (int k = 0; k < kModes; k++) {
             const uint64_t ik = (static_cast<uint64_t>(inc) * static_cast<uint64_t>(ratio_[k])) >> 16;
-            minc_[k] = ik > 0x7FFFFFFFull ? 0u : static_cast<uint32_t>(ik);
+            if (ik > 0x7FFFFFFFull) { mrc_[k] = mrs_[k] = 0; continue; }
+            const uint32_t th = static_cast<uint32_t>(ik);
+            const int32_t c = sine(th + 0x40000000u) * 32768, sn = sine(th) * 32768;        // cos, sin: Q30
+            const int32_t n2 = mulh(c, c) + mulh(sn, sn);                                   // |.|^2, Q28 (about 1.0 = 2^28)
+            const int32_t corr = (3 << 27) - (n2 >> 1);                                     // 1.5 - n2 / 2 = 1 / sqrt(n2) to second order
+            const int32_t cn = shl_sat(mulh(c, corr << 2), 2), sg = shl_sat(mulh(sn, corr << 2), 2);   // unit-length cos, sin: Q30 (corr is about 2^28: << 2 stays in 32 bits)
+            mrc_[k] = shl_sat(mulh(dec_[k], cn), 1);                                        // r cos theta, Q30 (dec_ = r in Q31)
+            mrs_[k] = shl_sat(mulh(dec_[k], sg), 1);
         }
     }
 
-    int32_t modal(uint32_t inc, bool varying) {
-        if (varying) modal_incs(inc);
-        int32_t sum = 0;                                                                    // 8 modes of at most 8192 x 32767 / 32768 each: fits 32 bits
+    int32_t modal(uint32_t inc, bool varying, int i) {
+        if (varying && (i & 3) == 0) modal_coefs(inc);
+        int32_t sum = 0;                                                                    // 8 modes of at most 8192 each: fits 32 bits
         for (int k = 0; k < kModes; k++) {
-            mph_[k] += minc_[k];
-            amode_[k] = mulh(amode_[k], dec_[k]) * 2;                                       // amplitude (Q28) x decay (Q31)
-            if (minc_[k]) sum += (sine(mph_[k]) * (amode_[k] >> 15)) >> 15;
+            const int32_t x = mx_[k], y = my_[k];                                           // Q28: the amplitude is the length of (x, y)
+            mx_[k] = (mulh(mrc_[k], x) - mulh(mrs_[k], y)) * 4;
+            my_[k] = (mulh(mrs_[k], x) + mulh(mrc_[k], y)) * 4;
+            sum += my_[k] >> 15;
         }
         return sum;
     }
@@ -287,7 +319,7 @@ private:
         ph_[0] += saw_inc_[0];
         const uint32_t t0 = ph_[0], dt0 = saw_inc_[0];
         const int32_t centre = (t0 < dt0 || t0 > 0u - dt0) ? osc_saw(t0, dt0) : static_cast<int32_t>(t0 >> 16) - 32768;
-        const int32_t wc = 32767 - (morph >> 1), ws = 5000 + ((morph * 6000) >> 15);
+        const int32_t wc = 32767 - (morph >> 1), ws = (5000 + ((morph * 6000) >> 15)) * 3 / 2;      // four side saws carry what six did: x 6/4
         return (((centre * wc) >> 15) * 9 / 20) + (((side * ws) >> 15) * 9 / 20);
     }
 
@@ -342,7 +374,8 @@ private:
     // per block
     int32_t ks_d_ = 100 << 16, ks_a_ = 16000, ks_g_ = 32000;
     int32_t dec_[kModes] = {}, ratio_[kModes] = {}, fm_ratio_ = 65536, harm_amp_[kHarm] = {}, vw_[3] = {};
-    uint32_t saw_inc_[kSaws] = {}, dust_thr_ = 0, minc_[kModes] = {};
+    uint32_t saw_inc_[kSaws] = {}, dust_thr_ = 0;
+    int32_t mrc_[kModes] = {}, mrs_[kModes] = {};            // modal: r cos theta, r sin theta per mode (Q30)
     bool prep_ok_ = false;                                    // the last prepare() was for these values
     int32_t prep_engine_ = 0;
     uint32_t prep_inc_ = 0;
@@ -352,8 +385,8 @@ private:
     float vwf_[3] = {};
     float ds_gain_ = 32768.0f * 14.0f;
     // state
-    uint32_t ph_[kSaws] = {}, mph_[kModes] = {}, fm_ph_ = 0;
-    int32_t amode_[kModes] = {}, lp_ = 0;
+    uint32_t ph_[kSaws] = {}, fm_ph_ = 0;
+    int32_t mx_[kModes] = {}, my_[kModes] = {}, lp_ = 0;      // modal phasors
     int w_ = 0;
     SvfStateF sv_[3], ds_;
 };

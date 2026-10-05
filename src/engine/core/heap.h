@@ -28,6 +28,7 @@ public:
     void set_spill(Heap *h) { spill_ = h; }
     bool owns(const void *p) const { return p >= base_ && p < base_ + cap_; }
 
+    size_t spilled() const { return spilled_; }           // bytes that were taken from the spill heap because this one was full (cumulative)
     size_t used() const { return used_; }               // payload bytes currently allocated
     size_t high_water() const { return high_; }
     size_t capacity() const { return cap_; }
@@ -38,7 +39,7 @@ private:
     struct alignas(16) Hdr { size_t size; uint32_t is_free; uint32_t magic; };
     Hdr *next(Hdr *h) const;
     uint8_t *base_ = nullptr;
-    size_t cap_ = 0, used_ = 0, high_ = 0;
+    size_t cap_ = 0, used_ = 0, high_ = 0, spilled_ = 0;
     Heap *spill_ = nullptr;
 };
 

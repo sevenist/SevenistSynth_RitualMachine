@@ -7,7 +7,9 @@ compile_commands.json
 # --- editor and tool settings: personal, not part of the project ---
 .vscode/
 .idea/
-.claude/
+.claude/*
+!.claude/skills/
+!.claude/skills/**
 *.local.json
 *.local.md
 
@@ -36,6 +38,7 @@ samples/
 # --- debugging captures and scratch files ---
 *.bmp
 *.log
+/run*.txt
 *.tmp
 *.bak
 *.orig

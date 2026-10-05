@@ -46,12 +46,15 @@ void *Heap::alloc(size_t bytes) {
         for (size_t i = 0; i < h->size; i++) p[i] = 0;
         return p;
     }
-    return spill_ ? spill_->alloc(bytes) : nullptr;
+    if (!spill_) return nullptr;
+    void *q = spill_->alloc(bytes);
+    if (q) spilled_ += bytes;
+    return q;
 }
 
 void Heap::free(void *p) {
     if (!p) return;
-    if (!owns(p)) { if (spill_) spill_->free(p); return; }       // a block that spilled into the other heap
+    if (!owns(p)) { if (spill_) { spill_->free(p); } return; }       // a block that spilled into the other heap
     Hdr *h = reinterpret_cast<Hdr *>(static_cast<uint8_t *>(p) - sizeof(Hdr));
     if (h->magic != kMagic || h->is_free) return;               // bad / double free: ignore
     h->is_free = 1;

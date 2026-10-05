@@ -364,23 +364,70 @@ count -> mono, minimp3) runs when a sampler uses the file: pressing Assign in th
 (`engine_synth_set_importer`). The cooked `<name>.smp` is written next to the source (done once; redone when the source is newer). Risk: the UI thread waits
 for the decode (a few seconds for a long mp3).
 
+### ADR-035: Running on the ESP32-S3: measurements, rules and the decisions taken (Accepted; measured on the first prototype; the user took every quality trade)
+
+First hardware runs (board "HWV1", see DEVELOPING.md). Budget: **160000 cycles per 32-frame block** (240 MHz, 48 kHz). The default patch started at 1 voice with reverb and delay;
+after the work below the 4-engine startup patch (`rack_init_startup`: Karplus, Modal, Supersaw, Additive into one filter, delay 1000 ms / 40 %, reverb 40 %) runs 4 voices inside the budget. How the work was
+done (measure on the board with `tools/serial_test.py`, then change, then re-measure) is the skill `.claude/skills/esp32-optimize`.
+
+**What this core costs** (cycles, measured by `HWV1_BENCH`, in-order single-issue, 240 MHz):
+
+| Operation | Cycles | | Operation | Cycles |
+|---|---|---|---|---|
+| int32 multiply + shift | 3 | | float add | 4 |
+| int32 x int32 -> int64 >> 16 | 13 | | float multiply-add (dependent chain) | 6 |
+| int64 x int64 >> 16 | 24 | | int -> float / float -> int | 4 / 8 |
+| high-word multiply `mulh()` | 5 | | **float divide** | **68-72** |
+| table read, internal RAM | 5 | | **float <-> int bit cast (memcpy)** | **62** |
+| table read, flash, cache miss | ~120 | | 64-bit divide | library call, 100+ |
+| Hermite 4-point read (RAM / PSRAM) | 64 / 70 | | linear read (RAM / PSRAM) | 18 / 20 |
+| SVF tick, fixed point with saturation | 202 | | SVF tick, float32 (FPU) | 25 |
+| 2-section filter sample, integer coefficients + convert / float batch | 322 / 342 | | `pitch_to_inc` / `svf_g` / `svf_coef` | 21 / 14 / 54 |
+
+Rules that follow (each one cost a wrong turn to learn): the FPU wins on a **chain of multiply-adds on state** and loses on conversions, division, bit tricks and indexed memory access; dependency latency
+(4-6 cycles per float op) dominates short loops; 64-bit arithmetic in the audio path is expensive (use int32 and `mulh`); cycles are about the instruction count on this core, so read the disassembly when numbers do not add up.
+
+**Decisions and mechanisms:**
+
+1. **Compiler**: the Arduino framework puts `-Os` after the project's `-O2`; `build_src_flags = -O2 -fno-stack-protector` fixes the engine's inlining. `SC_HOT` (= `IRAM_ATTR`) marks every module `process()`
+   (flash code runs through a 16 KB cache shared with the display core); `SC_TABLE` (= `DRAM_ATTR`) keeps the lookup tables in internal RAM.
+2. **Float exception to guideline 2** (user decision): the filter tick (`svf_tick_f`) and the vowel / dust filters use float32 on the FPU (202 -> 25 cycles). Coefficients stay integer (`svf_coef`), converted by `svf_to_float`.
+   When the cutoff modulation is a straight line over the block (checked at 3 points, tolerance 6/256 semitone) the coefficients are computed at both ends of the block and interpolated per sample (no stepping);
+   anything else (audio-rate FM of the cutoff, sample and hold) keeps the exact per-sample computation. `ENGINE_FILTER_EXACT=1` forces exact. 11.4k -> 4.4k cycles per voice.
+3. **Bypass of idle effects**: Chorus mode off, Delay mix 0 and Reverb mix 0 copy the input (state cleared once on entering bypass). -40k cycles at idle.
+4. **Delay-line primitives**: `lerp15` uses a 15-bit fraction (the 16-bit one overflowed int32 when neighbours differed by more than 32768); `read_lerp` / `read_hermite` have a one-wrap-check fast path; the one-pole low-pass,
+   `mul31` and the DC blocker use `mulh` (`mul31` now floors); `mul15n` skips the saturation when the gain is below 1.
+5. **Reverb** (user choices): `ENGINE_REVERB_HALF=1` runs the Dattorro tank at 24 kHz (half-band FIR -1 9 16 9 -1 / 32 down, cubic midpoint up; delays defined in seconds so decay and size are unchanged; combined response about
+   -3 dB at 8 kHz, -6 dB at 10 kHz, -12 dB at 12 kHz): 38k -> 20.5k cycles and 91 -> 49 KB of internal RAM. `ENGINE_FX_MONO=1` computes one channel in the delay (one line, half the cost, -192 KB PSRAM) and the left taps only in the
+   reverb. Both are build flags, on in the prototype's `platformio.ini`; the stereo-specific tests fail with MONO on by design.
+6. **Memory** (internal RAM for the engine is the "fast heap", about 106 KB): when it is full, allocations **spill** to PSRAM (`Heap::set_spill`) and everything touching them gets slower (a mixer went from 88 to ~20 cycles per sample once
+   the oscillators stopped taking the space). Oscillator engine tables are shared (`Tabs`), the Karplus string buffers (4 KB x 32 instances) live in the bulk heap, the command ring is 128 entries. `[HEAP]` reports used / spilled bytes.
+7. **Oscillator engines**: the per-block setup is cached on (engine, pitch step, timbre, morph); a **fast path** runs a tight loop per engine when the pitch is steady and the gate does not change inside the block (the loop around the
+   engines was about 50 cycles per sample); modal modes are decaying phasors with the rotation normalised to unit length (exact decay time, tested); additive uses the Chebyshev recurrence (everything outside the 12 harmonics is -72 dB);
+   the supersaw has 5 saws (the outer spread kept at +-4.5 %, side level x 6/4); Mix4 skips zero-gain inputs. Per oscillator and voice, cycles per sample, before -> after the engine work: add 509 -> 263, modal 503 -> 229, ssaw 348 -> 237, vowel 240 -> 217, karp 131 -> 117 (string buffer now in PSRAM), fm2 134, fold 115 -> 117, dust 142 -> 141.
+8. **A knob must never change the graph's shape.** Adding or removing a node or cable, or making a cable exactly unity (a unity cable is wired straight through, with no gain stage), is a full `Engine::load` = an audio stall of 85-250 ms. Cable
+   depth is now a live command (`Engine::set_edge_depth`, `Cmd::SetDepth`); modulation cables are capped at 32766; the filter's own envelope node always exists (amount 0 = gain 0). Test: `changing_a_modulation_depth_does_not_rebuild_the_graph`.
+9. **Dev tooling** (all removable, see the flag list in DEVELOPING.md): `[AUDIO]` render time and graph build count, `[PROF]` per module, `[SEC]` stage timers in Reverb / Delay, `[OSC]` per engine, `[HEAP]`, `[BENCH]`, and a serial command channel
+   (`DEV_SERIAL_CMD`: `on`, `off`, `chord K`, `eng a b c d`, `release`) driven by `tools/serial_test.py`.
+
+Risks accepted: float and fixed point now coexist in the filter (two representations to keep consistent); the supersaw is thinner than the 7-saw version; the half-rate reverb is darker in the top octave; mono FX lose stereo width;
+the interpolated filter coefficients are a (tested, small) approximation for fast but smooth modulation. Items not yet done are listed in CONTINUE.md ("Next performance steps").
+
 ## Known limits and ideas for later
 
 - Not hooked to the UI yet: the **Sampler** and **Granular** modules and the sample bank (stage 6 is engine-level and
   tested; the application needs a sample browser, a rack module type and loading from the TF card).
-- **ESP32 is untested.** `audio_esp32.cpp` (I2S task on core 1, memory from `heap_caps`) is written for ESP-IDF 5 and has
-  not been compiled; display and input there are still skeletons. CPU numbers on the S3 are unknown: measure the full
-  rack with 8 voices and all effects (a PC runs it at about 2 % of real time).
+- **ESP32**: runs on the first prototype (ADR-035). Display, keyboard, knobs, I2S audio, power and serial debugging work; the TF card, the LED driver and a speaker-amp check are still open. Remaining performance work is listed in CONTINUE.md.
 - q15 tail noise floor of the reverb (about -84 dBFS), the naive shapers (no anti-aliasing, ADR-013), the 512-point FFT
   (needs 1024 above 48 kHz), mono-only samples, no ADPCM.
 - Block-rate envelopes; a cable into a parameter that the module reads once per block is stepped per block.
 - Candidates: per-voice filter keytracking, LFO tempo sync, a patchable FX rack, bypassing idle effects to save CPU,
-  PIE (SIMD) kernels for the S3 behind the existing block functions.
+  PIE (SIMD) kernels for the S3 behind the existing block functions. (Bypassing idle effects was done in ADR-035.)
 
 ## Guidelines (enforced)
 
 1. The audio path never calls `new`/`malloc`, takes a lock, or logs. *Why: determinism.*
-2. No `float`/`double` in the audio path; floats only at init, control rate or in tests. *Why: FPU-less targets, bit-exact tests.*
+2. No `float`/`double` in the audio path; floats only at init, control rate or in tests. *Why: FPU-less targets, bit-exact tests.* **Exception (ADR-035, user decision): the ESP32-S3 has a single-precision FPU; the filter tick and the vowel / dust filters use float32 where it measured 8x faster. Anywhere else, measure first.**
 3. Every saturating/rounding rule lives in `q.h`; modules do not hand-roll shifts. *Why: one place to get scaling right.*
 4. Every DSP module ships with a host test (SNR vs float64 reference, plus stability at extreme parameters).
 5. Time-based parameters are derived from `kSampleRate`/`kBlock`. *Why: ADR-004.*
@@ -400,18 +447,18 @@ for the decode (a few seconds for a long mp3).
 | 7 | Integration: threading, DX7 voice, rack mapping, FX tabs, SDL audio, AMY removed, new build | **done** (89 tests, 6 rate/block configs; simulator builds and runs; not yet listened to) |
 | 8 | Sampler in the UI (sample browser, rack module, TF-card loading); ESP32 bring-up and CPU measurement | next |
 
-## Budget (to be measured on target)
+## Budget (measured on the ESP32-S3 prototype, see ADR-035)
 
 | Item | Budget | Measured |
 |---|---|---|
-| CPU per sample, one core, 240 MHz, 48 kHz | about 5000 cycles total | n/a |
+| CPU per sample, one core, 240 MHz, 48 kHz | 5000 cycles total (160000 per 32-frame block) | startup patch (4 oscillator engines + filter, mono delay, half-rate reverb): idle 30k, 1 voice 60k, 3 voices 119k, 6 voices 208k per block (130 %) |
 | Block buffer (q15, 32 frames) | 64 B each | n/a |
 | Voice state | tbd at stage 2/3 | n/a |
 | Full subtractive patch, 8 voices (Osc+Env+Filter 2 sections+VCA, LFO cabled to cutoff), 48k/32 | 5000 cycles/sample/core on the S3 | 1.5 % of real time on a PC (about 10 us per 667 us block); NOT representative of the S3, measure on hardware |
 | Tables in flash | | sine 2 KB, exp2 1 KB, tan 0.9 KB, tanh 2 KB, FFT twiddles + bit reversal + window 3 KB, CORDIC 80 B |
-| Reverb (Dattorro, 48 kHz) | | 88 KB fast + 19 KB bulk |
+| Reverb (Dattorro, 48 kHz) | | full rate 91 KB fast + 19 KB bulk, 38k cycles per block; half-rate tank 49 KB fast + 9 KB bulk, 20.5k cycles |
 | SpectralFx (STFT 512) | | about 20 KB fast per instance |
-| Delay (1 s stereo) | | 192 KB bulk |
+| Delay (1 s) | | stereo 192 KB bulk, 12.4k cycles per block; mono 96 KB, 8.4k |
 | Sampler | | per voice 32 KB ring (bulk) + per sample about 16 KB head + 12 KB per slice head + tail |
 
 ## Open questions

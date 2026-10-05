@@ -120,6 +120,9 @@ def summarize(lines):
         if m:
             for name, cyc in re.findall(r"(\w+)=(\d+)", m.group(1)):
                 osc.setdefault(name, []).append(int(cyc))
+            mb = re.search(r"inside the engine switch: (\d+)", x)
+            if mb:
+                osc.setdefault("switch", []).append(int(mb.group(1)))
     return dict(osc=osc, a_avg=a_avg, a_worst=a_worst, over=over, blocks=blocks, builds=builds, reason=reason, totals=totals, budget=budget, mods=mods, sec=sec)
 
 

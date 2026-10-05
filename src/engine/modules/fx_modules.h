@@ -6,6 +6,18 @@
 #define ENGINE_DELAY_MAX_MS 1000        // longest delay time; two lines of this length live in the bulk heap
 #endif
 
+// Section cycle counters (ESP32 with -DENGINE_PROFILE): the reverb and delay loops add the cycles of each stage to g_sec_prof[]; the audio task prints
+// and clears them with the [PROF] line. No effect (and no code) otherwise.
+#if defined(ENGINE_PROFILE) && defined(ARDUINO_ARCH_ESP32)
+#include <esp_cpu.h>
+extern uint32_t g_sec_prof[16];
+#define SEC_BEGIN() uint32_t sec_t = esp_cpu_get_cycle_count()
+#define SEC_MARK(n) do { const uint32_t sec_n = esp_cpu_get_cycle_count(); g_sec_prof[n] += sec_n - sec_t; sec_t = sec_n; } while (0)
+#else
+#define SEC_BEGIN() do {} while (0)
+#define SEC_MARK(n) do {} while (0)
+#endif
+
 namespace sc {
 
 enum FxType : int { T_DELAY = 48, T_SPECTRAL, T_VOCODER, /* 51 = global oscillator */ T_CHORUS = 52, T_REVERB };

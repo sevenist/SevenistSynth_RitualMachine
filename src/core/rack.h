@@ -79,7 +79,8 @@ typedef struct {
     ms_pattern_t ms[MS_POOL];   // motion sequencer patterns (see ms_lane_t)
 } rack_t;
 
-void rack_init(rack_t *r);    // small demo rack
+void rack_init(rack_t *r);    // small demo rack (osc, filter, saturator, LFO; the tests build on it)
+void rack_init_startup(rack_t *r);   // the patch the device starts with: four oscillator engines into a filter, delay and reverb on
 void rack_clear(rack_t *r);   // no modules, default general settings
 
 // Edits. Return false when impossible (full / bad position).

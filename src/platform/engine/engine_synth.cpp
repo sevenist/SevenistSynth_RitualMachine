@@ -135,8 +135,34 @@ void engine_synth_shutdown(void) {
     s_synth.bank_on = false;
 }
 
+unsigned s_builds = 0;
+char s_reason[48] = "first";
+
+const char *engine_synth_build_reason(void) { return s_reason; }
+
+unsigned engine_synth_build_count(void) { return s_builds; }
+
+void engine_synth_heap_stats(size_t *fast_used, size_t *fast_cap, size_t *fast_high, size_t *bulk_used) {
+    if (fast_used) *fast_used = s_synth.fast.used();
+    if (fast_cap) *fast_cap = s_synth.fast.capacity();
+    if (fast_high) *fast_high = s_synth.fast.high_water();
+    if (bulk_used) *bulk_used = s_synth.bulk.used();
+}
+
+void engine_synth_set_osc_engine(int index, int engine) {
+    if (!s_ready) return;
+    Synth &s = s_synth;
+    if (!s.have_last) return;
+    int k = 0;
+    for (int i = 0; i < s.last.g.n_nodes; i++) {
+        if (s.last.g.node[i].type != T_OSCX) continue;
+        if (k++ == index) { s.eng.set_param(s.last.g.node[i].id, OSCX_ENGINE, engine); return; }
+    }
+}
+
 void engine_synth_build(const rack_t *rack, const synth_params_t *params) {
     if (!s_ready) return;
+    s_builds++;
     Synth &s = s_synth;
     prepare_samples(*rack);
     std::lock_guard<std::mutex> lk(s.mx);
@@ -160,9 +186,15 @@ void engine_synth_set_params(const rack_t *rack, const synth_params_t *params) {
         resolve_samples(*rack);
         if (!rack_graph_build(*rack, *params, s.eng.registry(), s.cur, s.slot_of, s.cat_n)) return;
     }
-    if (!same_structure(s.last.g, s.cur.g) || s.last.fm != s.cur.fm) { engine_synth_build(rack, params); return; }
+    if (!same_structure(s.last.g, s.cur.g) || s.last.fm != s.cur.fm) {
+        std::snprintf(s_reason, sizeof s_reason, "structure n%d/%d e%d/%d fm%d/%d", s.last.g.n_nodes, s.cur.g.n_nodes, s.last.g.n_edges, s.cur.g.n_edges, s.last.fm, s.cur.fm);
+        engine_synth_build(rack, params); return;
+    }
     for (int k = 0; k < s.cur.g.n_edges; k++)                         // modulation amounts: a gain write, not a rebuild (unless a cable is, or becomes, exactly unity)
-        if (s.cur.g.edge[k].depth != s.last.g.edge[k].depth && !s.eng.set_edge_depth(k, s.cur.g.edge[k].depth)) { engine_synth_build(rack, params); return; }
+        if (s.cur.g.edge[k].depth != s.last.g.edge[k].depth && !s.eng.set_edge_depth(k, s.cur.g.edge[k].depth)) {
+            std::snprintf(s_reason, sizeof s_reason, "edge %d depth %d -> %d", k, s.last.g.edge[k].depth, s.cur.g.edge[k].depth);
+            engine_synth_build(rack, params); return;
+        }
     for (int i = 0; i < s.cur.g.n_nodes; i++) {                       // same graph: only values moved
         const NodeDesc &n = s.cur.g.node[i], &o = s.last.g.node[i];
         for (int p = 0; p < kMaxParams; p++)

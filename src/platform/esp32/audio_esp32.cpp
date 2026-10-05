@@ -9,6 +9,8 @@
 #include <math.h>
 #include "hal/hal_audio.h"
 #include "platform/engine/engine_synth.h"
+#include "engine/modules/fx_modules.h"
+#include "engine/modules/osc_engines.h"
 #include "engine/dsp/config.h"
 #include "platform/esp32/bench_esp32.h"
 #include "board_pins.h"
@@ -65,8 +67,8 @@ void audio_task_main(void *) {
         i2s_channel_write(tx, buf, sizeof buf, &written, portMAX_DELAY);     // blocks until the DMA ring has room: this paces the task
 #ifdef HWV1_DEBUG_AUDIO
         if (millis() - t_report >= 1000 && Serial.availableForWrite() > 160) {      // skip the report rather than block when the port is not being read
-            Serial.printf("[AUDIO] render avg %u us, worst %u us, budget %u us per %d frames, %u blocks over budget of %u\n", (unsigned)(total / blocks),
-                          (unsigned)worst, (unsigned)budget_us, kFrames, (unsigned)late, (unsigned)blocks);
+            Serial.printf("[AUDIO] render avg %u us, worst %u us, budget %u us per %d frames, %u blocks over budget of %u, graph builds %u (last: %s)\n", (unsigned)(total / blocks),
+                          (unsigned)worst, (unsigned)budget_us, kFrames, (unsigned)late, (unsigned)blocks, engine_synth_build_count(), engine_synth_build_reason());
 #ifdef ENGINE_PROFILE
             {   // CPU cycles per rendered block, per module type; the block budget is cpu_hz * block / sample_rate
                 struct Row { const char *name; uint32_t cyc, calls; };
@@ -84,6 +86,26 @@ void audio_task_main(void *) {
                 for (int i = 0; i < acc.n && i < 14 && len < (int)sizeof line - 40; i++)
                     len += snprintf(line + len, sizeof line - len, " %s=%u(x%u)", acc.row[i].name, (unsigned)acc.row[i].cyc, (unsigned)acc.row[i].calls);
                 Serial.printf("[PROF] cycles per block (budget %u), total %u:%s\n", (unsigned)(ESP.getCpuFreqMHz() * 1000000ull * ENGINE_BLOCK / ENGINE_SR), (unsigned)acc.sum, line);
+                if (nblocks) {                                                              // inside the reverb (0..5) and the delay (8..11), per engine block
+                    Serial.printf("[SEC] reverb: in %u, mod %u, left %u, right %u, taps %u, mix %u | delay: time %u, reads %u, lp+write %u, mix %u\n",
+                                  (unsigned)(g_sec_prof[0] / nblocks), (unsigned)(g_sec_prof[1] / nblocks), (unsigned)(g_sec_prof[2] / nblocks), (unsigned)(g_sec_prof[3] / nblocks),
+                                  (unsigned)(g_sec_prof[4] / nblocks), (unsigned)(g_sec_prof[5] / nblocks), (unsigned)(g_sec_prof[8] / nblocks), (unsigned)(g_sec_prof[9] / nblocks),
+                                  (unsigned)(g_sec_prof[10] / nblocks), (unsigned)(g_sec_prof[11] / nblocks));
+                    for (auto &v : g_sec_prof) v = 0;
+                    static const char *const names[sc::OSCX_ENGINES] = {"karp", "modal", "fm2", "fold", "ssaw", "vowel", "add", "dust"};
+                    {
+                        size_t fu = 0, fc = 0, fh = 0, bu = 0;
+                        engine_synth_heap_stats(&fu, &fc, &fh, &bu);
+                        Serial.printf("[HEAP] fast heap (internal RAM) %u of %u bytes used, high water %u; bulk heap (PSRAM) %u used\n", (unsigned)fu, (unsigned)fc, (unsigned)fh, (unsigned)bu);
+                    }
+                    char oline[160];
+                    int ol = 0;
+                    for (int e = 0; e < sc::OSCX_ENGINES; e++) {
+                        if (sc::g_osc_prof[e]) ol += snprintf(oline + ol, sizeof oline - ol, " %s=%u", names[e], (unsigned)(sc::g_osc_prof[e] / nblocks));
+                        sc::g_osc_prof[e] = 0;
+                    }
+                    if (ol) Serial.printf("[OSC] cycles per block, summed over voices:%s\n", oline);
+                }
             }
 #endif
             t_report = millis(); blocks = worst = total = late = 0;

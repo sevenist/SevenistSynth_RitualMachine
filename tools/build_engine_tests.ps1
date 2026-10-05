@@ -5,7 +5,7 @@
 #   .\tools\build_engine_tests.ps1 -Matrix               (the six supported configurations, summary at the end)
 #   .\tools\build_engine_tests.ps1 -Filter spectral      (only tests whose name contains the text)
 #   $env:DX7_GAIN_OUT = "src/platform/engine/fm_patch_gain.h"   regenerates the FM loudness trim table during the run
-param([int]$Sr = 48000, [int]$Block = 32, [switch]$Matrix, [string]$Filter = "")
+param([int]$Sr = 48000, [int]$Block = 32, [switch]$Matrix, [string]$Filter = "", [string]$Defs = "")
 $ErrorActionPreference = "Continue"
 $env:PATH = "C:\msys64\ucrt64\bin;" + $env:PATH
 
@@ -27,7 +27,7 @@ function Run-One($sr, $block) {
     if (Test-Path $out) { Remove-Item $out }
     $log = Join-Path $env:TEMP "engine_build.log"
     $args = @("-std=c++17", "-O2", "-pthread", "-Wall", "-Wextra", "-Wconversion", "-Wno-sign-conversion", "-Wno-unused-parameter", "-fno-exceptions", "-fno-rtti",
-              "-DPLATFORM_SIM", "-DENGINE_SR=$sr", "-DENGINE_BLOCK=$block", "-Isrc", "-Itests/engine") + $cpp + $coreObj + @("-o", $out)
+              "-DPLATFORM_SIM", "-DENGINE_SR=$sr", "-DENGINE_BLOCK=$block", "-Isrc", "-Itests/engine") + @($Defs -split " " | Where-Object { $_ }) + $cpp + $coreObj + @("-o", $out)
     $p = Start-Process g++ -ArgumentList $args -NoNewWindow -PassThru -Wait -RedirectStandardError $log -RedirectStandardOutput "$log.out"
     if ($p.ExitCode -ne 0 -or -not (Test-Path $out)) {
         Get-Content $log | Select-Object -First 30 | ForEach-Object { Write-Host $_ }

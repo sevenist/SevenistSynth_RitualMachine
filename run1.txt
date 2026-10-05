@@ -1,0 +1,74 @@
+[CMD] pong
+[CMD] released
+[CMD] released
+[AUDIO] render avg 486 us, worst 969 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 54919: Reverb=38190(x1) Delay=8235(x1) Env=2109(x0) Filter=1840(x0) Osc=946(x0) Lfo=755(x0) Shaper=734(x0) MasterOut=636(x1) VoiceOut=431(x0) Chorus=370(x1) BusIn=336(x1) Vca=208(x0) NoteIn=129(x0)
+[AUDIO] render avg 418 us, worst 461 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 47673: Reverb=38096(x1) Delay=8233(x1) MasterOut=636(x1) Chorus=370(x1) BusIn=338(x1) NoteIn=0(x0) Osc=0(x0) Env=0(x0) Lfo=0(x0) Filter=0(x0) Shaper=0(x0) Vca=0(x0) VoiceOut=0(x0)
+[SEC] reverb: in 8136, mod 2246, left 9965, right 9189, taps 6396, mix 1232 | delay: time 1163, reads 0, lp+write 5215, mix 913
+[AUDIO] render avg 419 us, worst 461 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[SEC] reverb: in 8150, mod 2230, left 9986, right 9175, taps 6434, mix 1229 | delay: time 1169, reads 0, lp+write 5234, mix 906
+[AUDIO] render avg 419 us, worst 465 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 47777: Reverb=38191(x1) Delay=8242(x1) MasterOut=636(x1) Chorus=369(x1) BusIn=339(x1) NoteIn=0(x0) Osc=0(x0) Env=0(x0) Lfo=0(x0) Filter=0(x0) Shaper=0(x0) Vca=0(x0) VoiceOut=0(x0)
+[AUDIO] render avg 418 us, worst 462 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 47707: Reverb=38124(x1) Delay=8239(x1) MasterOut=636(x1) Chorus=370(x1) BusIn=338(x1) NoteIn=0(x0) Osc=0(x0) Env=0(x0) Lfo=0(x0) Filter=0(x0) Shaper=0(x0) Vca=0(x0) VoiceOut=0(x0)
+[SEC] reverb: in 8137, mod 2226, left 9990, right 9177, taps 6439, mix 1226 | delay: time 1169, reads 0, lp+write 5224, mix 912
+[AUDIO] render avg 419 us, worst 461 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 47785: Reverb=38205(x1) Delay=8237(x1) MasterOut=636(x1) Chorus=369(x1) BusIn=338(x1) NoteIn=0(x0) Osc=0(x0) Env=0(x0) Lfo=0(x0) Filter=0(x0) Shaper=0(x0) Vca=0(x0) VoiceOut=0(x0)
+[CMD] chord 1
+[AUDIO] render avg 503 us, worst 694 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 56504: Reverb=37971(x1) Delay=8257(x1) Filter=2597(x0) Env=2058(x1) Osc=1286(x0) Shaper=1026(x0) Lfo=1024(x0) MasterOut=635(x1) VoiceOut=488(x0) Chorus=370(x1) BusIn=324(x1) Vca=283(x0) NoteIn=185(x0)
+[AUDIO] render avg 564 us, worst 639 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 62713: Reverb=37930(x1) Delay=8269(x1) Filter=4580(x1) Env=3027(x2) Osc=2286(x1) Lfo=1804(x1) Shaper=1800(x1) VoiceOut=862(x1) MasterOut=630(x1) Vca=502(x1) Chorus=375(x1) NoteIn=329(x1) BusIn=319(x1)
+[AUDIO] render avg 563 us, worst 635 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 62636: Reverb=37838(x1) Delay=8282(x1) Filter=4584(x1) Env=3026(x2) Osc=2288(x1) Lfo=1806(x1) Shaper=1797(x1) VoiceOut=867(x1) MasterOut=631(x1) Vca=504(x1) Chorus=372(x1) NoteIn=326(x1) BusIn=315(x1)
+[AUDIO] render avg 564 us, worst 630 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 62732: Reverb=37932(x1) Delay=8285(x1) Filter=4584(x1) Env=3021(x2) Osc=2293(x1) Lfo=1807(x1) Shaper=1802(x1) VoiceOut=861(x1) MasterOut=630(x1) Vca=502(x1) Chorus=371(x1) NoteIn=328(x1) BusIn=316(x1)
+[AUDIO] render avg 563 us, worst 628 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[SEC] reverb: in 8100, mod 2217, left 9936, right 9150, taps 6274, mix 1222 | delay: time 1175, reads 0, lp+write 5250, mix 913
+[AUDIO] render avg 564 us, worst 630 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[SEC] reverb: in 8097, mod 2217, left 9911, right 9190, taps 6343, mix 1222 | delay: time 1179, reads 0, lp+write 5254, mix 906
+[AUDIO] render avg 564 us, worst 636 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 62699: Reverb=37898(x1) Delay=8278(x1) Filter=4592(x1) Env=3027(x2) Osc=2294(x1) Lfo=1805(x1) Shaper=1797(x1) VoiceOut=864(x1) MasterOut=630(x1) Vca=504(x1) Chorus=373(x1) NoteIn=321(x1) BusIn=316(x1)
+[AUDIO] render avg 563 us, worst 630 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 62638: Reverb=37839(x1) Delay=8285(x1) Filter=4585(x1) Env=3024(x2) Osc=2293(x1) Lfo=1807(x1) Shaper=1796(x1) VoiceOut=863(x1) MasterOut=630(x1) Vca=502(x1) Chorus=373(x1) NoteIn=323(x1) BusIn=318(x1)
+[CMD] chord 3
+[AUDIO] render avg 733 us, worst 970 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 80519: Reverb=38068(x1) Filter=9453(x2) Delay=8262(x1) Env=7461(x4) Osc=4797(x2) Lfo=3852(x2) Shaper=3762(x2) VoiceOut=1829(x2) Vca=1062(x2) NoteIn=652(x2) MasterOut=637(x1) Chorus=370(x1) BusIn=314(x1)
+[SEC] reverb: in 8132, mod 2226, left 9976, right 9215, taps 6365, mix 1229 | delay: time 1163, reads 0, lp+write 5256, mix 907
+[AUDIO] render avg 847 us, worst 898 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 92436: Reverb=38253(x1) Filter=13180(x3) Env=9032(x6) Delay=8272(x1) Osc=6734(x3) Lfo=5413(x3) Shaper=5264(x3) VoiceOut=2563(x3) Vca=1492(x3) NoteIn=915(x3) MasterOut=639(x1) Chorus=369(x1) BusIn=310(x1)
+[SEC] reverb: in 8164, mod 2238, left 10064, right 9256, taps 6376, mix 1230 | delay: time 1159, reads 0, lp+write 5267, mix 900
+[AUDIO] render avg 846 us, worst 907 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 92329: Reverb=38159(x1) Filter=13185(x3) Env=9031(x6) Delay=8262(x1) Osc=6733(x3) Lfo=5414(x3) Shaper=5257(x3) VoiceOut=2564(x3) Vca=1491(x3) NoteIn=913(x3) MasterOut=639(x1) Chorus=370(x1) BusIn=311(x1)
+[SEC] reverb: in 8174, mod 2241, left 9992, right 9213, taps 6379, mix 1236 | delay: time 1159, reads 0, lp+write 5266, mix 900
+[AUDIO] render avg 848 us, worst 907 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 92480: Reverb=38281(x1) Filter=13198(x3) Env=9031(x6) Delay=8270(x1) Osc=6732(x3) Lfo=5414(x3) Shaper=5267(x3) VoiceOut=2560(x3) Vca=1492(x3) NoteIn=917(x3) MasterOut=638(x1) Chorus=369(x1) BusIn=311(x1)
+[SEC] reverb: in 8174, mod 2243, left 10042, right 9286, taps 6383, mix 1231 | delay: time 1159, reads 0, lp+write 5274, mix 900
+[AUDIO] render avg 847 us, worst 902 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 92371: Reverb=38189(x1) Filter=13190(x3) Env=9038(x6) Delay=8268(x1) Osc=6725(x3) Lfo=5412(x3) Shaper=5264(x3) VoiceOut=2560(x3) Vca=1492(x3) NoteIn=915(x3) MasterOut=639(x1) Chorus=369(x1) BusIn=310(x1)
+[AUDIO] render avg 854 us, worst 1076 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 92797: Reverb=38343(x1) Filter=13220(x3) Env=9076(x6) Delay=8371(x1) Osc=6737(x3) Lfo=5438(x3) Shaper=5287(x3) VoiceOut=2575(x3) Vca=1492(x3) NoteIn=925(x3) MasterOut=638(x1) Chorus=376(x1) BusIn=319(x1)
+[SEC] reverb: in 8182, mod 2244, left 10017, right 9309, taps 6418, mix 1235 | delay: time 1162, reads 0, lp+write 5363, mix 901
+[AUDIO] render avg 857 us, worst 1054 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[SEC] reverb: in 8185, mod 2248, left 10066, right 9279, taps 6438, mix 1239 | delay: time 1162, reads 0, lp+write 5420, mix 903
+[AUDIO] render avg 851 us, worst 1010 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 92613: Reverb=38278(x1) Filter=13215(x3) Env=9049(x6) Delay=8315(x1) Osc=6739(x3) Lfo=5423(x3) Shaper=5282(x3) VoiceOut=2576(x3) Vca=1492(x3) NoteIn=920(x3) MasterOut=637(x1) Chorus=374(x1) BusIn=313(x1)
+[SEC] reverb: in 8165, mod 2243, left 10042, right 9263, taps 6397, mix 1239 | delay: time 1161, reads 0, lp+write 5319, mix 900
+[CMD] chord 6
+[AUDIO] render avg 1113 us, worst 1513 us, budget 1333 us per 64 frames, 89 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 120504: Reverb=38082(x1) Filter=20826(x4) Env=16480(x9) Osc=10695(x4) Lfo=8626(x4) Shaper=8354(x4) Delay=8226(x1) VoiceOut=4087(x4) Vca=2378(x4) NoteIn=1429(x4) MasterOut=633(x1) Chorus=372(x1) BusIn=316(x1)
+[AUDIO] render avg 1271 us, worst 1336 us, budget 1333 us per 64 frames, 1 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 136726: Reverb=37875(x1) Filter=26219(x6) Env=18205(x12) Osc=13489(x6) Lfo=10908(x6) Shaper=10541(x6) Delay=8193(x1) VoiceOut=5182(x6) Vca=2993(x6) NoteIn=1796(x6) MasterOut=634(x1) Chorus=374(x1) BusIn=317(x1[AUDIO] render avg 1271 us, worst 1334 us, budget 1333 us per 64 frames, 1 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 136702: Reverb=37834(x1) Filter=26247(x6) Env=18191(x12) Osc=13507(x6) Lfo=10906(x6) Shaper=10530(x6) Delay=8191(x1) VoiceOut=5177(x6) Vca=3000(x6) NoteIn=1791(x6) MasterOut=644(x1) Chorus=372(x1) BusIn=312(x1[AUDIO] render avg 1271 us, worst 1325 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 136726: Reverb=37855(x1) Filter=26214(x6) Env=18195(x12) Osc=13482(x6) Lfo=10929(x6) Shaper=10557(x6) Delay=8194(x1) VoiceOut=5176(x6) Vca=2998(x6) NoteIn=1794(x6) MasterOut=635(x1) Chorus=374(x1) BusIn=323(x1[SEC] reverb: in 8086, mod 2216, left 9925, right 9173, taps 6307, mix 1223 | delay: time 1157, reads 0, lp+write 5209, mix 900
+[AUDIO] render avg 1271 us, worst 1333 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 136727: Reverb=37871(x1) Filter=26235(x6) Env=18178(x12) Osc=13498(x6) Lfo=10917(x6) Shaper=10542(x6) Delay=8190(x1) VoiceOut=5178(x6) Vca=2995(x6) NoteIn=1793(x6) MasterOut=633(x1) Chorus=374(x1) BusIn=323(x1[SEC] reverb: in 8086, mod 2216, left 9922, right 9145, taps 6353, mix 1222 | delay: time 1157, reads 0, lp+write 5205, mix 899
+[AUDIO] render avg 1271 us, worst 1328 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 136723: Reverb=37849(x1) Filter=26231(x6) Env=18176(x12) Osc=13494(x6) Lfo=10917(x6) Shaper=10560(x6) Delay=8191(x1) VoiceOut=5180(x6) Vca=2998(x6) NoteIn=1797(x6) MasterOut=633(x1) Chorus=375(x1) BusIn=322(x1[SEC] reverb: in 8087, mod 2216, left 9946, right 9155, taps 6295, mix 1222 | delay: time 1157, reads 0, lp+write 5206, mix 899
+[AUDIO] render avg 1272 us, worst 1329 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 136757: Reverb=37889(x1) Filter=26230(x6) Env=18174(x12) Osc=13509(x6) Lfo=10899(x6) Shaper=10556(x6) Delay=8191(x1) VoiceOut=5175(x6) Vca=3004(x6) NoteIn=1799(x6) MasterOut=633(x1) Chorus=375(x1) BusIn=323(x1[SEC] reverb: in 8088, mod 2216, left 9911, right 9171, taps 6352, mix 1222 | delay: time 1157, reads 0, lp+write 5207, mix 899
+[AUDIO] render avg 1271 us, worst 1329 us, budget 1333 us per 64 frames, 0 blocks over budget of 750, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 136727: Reverb=37846(x1) Filter=26237(x6) Env=18191(x12) Osc=13508(x6) Lfo=10917(x6) Shaper=10549(x6) Delay=8194(x1) VoiceOut=5162(x6) Vca=3000(x6) NoteIn=1790(x6) MasterOut=633(x1) Chorus=377(x1) BusIn=323(x1[SEC] reverb: in 8089, mod 2216, left 9938, right 9141, taps 6313, mix 1222 | delay: time 1157, reads 0, lp+write 5208, mix 900
+[CMD] released
+[CMD] released

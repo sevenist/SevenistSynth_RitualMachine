@@ -22,6 +22,11 @@ enum OscxEngine : int { OSCX_KARP, OSCX_MODAL, OSCX_FM2, OSCX_FOLD, OSCX_SSAW, O
 enum { OSCX_ENGINE, OSCX_PITCH, OSCX_TIMBRE, OSCX_MORPH, OSCX_LEVEL, OSCX_PITCH_MOD, OSCX_N };
 
 constexpr int T_OSCX = 60;
+
+// Per-engine cycle counters (ESP32 with -DENGINE_PROFILE): process() adds its cycles to g_osc_prof[engine]; the audio task prints and clears them.
+#if defined(ENGINE_PROFILE) && defined(ARDUINO_ARCH_ESP32)
+extern uint32_t g_osc_prof[OSCX_ENGINES];
+#endif
 void register_osc_engines(Registry &reg);
 
 }  // namespace sc

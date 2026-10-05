@@ -282,6 +282,44 @@ double freq_between(const std::vector<double> &y, double t0, double t1) {
 }
 }  // namespace
 
+TEST(changing_a_modulation_depth_does_not_rebuild_the_graph) {
+    App a;
+    rack_init(&a.rack);                                                     // demo rack: osc, filter, saturator, LFO -> cutoff
+    a.rack.cfg.fxr.slot[1].v[2] = 0; a.rack.cfg.fxr.slot[2].v[0] = 0;
+    rack_insert(&a.rack, 4, MOD_ENV);
+    rack_slot_t &env = a.rack.slot[4];
+    env.tgt_id = a.rack.slot[1].id; env.tgt_param = 0;                      // envelope -> filter cutoff
+    env.v[MP_EN_DEPTH] = 0.0f;
+    a.build();
+    a.run(0.01);                                                            // the plan becomes active at the next block
+    const float steps[] ={0.25f, 0.5f, 3.0f, 7.75f, 8.0f, 7.75f, 0.0f, 0.25f, -0.25f, 0.0f, 0.5f, -8.0f, -7.75f};
+    for (float d : steps) {
+        const unsigned before = engine_synth_build_count();
+        env.v[MP_EN_DEPTH] = d;
+        engine_synth_set_params(&a.rack, &a.params);
+        std::printf("    depth %.2f oct: %s\n", d, engine_synth_build_count() == before ? "live" : "REBUILD");
+        CHECK_EQ(engine_synth_build_count(), before);
+    }
+}
+
+TEST(the_filters_own_envelope_amount_never_rebuilds_the_graph) {
+    App a;
+    rack_init(&a.rack);                                                     // demo rack: slot 1 is the filter
+    a.rack.cfg.fxr.slot[1].v[2] = 0; a.rack.cfg.fxr.slot[2].v[0] = 0;
+    a.rack.slot[1].v[MP_FL_ENVAMT] = 0.0f;
+    a.build();
+    a.run(0.01);
+    const float steps[] = {0.25f, 3.0f, 7.75f, 8.0f, 7.75f, 0.25f, 0.0f, 0.25f};
+    for (float d : steps) {
+        const unsigned before = engine_synth_build_count();
+        a.rack.slot[1].v[MP_FL_ENVAMT] = d;
+        engine_synth_set_params(&a.rack, &a.params);
+        a.run(0.01);
+        std::printf("    filter envelope amount %.2f: %s\n", d, engine_synth_build_count() == before ? "live" : "REBUILD");
+        CHECK_EQ(engine_synth_build_count(), before);
+    }
+}
+
 TEST(an_envelope_in_real_units_sweeps_the_pitch_like_a_kick) {
     App a;
     rack_clear(&a.rack);

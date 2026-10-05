@@ -1,0 +1,71 @@
+33 us per 64 frames, 2469 blocks over budget of 165741, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 34954: Reverb=22908(x1) Delay=8317(x1) OscEngines=1728(x0) MasterOut=649(x1) Chorus=392(x1) BusIn=344(x1) Filter=267(x0) Env=143(x0) Mix4=108(x0) VoiceOut=51(x0) Vca=30(x0) NoteIn=17(x0)
+[SEC] reverb: in 4045, mod 1093, left 5795, right 5216, taps 3792, mix 0 | delay: time 1159, reads 0, lp+write 5295, mix 900
+[OSC] cycles per block, summed over voices: karp=186 modal=564 ssaw=478 add=486
+[CMD] pong
+[CMD] released
+[CMD] eng set for 4 oscillators
+[CMD] chord 2
+[AUDIO] render avg 447 us, worst 2170 us, budget 1333 us per 64 frames, 1 blocks over budget of 751, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 49261: Reverb=22854(x1) OscEngines=11946(x1) Delay=8360(x1) Filter=1909(x0) Env=1359(x0) Mix4=757(x1) MasterOut=652(x1) Chorus=393(x1) VoiceOut=357(x0) BusIn=339(x1) Vca=210(x0) NoteIn=125(x0)
+[HEAP] fast heap (internal RAM) 105008 of 106464 bytes used, high water 105008; bulk heap (PSRAM) 242880 used
+[OSC] cycles per block, summed over voices: karp=1303 modal=3909 ssaw=3252 add=3389
+[AUDIO] render avg 991 us, worst 1115 us, budget 1333 us per 64 frames, 0 blocks over budget of 751, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 110784: OscEngines=57424(x8) Reverb=22925(x1) Filter=9170(x2) Delay=8351(x1) Env=4561(x4) Mix4=3643(x6) VoiceOut=1723(x2) Vca=1001(x2) MasterOut=660(x1) NoteIn=612(x2) Chorus=393(x1) BusIn=321(x1)
+[SEC] reverb: in 4038, mod 1094, left 5829, right 5188, taps 3774, mix 0 | delay: time 1158, reads 0, lp+write 5326, mix 899
+[HEAP] fast heap (internal RAM) 105008 of 106464 bytes used, high water 105008; bulk heap (PSRAM) 242880 used
+[AUDIO] render avg 992 us, worst 1066 us, budget 1333 us per 64 frames, 0 blocks over budget of 751, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 110800: OscEngines=57425(x8) Reverb=23029(x1) Filter=9169(x2) Delay=8349(x1) Env=4466(x4) Mix4=3638(x6) VoiceOut=1720(x2) Vca=1002(x2) MasterOut=670(x1) NoteIn=615(x2) Chorus=396(x1) BusIn=321(x1)
+[SEC] reverb: in 4028, mod 1094, left 5815, right 5270, taps 3821, mix 0 | delay: time 1157, reads 0, lp+write 5326, mix 899
+[OSC] cycles per block, summed over voices: karp=6264 modal=18813 ssaw=15652 add=16262
+[AUDIO] render avg 993 us, worst 1063 us, budget 1333 us per 64 frames, 0 blocks over budget of 751, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 110944: OscEngines=57418(x8) Reverb=23157(x1) Filter=9185(x2) Delay=8356(x1) Env=4468(x4) Mix4=3641(x6) VoiceOut=1724(x2) Vca=1002(x2) MasterOut=663(x1) NoteIn=613(x2) Chorus=396(x1) BusIn=321(x1)
+[HEAP] fast heap (internal RAM) 105008 of 106464 bytes used, high water 105008; bulk heap (PSRAM) 242880 used
+[OSC] cycles per block, summed over voices: karp=6262 modal=18813 ssaw=15658 add=16246
+[AUDIO] render avg 992 us, worst 1081 us, budget 1333 us per 64 frames, 0 blocks over budget of 751, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 110824: OscEngines=57425(x8) Reverb=23033(x1) Filter=9178(x2) Delay=8360(x1) Env=4470(x4) Mix4=3644(x6) VoiceOut=1722(x2) Vca=999(x2) MasterOut=664(x1) NoteIn=612(x2) Chorus=396(x1) BusIn=321(x1)
+[HEAP] fast heap (internal RAM) 105008 of 106464 bytes used, high water 105008; bulk heap (PSRAM) 242880 used
+[OSC] cycles per block, summed over voices: karp=6269 modal=18815 ssaw=15653 add=16252
+[AUDIO] render avg 995 us, worst 1118 us, budget 1333 us per 64 frames, 0 blocks over budget of 751, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 111201: OscEngines=57421(x8) Reverb=23398(x1) Filter=9169(x2) Delay=8375(x1) Env=4474(x4) Mix4=3644(x6) VoiceOut=1726(x2) Vca=1006(x2) MasterOut=660(x1) NoteIn=611(x2) Chorus=396(x1) BusIn=321(x1)
+[HEAP] fast heap (internal RAM) 105008 of 106464 bytes used, high water 105008; bulk heap (PSRAM) 242880 used
+[AUDIO] render avg 993 us, worst 1068 us, budget 1333 us per 64 frames, 0 blocks over budget of 751, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 110968: OscEngines=57437(x8) Reverb=23157(x1) Filter=9173(x2) Delay=8362(x1) Env=4473(x4) Mix4=3644(x6) VoiceOut=1727(x2) Vca=999(x2) MasterOut=668(x1) NoteIn=611(x2) Chorus=397(x1) BusIn=320(x1)
+[HEAP] fast heap (internal RAM) 105008 of 106464 bytes used, high water 105008; bulk heap (PSRAM) 242880 used
+[OSC] cycles per block, summed over voices: karp=6264 modal=18813 ssaw=15660 add=16260
+[CMD] eng set for 4 oscillators
+[AUDIO] render avg 950 us, worst 1068 us, budget 1333 us per 64 frames, 0 blocks over budget of 751, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 105801: OscEngines=52396(x8) Reverb=23072(x1) Filter=9132(x2) Delay=8387(x1) Env=4452(x4) Mix4=3646(x6) VoiceOut=1719(x2) Vca=1003(x2) MasterOut=661(x1) NoteIn=616(x2) Chorus=396(x1) BusIn=321(x1)
+[HEAP] fast heap (internal RAM) 105008 of 106464 bytes used, high water 105008; bulk heap (PSRAM) 242880 used
+[OSC] cycles per block, summed over voices: karp=4907 modal=14730 fm2=1638 fold=1360 ssaw=12256 vowel=2672 add=12732 dust=1670
+[CMD] chord 2
+[AUDIO] render avg 805 us, worst 1745 us, budget 1333 us per 64 frames, 1 blocks over budget of 751, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 88309: OscEngines=34230(x8) Reverb=23178(x1) Filter=9070(x2) Delay=8537(x1) Env=4955(x4) Mix4=3625(x6) VoiceOut=1718(x2) Vca=999(x2) MasterOut=652(x1) NoteIn=619(x2) Chorus=401(x1) BusIn=325(x1)
+[SEC] reverb: in 4076, mod 1101, left 5866, right 5338, taps 3793, mix 0 | delay: time 1176, reads 0, lp+write 5454, mix 910
+[OSC] cycles per block, summed over voices: fm2=7549 fold=6266 vowel=12299 dust=7700
+[AUDIO] render avg 798 us, worst 877 us, budget 1333 us per 64 frames, 0 blocks over budget of 751, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 87652: OscEngines=34225(x8) Reverb=23046(x1) Filter=9071(x2) Delay=8546(x1) Env=4427(x4) Mix4=3627(x6) VoiceOut=1718(x2) Vca=1000(x2) MasterOut=648(x1) NoteIn=619(x2) Chorus=401(x1) BusIn=324(x1)
+[HEAP] fast heap (internal RAM) 105008 of 106464 bytes used, high water 105008; bulk heap (PSRAM) 242880 used
+[OSC] cycles per block, summed over voices: fm2=7549 fold=6264 vowel=12297 dust=7693
+[AUDIO] render avg 799 us, worst 870 us, budget 1333 us per 64 frames, 0 blocks over budget of 751, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 87757: OscEngines=34229(x8) Reverb=23141(x1) Filter=9083(x2) Delay=8535(x1) Env=4430(x4) Mix4=3625(x6) VoiceOut=1720(x2) Vca=999(x2) MasterOut=649(x1) NoteIn=618(x2) Chorus=403(x1) BusIn=325(x1)
+[SEC] reverb: in 4152, mod 1099, left 5866, right 5199, taps 3821, mix 0 | delay: time 1174, reads 0, lp+write 5460, mix 910
+[HEAP] fast heap (internal RAM) 105008 of 106464 bytes used, high water 105008; bulk heap (PSRAM) 242880 used
+[AUDIO] render avg 801 us, worst 872 us, budget 1333 us per 64 frames, 0 blocks over budget of 751, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 87903: OscEngines=34225(x8) Reverb=23306(x1) Filter=9076(x2) Delay=8529(x1) Env=4431(x4) Mix4=3626(x6) VoiceOut=1715(x2) Vca=1001(x2) MasterOut=648(x1) NoteIn=619(x2) Chorus=401(x1) BusIn=326(x1)
+[HEAP] fast heap (internal RAM) 105008 of 106464 bytes used, high water 105008; bulk heap (PSRAM) 242880 used
+[OSC] cycles per block, summed over voices: fm2=7549 fold=6264 vowel=12303 dust=7691
+[AUDIO] render avg 798 us, worst 917 us, budget 1333 us per 64 frames, 0 blocks over budget of 751, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 87554: OscEngines=34222(x8) Reverb=22947(x1) Filter=9071(x2) Delay=8553(x1) Env=4429(x4) Mix4=3627(x6) VoiceOut=1715(x2) Vca=998(x2) MasterOut=649(x1) NoteIn=620(x2) Chorus=400(x1) BusIn=323(x1)
+[HEAP] fast heap (internal RAM) 105008 of 106464 bytes used, high water 105008; bulk heap (PSRAM) 242880 used
+[OSC] cycles per block, summed over voices: fm2=7550 fold=6264 vowel=12297 dust=7694
+[AUDIO] render avg 799 us, worst 881 us, budget 1333 us per 64 frames, 0 blocks over budget of 751, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 87694: OscEngines=34228(x8) Reverb=23080(x1) Filter=9074(x2) Delay=8546(x1) Env=4429(x4) Mix4=3622(x6) VoiceOut=1721(x2) Vca=1000(x2) MasterOut=650(x1) NoteIn=620(x2) Chorus=400(x1) BusIn=324(x1)
+[HEAP] fast heap (internal RAM) 105008 of 106464 bytes used, high water 105008; bulk heap (PSRAM) 242880 used
+[OSC] cycles per block, summed over voices: fm2=7549 fold=6265 vowel=12302 dust=7694
+[AUDIO] render avg 800 us, worst 875 us, budget 1333 us per 64 frames, 0 blocks over budget of 751, graph builds 1 (last: first)
+[PROF] cycles per block (budget 160000), total 87804: OscEngines=34218(x8) Reverb=23189(x1) Filter=9075(x2) Delay=8549(x1) Env=4430(x4) Mix4=3630(x6) VoiceOut=1721(x2) Vca=998(x2) MasterOut=649(x1) NoteIn=620(x2) Chorus=403(x1) BusIn=322(x1)
+[SEC] reverb: in 4062, mod 1101, left 5849, right 5390, taps 3795, mix 0 | delay: time 1172, reads 0, lp+write 5458, mix 923
+[HEAP] fast heap (internal RAM) 105008 of 106464 bytes used, high water 105008; bulk heap (PSRAM) 242880 used
+[CMD] released
+[CMD] released

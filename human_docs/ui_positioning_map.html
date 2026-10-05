@@ -1,0 +1,391 @@
+<title>UI Positioning Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;700&family=DM+Mono:wght@400;500&family=Source+Sans+3:wght@400;600&display=swap">
+<style>
+/* Layout concept: a technical sheet. Every figure uses one colour code: teal = a number written into a table (logical),
+   amber = a number computed at run time from the style and the screen size (pixels). The OLED mock-ups stay dark in both themes. */
+:root {
+  --bg: #F3F5F7; --panel: #FFFFFF; --ink: #16202B; --muted: #566372; --line: #CAD2DA;
+  --logic: #0B7A85; --pixel: #A85F00; --warn: #B3261E;
+  --screen: #0E1217; --oled: #E9EEF3; --logic-on: #52CAD6; --pixel-on: #FFB93B; --warn-on: #FF7A70;
+  --display: "Familjen Grotesk", "Segoe UI", system-ui, sans-serif;
+  --body: "Source Sans 3", "Segoe UI", system-ui, sans-serif;
+  --mono: "DM Mono", ui-monospace, "Cascadia Mono", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11161B; --panel: #181E25; --ink: #E7ECF1; --muted: #93A0AE; --line: #2C3641;
+    --logic: #52CAD6; --pixel: #FFB93B; --warn: #FF7A70; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11161B; --panel: #181E25; --ink: #E7ECF1; --muted: #93A0AE; --line: #2C3641;
+  --logic: #52CAD6; --pixel: #FFB93B; --warn: #FF7A70; color-scheme: dark;
+}
+body { background: var(--bg); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.55; padding-inline: 16px; padding-block: 28px 56px; }
+.wrap { max-width: 980px; margin: 0 auto; display: flex; flex-direction: column; gap: 44px; }
+h1, h2, h3 { font-family: var(--display); line-height: 1.15; text-wrap: balance; margin: 0; }
+h1 { font-size: clamp(2rem, 5vw, 3rem); font-weight: 700; letter-spacing: -0.01em; }
+h2 { font-size: 1.45rem; font-weight: 700; }
+h3 { font-size: 1.05rem; font-weight: 700; }
+p { margin: 0; max-width: 68ch; }
+code, .mono { font-family: var(--mono); font-size: 0.86em; }
+.lead { font-size: 1.12rem; color: var(--muted); max-width: 62ch; }
+.legend { display: flex; flex-wrap: wrap; gap: 10px 22px; align-items: center; font-size: 0.92rem; color: var(--muted); }
+.chip { display: inline-flex; align-items: center; gap: 8px; }
+.sw { width: 14px; height: 14px; border-radius: 3px; border: 2px solid; }
+.sw.logic { border-color: var(--logic); background: color-mix(in srgb, var(--logic) 22%, transparent); }
+.sw.pixel { border-color: var(--pixel); background: color-mix(in srgb, var(--pixel) 22%, transparent); }
+section { display: flex; flex-direction: column; gap: 16px; }
+.fig { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: flex; flex-direction: column; gap: 14px; }
+.cap { font-size: 0.9rem; color: var(--muted); max-width: 74ch; }
+.two { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.9fr); gap: 20px; align-items: start; }
+.scroll { overflow-x: auto; }
+svg { display: block; width: 100%; height: auto; }
+svg text { font-family: var(--mono); }
+.el { cursor: default; }
+.el .box { transition: fill-opacity .12s; }
+.el.hl .box, .el:hover .box { fill-opacity: 0.55; }
+table { border-collapse: collapse; width: 100%; font-size: 0.9rem; min-width: 520px; }
+th, td { text-align: left; padding: 6px 10px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-family: var(--display); font-weight: 500; color: var(--muted); font-size: 0.82rem; letter-spacing: .04em; text-transform: uppercase; }
+td.num { font-family: var(--mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.t-logic { color: var(--logic); } .t-pixel { color: var(--pixel); } .t-warn { color: var(--warn); }
+.nav { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; }
+.nav figure { margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.nav figcaption { font-size: 0.88rem; color: var(--muted); }
+.nav figcaption b { color: var(--ink); font-weight: 600; }
+.code { font-family: var(--mono); font-size: 0.82rem; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 10px 12px; overflow-x: auto; white-space: pre; line-height: 1.5; }
+.verdict { border-left: 4px solid var(--warn); padding: 4px 0 4px 14px; max-width: 70ch; }
+@media (max-width: 760px) { .two { grid-template-columns: minmax(0, 1fr); } }
+@media (prefers-reduced-motion: reduce) { .el .box { transition: none; } }
+</style>
+
+<div class="wrap">
+
+<header style="display:flex;flex-direction:column;gap:14px">
+  <h1>How the UI knows where things are</h1>
+  <p class="lead">Every selectable element has two positions that never meet in the code: a small <b class="t-logic">grid position</b> that decides where the joystick goes, and a <b class="t-pixel">pixel rectangle</b> that decides where it is drawn. The figures use the RACK tab on a 128 × 128 screen, with the real numbers.</p>
+  <div class="legend">
+    <span class="chip"><span class="sw logic"></span> typed into the element table (row, col, span)</span>
+    <span class="chip"><span class="sw pixel"></span> computed by <span class="mono">layout()</span> from the style and the screen size</span>
+  </div>
+</header>
+
+<!-- ============ 1. same elements, two coordinate systems ============ -->
+<section>
+  <h2>One screen, two coordinate systems</h2>
+  <p>Hover an element on either side to see it on the other. The left map is all the focus navigation knows. The right screen is all the drawing knows.</p>
+  <div class="fig">
+    <div class="two">
+
+      <div>
+        <h3 class="t-logic" style="margin-bottom:8px">Grid (navigation)</h3>
+        <svg viewBox="0 0 150 128" role="img" aria-label="Logical grid of the RACK tab: five rows, two columns">
+          <g font-size="5" fill="var(--muted)">
+            <text x="30" y="7" text-anchor="middle">c0</text><text x="90" y="7" text-anchor="middle">c1</text>
+            <text x="2" y="25" >r0</text><text x="2" y="49">r1</text><text x="2" y="73">r2</text><text x="2" y="97">r3</text><text x="2" y="121">r4</text>
+          </g>
+          <g id="gridmap"></g>
+        </svg>
+      </div>
+
+      <div>
+        <h3 class="t-pixel" style="margin-bottom:8px">Pixels (drawing)</h3>
+        <svg viewBox="-2 -2 236 132" role="img" aria-label="The RACK tab on a 128 by 128 screen with each element's rectangle">
+          <rect x="0" y="0" width="128" height="128" fill="var(--screen)" stroke="var(--line)" stroke-width="0.6"/>
+          <!-- header and rule -->
+          <rect x="0" y="0" width="128" height="9" fill="var(--oled)" opacity="0.92"/>
+          <text x="64" y="6.4" text-anchor="middle" font-size="4.6" fill="var(--screen)">&lt; RACK &gt;</text>
+          <!-- sprites -->
+          <g fill="none" stroke="var(--oled)" stroke-width="0.7" opacity="0.75">
+            <rect x="8" y="18" width="25" height="25" rx="3"/><rect x="37" y="18" width="25" height="25" rx="3"/>
+            <rect x="66" y="18" width="25" height="25" rx="3"/><rect x="95" y="18" width="25" height="25" rx="3" stroke-dasharray="1.6 1.6"/>
+          </g>
+          <g font-size="7" fill="var(--oled)" opacity="0.75" text-anchor="middle">
+            <text x="20.5" y="35">OC</text><text x="49.5" y="35">FL</text><text x="78.5" y="35">SA</text><text x="107.5" y="35">+</text>
+          </g>
+          <rect x="6" y="16" width="29" height="29" fill="none" stroke="var(--oled)" stroke-width="0.8"/>
+          <path d="M20.5 14 l-3 -3 h6 z" fill="var(--oled)"/>
+          <!-- lanes + info line -->
+          <path d="M20.5 43 V45 H107.5 V43 M20.5 45 H49.5" stroke="var(--oled)" stroke-width="0.5" fill="none" opacity="0.6"/>
+          <path d="M20.5 43 V48 H49.5 V43" stroke="var(--oled)" stroke-width="0.5" stroke-dasharray="1 1" fill="none" opacity="0.6"/>
+          <text x="64" y="57.6" text-anchor="middle" font-size="4.4" fill="var(--oled)" opacity="0.8">OC1 Oscillator</text>
+          <!-- element rectangles -->
+          <g id="pixmap"></g>
+          <!-- right-hand labels -->
+          <g id="pixlabels" font-size="3.6" fill="var(--ink)"></g>
+        </svg>
+      </div>
+
+    </div>
+    <p class="cap">Left: element <span class="mono">Dpth</span> is “row 3, column 0, spanning 2 columns”, a fact stored as three numbers. Right: the same element is the rectangle (1, 82) 126 × 9, a fact computed on every frame.</p>
+  </div>
+</section>
+
+<!-- ============ 2. how pixels are computed ============ -->
+<section>
+  <h2>Where the pixel rectangles come from</h2>
+  <p>Nothing is typed in as a coordinate. <span class="mono">layout()</span> starts from the area under the header and cuts it up with the style's spacing, so the same code gives a different result on a different screen.</p>
+  <div class="fig">
+    <div class="scroll">
+      <table>
+        <thead><tr><th>Step</th><th>What the code does</th><th>Result at 128 × 128</th></tr></thead>
+        <tbody>
+          <tr><td>Row height</td><td>font height 7 + 2 × padding 1 (<span class="mono">gui_row_h</span>)</td><td class="num t-pixel">9 px</td></tr>
+          <tr><td>Header</td><td>cut one row off the top, then a rule and a 1 px gap</td><td class="num t-pixel">y 0–9, area starts at y 11</td></tr>
+          <tr><td>Strip rectangle</td><td>7 px for the arrow, sprite 25, 1 px</td><td class="num t-pixel">(0, 11) 128 × 33</td></tr>
+          <tr><td>Sprites</td><td>cell = 29 px, first cell centred: x0 = (128 − 4 × 29) / 2</td><td class="num t-pixel">x 8, 37, 66, 95 · y 18</td></tr>
+          <tr><td>Connection lanes</td><td>audio lane under the sprites, modulator lane 3 px further</td><td class="num t-pixel">y 45 and y 48</td></tr>
+          <tr><td>Description line</td><td>only when four field rows still fit below it</td><td class="num t-pixel">y 51, 9 px high</td></tr>
+          <tr><td>Field grid</td><td>2 columns × 4 rows of 9 px with a 1 px gap, inset 1 px (<span class="mono">gui_grid_cell</span>)</td><td class="num t-pixel">x 1 and 64 · y 62, 72, 82, 92</td></tr>
+          <tr><td>Wide elements</td><td>an element spanning 2 columns takes the whole row</td><td class="num t-pixel">(1, 82) and (1, 92), 126 × 9</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p class="cap">The strip shows <span class="mono">(DISPLAY_WIDTH − 8) / 29</span> cells, which is 4 at width 128. A 192-pixel-wide display would show 6 without touching the screen code.</p>
+  </div>
+</section>
+
+<!-- ============ 3. navigation ============ -->
+<section>
+  <h2>How the joystick picks the next element</h2>
+  <p><span class="mono">nav()</span> never looks at pixels. It works on row, column and span, and it skips elements that are disabled.</p>
+  <div class="fig">
+    <div class="nav" id="navfigs"></div>
+    <div class="scroll"><div class="code">left / right : same row, the element with the smallest gap in that direction
+up / down    : the nearest row in that direction that has an enabled element,
+               then the element whose columns overlap the current one (first listed wins a tie)
+nothing above the first row -> the header      header + down -> the first enabled element
+encoder A    : plain table order, header included, wrapping around</div></div>
+  </div>
+</section>
+
+<!-- ============ 4. list + picture tabs ============ -->
+<section>
+  <h2>The list-and-picture tabs</h2>
+  <p>GENERAL, SAMPLES, FX RACK and the FM tabs share one layout, <span class="mono">ui_layout_column()</span>. Here the grid position is not used for placing at all: the n-th element simply becomes the n-th row.</p>
+  <div class="fig">
+    <div class="two" style="grid-template-columns:minmax(0,1.2fr) minmax(0,1fr)">
+      <svg viewBox="-2 -2 190 132" role="img" aria-label="The GENERAL tab on a 128 by 128 screen: a list on the left and a picture box on the right">
+        <rect x="0" y="0" width="128" height="128" fill="var(--screen)" stroke="var(--line)" stroke-width="0.6"/>
+        <rect x="0" y="0" width="128" height="9" fill="var(--oled)" opacity="0.92"/>
+        <text x="64" y="6.4" text-anchor="middle" font-size="4.6" fill="var(--screen)">&lt; GENERAL &gt;</text>
+        <g stroke="var(--pixel-on)" stroke-width="0.7" fill="var(--pixel-on)" fill-opacity="0.18">
+          <rect x="0" y="13" width="63" height="9"/><rect x="0" y="23" width="63" height="9"/><rect x="0" y="33" width="63" height="9"/><rect x="0" y="43" width="63" height="9"/>
+        </g>
+        <g font-size="4" fill="var(--oled)"><text x="2" y="19.5">Type</text><text x="2" y="29.5">Patch</text><text x="2" y="39.5">Voices</text><text x="2" y="49.5">Vol</text></g>
+        <rect x="66" y="14" width="61" height="113" fill="none" stroke="var(--logic-on)" stroke-width="0.8" stroke-dasharray="2 1.4"/>
+        <text x="96.5" y="72" text-anchor="middle" font-size="4.4" fill="var(--logic-on)">picture box</text>
+        <text x="96.5" y="78" text-anchor="middle" font-size="3.6" fill="var(--logic-on)">(66, 14) 61 × 113</text>
+        <!-- dimensions -->
+        
+        <g font-size="3.6" fill="var(--pixel)"><text x="133" y="19">row 0 at y = 13</text><text x="133" y="29">row 1 at y = 23</text><text x="133" y="39">row 2 at y = 33</text><text x="133" y="49">row 3 at y = 43</text>
+          <text x="133" y="59">9 px high, 1 px gap</text></g>
+      </svg>
+      <div class="scroll">
+        <table>
+          <thead><tr><th>Value</th><th>Comes from</th><th>At 128 wide</th></tr></thead>
+          <tbody>
+            <tr><td>List width</td><td class="t-pixel">screen width / 2</td><td class="num">64</td></tr>
+            <tr><td>First row y</td><td><span class="t-pixel">list top 11, under the header</span> + <span class="t-warn"><span class="mono">list_top</span> 2, typed</span></td><td class="num">13</td></tr>
+            <tr><td>Row n</td><td class="t-pixel">previous row + row height + gap</td><td class="num">9 + 1</td></tr>
+            <tr><td>Picture box</td><td class="t-pixel">x = list width + 2, fills to the right and bottom edges</td><td class="num">66, 14, 61 × 113</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <p class="cap">One number is still typed in: the top of the picture box (14) assumes the header is 9 px tall plus its rule. A different font or padding would move the header and not that number.</p>
+  </div>
+</section>
+
+<!-- ============ 5. pipeline + the catch ============ -->
+<section>
+  <h2>Who reads what, and the weak point</h2>
+  <div class="fig">
+    <div class="scroll">
+    <svg viewBox="0 0 760 270" style="min-width:680px" role="img" aria-label="Data flow: the element table feeds navigation, the style and screen size feed layout, layout feeds drawing">
+      <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L10 5 L0 10 z" fill="var(--muted)"/></marker></defs>
+      <g font-size="13" fill="var(--ink)">
+        <!-- sources -->
+        <rect x="10" y="20" width="230" height="64" rx="8" fill="var(--panel)" stroke="var(--logic)" stroke-width="2"/>
+        <text x="125" y="46" text-anchor="middle" font-weight="500">element table</text>
+        <text x="125" y="66" text-anchor="middle" font-size="11.5" fill="var(--logic)">label · kind · row · col · span</text>
+
+        <rect x="10" y="186" width="230" height="64" rx="8" fill="var(--panel)" stroke="var(--pixel)" stroke-width="2"/>
+        <text x="125" y="212" text-anchor="middle" font-weight="500">style + screen size</text>
+        <text x="125" y="232" text-anchor="middle" font-size="11.5" fill="var(--pixel)">font · padding · gap · width × height</text>
+
+        <!-- consumers -->
+        <rect x="300" y="20" width="200" height="64" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="2"/>
+        <text x="400" y="46" text-anchor="middle" font-weight="500">nav() and linear()</text>
+        <text x="400" y="66" text-anchor="middle" font-size="11.5" fill="var(--muted)">joystick and encoder A</text>
+
+        <rect x="300" y="186" width="200" height="64" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="2"/>
+        <text x="400" y="212" text-anchor="middle" font-weight="500">layout()</text>
+        <text x="400" y="232" text-anchor="middle" font-size="11.5" fill="var(--muted)">one rectangle per element</text>
+
+        <rect x="560" y="103" width="190" height="64" rx="8" fill="var(--panel)" stroke="var(--line)" stroke-width="2"/>
+        <text x="655" y="129" text-anchor="middle" font-weight="500">screen_draw()</text>
+        <text x="655" y="149" text-anchor="middle" font-size="11.5" fill="var(--muted)">fields, buttons, pictures</text>
+      </g>
+      <g stroke="var(--muted)" stroke-width="2" fill="none" marker-end="url(#ah)">
+        <path d="M240 52 H298"/>
+        <path d="M240 218 H298"/>
+        <path d="M500 218 C 540 218, 540 150, 556 140"/>
+        <path d="M130 84 C 130 130, 270 150, 298 206"/>
+      </g>
+      <text x="262" y="124" font-size="11.5" fill="var(--logic)" transform="rotate(-0)" text-anchor="middle">also read by layout()</text>
+      <g font-size="12" fill="var(--warn)">
+        <text x="400" y="120" text-anchor="middle" font-weight="500">no link</text>
+      </g>
+      <path d="M400 88 V 112 M400 128 V 182" stroke="var(--warn)" stroke-width="2" stroke-dasharray="5 5" fill="none"/>
+    </svg>
+    </div>
+    <div class="verdict">
+      <p><b>The two are not connected.</b> <span class="mono">nav()</span> trusts the typed <span class="mono">row</span> and <span class="mono">col</span>. <span class="mono">layout()</span> trusts its own arithmetic. In the RACK tab the arithmetic reads the typed numbers back to build the grid, so they agree. In the list-and-picture tabs the layout stacks elements in table order and ignores them, so they agree only because every element has <span class="mono">col 0</span> and a row equal to its index.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>The fix: navigate by rectangles</h2>
+  <div class="fig">
+    <div class="two" style="grid-template-columns:minmax(0,1fr) minmax(0,1fr)">
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <h3 class="t-warn">Today</h3>
+        <div class="code">element table
+  Tgt   row 2, col 0   <- typed
+  Prm   row 2, col 1   <- typed
+
+layout()  -> where to draw
+nav()     -> where to go, from the typed
+             numbers
+
+Move an element in layout()
+and the joystick does not follow.</div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <h3 class="t-logic">Proposed</h3>
+        <div class="code">element table
+  Tgt   (no position)
+  Prm   (no position)
+
+layout()  -> the only place with a position
+nav()     -> picks the nearest rectangle
+             in the pressed direction
+
+Move an element in layout()
+and the joystick follows.</div>
+      </div>
+    </div>
+    <p class="cap">The rectangles already exist on every frame, so navigation would use them as they are: from the focused rectangle, the nearest neighbour whose centre lies in the direction pressed, skipping disabled elements. The row, column and span fields would be deleted, and every new screen would need one position fewer to get right.</p>
+  </div>
+</section>
+
+</div>
+
+<script>
+// The elements of the RACK tab: name, grid position (row, col, span), pixel rectangle, and the part of the label the figure shows.
+var EL = [
+  { n: "Slot",   r: 0, c: 0, s: 2, x: 0,  y: 11, w: 128, h: 33, note: "strip" },
+  { n: "Type",   r: 1, c: 0, s: 1, x: 1,  y: 62, w: 62,  h: 9 },
+  { n: "Insert", r: 1, c: 1, s: 1, x: 64, y: 62, w: 62,  h: 9 },
+  { n: "Tgt",    r: 2, c: 0, s: 1, x: 1,  y: 72, w: 62,  h: 9 },
+  { n: "Prm",    r: 2, c: 1, s: 1, x: 64, y: 72, w: 62,  h: 9 },
+  { n: "Dpth",   r: 3, c: 0, s: 2, x: 1,  y: 82, w: 126, h: 9 },
+  { n: "Delete", r: 4, c: 0, s: 2, x: 1,  y: 92, w: 126, h: 9 }
+];
+var NS = "http://www.w3.org/2000/svg";
+function mk(tag, attrs, text) {
+  var e = document.createElementNS(NS, tag);
+  for (var k in attrs) e.setAttribute(k, attrs[k]);
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+
+// Figure 1, left: the logical grid, one cell 54 x 21 per (row, col)
+(function () {
+  var g = document.getElementById("gridmap");
+  EL.forEach(function (e) {
+    var cw = 58, ch = 21, x0 = 6, y0 = 11;
+    var x = x0 + e.c * (cw + 2), y = y0 + e.r * (ch + 3), w = e.s * cw + (e.s - 1) * 2;
+    var grp = mk("g", { "class": "el", "data-el": e.n });
+    grp.appendChild(mk("rect", { "class": "box", x: x, y: y, width: w, height: ch, rx: 2, fill: "var(--logic)", "fill-opacity": 0.2, stroke: "var(--logic)", "stroke-width": 0.9 }));
+    grp.appendChild(mk("text", { x: x + 4, y: y + 9, "font-size": 5.2, fill: "var(--ink)", "font-weight": 500 }, e.n));
+    grp.appendChild(mk("text", { x: x + 4, y: y + 16.5, "font-size": 3.9, fill: "var(--logic)" }, "r" + e.r + " c" + e.c + (e.s > 1 ? " span " + e.s : "")));
+    g.appendChild(grp);
+  });
+})();
+
+// Figure 1, right: the pixel rectangles with leader lines to a label column
+(function () {
+  var g = document.getElementById("pixmap"), lab = document.getElementById("pixlabels");
+  EL.forEach(function (e, i) {
+    var grp = mk("g", { "class": "el", "data-el": e.n });
+    grp.appendChild(mk("rect", { "class": "box", x: e.x, y: e.y, width: e.w, height: e.h, fill: "var(--pixel-on)", "fill-opacity": 0.2, stroke: "var(--pixel-on)", "stroke-width": 0.7 }));
+    if (e.n !== "Slot") grp.appendChild(mk("text", { x: e.x + 2, y: e.y + 6.4, "font-size": 4, fill: "var(--oled)" }, e.n));
+    g.appendChild(grp);
+    var ly = 14 + i * 14.5;
+    var lg = mk("g", { "class": "el", "data-el": e.n });
+    lg.appendChild(mk("path", { d: "M" + (e.x + e.w) + " " + (e.y + e.h / 2) + " L" + (e.w > 100 ? 131 : 131) + " " + (e.y + e.h / 2) + " L134 " + (ly - 1.2), stroke: "var(--pixel)", "stroke-width": 0.4, fill: "none", opacity: 0.8 }));
+    lg.appendChild(mk("text", { x: 136, y: ly, "font-size": 4.1, fill: "var(--ink)", "font-weight": 500 }, e.n));
+    lg.appendChild(mk("text", { x: 136, y: ly + 4.6, "font-size": 3.4, fill: "var(--pixel)" }, "(" + e.x + ", " + e.y + ")  " + e.w + " × " + e.h));
+    lab.appendChild(lg);
+  });
+  // hover linking between the two drawings (and the label column)
+  var all = document.querySelectorAll("[data-el]");
+  Array.prototype.forEach.call(all, function (el) {
+    el.addEventListener("mouseenter", function () { link(el.getAttribute("data-el"), true); });
+    el.addEventListener("mouseleave", function () { link(el.getAttribute("data-el"), false); });
+  });
+  function link(name, on) {
+    Array.prototype.forEach.call(document.querySelectorAll('[data-el="' + name + '"]'), function (n) { n.classList.toggle("hl", on); });
+  }
+})();
+
+// Figure 3: small grids showing where the joystick goes. `off` lists the disabled elements.
+var CASES = [
+  { title: "Right", text: "from <b>Type</b>: same row, smallest gap", from: "Type", to: "Insert", key: "right", off: [] },
+  { title: "Down onto a wide element", text: "from <b>Prm</b>: <b>Dpth</b> spans both columns, so its columns overlap", from: "Prm", to: "Dpth", key: "down", off: [] },
+  { title: "Up, a tie", text: "from <b>Dpth</b>: <b>Tgt</b> and <b>Prm</b> both overlap, the first listed wins", from: "Dpth", to: "Tgt", key: "up", off: [] },
+  { title: "Disabled rows are skipped", text: "a filter is selected, so <b>Tgt</b>, <b>Prm</b> and <b>Dpth</b> are off: down from <b>Type</b> lands on <b>Delete</b>", from: "Type", to: "Delete", key: "down", off: ["Tgt", "Prm", "Dpth"] },
+  { title: "Up from the first row", text: "from <b>Slot</b>: nothing above, so the header takes the focus", from: "Slot", to: "header", key: "up", off: [] }
+];
+(function () {
+  var host = document.getElementById("navfigs");
+  var cw = 44, ch = 15, gx = 3, gy = 4, x0 = 4, y0 = 22;
+  CASES.forEach(function (cs) {
+    var fig = document.createElement("figure");
+    var svg = mk("svg", { viewBox: "0 0 100 " + (y0 + 5 * (ch + gy) + 2), role: "img", "aria-label": cs.title });
+    function pos(n) {
+      if (n === "header") return { x: x0, y: 2, w: 2 * cw + gx, h: 12 };
+      var e = EL.filter(function (q) { return q.n === n; })[0];
+      return { x: x0 + e.c * (cw + gx), y: y0 + e.r * (ch + gy), w: e.s * cw + (e.s - 1) * gx, h: ch };
+    }
+    var hd = pos("header");
+    var isHeader = cs.to === "header";
+    svg.appendChild(mk("rect", { x: hd.x, y: hd.y, width: hd.w, height: hd.h, rx: 2, fill: isHeader ? "var(--logic)" : "none", "fill-opacity": 0.28, stroke: "var(--line)", "stroke-width": 0.8 }));
+    svg.appendChild(mk("text", { x: hd.x + hd.w / 2, y: hd.y + 8, "text-anchor": "middle", "font-size": 5, fill: isHeader ? "var(--logic)" : "var(--muted)" }, "header"));
+    EL.forEach(function (e) {
+      var p = pos(e.n), off = cs.off.indexOf(e.n) >= 0, from = e.n === cs.from, to = e.n === cs.to;
+      svg.appendChild(mk("rect", { x: p.x, y: p.y, width: p.w, height: p.h, rx: 2,
+        fill: to ? "var(--logic)" : "none", "fill-opacity": 0.3,
+        stroke: from ? "var(--pixel)" : to ? "var(--logic)" : "var(--line)", "stroke-width": from || to ? 1.4 : 0.8,
+        "stroke-dasharray": off ? "2 2" : "0" }));
+      svg.appendChild(mk("text", { x: p.x + p.w / 2, y: p.y + 9.6, "text-anchor": "middle", "font-size": 5.2, fill: off ? "var(--muted)" : "var(--ink)", opacity: off ? 0.55 : 1 }, e.n));
+    });
+    // arrow from the origin to the target
+    var a = pos(cs.from), b = pos(cs.to);
+    var ax = a.x + a.w / 2, ay = a.y + a.h / 2, bx = b.x + b.w / 2, by = b.y + b.h / 2;
+    if (cs.key === "right") { ax = a.x + a.w; bx = b.x; by = ay; }
+    if (cs.key === "down" || cs.key === "up") { ax = Math.min(Math.max(ax, b.x + 8), b.x + b.w - 8); bx = ax; ay = cs.key === "down" ? a.y + a.h : a.y; by = cs.key === "down" ? b.y : b.y + b.h; }
+    svg.appendChild(mk("path", { d: "M" + ax + " " + ay + " L" + bx + " " + by, stroke: "var(--pixel)", "stroke-width": 1.4, fill: "none", "marker-end": "url(#navah)" }));
+    var defs = mk("defs", {}); var mkr = mk("marker", { id: "navah", viewBox: "0 0 10 10", refX: 8, refY: 5, markerWidth: 5, markerHeight: 5, orient: "auto" });
+    mkr.appendChild(mk("path", { d: "M0 0 L10 5 L0 10 z", fill: "var(--pixel)" })); defs.appendChild(mkr); svg.insertBefore(defs, svg.firstChild);
+    var cap = document.createElement("figcaption");
+    cap.innerHTML = "<b>" + cs.title + "</b><br>" + cs.text;
+    fig.appendChild(svg); fig.appendChild(cap); host.appendChild(fig);
+  });
+})();
+</script>

@@ -169,6 +169,22 @@ TEST(additive_morph_removes_the_even_harmonics) {
     CHECK(o1 > 100.0 * o2 && o3 > 100.0 * o2);
 }
 
+TEST(additive_recurrence_stays_on_its_harmonics) {
+    // The harmonics come from a Chebyshev recurrence: whatever is not at k f (k = 1..12) is its error. It must stay below -60 dB of the signal.
+    const double f = 440.0 * std::pow(2.0, (57 - 69) / 12.0);
+    EngineBench b(OSCX_ADD, 24000, 0);
+    std::vector<double> y = b.play(57, 0.5);
+    const size_t a = static_cast<size_t>(0.1 * kSampleRate), z = a + static_cast<size_t>(std::lround(0.3 * kSampleRate));        // 0.3 s = exactly 66 cycles of 220 Hz: no leakage between the lines
+    double ms = 0;
+    for (size_t i = a; i < z; i++) ms += y[i] * y[i];
+    ms /= static_cast<double>(z - a);
+    double harm = 0;
+    for (int k = 1; k <= 12; k++) harm += 2.0 * power_at(y, a, z, k * f);
+    const double spur_db = 10.0 * std::log10(std::fmax(ms - harm, 1e-9) / ms);
+    std::printf("    additive: signal power %.3e, harmonic lines %.3e, everything else %.1f dB\n", ms, harm, spur_db);
+    CHECK(spur_db < -60.0);
+}
+
 TEST(dust_density_follows_timbre) {
     double crest[2];
     for (int t = 0; t < 2; t++) {

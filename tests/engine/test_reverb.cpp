@@ -173,7 +173,7 @@ TEST(reverb_stays_stable_at_maximum_decay_and_loud_input) {
 TEST(reverb_predelay_dry_mix_and_memory_placement) {
     ReverbBench b(true);                                              // separate bulk heap
     std::printf("    reverb memory: %.0f KB fast (tank), %.0f KB bulk (pre-delay)\n", static_cast<double>(b.rig.heap.used()) / 1024.0, static_cast<double>(b.rig.bulk.used()) / 1024.0);
-    CHECK(b.rig.bulk.used() >= static_cast<size_t>(kSampleRate / 5) * sizeof(q15));
+    CHECK(b.rig.bulk.used() >= static_cast<size_t>((ENGINE_REVERB_HALF ? kSampleRate / 2 : kSampleRate) / 5) * sizeof(q15));      // 200 ms at the tank rate
     CHECK(b.rig.heap.used() > 40 * 1024);
     b.rig.eng.set_param(2, RVB_PREDELAY, 100);
     b.rig.run(4);

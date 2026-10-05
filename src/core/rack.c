@@ -153,6 +153,23 @@ void rack_init(rack_t *r) {
     r->cfg.fxr.slot[2].v[0] = 40;
 }
 
+// The startup patch: four oscillators, each a different engine (Karplus string, Modal, Supersaw, Additive), into one filter; the delay and the
+// reverb are on. Eight voices of this is the heaviest thing the default synth does, which is the point: it is the load the engines are tuned for.
+void rack_init_startup(rack_t *r) {
+    rack_clear(r);
+    static const int engine[4] = {0, 1, 4, 6};                       // OSCX_KARP, OSCX_MODAL, OSCX_SSAW, OSCX_ADD
+    static const int coarse[4] = {0, 0, 0, 12};
+    for (int i = 0; i < 4; i++) {
+        rack_insert(r, i, MOD_OSC);
+        r->slot[i].v[MP_OC_WAVE] = (float)(OC_FIRST_ENGINE + engine[i]);
+        r->slot[i].v[MP_OC_COARSE] = (float)coarse[i];
+    }
+    rack_insert(r, 4, MOD_FILTER);
+    r->cfg.fxr.slot[1].v[0] = 1000;         // delay 1000 ms, 40 % mix; reverb 40 % mix (the FX type defaults stay dry)
+    r->cfg.fxr.slot[1].v[2] = 40;
+    r->cfg.fxr.slot[2].v[0] = 40;
+}
+
 static void ms_pattern_default(ms_pattern_t *p) {
     memset(p, 0, sizeof *p);
     for (int l = 0; l < MS_LANES; l++) {

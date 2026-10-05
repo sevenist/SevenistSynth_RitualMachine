@@ -49,12 +49,18 @@ public:
         return buf_[i];
     }
 
+    // Interpolated reads: the samples they need are neighbours in the buffer, so the common case is one wrap check and plain loads
+    // (the slow path handles the seam where the ring wraps).
     q15 read_lerp(uint32_t d_q16) const {
-        uint32_t i = d_q16 >> 16;
-        return lerp15(read(static_cast<int>(i)), read(static_cast<int>(i) + 1), d_q16 & 0xFFFFu);
+        const int i = static_cast<int>(d_q16 >> 16);
+        const int s = static_cast<int>(w_) - i;                          // buf_[s] = read(i), buf_[s - 1] = read(i + 1)
+        if (s >= 1) return lerp15(buf_[s], buf_[s - 1], d_q16 & 0xFFFFu);
+        return lerp15(read(i), read(i + 1), d_q16 & 0xFFFFu);
     }
     q15 read_hermite(uint32_t d_q16) const {
-        int i = static_cast<int>(d_q16 >> 16);
+        const int i = static_cast<int>(d_q16 >> 16);
+        const int s = static_cast<int>(w_) - (i + 2);                    // buf_[s] = read(i + 2) ... buf_[s + 3] = read(i - 1)
+        if (s >= 0) return hermite15(buf_[s + 3], buf_[s + 2], buf_[s + 1], buf_[s], d_q16 & 0xFFFFu);
         return hermite15(read(i - 1), read(i), read(i + 1), read(i + 2), d_q16 & 0xFFFFu);
     }
 
@@ -93,17 +99,17 @@ public:
     void clear() { line_.clear(); }
     q15 process(q15 x) {
         q15 v = line_.read(delay_);
-        q15 w = sat16(x + mul15(v, g_));
+        q15 w = sat16(x + mul15n(v, g_));
         line_.write(w);
-        return sat16(v - mul15(w, g_));
+        return sat16(v - mul15n(w, g_));
     }
     // Variant with a fractional, modulated delay (Q16 samples, linear interpolation): the decay diffusers of a
     // plate reverb. init() must have been given room for the longest delay.
     q15 process_mod(q15 x, uint32_t d_q16) {
         q15 v = line_.read_lerp(d_q16);
-        q15 w = sat16(x + mul15(v, g_));
+        q15 w = sat16(x + mul15n(v, g_));
         line_.write(w);
-        return sat16(v - mul15(w, g_));
+        return sat16(v - mul15n(w, g_));
     }
     q15 tap(int d) const { return line_.read(d); }                      // the internal state w, d samples ago (output taps)
 private:

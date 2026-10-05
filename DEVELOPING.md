@@ -1,0 +1,336 @@
+# Developer guide
+
+A synth editor UI (128x64 OLED) that runs on the desktop (SDL window, sound from our **own DSP engine** through
+SDL audio) and is structured to run on the ESP32-S3. The same `core/` and `engine/` code drives both. Two synth
+types: a **modular** synth built from a rack of modules, and an **FM** synth (DX7-style, 6 operators) with a patch
+editor. Both go through the master effects (chorus, delay, reverb).
+
+The engine's design, every decision with its reasons and the measurements behind them are in
+[ENGINE_DESIGN.md](ENGINE_DESIGN.md). This guide is about working in the code.
+
+## Quick start (desktop simulator)
+
+```powershell
+cd D:\DEV\SevenSynthCore\ui\oled_sim
+.\build.ps1                      # clean build ~5 s, one changed file ~1.5 s (per-file objects in build\obj, parallel)
+.\build\oled_sim.exe             # SDL2.dll must be on PATH (C:\msys64\ucrt64\bin)
+.\tools\build_engine_tests.ps1 -Matrix    # 126 engine tests in six sample-rate / block-size configurations
+```
+
+If `oled_sim.exe` is running, `build.ps1` cannot overwrite it and builds `build\oled_sim_new.exe` instead (close the
+window to get the normal name back). `.\build.ps1 -Clean` rebuilds everything.
+
+The simulator opens two windows: the **OLED** and a **Panel** drawing the prototype's front panel (left strip: master volume knob,
+encoders A and B with their switches, play button; centre: 4 x 5 matrix keys with a knob above each column; right: 3 knobs,
+joystick with push, 3 buttons). Every control works with the mouse (click = press; wheel over a knob / encoder = turn; drag a knob
+up / down; drag inside the joystick pad) and, except the knobs, with the keyboard. The panel's bottom line shows the last
+control -> action and the octave / Shift state.
+
+| Control | Default role (table in `core/bindings.c`) | Keyboard (physical key, QWERTY names) |
+| --- | --- | --- |
+| Encoder A turn / push | previous / next element, i.e. rows (with Shift: pages) / jump to the page selector | `[` `]` / `\` |
+| Encoder B turn / push | change the focused value, **no latch needed** (with Shift: 4 steps per detent) / activate a button | `;` `'` / `/` |
+| Joystick | move the focus (in the menu: in 2D; in the main view: rows and values as before). **Push = latch** (in the menu only; in the main view it activates the row) the focused value: the joystick then changes it (left / right, or up / down), push again to release; on a button, push activates it. The module strip of the RACK tab and the page / tab selector change with left / right without a latch. With Shift: up / down = octave, left / right = page | arrow keys, push = Right Ctrl |
+| Button 1 | open / close the menu | Enter |
+| Button 2 | delete the selected module (RACK tab) | Backspace / Delete |
+| Button 3 (hold) | **Shift** | Left Shift |
+| Play | start / stop the sequencer | Space |
+| Matrix keys | notes: bottom-left key = C4 (60) + octave, +1 per key to the right, +4 per row up, extra row = 16..19 | `F1`-`F4` / `1`-`4` / `Q W E R` / `A S D F` / `Z X C V` (top to bottom) |
+| Octave | -5..+4: every MIDI note 0..127 is reachable | Shift + joystick up / down |
+| Column knobs 1..4 | the value of row 1..4 of the current page (jump mode: the value follows the knob as soon as it moves) | mouse |
+| Right knobs R1..R3 | macros: start on the first filter's cutoff / resonance and the first LFO's rate; **Shift + knob** assigns the parameter under the cursor | mouse |
+| Master volume knob | master volume (same value as Vol in the GENERAL tab) | mouse |
+| Esc, closing a window | quit | |
+
+On an AZERTY keyboard the keys keep their physical position: "Q" is the key labelled A, "W" is Z, "Z" is W, "A" is Q, `[` is `^`, `]` is `$`,
+`;` is `M`. The matrix block is therefore the 5 x 4 block starting at F1, `&`, A, Q, W on AZERTY.
+
+Requirements: MSYS2 UCRT64 (`C:\msys64\ucrt64`) with gcc, g++ and SDL2, and Python 3 for the generator tools.
+`lib/` is not versioned. `lib/u8g2` (https://github.com/olikraus/u8g2, needs `csrc/` and `sys/sdl/common/`) is required; `lib/minimp3` (`minimp3.h`, `minimp3_ex.h` from
+https://github.com/lieff/minimp3, public domain) enables the mp3 import of the simulator's sample folder (optional);
+`lib/amy` (`git clone --depth 1 https://github.com/shorepine/amy.git lib/amy`) is only read by `tools/gen_dx7.py` to
+regenerate the DX7 tables.
+
+## Folder map
+
+```
+oled_sim/
+├─ build.ps1             desktop build (per-file objects, dependency tracking). Params: -Platform sim (default), -Clean
+├─ ENGINE_DESIGN.md      the engine's design document: ADRs, measurements, budget, known limits
+├─ platformio.ini        ESP32 firmware build (Waveshare ESP32-S3-Pico), not built yet
+├─ tests/engine/         126 unit / integration tests (own tiny runner), see "Testing"
+├─ tools/                generators and measuring tools (see "Tools")
+├─ lib/u8g2/             graphics lib + its SDL display/key backend (not versioned)
+└─ src/
+   ├─ core/              PORTABLE application logic, plain C. No Windows/SDL/Arduino/engine includes here.
+   │  ├─ app.c/.h           glues input -> bindings -> UI -> data -> audio; owns the redraw policy, the octave / Shift state and the joystick-as-buttons
+   │  ├─ bindings.c/.h      THE table that links hardware controls to actions (the one place to change what a button does)
+   │  ├─ synth_ui.h         public interface of the UI (cursor state, ui_event_t, knob / macro calls)
+   │  ├─ ui_pages.c         what is on screen: page tables, the page list generated from the rack, menu tabs
+   │  ├─ ui_input.c         what events do: row editing, menu tabs, knobs, macros, synth_ui_handle()
+   │  ├─ ui_graphs.c        the small pictures of the graph box (waveform, envelope, filter, effects...)
+   │  ├─ ui_draw.c          the screens: header, lists, hand-drawn screens, synth_ui_draw()
+   │  ├─ ui_internal.h      what those four share (private to the UI)
+   │  ├─ ui_screen.c/.h     declarative screens: element tables, focus navigation, latch, drawing (see human_docs/UI_GUIDE.md section 8)
+   │  ├─ scr_*.c            the menu tabs as declarative screens: rack, general, samples, fx, fm (ALGORITHM / OPERATOR / ENVELOPE)
+   │  ├─ rack.c/.h          modular synth model: slots, audio chain rules, module parameters, modulator targets
+   │  ├─ synth_config.c/.h  general settings (synth type, voices, volume, the FM patch copy) and the master FX settings
+   │  ├─ dx7.c/.h           editable 6-operator FM patch + editing helpers
+   │  ├─ dx7_factory.c      GENERATED: the 128 factory DX7 patches as dx7_patch_t
+   │  ├─ dx7_algos.c/.h     GENERATED: 32 algorithm diagrams (+ operator box positions)
+   │  ├─ seq.c/.h           polyphonic step sequencer (pure; time is passed in)
+   │  ├─ synth_params.c/.h  global amp envelope (AMP ENV page) + the generic LIN/LOG/ENUM parameter table
+   │  ├─ gui.c/.h           style sheet + layout/text/sprite/animation helpers over u8g2
+   │  └─ sprites.h, module_sprites.h (GENERATED)   1-bit sprites
+   ├─ hal/               INTERFACES the core uses; one implementation per platform (audio, display, input: the board's physical controls)
+   ├─ engine/            THE DSP ENGINE, portable C++17 (no exceptions, no RTTI, no heap after init; sees no core/ or hal/)
+   │  ├─ dsp/               q15/q31 math, tables (GENERATED), phase/pitch, oscillators, SVF, FFT/STFT, delay, smoothing, CORDIC
+   │  ├─ core/              module API, graph description, plan compiler, engine (voices, command queue), heap
+   │  ├─ modules/           builtin, synth (Osc Env Lfo Filter Vca Mix Mult Shaper Const), fx (Delay Spectral Vocoder Chorus
+   │  │                     Reverb), dx7_voice (FM), sampler_modules (Sampler Granular)
+   │  └─ sampler/           .smp format, storage interface + simulated card, sample bank, streaming loader
+   └─ platform/
+      ├─ engine/            shared by desktop and ESP32: rack -> graph mapper, DX7 patch conversion, the C API
+      │                     (engine_synth.h) the HAL calls
+      ├─ sim/               desktop: SDL display, SDL audio thread, keyboard (#ifdef PLATFORM_SIM)
+      └─ esp32/             firmware skeleton: I2S audio task, display and input stubs (#if defined(ARDUINO_ARCH_ESP32))
+```
+
+### The rules that keep it portable
+
+1. `core/` only includes `hal/*.h`, `u8g2.h` and the C standard library. Anything platform-specific goes behind a HAL function.
+2. `engine/` includes nothing from `core/`, `hal/` or the platform. `platform/engine/` is the only bridge between the two.
+3. Every file under `platform/<x>/` is wrapped in its guard, because PlatformIO compiles all of `src/`.
+4. The display is created by the platform (`display_init()`), then handed to the app: `app_init(&app, display_init())`.
+5. HAL headers have `extern "C"`, so C core code links from C++ files. `core/*.c` stays C (it uses C designated initializers).
+6. In the engine, nothing on the audio path allocates, locks, logs or uses `float` (see the guidelines in ENGINE_DESIGN.md).
+
+## Architecture in one page
+
+```
+UI thread (main loop)                                        audio thread (SDL callback / I2S task)
+input_poll() -> app_step() -> bindings[] -> app_run_action() -> synth_ui_handle()   edits the data below
+                  |                |
+                  |                +--> returns true when a sound value changed -> audio_set_params(rack, params)
+                  |                +--> ui.rebuild set (menu closed with structural edits) -> audio_build(rack, params)
+                  +--> seq_tick(audio_millis()) -> audio_note_on / audio_note_off
+                  +--> synth_ui_draw() (only when something visible changed)
+
+audio_build / audio_set_params  ->  engine_synth_*  ->  rack_graph_build()  ->  Engine::load()  (atomic plan swap)
+audio_note_*                    ->  Engine::note_on/off, set_param, set_blob  -> lock-free command ring -> engine_synth_render()
+                                                                                  drains it at the start of every block
+```
+
+The data the UI edits (all fixed-size, no malloc):
+
+| Data | Where | What it holds |
+| --- | --- | --- |
+| `rack_t` | `core/rack.h` | the modular synth: up to 10 slots (the rack strip scrolls, 8 cells visible) (module type, id, own parameters `v[]`, modulator target) and `cfg` |
+| `synth_config_t` (`rack.cfg`) | `core/synth_config.h` | synth type (Modular/FM), voices, master volume, the FM patch being edited (`dx7_patch_t fm`), the master FX values |
+| `synth_params_t` | `core/synth_params.h` | the global amp envelope (end of the modular voice) |
+| `seq_t` | `core/seq.h` | pattern notes/lengths + BPM, steps, transpose, swing, held notes |
+| `synth_ui_t` | `core/synth_ui.h` | cursor state, the generated page list, menu tab, FM editor selection |
+
+Every parameter set has the same shape: `*_adjust(dir)` (clamps, returns whether it changed), `*_label`, `*_format`.
+That is what lets one generic list renderer show any of them.
+
+### Screens
+
+- **Main view**: a list of pages (Left/Right on row 0). Pages are **generated** from the data
+  (`synth_ui_rebuild_pages`): in Modular mode every rack module contributes its own pages (OC: `OSC n` + `OSC n TUNE` + `OSC n DEST`; every modulator (OC, LFO, ENV, EG) has a `... DEST` page with Tgt / Prm / Dpth, same as the RACK tab; FL: `FILTER n` + `FILT n ENV`; SA: `SAT n`; LFO: `LFO n`; ENV: `ENV n` + `ENV n CRV` (curves, hold, start); EG: `EG n` (the selected point) + `EG n REL`; RS: `RES n`; FL also has `FILT n CRV`; the global `AMP ENV` is followed by `AMP CURVE`;
+  MS: `MOTION n` + `MS n LANE`; SM: `SMP n`, `SMP n LOOP`, `SMP n SLICE`)
+  followed by `AMP ENV`, `SEQUENCER`, `SEQ SETUP`. In FM mode the pages are `FM SYNTH` (Patch, Vol), `SEQUENCER`, `SEQ SETUP`.
+- **Menu** (Enter): tabs switched with Left/Right on row 0. Modular: `RACK`, `GENERAL`, `SAMPLES` (library browser), `FX RACK` (four master slots).
+  FM: `GENERAL`, `ALGORITHM`, `OPERATOR`, `ENVELOPE`, `FX RACK`. Closing the menu with structural edits
+  regenerates the pages and rebuilds the graph. Effect edits are live (no rebuild).
+
+## Where to make changes
+
+### Add / change a module parameter (modular synth)
+
+1. `core/rack.h`: add an index to the module's `MP_*` enum (`MOD_PARAM_MAX` = 8 values per module).
+2. `core/rack.c`: add a row to the module's descriptor table (label, LIN/LOG/ENUM, range, step, default, unit, decimals).
+   Defaults are applied by `rack_insert`.
+3. `core/ui_pages.c`: put the index in one of the module's page definitions (`*_pages[]`, max 4 rows).
+4. `platform/engine/rack_graph.cpp`: map the value onto the engine module's parameter (units in `modules/synth_modules.h`).
+
+### Add a module type
+
+`module_type_t` + the `info[]` row in `rack.c` (name, code, audio/modulator flag, target parameters, own parameters), a line
+in `tools/gen_module_sprites.py` (then run it), the sprite table `module_sprite()` in `ui_draw.c`, page definitions, and the
+branch in `rack_graph_build()` that creates the engine nodes and cables for it. A new *engine* module is a class in
+`src/engine/modules/` (see below) plus its `ModuleInfo`, registration and a test.
+
+### Add a page or a graph
+
+Module pages: extend the `*_pages[]` tables in `ui_pages.c`. Global pages: `global_pages[]` and the `modular_globals` /
+`fm_globals` lists. A new graph type = a `GRAPH_*` value, a `draw_*` function (the graph box is `gui_default_style.graph`)
+and a `case` in `synth_ui_draw()`.
+
+### Add a general or master-effect setting
+
+`core/synth_config.[ch]`: general values have a `cfg_param_id_t` and cases in `synth_config_adjust/format/label`; effect
+values are a row in `fx_table` (label, min, max, step, default, unit) plus an id in the FX range. Show it in the
+GENERAL tab, or list it in the FX RACK tab (`scr_fx.c`, the parameters come from `fxrack.c`), and use it in `rack_graph.cpp`. Return `CFG_LIVE` for
+values applied immediately, `CFG_REBUILD` for structural ones.
+
+### Write an engine module
+
+Derive from `sc::Module` (`engine/core/module.h`): `info()` returns a static `ModuleInfo` (scope voice/global, ports,
+parameters with defaults); `init(Memory&)` allocates buffers (`mem.fast` for hot state, `mem.bulk` for long lines) and the
+destructor frees them; `reset()` clears state; `set_param(idx, value)` takes int32 in the module's own units (pitch values
+are MIDI x 256, times in ms or 1/16 ms, levels q15); `process(ctx, ports)` renders `kBlock` frames of q15 from `in[]`
+(always valid) and `mod[]` (null when no cable is connected; a bipolar q15 signal otherwise), writing `out[]`. Register it
+(`Registry::add(id, type_of<T>())`), then test it against a float reference (`tests/engine/rig.h` has the helpers).
+
+### Sequencer (`core/seq.c`)
+
+Per step: note + length. Global (page `SEQ SETUP`): BPM, Steps (1..16), Trsp (transpose), Swing (% delay of odd steps),
+edited through `seq_param_adjust/label/format` (table in `seq.c`). The sequencer is **polyphonic**: a note longer than one
+step keeps ringing over the following steps (up to `SEQ_POLY` = 8 held notes; the oldest is stolen when full; the same pitch
+is retriggered). `seq_tick(now_ms)` is polled from `app_step()` and returns the notes to release (`off[]`, applied first) and
+the note to start (`on`); stopping releases everything. The time base is the audio clock (`audio_millis()`).
+
+### GUI helpers (`core/gui.h`)
+
+`gui_style_t` (font, margin, padding, gap, list column / graph box geometry, piano-roll and rack metrics; default in
+`gui_default_style`, `core/gui.c`) feeds the helpers: rect layout (`gui_inset`, `gui_center`, `gui_below/above/right_of/left_of`,
+`gui_take_top/left`, `gui_grid_cell`, `gui_center_box`), text (`gui_text_w/h`, `gui_row_h`, `gui_text_center`,
+`gui_draw_text_centered/left/right`, `gui_draw_field`) and sprites. A sprite is a `gui_sprite_t {w, h, bytes, frames}`: 8 pixels
+per byte, MSB = leftmost, rows padded to whole bytes; add small ones to `core/sprites.h`.
+
+Animations: a sprite can be a sheet (`frames` images stacked vertically, e.g. `spr_eq`).
+`gui_anim_add(&sprite, first, last, frame_ms, loop)` (or `gui_anim_add_total(...)`) returns an id; `first > last` plays
+backwards. Call `gui_anim_tick(now_ms)` from the main loop (true = a frame changed, redraw), draw with
+`gui_anim_draw[_centered|_right]`, and delete with `gui_anim_remove(id)` (also `gui_anim_clear`, `_restart`, `_finished`).
+A non-looping animation stays on its last frame until removed. Up to `GUI_ANIM_MAX` at once. `app_step()` is the reference.
+
+### Change what a control does, or add a control
+
+Input has three layers, so each change has one home:
+
+1. **HAL** (`hal/hal_input.h`, one `input_poll()` per platform): reports PHYSICAL controls only, as `{control id, kind, value}`: `CTL_ENC_A`
+   `IN_DELTA` (detents), `CTL_KNOB_R1` `IN_VALUE` (0..1023), `CTL_KEY(row, col)` `IN_PRESS` / `IN_RELEASE`... It knows nothing about the application.
+2. **Bindings** (`core/bindings.c`): the table `{control, event kind, modifier state, action, argument}`. Rebinding = editing a row, e.g. to make
+   encoder A change pages instead of rows: `{CTL_ENC_A, IN_DELTA, MODS_NONE, ACT_PAGE_MOVE, +1}`. A control can have several rows; Shift (hold-action on
+   button 3) selects rows by `MODS_NONE` / `MODS_SHIFT` / `MODS_ANY`. The list of actions and their arguments is in `core/bindings.h`.
+3. **Actions** (`app_run_action` in `core/app.c`): what an action does, mostly by sending a `ui_event_t` (`UI_UP`, `UI_PAGE_NEXT`, `UI_SELECT`... in
+   `core/synth_ui.h`) to `synth_ui_handle`, or by playing a note, changing the octave, or setting a knob value.
+
+Recipes:
+- *Move a function to another button*: change `ctl` in its row of `bindings[]`. No other file changes.
+- *New action*: a value in `action_id_t` + its name in `action_names` (`bindings.c`) + a `case` in `app_run_action`; then use it in the table. Actions that need the
+  release of their control (notes, Shift) are listed in `action_is_hold`.
+- *New physical control*: a value in `control_id_t` (`hal_input.h`, before `CTL_HW_COUNT`), a name in `control_name`, a widget in `build_layout` of
+  `platform/sim/panel_sim.c`, a row in `keymap[]` of `input_sim.c` (optional), the driver code on the ESP32 (`input_esp32.cpp`, pins in `board_pins.h`), and a row in `bindings[]`.
+- *Keyboard shortcuts of the simulator*: the `keymap[]` table of `platform/sim/input_sim.c` (physical scancodes).
+- *The joystick* is reported as two axes; the core turns deflection into the virtual controls `CTL_JOY_LEFT / RIGHT / UP / DOWN` (with key repeat, thresholds in
+  `bindings.h`), so bindings treat it as four buttons.
+- *Knobs*: a knob reports a position 0..1023 and a binding gives it an action (`ACT_PAGE_KNOB`, `ACT_MACRO`, `ACT_MASTER_VOLUME`). A parameter only knows
+  "one step up / down", so `ui_input.c` (`knob_set`) walks the parameter to both ends and back to the step that matches the position: nothing to add when a new
+  parameter appears. Rows that select or cycle (targets, sample file, step editors) are not driven by knobs (`row_is_knobbable`).
+- *Test without the window*: `tools/ui_dump.c` takes control events (`encA:+1`, `shift`, `knob:27:900`, `key:4.0`...), see the top of the file.
+
+### Add a HAL function / a platform
+
+Declare it in `hal/hal_*.h`, implement it in **every** `platform/*/`. A new platform (Teensy, RP2040...) is a folder
+`src/platform/<name>/` with the three HAL implementations wrapped in a guard macro; for the desktop-style build
+`.\build.ps1 -Platform <name>` compiles `core/` + `platform/<name>/*.c` with `-DPLATFORM_<NAME>`. The audio part of a platform is
+small: allocate two memory blocks, call `engine_synth_init`, and arrange for `engine_synth_render` to be called from an audio
+thread / DMA task.
+
+### Change the layout / fonts / palette / screen size
+
+The screen size is one setting: `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` in `hal/hal_display.h` (default 128 x 64; `.\build.ps1 -Clean -Display 128x128` for
+the simulator). The application reads the real size from the u8g2 instance and builds its style from it (`gui_style_init(st, w, h)` in `core/gui.c`, called by
+`synth_ui_draw`): the list column takes half the width and the graph box fills the rest, so a taller screen gives taller graphs without touching the drawing
+code. Check a size without SDL with `UI_DUMP_SIZE=128x128` and `tools/ui_dump.c`. A real 128 x 128 design (more rows per page, other fonts) starts from the
+style: edit `gui_default_style` / `gui_style_init`. The pixel offsets that remain in `ui_draw.c` are multiples of the row height (`gui_row_h`), so they follow the font.
+
+The style (`gui_default_style` in `core/gui.c`) holds the font, margin, padding, gap, `list_w` / `list_top`, `graph` (graph box rect), the piano roll and the rack.
+Default font is `u8g2_font_5x7_tr`. The FM editor tabs use a compact copy of the style (padding 0, gap 0) so five rows fit. `platform/sim/display_sim.c` is the
+simulator's own display driver (any size, plain monochrome: white on black by default, or black on white with `OLED_SIM_PALETTE=light`).
+`OLED_SIM_PANEL_SHOT=path.bmp` saves both windows (the panel to `path.bmp`, the OLED to `path.bmp.oled.bmp`) after a moment: handy to look at the result without a screen.
+
+## The engine in short
+
+Everything is a graph of modules compiled into a flat plan: `NoteIn` per voice, any number of modules joined by **cables with a
+signed depth** (any output can drive any input or any parameter; there is no distinction between audio and control, so audio-rate
+FM / AM / filter FM are just cables), `VoiceOut` summing the voices, then global modules (effects). All signals are q15 blocks of
+`ENGINE_BLOCK` (32) frames at `ENGINE_SR` (48 kHz); state is q31 / Q28 where it matters. Modules in the box:
+
+| Group | Modules |
+| --- | --- |
+| structure | NoteIn (pitch CV, gate, velocity), VoiceOut (sum, pan, frees silent voices), BusIn, MasterOut |
+| synthesis | Osc (sine, PolyBLEP saw / pulse, PolyBLAMP triangle, noise), **OscEngines** (Karplus-Strong, modal, FM2, folder, supersaw, vowel, additive, dust; ADR-033), Env (ADSR + hold / start / curves), **Eg** (4-point envelope), Lfo, Filter (TPT SVF, 12..48 dB/oct, LP/BP/HP/notch), Vca, Mult (ring / AM), Mix4, Shaper (10 modes), Const |
+| FM | Dx7 (6 operators, 32 algorithms, feedback, 4-stage envelopes) |
+| control | MotionSeq (4 lanes x 16 steps, own sample-accurate clock locked to the note sequencer's timing; ADR-029) |
+| effects | Delay (stereo, Hermite, ping-pong), Chorus (Juno-like modes), Reverb (Dattorro plate), SpectralFx (freeze, gate/filter, robot, whisper, pitch shift), Vocoder, **Phaser, Flanger, Tremolo / Auto-pan, Compressor, EQ3, Ring mod / Shifter, Convolver (cab / body IRs), Comb (tuned resonator, voice scope)** (ADR-034) |
+| samples | (rack module SM, ADR-030) Sampler (streaming, pitched, loops, reverse, slices, key/velocity zones), Granular; `.smp` files via `tools/wav2smp.py` |
+
+Rack -> engine mapping and the master chain are described in ENGINE_DESIGN.md (ADR-026, ADR-034); the threading rules in ADR-024; modulation depths in ADR-032.
+
+## Tools (`tools/`)
+
+| Tool | Generates / does | Run |
+| --- | --- | --- |
+| `gen_module_sprites.py` | `src/core/module_sprites.h` (module sprites with 2-letter codes) | `python tools/gen_module_sprites.py` |
+| `gen_dx7.py` | `src/core/dx7_factory.c` and `src/core/dx7_algos.c` (needs `lib/amy`) | `python tools/gen_dx7.py` |
+| `gen_engine_tables.py` | `src/engine/dsp/tables.cpp` (sine, exp2, tan, tanh, FFT twiddles, window, CORDIC) | `python tools/gen_engine_tables.py` |
+| `make_demo_samples.py` | five synthetic demo samples into `samples/` (the simulator's card folder) | `python tools/make_demo_samples.py` |
+| `wav2smp.py` | WAV (8..32 bit, mono/stereo, `smpl` loops) -> cooked `.smp` sample | `python tools/wav2smp.py in.wav out.smp --root 60 --slices 0 12000` |
+| `build_engine_tests.ps1` | builds and runs the engine tests; `-Matrix` for all configurations, `-Filter name` for a few | see the file header |
+| `ui_dump.c` | renders the screens to ASCII without SDL or audio (layout checks) | command at the top of the file |
+
+The generated files are committed, so the generators are only needed when their inputs change. The FM loudness table
+`src/platform/engine/fm_patch_gain.h` is regenerated by the test run with `DX7_GAIN_OUT=src/platform/engine/fm_patch_gain.h`.
+
+## Testing
+
+`tests/engine` has a small test runner (`TEST(name) { CHECK(...); }`, filter by name on the command line), DSP helpers (SNR, DFT)
+and `DspRig`, an engine with all modules registered. The suite covers the numeric kernels against float64 references, the plan
+compiler and the engine (feedback relocation per voice, rebuilds that keep state, a two-thread stress test), every module
+against theory (filter responses against the analytic bilinear Butterworth, FM sidebands against Bessel functions, aliasing
+against the naive waveforms, reverb decay rate, chorus delay swing...), the sampler against a simulated slow card (latency,
+bandwidth, stalls), and the production path from `rack_t` to audio samples (`test_integration.cpp`). Run `-Matrix` after
+touching anything in `engine/`: the six configurations catch hard-coded rates and block sizes.
+
+Screens: `gcc -O1 -w -Isrc -Ilib/u8g2/csrc tools/ui_dump.c src/core/*.c lib/u8g2/csrc/*.c -lm -o build/ui_dump.exe`, then
+`build\ui_dump.exe "menu right right"` prints the frame after those events.
+
+## ESP32 firmware
+
+```powershell
+pio run -e waveshare_esp32s3_pico                 # build
+pio run -e waveshare_esp32s3_pico -t upload       # flash
+pio device monitor
+```
+
+Status: **nothing here has been built or run on hardware.** The engine is C++17 and needs `-std=gnu++17` (set in
+`platformio.ini`). `audio_esp32.cpp` renders on a task pinned to core 1 and writes to an I2S DAC (ESP-IDF 5 driver), taking the
+engine memory from internal RAM (about 220 KB) and PSRAM (about 1 MB); display and input are still skeletons. Pins are
+placeholders in `platform/esp32/board_pins.h`. The CPU load of 8 voices with all effects on the S3 is unmeasured (a PC runs the
+full rack at about 2 % of real time).
+
+## Not implemented yet (next steps)
+
+- **Sampler in the application: done for one sample per module** (ADR-030). Left: zones (multisample keyboards, velocity layers) in the UI,
+  the granular module in the rack, a sampler synth type, the TF card driver and I/O task on the ESP32, saving racks with file *names*.
+- **Motion sequencer: done** (ADR-029). Left for later: more targets (needs mapper support: resonance, mix, modulator rates), a
+  lane copy / clear / randomise helper, sending the lane position to the screen from the engine instead of `seq.pos`.
+- Modulation of resonance and of other modulators in the mapper (the engine can do both: they are cables).
+- LFO sync to the sequencer tempo, key tracking, per-voice phase retrigger options.
+- Saving / loading racks and FM patches (flash / NVS) and a patch list.
+- Hardware input for the ESP32 (sensors / buttons as events; "learn" a parameter by moving it).
+- Measuring the ESP32-S3 CPU headroom for the voice counts the UI allows.
+
+## Gotchas
+
+- Run the exe from a folder where `SDL2.dll` can be found (PATH or next to the exe).
+- Sound too quiet/loud: master **Vol** on the menu's GENERAL tab (and, for FM, the per-patch trim table).
+- Rack changes only take effect when the menu is closed; effect edits are immediate.
+- Notes posted and released within one audio block never open the gate (commands are applied at the next block).
+- PowerShell does not run `sdl2-config` or expand `*.c` for gcc; `build.ps1` handles both.
+- Files written from Python on Windows must be opened with `encoding="utf-8"`.
+- When editing files with scripts: do not put `\n` inside C string literals in a Python triple-quoted string (it becomes a real
+  newline); write the script with the editor tool and run it from a file.

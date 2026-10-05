@@ -17,6 +17,9 @@ namespace {
 constexpr int kSemi = 256;
 
 q15 q(double x) { return static_cast<q15>(std::lround(std::fmax(-1.0, std::fmin(1.0, x)) * 32767.0)); }
+// A modulation cable's depth. Full scale is nudged to 32766: an exactly unity cable is wired straight through with no gain stage, so moving the
+// depth knob onto or off the maximum would need a full graph rebuild (an audible stall) instead of a live gain change.
+q15 qd(double x) { const q15 v = q(x); return v == kUnity ? static_cast<q15>(kUnity - 1) : v; }
 int32_t hz_pitch(double hz) { return static_cast<int32_t>(std::lround(69.0 * kSemi + 12.0 * kSemi * std::log2(hz / 440.0))); }
 int32_t ms_i(double ms) { return static_cast<int32_t>(std::lround(ms < 1 ? 1 : ms)); }
 
@@ -205,14 +208,16 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                 bool replaced = false;
                 for (int j = 0; j < rack.count; j++)
                     if (rack.slot[j].type == MOD_ENV && rack.slot[j].tgt_id == s.id && rack.slot[j].tgt_param == 0) replaced = true;
-                if (!replaced && s.v[MP_FL_ENVAMT] > 0) {
+                // The envelope node is always present (amount 0 = a cable with gain 0): creating it only when the amount is above 0 made the
+                // amount knob change the graph's shape at 0.00, and a shape change is a full rebuild (a stall of 100+ ms). Costs one Env per voice.
+                if (!replaced) {
                     NodeDesc *e = b.add(aux, T_ENV);
                     if (!e) break;
                     e->param[ENV_ATTACK] = ms_i(s.v[MP_FL_A]); e->param[ENV_DECAY] = ms_i(s.v[MP_FL_D]);
                     e->param[ENV_SUSTAIN] = q(s.v[MP_FL_S]); e->param[ENV_RELEASE] = ms_i(s.v[MP_FL_R]);
                     e->param[ENV_A_CURVE] = q(s.v[MP_FL_ACV] / 100.0); e->param[ENV_D_CURVE] = q(s.v[MP_FL_DCV] / 100.0); e->param[ENV_R_CURVE] = q(s.v[MP_FL_RCV] / 100.0);
                     b.cable(RN_NOTE, 1, aux, Dst::In, 0);
-                    b.cable(aux, 0, id, Dst::Param, FLT_CUTOFF, q(s.v[MP_FL_ENVAMT] / 8.0));
+                    b.cable(aux, 0, id, Dst::Param, FLT_CUTOFF, qd(std::fmax(0.0, s.v[MP_FL_ENVAMT]) / 8.0));
                 }
                 run = id;
             } else if (s.type == MOD_COMB) {
@@ -289,7 +294,7 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
             } else {
                 continue;                                            // MS: not realised yet
             }
-            b.cable(id, 0, tgt[ti].node, Dst::Param, dst_param, q(dpth / dt.range));       // Dpth is in the target's unit
+            b.cable(id, 0, tgt[ti].node, Dst::Param, dst_param, qd(dpth / dt.range));       // Dpth is in the target's unit
         }
 
         // ---- motion sequencers: one engine node per MS module, one cable per lane that has a realisable target
@@ -315,7 +320,7 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                 const rack_slot_t &t = rack.slot[ti];
                 DepthTarget dt;
                 if (!depth_target(t, ln.tgt_param, true, dt)) continue;
-                b.cable(id, l, tgt[ti].node, Dst::Param, dt.dst, q(ln.depth / dt.range));
+                b.cable(id, l, tgt[ti].node, Dst::Param, dt.dst, qd(ln.depth / dt.range));
             }
             MotionBlob &mb = out.ms_blob[out.ms_count];
             for (int l = 0; l < MS_LANES; l++) {

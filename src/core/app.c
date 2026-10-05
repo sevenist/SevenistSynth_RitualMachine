@@ -14,7 +14,7 @@ void app_init(app_t *app, u8g2_t *display) {
     app->display = display;
     synth_params_default(&app->params);
     seq_init(&app->seq);
-    rack_init(&app->rack);
+    rack_init_startup(&app->rack);
     synth_ui_init(&app->ui, &app->rack);
     audio_build(&app->rack, &app->params);
     synth_ui_draw(&app->ui, &app->params, &app->seq, &app->rack, app->display);

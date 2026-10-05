@@ -7,6 +7,7 @@
 #include "hal/hal_input.h"
 #include "hal/hal_leds.h"
 #include "platform/esp32/board_esp32.h"
+#include "platform/esp32/serial_cmd_esp32.h"
 
 static app_t app;
 
@@ -29,6 +30,9 @@ void setup() {
 
 void loop() {
     board_power_poll();
+#ifdef DEV_SERIAL_CMD
+    serial_cmd_poll();                         // dev only: commands from tools/serial_test.py
+#endif
     const input_event_t e = input_poll();
     app_step(&app, e);
     if (e.kind == IN_NONE) delay(1);           // idle: yield so the idle task on this core can run (its watchdog fires otherwise)

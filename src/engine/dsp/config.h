@@ -10,6 +10,25 @@
 #define ENGINE_BLOCK 32           // frames per processing block (power of two)
 #endif
 
+// ENGINE_FX_MONO=1: the delay and the reverb compute one channel and send it to both outputs (the dry signal keeps its stereo). It halves the
+// delay's cost and its memory and saves about a third of the reverb's cost; the effects lose their stereo width. Off by default.
+#ifndef ENGINE_FX_MONO
+#define ENGINE_FX_MONO 0
+#endif
+
+// ENGINE_FILTER_EXACT=1: the filter recomputes its coefficients for every sample whenever its cutoff is modulated. By default it does that only
+// when the modulation is not a smooth line over the block (audio-rate FM, sample & hold) and interpolates the coefficients otherwise.
+#ifndef ENGINE_FILTER_EXACT
+#define ENGINE_FILTER_EXACT 0
+#endif
+
+// ENGINE_REVERB_HALF=1: the reverb tank (delay lines, diffusers, damping, output taps) runs at half the sample rate, 2:1 decimated and 1:2
+// interpolated with half-band / cubic FIRs. It halves the reverb's cost and the memory of its lines; the reverb loses some of the top octave
+// (its own damping filters are usually below that). The rest of the engine stays at ENGINE_SR. Off by default.
+#ifndef ENGINE_REVERB_HALF
+#define ENGINE_REVERB_HALF 0
+#endif
+
 #ifndef ENGINE_MAX_VOICES
 #define ENGINE_MAX_VOICES 8
 #endif

@@ -8,6 +8,10 @@
 #include "engine/dsp/util.h"
 #include "engine/modules/synth_modules.h"
 
+#if defined(ENGINE_PROFILE) && defined(ARDUINO_ARCH_ESP32)
+uint32_t g_sec_prof[16];
+#endif
+
 namespace sc {
 namespace {
 
@@ -37,7 +41,7 @@ public:
     }
     bool init(Memory &m) override {
         const int max_samples = ENGINE_DELAY_MAX_MS * kSampleRate / 1000;
-        return l_.init(*m.bulk, max_samples) && r_.init(*m.bulk, max_samples);
+        return l_.init(*m.bulk, max_samples) && (ENGINE_FX_MONO || r_.init(*m.bulk, max_samples));      // (mono: one line)
     }
     void reset() override { l_.clear(); r_.clear(); lpl_ = lpr_ = 0; cur_ = target_; }
     void set_param(int idx, int32_t v) override {
@@ -69,16 +73,25 @@ public:
         if ((target_ - cur_) < 65536 && (cur_ - target_) < 65536) cur_ = target_;
         const int64_t d1 = cur_;
         const q15 *mt = p.mod[DLY_TIME];
+        const int64_t dd = (d1 - d0) >> kBlockLog2;                          // per-sample slope of the glide
         const int64_t lo = 2ll << 16, hi = static_cast<int64_t>(l_.max_delay()) << 16;
         for (int i = 0; i < ctx.frames; i++) {
-            int64_t d = d0 + (((d1 - d0) * i) >> kBlockLog2);
+            SEC_BEGIN();
+            int64_t d = d0 + dd * i;
             if (mt) d += (static_cast<int64_t>(mt[i]) * tmod_) >> 15;
             d = d < lo ? lo : (d > hi ? hi : d);
             const uint32_t dq = static_cast<uint32_t>(d);
+            SEC_MARK(8);                                                                  // delay time
+            const q15 inl = p.in[0][i], inr = p.in[1][i];
+#if ENGINE_FX_MONO
+            const q15 yl = l_.read_hermite(dq), yr = yl;
+            lpl_ = lp(lpl_, yl);
+            l_.write(sat16(((inl + inr) >> 1) + mul15(to15(lpl_), fb_)));
+#else
             const q15 yl = l_.read_hermite(dq), yr = r_.read_hermite(dq);
+            SEC_MARK(9);                                                                  // 2 Hermite reads
             lpl_ = lp(lpl_, yl);
             lpr_ = lp(lpr_, yr);
-            const q15 inl = p.in[0][i], inr = p.in[1][i];
             if (pingpong_) {
                 l_.write(sat16(((inl + inr) >> 1) + mul15(to15(lpr_), fb_)));
                 r_.write(mul15(to15(lpl_), fb_));
@@ -86,17 +99,17 @@ public:
                 l_.write(sat16(inl + mul15(to15(lpl_), fb_)));
                 r_.write(sat16(inr + mul15(to15(lpr_), fb_)));
             }
+#endif
+            SEC_MARK(10);                                                                 // low-pass + writes
             p.out[0][i] = sat16(inl + (((static_cast<int32_t>(yl) - inl) * mix_) >> 15));
             p.out[1][i] = sat16(inr + (((static_cast<int32_t>(yr) - inr) * mix_) >> 15));
+            SEC_MARK(11);                                                                 // dry/wet
         }
     }
 private:
     static constexpr int kBlockLog2 = (kBlock == 8 ? 3 : kBlock == 16 ? 4 : kBlock == 32 ? 5 : kBlock == 64 ? 6 : kBlock == 128 ? 7 : 8);
     static int64_t to_samples(int32_t sixteenth_ms) { return static_cast<int64_t>(sixteenth_ms) * kSampleRate * 65536 / 16000; }
-    q31 lp(q31 state, q15 y) const {
-        const int64_t diff = static_cast<int64_t>(to31(y)) - state;
-        return static_cast<q31>(state + ((static_cast<int64_t>(static_cast<int32_t>(diff >> 1)) * damp_) >> 30));
-    }
+    q31 lp(q31 state, q15 y) const { return state + shl_sat(mulh((to31(y) >> 1) - (state >> 1), damp_), 2); }     // one pole: state += (y - state) * coef, in 32 bits
     DelayLine l_, r_;
     int64_t cur_ = to_samples(350 * 16), target_ = to_samples(350 * 16), tmod_ = to_samples(8 * 16);
     q15 fb_ = 12000, mix_ = 16384;
@@ -371,10 +384,7 @@ public:
         }
     }
 private:
-    q31 lp(q31 state, q15 y) const {
-        const int64_t diff = static_cast<int64_t>(to31(y)) - state;
-        return static_cast<q31>(state + ((static_cast<int64_t>(static_cast<int32_t>(diff >> 1)) * lp_) >> 30));
-    }
+    q31 lp(q31 state, q15 y) const { return state + shl_sat(mulh((to31(y) >> 1) - (state >> 1), lp_), 2); }
     DelayLine l_, r_;
     int64_t center_ = 0, depth_cur_ = 0, depth_tgt_ = 0, gain_cur_ = 0, gain_tgt_ = 0;
     uint32_t ph_ = 0, inc_ = 0;
@@ -395,7 +405,7 @@ public:
         return i;
     }
     bool init(Memory &m) override {
-        sc_ = (static_cast<int64_t>(kSampleRate) << 16) / kRefRate;                       // Q16 sample-rate scale
+        sc_ = (static_cast<int64_t>(kTankSR) << 16) / kRefRate;                       // Q16 sample-rate scale
         auto len = [&](int ref, int64_t f_q16) { return static_cast<int>(((static_cast<int64_t>(ref) * sc_ >> 16) * f_q16) >> 16); };
         const int64_t big = kSizeMax;
         bool ok = true;
@@ -409,17 +419,17 @@ public:
         ok &= apr2_.init(*m.fast, len(2656, 65536));
         ok &= dl1_.init(*m.fast, len(4453, big)) && dl2_.init(*m.fast, len(3720, big));
         ok &= dr1_.init(*m.fast, len(4217, big)) && dr2_.init(*m.fast, len(3163, big));
-        ok &= pre_.init(*m.bulk, kSampleRate / 5 + 4);                                    // 200 ms
+        ok &= pre_.init(*m.bulk, kTankSR / 5 + 4);                                    // 200 ms
         apl1_.set_gain(22938);
         apr1_.set_gain(22938);                                                            // decay diffusion 1 = 0.7
         update_decay();
         recompute_taps(true);
-        dcl_.set_corner(8.0f);
-        dcr_.set_corner(8.0f);
-        dco_l_.set_corner(8.0f);
-        dco_r_.set_corner(8.0f);
-        inc1_ = hz_to_inc(0.9f);
-        inc2_ = hz_to_inc(1.1f);
+        dcl_.set_corner(8.0f, kTankSR);
+        dcr_.set_corner(8.0f, kTankSR);
+        dco_l_.set_corner(8.0f, kTankSR);
+        dco_r_.set_corner(8.0f, kTankSR);
+        inc1_ = hz_to_inc(0.9f) * kDecim;                                                 // phase per tank step
+        inc2_ = hz_to_inc(1.1f) * kDecim;
         return ok;
     }
     void reset() override {
@@ -434,10 +444,13 @@ public:
         dco_r_.reset();
         size_cur_ = size_tgt_;
         recompute_taps(true);
+        for (auto &v : dh_) v = 0;
+        for (auto &v : ylh_) v = 0;
+        for (auto &v : yrh_) v = 0;
     }
     void set_param(int idx, int32_t v) override {
         switch (idx) {
-            case RVB_PREDELAY: pre_samples_ = v * kSampleRate / 1000; break;
+            case RVB_PREDELAY: pre_samples_ = v * kTankSR / 1000; break;
             case RVB_DECAY: decay_ = static_cast<q15>(v); update_decay(); break;
             case RVB_DAMP: damp_ = cutoff_coef(v); break;
             case RVB_BANDWIDTH: bw_coef_ = cutoff_coef(v); break;
@@ -462,68 +475,109 @@ public:
         if (step != 0) {
             size_cur_ += step;
             recompute_taps();
-            for (int k = 0; k < kPos; k++) pstep_[k] = (offt_[k] - off_[k]) / kBlock;
+            for (int k = 0; k < kPos; k++) pstep_[k] = (offt_[k] - off_[k]) / (kBlock / kDecim);
             gliding = true;
         }
         const int64_t exc = ((16 * sc_) * mod_) >> 15;                                    // Q16 samples
+#if ENGINE_REVERB_HALF
+        for (int i = 0; i + 1 < ctx.frames; i += 2) {
+            const q15 inl0 = p.in[0][i], inr0 = p.in[1][i], inl1 = p.in[0][i + 1], inr1 = p.in[1][i + 1];
+            const q15 xa = mul15n(static_cast<q15>((inl0 + inr0) >> 1), 16384), xb = mul15n(static_cast<q15>((inl1 + inr1) >> 1), 16384);   // mono, 6 dB of headroom
+            // 2:1 decimation: half-band FIR (-1 0 9 16 9 0 -1) / 32 centred two inputs back (dh_ = the five inputs before this pair): flat to well
+            // past 8 kHz, exactly 6 dB down at 12 kHz, a null at 24 kHz
+            const q15 xd = sat16((-dh_[0] + 9 * dh_[2] + 16 * dh_[3] + 9 * dh_[4] - xb + 16) >> 5);
+            dh_[0] = dh_[2]; dh_[1] = dh_[3]; dh_[2] = dh_[4]; dh_[3] = xa; dh_[4] = xb;
+            int32_t wl, wr;
+            tank(xd, gliding, exc, wl, wr);
+            // 1:2 interpolation: the even output is the tank sample two steps back, the odd one the cubic midpoint between it and the next
+            const int32_t el = ylh_[1], ol = (-ylh_[0] + 9 * ylh_[1] + 9 * ylh_[2] - wl + 8) >> 4;
+            ylh_[0] = ylh_[1]; ylh_[1] = ylh_[2]; ylh_[2] = sat16(wl);
+#if ENGINE_FX_MONO
+            const int32_t er = el, orr = ol;
+#else
+            const int32_t er = yrh_[1], orr = (-yrh_[0] + 9 * yrh_[1] + 9 * yrh_[2] - wr + 8) >> 4;
+            yrh_[0] = yrh_[1]; yrh_[1] = yrh_[2]; yrh_[2] = sat16(wr);
+#endif
+            const int32_t m = static_cast<int32_t>(mix_);
+            p.out[0][i] = sat16(inl0 + (((sat16(el) - inl0) * m) >> 15));
+            p.out[1][i] = sat16(inr0 + (((sat16(er) - inr0) * m) >> 15));
+            p.out[0][i + 1] = sat16(inl1 + (((sat16(ol) - inl1) * m) >> 15));
+            p.out[1][i + 1] = sat16(inr1 + (((sat16(orr) - inr1) * m) >> 15));
+        }
+#else
         for (int i = 0; i < ctx.frames; i++) {
-            if (gliding) for (int k = 0; k < kPos; k++) off_[k] += pstep_[k];
-            const uint32_t len_l1 = pos(0), len_l2 = pos(1), len_r1 = pos(2), len_r2 = pos(3);
             const q15 inl = p.in[0][i], inr = p.in[1][i];
-            q15 x = mul15(static_cast<q15>((inl + inr) >> 1), 16384);                     // mono, 6 dB of headroom for the tank
-            if (pre_samples_ > 0) { const q15 d = pre_.read(pre_samples_); pre_.write(x); x = d; } else pre_.write(x);
-            bw_ = lp(bw_, x, bw_coef_);
-            x = to15(bw_);
-            for (auto &a : ap_in_) x = a.process(x);
-
-            ph1_ += inc1_;
-            ph2_ += inc2_;
-            const uint32_t m1 = static_cast<uint32_t>(static_cast<int64_t>(base_l1_) + ((static_cast<int64_t>(sine(ph1_)) * exc) >> 15));
-            const uint32_t m2 = static_cast<uint32_t>(static_cast<int64_t>(base_r1_) + ((static_cast<int64_t>(sine(ph2_)) * exc) >> 15));
-
-            // figure-8 tank: each half is fed by the input plus the decayed end of the other half
-            const q15 in_l = sat16(x + mul15(er_, decay_)), in_r = sat16(x + mul15(el_, decay_));
-            // left half
-            const q15 a_l = apl1_.process_mod(in_l, m1);
-            const q15 d1_l = dcl_.process(dl1_.read_lerp(len_l1));                       // the DC blocker stops rounding bias from piling up in the loop
-            dl1_.write(a_l);
-            dampl_ = lp(dampl_, d1_l, damp_);
-            const q15 c_l = apl2_.process(mul15(to15(dampl_), decay_));
-            el_ = dl2_.read_lerp(len_l2);
-            dl2_.write(c_l);
-            // right half
-            const q15 a_r = apr1_.process_mod(in_r, m2);
-            const q15 d1_r = dcr_.process(dr1_.read_lerp(len_r1));
-            dr1_.write(a_r);
-            dampr_ = lp(dampr_, d1_r, damp_);
-            const q15 c_r = apr2_.process(mul15(to15(dampr_), decay_));
-            er_ = dr2_.read_lerp(len_r2);
-            dr2_.write(c_r);
-
-            // output taps (Dattorro 1997, scaled to this sample rate and size)
-            const int32_t yl = dr1_.read_lerp(pos(4)) + dr1_.read_lerp(pos(5)) - apr2_.tap(t_ap_[0]) + dr2_.read_lerp(pos(6))
-                             - dl1_.read_lerp(pos(7)) - apl2_.tap(t_ap_[1]) - dl2_.read_lerp(pos(8));
-            const int32_t yr = dl1_.read_lerp(pos(9)) + dl1_.read_lerp(pos(10)) - apl2_.tap(t_ap_[2]) + dl2_.read_lerp(pos(11))
-                             - dr1_.read_lerp(pos(12)) - apr2_.tap(t_ap_[3]) - dr2_.read_lerp(pos(13));
-            const int32_t wl = dco_l_.process(sat16((yl * 19661) >> 14)), wr = dco_r_.process(sat16((yr * 19661) >> 14));   // x 0.6, doubled: gives back the input headroom; DC removed
+            int32_t wl, wr;
+            tank(mul15n(static_cast<q15>((inl + inr) >> 1), 16384), gliding, exc, wl, wr);      // mono, 6 dB of headroom for the tank
             p.out[0][i] = sat16(inl + (((wl - inl) * static_cast<int32_t>(mix_)) >> 15));
             p.out[1][i] = sat16(inr + (((wr - inr) * static_cast<int32_t>(mix_)) >> 15));
         }
+#endif
         if (gliding) for (int k = 0; k < kPos; k++) off_[k] = offt_[k];                 // land exactly on the target
     }
 private:
+    // One step of the tank at the tank rate: input (q15) -> the two wet outputs (before the dry/wet mix).
+    inline void tank(q15 xin, bool gliding, int64_t exc, int32_t &wl, int32_t &wr) {
+        if (gliding) for (int k = 0; k < kPos; k++) off_[k] += pstep_[k];
+        SEC_BEGIN();
+        const uint32_t len_l1 = pos(0), len_l2 = pos(1), len_r1 = pos(2), len_r2 = pos(3);
+        q15 x = xin;
+        if (pre_samples_ > 0) { const q15 d = pre_.read(pre_samples_); pre_.write(x); x = d; } else pre_.write(x);
+        bw_ = lp(bw_, x, bw_coef_);
+        x = to15(bw_);
+        for (auto &a : ap_in_) x = a.process(x);
+        SEC_MARK(0);                                                                  // pre-delay, bandwidth, 4 input allpasses
+
+        ph1_ += inc1_;
+        ph2_ += inc2_;
+        const uint32_t m1 = static_cast<uint32_t>(static_cast<int64_t>(base_l1_) + ((static_cast<int64_t>(sine(ph1_)) * exc) >> 15));
+        const uint32_t m2 = static_cast<uint32_t>(static_cast<int64_t>(base_r1_) + ((static_cast<int64_t>(sine(ph2_)) * exc) >> 15));
+
+        SEC_MARK(1);                                                                  // modulation (2 sines)
+        // figure-8 tank: each half is fed by the input plus the decayed end of the other half
+        const q15 in_l = sat16(x + mul15n(er_, decay_)), in_r = sat16(x + mul15n(el_, decay_));
+        // left half
+        const q15 a_l = apl1_.process_mod(in_l, m1);
+        const q15 d1_l = dcl_.process(dl1_.read_lerp(len_l1));                       // the DC blocker stops rounding bias from piling up in the loop
+        dl1_.write(a_l);
+        dampl_ = lp(dampl_, d1_l, damp_);
+        const q15 c_l = apl2_.process(mul15n(to15(dampl_), decay_));
+        el_ = dl2_.read_lerp(len_l2);
+        dl2_.write(c_l);
+        SEC_MARK(2);                                                                  // left half
+        // right half
+        const q15 a_r = apr1_.process_mod(in_r, m2);
+        const q15 d1_r = dcr_.process(dr1_.read_lerp(len_r1));
+        dr1_.write(a_r);
+        dampr_ = lp(dampr_, d1_r, damp_);
+        const q15 c_r = apr2_.process(mul15n(to15(dampr_), decay_));
+        er_ = dr2_.read_lerp(len_r2);
+        dr2_.write(c_r);
+        SEC_MARK(3);                                                                  // right half
+
+        // output taps (Dattorro 1997, scaled to this sample rate and size)
+        const int32_t yl = dr1_.read_lerp(pos(4)) + dr1_.read_lerp(pos(5)) - apr2_.tap(t_ap_[0]) + dr2_.read_lerp(pos(6))
+                         - dl1_.read_lerp(pos(7)) - apl2_.tap(t_ap_[1]) - dl2_.read_lerp(pos(8));
+#if ENGINE_FX_MONO
+        wl = dco_l_.process(sat16((yl * 19661) >> 14)); wr = wl;                  // the left output only (7 of the 14 taps)
+#else
+        const int32_t yr = dl1_.read_lerp(pos(9)) + dl1_.read_lerp(pos(10)) - apl2_.tap(t_ap_[2]) + dl2_.read_lerp(pos(11))
+                         - dr1_.read_lerp(pos(12)) - apr2_.tap(t_ap_[3]) - dr2_.read_lerp(pos(13));
+        wl = dco_l_.process(sat16((yl * 19661) >> 14)); wr = dco_r_.process(sat16((yr * 19661) >> 14));   // x 0.6, doubled: gives back the input headroom; DC removed
+#endif
+        SEC_MARK(4);                                                                  // output taps + DC blockers
+    }
+    static constexpr int kDecim = ENGINE_REVERB_HALF ? 2 : 1;                       // tank steps run at kSampleRate / kDecim
+    static constexpr int kTankSR = kSampleRate / kDecim;
     static constexpr int kRefRate = 29761;                        // Dattorro's reference sample rate
     static constexpr int kPos = 14;                               // 4 tank lengths + 10 output taps, all size-scaled
     uint32_t pos(int k) const { return static_cast<uint32_t>(off_[k]); }
     static constexpr int64_t kSizeMax = 81920;                    // 1.25 in Q16
     q31 cutoff_coef(int32_t pitch) const {
         const double fc = 440.0 * std::exp2((pitch - 69.0 * kSemi) / (12.0 * kSemi));
-        return q31_from_float(1.0 - std::exp(-2.0 * 3.14159265358979 * fc / kSampleRate));
+        return q31_from_float(1.0 - std::exp(-2.0 * 3.14159265358979 * fc / kTankSR));
     }
-    static q31 lp(q31 state, q15 y, q31 coef) {
-        const int64_t diff = static_cast<int64_t>(to31(y)) - state;
-        return static_cast<q31>(state + ((static_cast<int64_t>(static_cast<int32_t>(diff >> 1)) * coef) >> 30));
-    }
+    static q31 lp(q31 state, q15 y, q31 coef) { return state + shl_sat(mulh((to31(y) >> 1) - (state >> 1), coef), 2); }
     void update_decay() {
         int32_t dd2 = decay_ + 4915;                                // decay + 0.15
         dd2 = clamp_i32(dd2, 8192, 16384);                          // clamped to 0.25 .. 0.5
@@ -555,7 +609,8 @@ private:
     uint32_t ph1_ = 0, ph2_ = 0, inc1_ = 0, inc2_ = 0;
     q31 bw_ = 0, dampl_ = 0, dampr_ = 0, damp_ = 0, bw_coef_ = 0;
     q15 el_ = 0, er_ = 0, decay_ = 26000, mod_ = 12000, mix_ = 12000;
-    int pre_samples_ = 20 * kSampleRate / 1000;
+    int pre_samples_ = 20 * kTankSR / 1000;
+    q15 dh_[5] = {}, ylh_[3] = {}, yrh_[3] = {};                  // half-rate tank: decimator history, interpolator histories
     bool idle_ = false;
 };
 

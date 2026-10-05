@@ -11,6 +11,7 @@
 //   1/(1 + g(g+k)) uses a division-free Newton reciprocal, so a coefficient update costs about 25 multiplies
 //   and can run per sample when the cutoff is audio-rate modulated.
 #include <cstdint>
+#include <cstring>
 #include "engine/dsp/q.h"
 #include "engine/dsp/tables.h"
 
@@ -69,13 +70,6 @@ constexpr int32_t sat_q28(int64_t v) {
     return static_cast<int32_t>(v > 0x7FFFFFFFLL ? 0x7FFFFFFFLL : (v < -0x80000000LL ? -0x80000000LL : v));
 }
 
-// High 32 bits of a 32 x 32 signed product: one multiply instruction (MULSH on Xtensa), no 64-bit shifts or adds.
-constexpr int32_t mulh(int32_t a, int32_t b) { return static_cast<int32_t>((static_cast<int64_t>(a) * b) >> 32); }
-// v << n, saturated to 32 bits.
-constexpr int32_t shl_sat(int32_t v, int n) {
-    const int32_t lim = 1 << (31 - n);
-    return v >= lim ? 0x7FFFFFFF : (v < -lim ? static_cast<int32_t>(0x80000000u) : v * (1 << n));
-}
 // k * x for k in Q3.29 and x in Q28 -> Q28 (saturated).
 constexpr int32_t svf_kmul(int32_t k, int32_t x) { return shl_sat(mulh(k, x), 3); }
 
@@ -92,6 +86,78 @@ inline void svf_tick(const SvfCoef &c, SvfState &s, int32_t x, int32_t &lp, int3
     lp = v2;
     bp = v1;
     hp = sub31(sub31(x, svf_kmul(c.k, v1)), v2);
+}
+
+
+// ---- single-precision float version (ESP32-S3 has a hardware FPU; used only if it measures faster, see bench_esp32.cpp) ----
+// State and signal in float with 1.0 = full scale (Q28 value / 2^28), same TPT structure. 24-bit mantissa.
+struct SvfCoefF { float a1 = 1.0f, a2 = 0.0f, a3 = 0.0f, k = 1.0f; };
+struct SvfStateF { float ic1 = 0.0f, ic2 = 0.0f; };
+
+inline SvfCoefF svf_coef_f(uint32_t g_q28, int32_t k_q29) {
+    const float g = static_cast<float>(g_q28) * (1.0f / 268435456.0f);
+    const float k = static_cast<float>(k_q29) * (1.0f / 536870912.0f);
+    SvfCoefF c;
+    c.a1 = 1.0f / (1.0f + g * (g + k));
+    c.a2 = g * c.a1;
+    c.a3 = g * c.a2;
+    c.k = k;
+    return c;
+}
+
+// Float coefficients for n sections that share one g (tan, 0..~6) and have their own 1/Q (k[]): the per-sample path of the filter module.
+// On the ESP32-S3 a float divide costs 68 cycles and a bit cast 62, but a multiply-add 6 and an int->float convert 4, so one divide serves all the
+// sections: with d_i = 1 + g (g + k_i) and a1_i = 1 / d_i, the batch inversion r = 1 / (d_1 d_2 ...) gives each a1_i as r times the others' product.
+inline void svf_coef_batch(float g, const float *k, int n, SvfCoefF *c) {
+    float d[4];
+    for (int s = 0; s < n; s++) d[s] = 1.0f + g * (g + k[s]);
+    float a1[4];
+    if (n == 1) {
+        a1[0] = 1.0f / d[0];
+    } else if (n == 2) {
+        const float r = 1.0f / (d[0] * d[1]);
+        a1[0] = d[1] * r; a1[1] = d[0] * r;
+    } else if (n == 3) {
+        const float p12 = d[0] * d[1], r = 1.0f / (p12 * d[2]), t = d[2] * r;
+        a1[2] = p12 * r; a1[0] = d[1] * t; a1[1] = d[0] * t;
+    } else {
+        const float p12 = d[0] * d[1], p34 = d[2] * d[3], r = 1.0f / (p12 * p34), u = p34 * r, v = p12 * r;     // u = 1/p12, v = 1/p34
+        a1[0] = d[1] * u; a1[1] = d[0] * u; a1[2] = d[3] * v; a1[3] = d[2] * v;
+    }
+    for (int s = 0; s < n; s++) {
+        c[s].a1 = a1[s];
+        c[s].a2 = g * a1[s];
+        c[s].a3 = g * c[s].a2;
+        c[s].k = k[s];
+    }
+}
+
+// Float copy of an integer coefficient set (the integer routine stays the one that computes them: cheaper than a float divide on the ESP32).
+inline SvfCoefF svf_to_float(const SvfCoef &c) {
+    SvfCoefF f;
+    f.a1 = static_cast<float>(c.a1) * (1.0f / 2147483648.0f);
+    f.a2 = static_cast<float>(c.a2) * (1.0f / 2147483648.0f);
+    f.a3 = static_cast<float>(c.a3) * (1.0f / 2147483648.0f);
+    f.k = static_cast<float>(c.k) * (1.0f / 536870912.0f);
+    return f;
+}
+
+// float (1.0 = full scale) -> q15, rounded and saturated, without a library call.
+inline q15 svf_out_f(float y) {
+    y = y * 32768.0f;
+    y = y > 32767.0f ? 32767.0f : (y < -32768.0f ? -32768.0f : y);
+    return static_cast<q15>(static_cast<int32_t>(y + 32768.5f) - 32768);
+}
+
+inline void svf_tick_f(const SvfCoefF &c, SvfStateF &s, float x, float &lp, float &bp, float &hp) {
+    const float v3 = x - s.ic2;
+    const float v1 = c.a1 * s.ic1 + c.a2 * v3;
+    const float v2 = s.ic2 + c.a2 * s.ic1 + c.a3 * v3;
+    s.ic1 = 2.0f * v1 - s.ic1;
+    s.ic2 = 2.0f * v2 - s.ic2;
+    lp = v2;
+    bp = v1;
+    hp = x - c.k * v1 - v2;
 }
 
 }  // namespace sc

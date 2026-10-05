@@ -70,21 +70,21 @@ private:
 
 /* ------------------------------------------------------------------ Env */
 
-// One envelope segment: from -> to over `frames` samples along a curve (dsp/curve.h). All levels are Q31 in an int64.
+// One envelope segment: from -> to over `frames` samples along a curve (dsp/curve.h). All levels are Q31 (0 .. 2^31 - 1, so a difference fits int32).
 struct Segment {
-    int64_t from = 0, to = 0;
+    int32_t from = 0, to = 0;
     uint32_t p = 0, inc = 0;
     const CurveLut *lut = nullptr;
-    void begin(int64_t y, int64_t target, int32_t frames, const CurveLut *l) {
+    void begin(int32_t y, int32_t target, int32_t frames, const CurveLut *l) {
         from = y; to = target; p = 0; lut = l;
         inc = frames <= 1 ? 0xFFFFFFFFu : static_cast<uint32_t>((1ull << 32) / static_cast<uint64_t>(frames));
     }
     // advances one sample; returns false when the segment has just finished (y = target)
-    bool step(int64_t &y) {
-        const uint64_t pn = static_cast<uint64_t>(p) + inc;
-        if (pn >= (1ull << 32)) { y = to; return false; }
-        p = static_cast<uint32_t>(pn);
-        y = from + (((to - from) * lut->at(p)) >> 15);
+    bool step(int32_t &y) {
+        uint32_t pn;
+        if (__builtin_add_overflow(p, inc, &pn)) { y = to; return false; }
+        p = pn;
+        y = from + mulh(to - from, lut->at(p) << 16) * 2;                  // (to - from) * progress (q15) in 32-bit arithmetic: one multiply
         return true;
     }
 };
@@ -111,10 +111,10 @@ public:
         switch (idx) {
             case ENV_ATTACK: fa_ = ms_frames(v); break;
             case ENV_DECAY: fd_ = ms_frames(v); break;
-            case ENV_SUSTAIN: sus_ = static_cast<int64_t>(v) << 16; break;
+            case ENV_SUSTAIN: sus_ = static_cast<int32_t>(v) << 16; break;
             case ENV_RELEASE: fr_ = ms_frames(v); break;
             case ENV_HOLD: fh_ = v <= 0 ? 0 : ms_frames(v); break;
-            case ENV_START: start_ = static_cast<int64_t>(v) << 16; break;
+            case ENV_START: start_ = static_cast<int32_t>(v) << 16; break;
             case ENV_A_CURVE: lut_[0].build(static_cast<q15>(v)); break;
             case ENV_D_CURVE: lut_[1].build(static_cast<q15>(v)); break;
             case ENV_R_CURVE: lut_[2].build(static_cast<q15>(v)); break;
@@ -149,10 +149,10 @@ public:
     }
 private:
     enum Stage { Idle, Attack, Hold, Decay, Sustain, Release };
-    static constexpr int64_t kMax = 0x7FFFFFFF;
+    static constexpr int32_t kMax = 0x7FFFFFFF;
     CurveLut lut_[3];
     Segment seg_;
-    int64_t y_ = 0, sus_ = 20000ll << 16, start_ = 0;
+    int32_t y_ = 0, sus_ = 20000 << 16, start_ = 0;
     int32_t fa_ = ms_frames(5), fd_ = ms_frames(200), fr_ = ms_frames(300), fh_ = 0, hold_ = 0;
     Stage stage_ = Idle;
     bool gate_ = false;
@@ -182,7 +182,7 @@ public:
             const int pt = idx / 3;
             switch (idx % 3) {
                 case 0: fr_t_[pt] = v <= 0 ? 0 : ms_frames(v); break;
-                case 1: lvl_[pt] = static_cast<int64_t>(v) << 16; break;
+                case 1: lvl_[pt] = static_cast<int32_t>(v) << 16; break;
                 default: lut_[pt].build(static_cast<q15>(v)); break;
             }
             return;
@@ -229,7 +229,7 @@ private:
     }
     CurveLut lut_[5];                                            // four points + the release
     Segment seg_;
-    int64_t y_ = 0, lvl_[4] = {0x7FFFFFFFll, 16384ll << 16, 0, 0};
+    int32_t y_ = 0, lvl_[4] = {0x7FFFFFFF, 16384 << 16, 0, 0};
     int32_t fr_t_[4] = {ms_frames(1), ms_frames(100), 0, 0}, rel_f_ = ms_frames(200), sus_n_ = 2, pt_ = 0;
     Stage stage_ = Idle;
     bool gate_ = false, oneshot_ = false;
@@ -299,7 +299,7 @@ public:
         return i;
     }
     bool init(Memory &) override { a4_ = inc_a4(); update_k(); return true; }
-    void reset() override { for (auto &s : st_) s = SvfState{}; cut_s_ = cutoff_; }
+    void reset() override { for (auto &s : st_) s = SvfStateF{}; cut_s_ = cutoff_; }
     void set_param(int idx, int32_t v) override {
         switch (idx) {
             case FLT_MODE: mode_ = v; break;
@@ -313,40 +313,73 @@ public:
         const q15 *mc = p.mod[FLT_CUTOFF];
         cut_s_ += (cutoff_ - cut_s_) / 4;                        // control-rate smoothing of knob moves
         if (cut_s_ != cutoff_ && (cutoff_ - cut_s_) < 4 && (cut_s_ - cutoff_) < 4) cut_s_ = cutoff_;
-        SvfCoef c[4];
-        if (!mc) coefs(c, pitch_to_inc(cut_s_, a4_));
-        for (int i = 0; i < ctx.frames; i++) {
-            if (mc) coefs(c, pitch_to_inc(cut_s_ + scaled(mc[i], cmod_), a4_));
-            int32_t x = svf_in(p.in[0][i]);
-            for (int s = 0; s < n_; s++) {
-                int32_t lp, bp, hp;
-                svf_tick(c[s], st_[s], x, lp, bp, hp);
-                switch (mode_) {
-                    case FLTM_LP: x = lp; break;
-                    case FLTM_BP: x = svf_kmul(c[s].k, bp); break;     // normalised: 0 dB at the centre
-                    case FLTM_HP: x = hp; break;
-                    default: x = sat_q28(static_cast<int64_t>(lp) + hp); break;
+        SvfCoefF c[4], dc[4];
+        const int frames = ctx.frames;
+        // Cutoff modulation. The coefficients cost about 150 cycles per section set, five times the filter itself, so they are not recomputed per
+        // sample when the modulation is smooth (envelopes, LFOs, ramps): they are computed at the first and the last sample of the block and
+        // interpolated linearly in between, which moves smoothly (no stepping). Anything that is not close to a straight line over the block
+        // (audio-rate FM of the cutoff, sample & hold) is detected and keeps the exact per-sample computation.
+        bool glide = false;
+        if (!mc) {
+            coefs(c, pitch_to_inc(cut_s_, a4_));
+        } else {
+#if !ENGINE_FILTER_EXACT
+            const int32_t p0 = cut_s_ + scaled(mc[0], cmod_), pe = cut_s_ + scaled(mc[frames - 1], cmod_);
+            glide = frames >= 8;
+            for (int q = 1; q < 4 && glide; q++) {
+                const int j = frames * q / 4;
+                const int32_t want = p0 + (pe - p0) * j / (frames - 1);
+                const int32_t diff = cut_s_ + scaled(mc[j], cmod_) - want;
+                if (diff > 6 || diff < -6) glide = false;              // more than 6/256 semitone off the straight line
+            }
+            if (glide) {
+                SvfCoefF c1[4];
+                coefs(c, pitch_to_inc(p0, a4_));
+                coefs(c1, pitch_to_inc(pe, a4_));
+                const float step = 1.0f / static_cast<float>(frames - 1);
+                for (int s = 0; s < n_; s++) {
+                    dc[s].a1 = (c1[s].a1 - c[s].a1) * step;
+                    dc[s].a2 = (c1[s].a2 - c[s].a2) * step;
+                    dc[s].a3 = (c1[s].a3 - c[s].a3) * step;
                 }
             }
-            p.out[0][i] = svf_out(x);
+#endif
+        }
+        for (int i = 0; i < frames; i++) {
+            if (mc && !glide) coefs(c, pitch_to_inc(cut_s_ + scaled(mc[i], cmod_), a4_));
+            float x = static_cast<float>(p.in[0][i]) * (1.0f / 32768.0f);
+            for (int s = 0; s < n_; s++) {
+                float lp, bp, hp;
+                svf_tick_f(c[s], st_[s], x, lp, bp, hp);
+                switch (mode_) {
+                    case FLTM_LP: x = lp; break;
+                    case FLTM_BP: x = c[s].k * bp; break;                 // normalised: 0 dB at the centre
+                    case FLTM_HP: x = hp; break;
+                    default: x = lp + hp; break;
+                }
+                if (glide) { c[s].a1 += dc[s].a1; c[s].a2 += dc[s].a2; c[s].a3 += dc[s].a3; }
+            }
+            p.out[0][i] = svf_out_f(x);
         }
     }
 private:
-    void coefs(SvfCoef *c, uint32_t inc) const {
-        uint32_t g = svf_g(inc);
-        for (int s = 0; s < n_; s++) c[s] = svf_coef(g, k_[s]);
+    // Coefficients are computed in integer (table + reciprocal) and converted; the per-sample filter itself runs in single-precision float,
+    // which the ESP32-S3's FPU does in about 25 cycles against 200 for the saturating fixed-point version.
+    void coefs(SvfCoefF *c, uint32_t inc) const {
+        const float g = static_cast<float>(static_cast<int32_t>(svf_g(inc))) * (1.0f / 268435456.0f);     // (signed convert: tan stays below 2^31)
+        svf_coef_batch(g, kf_, n_, c);
     }
     void update_k() {
         static const float q[4][4] = {{0.70711f}, {0.54120f, 1.30656f}, {0.51764f, 0.70711f, 1.93185f}, {0.50979f, 0.60134f, 0.89998f, 2.56292f}};
         for (int s = 0; s < n_; s++) {
             float qs = q[n_ - 1][s];
             if (s == n_ - 1) qs *= 1.0f + 15.0f * static_cast<float>(res_) / 32768.0f;
-            k_[s] = static_cast<int32_t>(536870912.0f / qs);        // 1/Q in Q29
+            kf_[s] = 1.0f / qs;                                     // 1/Q
         }
     }
     int32_t mode_ = FLTM_LP, n_ = 2, cutoff_ = 96 * kSemi, cut_s_ = 96 * kSemi, cmod_ = 60 * kSemi, res_ = 0;
-    int32_t k_[4] = {};
-    SvfState st_[4];
+    float kf_[4] = {};
+    SvfStateF st_[4];
     uint32_t a4_ = 0;
 };
 
@@ -469,6 +502,23 @@ public:
     void set_param(int idx, int32_t v) override { if (idx >= 0 && idx < 4) g_[idx] = static_cast<q15>(v); }
     SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         const q15 *mod[4] = {p.mod[0], p.mod[1], p.mod[2], p.mod[3]};
+        if (!(mod[0] || mod[1] || mod[2] || mod[3])) {                  // the usual case: constant gains, and unused inputs (gain 0) cost nothing
+            int act[4], na = 0;
+            for (int k = 0; k < 4; k++) if (g_[k] != 0) act[na++] = k;
+            if (na == 0) { for (int i = 0; i < ctx.frames; i++) p.out[0][i] = 0; return; }
+            if (na == 2) {
+                const q15 *a = p.in[act[0]], *b = p.in[act[1]];
+                const int32_t ga = g_[act[0]], gb = g_[act[1]];
+                for (int i = 0; i < ctx.frames; i++) p.out[0][i] = sat16(((a[i] * ga + (1 << 14)) >> 15) + ((b[i] * gb + (1 << 14)) >> 15));
+                return;
+            }
+            for (int i = 0; i < ctx.frames; i++) {
+                int32_t acc = 0;
+                for (int j = 0; j < na; j++) acc += (p.in[act[j]][i] * g_[act[j]] + (1 << 14)) >> 15;
+                p.out[0][i] = sat16(acc);
+            }
+            return;
+        }
         for (int i = 0; i < ctx.frames; i++) {
             int32_t acc = 0;
             for (int k = 0; k < 4; k++) acc += (p.in[k][i] * (mod[k] ? sat16(g_[k] + mod[k][i]) : g_[k]) + (1 << 14)) >> 15;

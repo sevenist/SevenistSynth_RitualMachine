@@ -61,6 +61,28 @@ TEST(svf_reciprocal_is_accurate) {
     CHECK(worst <= 4.0);
 }
 
+TEST(svf_batch_float_coefficients_match_the_integer_ones) {
+    double worst = 0;
+    for (int n = 1; n <= 4; n++) {
+        for (double fc = 30.0; fc < 0.45 * kSampleRate; fc *= 1.31) {
+            const uint32_t g_q28 = svf_g(hz_to_inc(static_cast<float>(fc)));
+            const float g = static_cast<float>(g_q28) * (1.0f / 268435456.0f);
+            float k[4];
+            for (int s = 0; s < n; s++) k[s] = 0.5f + 0.4f * static_cast<float>(s);
+            SvfCoefF c[4];
+            svf_coef_batch(g, k, n, c);
+            for (int s = 0; s < n; s++) {
+                const SvfCoefF ref = svf_to_float(svf_coef(g_q28, static_cast<int32_t>(k[s] * 536870912.0f)));
+                worst = std::fmax(worst, std::fabs(static_cast<double>(c[s].a1) - ref.a1));
+                worst = std::fmax(worst, std::fabs(static_cast<double>(c[s].a2) - ref.a2));
+                worst = std::fmax(worst, std::fabs(static_cast<double>(c[s].a3) - ref.a3));
+            }
+        }
+    }
+    std::printf("    batch float coefficients: worst difference to the integer ones %.2e\n", worst);
+    CHECK(worst < 2e-6);
+}
+
 TEST(svf_prewarp_matches_tan) {
     double worst = 0;
     for (double fc = 20.0; fc < 0.45 * kSampleRate; fc *= 1.05) {

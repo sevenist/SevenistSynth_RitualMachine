@@ -8,8 +8,10 @@ namespace sc {
 
 // Linear: a + (b - a) * frac
 constexpr q15 lerp15(q15 a, q15 b, uint32_t frac) {
-    // rounded, not floored: a floor bias of half an LSB per read accumulates into a DC offset inside feedback loops
-    return static_cast<q15>(a + (((static_cast<int32_t>(b) - a) * static_cast<int32_t>(frac) + 0x8000) >> 16));
+    // rounded, not floored: a floor bias of half an LSB per read accumulates into a DC offset inside feedback loops.
+    // 15-bit fraction so the product fits int32 (the 16-bit one overflowed when neighbouring samples differed by more than 32768): the
+    // error is under one LSB only for a full-scale step, and the fraction's own resolution (1/32768 of a sample) is far finer than the signal.
+    return static_cast<q15>(a + (((static_cast<int32_t>(b) - a) * static_cast<int32_t>(frac >> 1) + 0x4000) >> 15));
 }
 
 // 4-point, 3rd-order Hermite between y1 and y2 (y0, y3 are the neighbours). Smoother than linear for

@@ -17,6 +17,10 @@ extern "C" {
 int  engine_synth_init(void *fast, size_t fast_bytes, void *bulk, size_t bulk_bytes);   // returns 0 on success
 void engine_synth_shutdown(void);
 
+const char *engine_synth_build_reason(void);                                      // why the last set_params had to rebuild ("first" = an explicit build)
+void engine_synth_set_osc_engine(int index, int engine);                          // dev: switch the index-th oscillator engine of the loaded graph (the next rack edit may undo it)
+void engine_synth_heap_stats(size_t *fast_used, size_t *fast_cap, size_t *fast_high, size_t *bulk_used);   // dev: how full the two heaps are
+unsigned engine_synth_build_count(void);                                           // how many full graph (re)loads happened (a rebuild is slow: tests and diagnostics watch it)
 void engine_synth_build(const rack_t *rack, const synth_params_t *params);        // structure changed: (re)load the voice graph
 void engine_synth_set_params(const rack_t *rack, const synth_params_t *params);   // a value changed: update live, rebuild only if needed
 // The note sequencer's timing for the motion sequencers (call when bpm / steps / swing / running change), and the moment the

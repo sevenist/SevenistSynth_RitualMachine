@@ -3,6 +3,7 @@
 #if defined(ARDUINO_ARCH_ESP32) && defined(HWV1_BENCH)
 #include <Arduino.h>
 #include <esp_cpu.h>
+#include <cstring>
 #include <esp_heap_caps.h>
 #include "engine/dsp/interp.h"
 #include "engine/dsp/phase.h"
@@ -53,6 +54,39 @@ void bench_run(void) {
             SvfCoef c = svf_coef(0x08000000u, 1 << 29); SvfState st; int32_t s = 0;
             for (int i = 0; i < kIter; i++) { int32_t lp, bp, hp; svf_tick(c, st, (i & 64) ? 100000000 : -100000000, lp, bp, hp); s += lp; }
             sink = s; }));
+        Serial.printf("  svf_tick, float (FPU)            %u\n", (unsigned)cycles_per_iter([] {
+            SvfCoefF c = svf_coef_f(0x08000000u, 1 << 29); SvfStateF st; float s = 0;
+            for (int i = 0; i < kIter; i++) { float lp, bp, hp; svf_tick_f(c, st, (i & 64) ? 0.4f : -0.4f, lp, bp, hp); s += lp; }
+            sink = static_cast<int32_t>(s * 1000.0f); }));
+        Serial.printf("  svf_coef, float (FPU)            %u\n", (unsigned)cycles_per_iter([] { float s = 0; for (int i = 0; i < kIter; i++) s += svf_coef_f(0x01000000u + static_cast<uint32_t>(i) * 4099u, 1 << 29).a3; sink = static_cast<int32_t>(s * 1000.0f); }));
+        // single float operations, to see which ones are cheap on this FPU (each loop iteration does one)
+        Serial.printf("  float: int->float convert        %u\n", (unsigned)cycles_per_iter([] { float s = 0; for (int i = 0; i < kIter; i++) s += static_cast<float>(i); sink = static_cast<int32_t>(s); }));
+        Serial.printf("  float: add only                  %u\n", (unsigned)cycles_per_iter([] { float s = 0, c = 1.0001f; for (int i = 0; i < kIter; i++) s += c; sink = static_cast<int32_t>(s); }));
+        Serial.printf("  float: multiply-add              %u\n", (unsigned)cycles_per_iter([] { float s = 0.5f, c = 0.9999f, d = 0.0001f; for (int i = 0; i < kIter; i++) s = s * c + d; sink = static_cast<int32_t>(s * 1000.0f); }));
+        Serial.printf("  float: divide                    %u\n", (unsigned)cycles_per_iter([] { float s = 0, d = 1.0f; for (int i = 0; i < kIter; i++) { d += 0.0003f; s += 1.0f / d; } sink = static_cast<int32_t>(s); }));
+        Serial.printf("  float: float->int truncate       %u\n", (unsigned)cycles_per_iter([] { int32_t s = 0; float f = 1.5f; for (int i = 0; i < kIter; i++) { f += 1.7f; s += static_cast<int32_t>(f); } sink = s; }));
+        Serial.printf("  float: bit cast via memcpy       %u\n", (unsigned)cycles_per_iter([] { uint32_t s = 0; float f = 1.5f; for (int i = 0; i < kIter; i++) { f += 0.37f; uint32_t b; std::memcpy(&b, &f, 4); s += b >> 15; } sink = static_cast<int32_t>(s); }));
+        // a whole 2-section filter sample, both ways of getting the coefficients (cutoff moves every sample, as with an LFO / envelope on it)
+        Serial.printf("  filter sample, int coef + convert %u\n", (unsigned)cycles_per_iter([a4] {
+            SvfStateF st[2]; float s = 0;
+            for (int i = 0; i < kIter; i++) {
+                const uint32_t g = svf_g(pitch_to_inc(96 * 256 + (i & 1023), a4));
+                float x = (i & 64) ? 0.4f : -0.4f;
+                for (int k = 0; k < 2; k++) { float lp, bp, hp; svf_tick_f(svf_to_float(svf_coef(g, 1 << 29)), st[k], x, lp, bp, hp); x = lp; }
+                s += x;
+            }
+            sink = static_cast<int32_t>(s * 1000.0f); }));
+        Serial.printf("  filter sample, batch float coef  %u\n", (unsigned)cycles_per_iter([a4] {
+            SvfStateF st[2]; float s = 0; const float kk[2] = {0.7f, 0.9f}; SvfCoefF c[2];
+            for (int i = 0; i < kIter; i++) {
+                const float g = static_cast<float>(static_cast<int32_t>(svf_g(pitch_to_inc(96 * 256 + (i & 1023), a4)))) * (1.0f / 268435456.0f);
+                svf_coef_batch(g, kk, 2, c);
+                float x = (i & 64) ? 0.4f : -0.4f;
+                for (int k = 0; k < 2; k++) { float lp, bp, hp; svf_tick_f(c[k], st[k], x, lp, bp, hp); x = lp; }
+                s += x;
+            }
+            sink = static_cast<int32_t>(s * 1000.0f); }));
+        Serial.printf("  int32 mulh only                 %u\n", (unsigned)cycles_per_iter([] { int32_t a = 1234567, b = 321; for (int i = 0; i < kIter; i++) { a = mulh(a + i, b << 20) + i; } sink = a; }));
     }
     heap_caps_free(ram);
     heap_caps_free(ps);

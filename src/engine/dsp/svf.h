@@ -35,14 +35,16 @@ inline uint32_t svf_g(uint32_t inc) {
 inline uint32_t svf_recip_q26(uint32_t d) {
     int n = __builtin_clz(d);
     uint32_t dn = d << n;                                            // [2^31, 2^32): M = dn / 2^32 in [0.5, 1)
-    uint64_t r = 0xB4B4B4B4ull - (((0x78787878ull) * dn) >> 32);     // 48/17 - 32/17 M in Q30 (constants in Q30)
-    for (int i = 0; i < 3; i++) {
-        uint64_t e = (static_cast<uint64_t>(dn) * r) >> 32;          // M * R in Q30 (about 1.0)
-        uint64_t t = (1ull << 31) - e;                               // 2 - M R in Q30
-        r = (r * t) >> 30;
-    }
+    // Seed from a 256-entry table with linear interpolation (error ~1e-5), then one Newton step (error ~1e-10, below Q30). Every product is
+    // 32 x 32 -> 64, a single multiply instruction pair; the former three steps from a straight-line seed used 64 x 64 products.
+    const uint32_t idx = (dn >> 23) & 0xFFu, frac = (dn >> 7) & 0xFFFFu;
+    const uint32_t ta = kRecipTab[idx], tb = kRecipTab[idx + 1];
+    uint32_t r = ta - static_cast<uint32_t>((static_cast<uint64_t>(ta - tb) * frac) >> 16);      // 1/M in Q30
+    const uint32_t e = static_cast<uint32_t>((static_cast<uint64_t>(dn) * r) >> 32);             // M * R in Q30 (about 1.0)
+    const uint32_t t = (1u << 31) - e;                                                           // 2 - M R in Q30
+    r = static_cast<uint32_t>((static_cast<uint64_t>(r) * t) >> 30);
     int sh = n - 5;                                                  // 1/D = R * 2^(n-6), R in Q30 -> Q31
-    uint64_t a = sh >= 0 ? (r << sh) : (r >> -sh);
+    uint64_t a = sh >= 0 ? (static_cast<uint64_t>(r) << sh) : (static_cast<uint64_t>(r) >> -sh);
     return a > 0x7FFFFFFFull ? 0x7FFFFFFFu : static_cast<uint32_t>(a);
 }
 
@@ -67,16 +69,29 @@ constexpr int32_t sat_q28(int64_t v) {
     return static_cast<int32_t>(v > 0x7FFFFFFFLL ? 0x7FFFFFFFLL : (v < -0x80000000LL ? -0x80000000LL : v));
 }
 
+// High 32 bits of a 32 x 32 signed product: one multiply instruction (MULSH on Xtensa), no 64-bit shifts or adds.
+constexpr int32_t mulh(int32_t a, int32_t b) { return static_cast<int32_t>((static_cast<int64_t>(a) * b) >> 32); }
+// v << n, saturated to 32 bits.
+constexpr int32_t shl_sat(int32_t v, int n) {
+    const int32_t lim = 1 << (31 - n);
+    return v >= lim ? 0x7FFFFFFF : (v < -lim ? static_cast<int32_t>(0x80000000u) : v * (1 << n));
+}
+// k * x for k in Q3.29 and x in Q28 -> Q28 (saturated).
+constexpr int32_t svf_kmul(int32_t k, int32_t x) { return shl_sat(mulh(k, x), 3); }
+
 // One sample. x, lp, bp, hp are Q28. [AUDIO]
+// All in 32 bits: a Q31 coefficient times a Q28 value through mulh() is Q27, doubled back to Q28. Each product keeps 27 bits, 11 more than
+// the 16-bit output needs (the 64-bit version this replaces cost 264 cycles per sample on the ESP32-S3, this one far less).
+// v3 = x - ic2 saturates at 32 bits (+-8.0 in Q28), which only matters when the filter is already 8x overloaded.
 inline void svf_tick(const SvfCoef &c, SvfState &s, int32_t x, int32_t &lp, int32_t &bp, int32_t &hp) {
-    const int64_t v3 = static_cast<int64_t>(x) - s.ic2;
-    const int64_t v1 = ((static_cast<int64_t>(c.a1) * s.ic1 >> 1) + (static_cast<int64_t>(c.a2) * v3 >> 1)) >> 30;
-    const int64_t v2 = s.ic2 + (((static_cast<int64_t>(c.a2) * s.ic1 >> 1) + (static_cast<int64_t>(c.a3) * v3 >> 1)) >> 30);
-    s.ic1 = sat_q28(2 * v1 - s.ic1);
-    s.ic2 = sat_q28(2 * v2 - s.ic2);
-    lp = sat_q28(v2);
-    bp = sat_q28(v1);
-    hp = sat_q28(x - ((static_cast<int64_t>(c.k) * v1) >> 29) - v2);
+    const int32_t v3 = sub31(x, s.ic2);
+    const int32_t v1 = shl_sat(mulh(c.a1, s.ic1) + mulh(c.a2, v3), 1);
+    const int32_t v2 = add31(s.ic2, shl_sat(mulh(c.a2, s.ic1) + mulh(c.a3, v3), 1));
+    s.ic1 = sub31(add31(v1, v1), s.ic1);
+    s.ic2 = sub31(add31(v2, v2), s.ic2);
+    lp = v2;
+    bp = v1;
+    hp = sub31(sub31(x, svf_kmul(c.k, v1)), v2);
 }
 
 }  // namespace sc

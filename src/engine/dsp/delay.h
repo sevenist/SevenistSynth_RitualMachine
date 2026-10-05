@@ -74,7 +74,7 @@ public:
     q15 process(q15 x) {
         q15 y = line_.read(delay_);
         const int64_t diff = static_cast<int64_t>(to31(y)) - lp_;                                   // up to 2^32
-        lp_ = static_cast<q31>(lp_ + (((diff >> 1) * (kQ31Max - damp_)) >> 30));                    // one-pole, weight 1 - damp
+        lp_ = static_cast<q31>(lp_ + ((static_cast<int64_t>(static_cast<int32_t>(diff >> 1)) * (kQ31Max - damp_)) >> 30));                    // one-pole, weight 1 - damp
         line_.write(sat16(x + mul15(to15(lp_), fb_)));
         return y;
     }

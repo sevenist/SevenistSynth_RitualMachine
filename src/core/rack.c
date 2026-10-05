@@ -148,6 +148,9 @@ void rack_init(rack_t *r) {
     r->slot[3].tgt_id = r->slot[1].id;      // LFO -> filter cutoff
     r->slot[3].tgt_param = 0;
     r->slot[3].v[MP_LF_DEPTH] = 1.5f;       // octaves of cutoff
+    r->cfg.fxr.slot[1].v[0] = 1000;         // startup patch: delay 1000 ms, 40 % mix; reverb 40 % mix (the FX type defaults stay dry)
+    r->cfg.fxr.slot[1].v[2] = 40;
+    r->cfg.fxr.slot[2].v[0] = 40;
 }
 
 static void ms_pattern_default(ms_pattern_t *p) {

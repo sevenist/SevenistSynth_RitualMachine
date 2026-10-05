@@ -2,6 +2,15 @@
 // Constant tables (generated, live in flash). See tools/gen_engine_tables.py.
 #include <cstdint>
 
+// The tables are read at audio rate. On the ESP32 they are copied to internal RAM (DRAM_ATTR): a lookup that misses the flash cache costs
+// about 120 cycles (measured), a RAM read 1-2. They take about 10 KB of RAM. Elsewhere this is nothing.
+#if defined(ARDUINO_ARCH_ESP32)
+#include <esp_attr.h>
+#define SC_TABLE DRAM_ATTR
+#else
+#define SC_TABLE
+#endif
+
 namespace sc {
 
 constexpr int kSineBits = 10;                       // 1024 entries per cycle
@@ -15,7 +24,10 @@ extern const uint32_t kExp2Tab[kExp2Size + 1];      // 2^(i/256) as unsigned Q2.
 constexpr int kTanSize = 233;                       // tan(pi * i / 512), i = 0..233 (guard at the end)
 extern const uint32_t kTanTab[kTanSize + 1];        // unsigned Q4.28
 
-constexpr int kTanhSize = 1024;                     // tanh over [-4, 4]
+constexpr int kRecipSize = 256;                     // 1/M for M = 0.5 + i/512 (guard at the end)
+extern const uint32_t kRecipTab[kRecipSize + 1];    // unsigned Q30
+
+constexpr int kTanhSize = 1024;                    // tanh over [-4, 4]
 extern const int16_t kTanhTab[kTanhSize + 1];       // q15
 
 constexpr int kFftN = 512;                          // FFT / STFT size (generator: FFT_N)

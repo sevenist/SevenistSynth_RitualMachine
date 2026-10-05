@@ -2,7 +2,34 @@
 #include "engine/dsp/block.h"
 #include "engine/modules/builtin.h"
 
+#ifdef ENGINE_PROFILE
+#if defined(ARDUINO_ARCH_ESP32)
+#include <esp_cpu.h>
+static inline uint32_t prof_now() { return esp_cpu_get_cycle_count(); }
+#else
+#include <chrono>
+static inline uint32_t prof_now() { return static_cast<uint32_t>(std::chrono::steady_clock::now().time_since_epoch().count()); }   // ns on the desktop
+#endif
+#endif
+
 namespace sc {
+
+#ifdef ENGINE_PROFILE
+void Engine::prof_add(const char *name, uint32_t cycles) {
+    for (int i = 0; i < prof_n_; i++)
+        if (prof_[i].name == name) { prof_[i].cycles += cycles; prof_[i].calls++; return; }       // names are string literals: compare the pointers
+    if (prof_n_ < kProfMax) prof_[prof_n_++] = ProfEntry{name, cycles, 1};
+}
+
+int Engine::prof_take(ProfEntry *out, int max, uint32_t *blocks) {
+    const int n = prof_n_ < max ? prof_n_ : max;
+    for (int i = 0; i < n; i++) out[i] = prof_[i];
+    for (int i = 0; i < prof_n_; i++) prof_[i].cycles = 0, prof_[i].calls = 0;
+    *blocks = prof_blocks_;
+    prof_blocks_ = 0;
+    return n;
+}
+#endif
 
 bool Engine::init(Memory mem, int nvoices) {
     mem_ = mem;
@@ -137,6 +164,13 @@ bool Engine::set_param(int node_id, int idx, int32_t value) {
     c.type = Cmd::SetParam; c.node = static_cast<uint8_t>(node_id); c.idx = static_cast<uint8_t>(idx); c.value = value;
     return cmd_.push(c);
 }
+bool Engine::set_edge_depth(int edge, q15 depth) {
+    const Plan *pl = active_.load(std::memory_order_acquire);
+    if (!pl || edge < 0 || edge >= kMaxEdges || pl->edge_step[edge] == 255 || depth == kUnity) return false;
+    Command c;
+    c.type = Cmd::SetDepth; c.node = static_cast<uint8_t>(edge); c.value = depth;
+    return cmd_.push(c);
+}
 bool Engine::set_blob(int node_id, const void *data, size_t bytes) {
     if (bytes > static_cast<size_t>(kCmdBlobMax)) return false;
     Command c;
@@ -199,6 +233,11 @@ void Engine::apply(const Command &c) {
         }
         break;
     }
+    case Cmd::SetDepth: {
+        Plan *pl = active_.load(std::memory_order_acquire);
+        if (pl && pl->edge_step[c.node] != 255) pl->steps[pl->edge_step[c.node]].gain[pl->edge_slot[c.node]] = static_cast<q15>(c.value);
+        break;
+    }
     default: break;
     }
 }
@@ -223,11 +262,20 @@ void Engine::run(const Plan *pl, int first, int count, int voice, ProcessCtx &ct
         switch (s.kind) {
         case StepKind::Module: {
             Module *m = pl->inst[s.node][voice > 0 ? voice : 0];
-            if (!move) { m->process(ctx, s.p); break; }
-            Ports p = s.p;
-            for (auto &x : p.in) x = rel(x);
-            for (auto &x : p.mod) x = rel(x);
-            m->process(ctx, p);
+#ifdef ENGINE_PROFILE
+            const uint32_t t0 = prof_now();
+#endif
+            if (!move) {
+                m->process(ctx, s.p);
+            } else {
+                Ports p = s.p;
+                for (auto &x : p.in) x = rel(x);
+                for (auto &x : p.mod) x = rel(x);
+                m->process(ctx, p);
+            }
+#ifdef ENGINE_PROFILE
+            prof_add(m->info().name, prof_now() - t0);
+#endif
             break;
         }
         case StepKind::Mix: {
@@ -271,6 +319,9 @@ void Engine::render(q15 *l, q15 *r) {
     block_clear(bus_l_);
     block_clear(bus_r_);
     const uint64_t t = time_.fetch_add(1, std::memory_order_relaxed) + 1;
+#ifdef ENGINE_PROFILE
+    prof_blocks_++;
+#endif
     const Plan *pl = active_.load(std::memory_order_acquire);
     if (!pl) return;
 

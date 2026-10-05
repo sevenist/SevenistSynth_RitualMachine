@@ -35,6 +35,12 @@ bool engine_synth_sample_info(int index, audio_sample_info_t *out);
 // [I/O THREAD or test loop] runs the sample loader; call it every millisecond or so (the desktop starts a thread for it).
 void engine_synth_io_pump(void);
 
+#ifdef ENGINE_PROFILE
+// [AUDIO THREAD] per-module CPU cost since the previous call: `cb` gets the module name, its cycles per rendered block (all voices summed) and its
+// calls per block; `blocks` is the number of blocks the figures cover. Only exists when built with -DENGINE_PROFILE.
+void engine_synth_profile(void (*cb)(const char *name, uint32_t cycles_per_block, uint32_t calls_per_block, void *user), void *user, uint32_t *blocks);
+#endif
+
 int      engine_synth_sample_rate(void);
 uint32_t engine_synth_millis(void);        // time of the audio clock (advances by one block per block rendered)
 

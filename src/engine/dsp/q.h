@@ -30,14 +30,22 @@ constexpr q15 neg15(q15 a)        { return sat16(-static_cast<int32_t>(a)); }
 constexpr q15 mul15(q15 a, q15 b) { return sat16((static_cast<int32_t>(a) * b + (1 << 14)) >> 15); }   // -1 * -1 saturates
 
 /* ---- q31 ---- */
-constexpr q31 add31(q31 a, q31 b) { return sat32(static_cast<int64_t>(a) + b); }
-constexpr q31 sub31(q31 a, q31 b) { return sat32(static_cast<int64_t>(a) - b); }
+// 32-bit saturating add / sub: the overflow builtin and a select, instead of a 64-bit add and two 64-bit compares.
+constexpr q31 add31(q31 a, q31 b) {
+    q31 r = 0;
+    return __builtin_add_overflow(a, b, &r) ? (a < 0 ? kQ31Min : kQ31Max) : r;
+}
+constexpr q31 sub31(q31 a, q31 b) {
+    q31 r = 0;
+    return __builtin_sub_overflow(a, b, &r) ? (a < 0 ? kQ31Min : kQ31Max) : r;
+}
 constexpr q31 neg31(q31 a)        { return sat32(-static_cast<int64_t>(a)); }
 constexpr q31 mul31(q31 a, q31 b) { return sat32((static_cast<int64_t>(a) * b + (1LL << 30)) >> 31); }
 
 /* ---- conversions ---- */
 constexpr q31 to31(q15 x) { return static_cast<q31>(static_cast<uint32_t>(static_cast<int32_t>(x)) << 16); }
-constexpr q15 to15(q31 x) { return sat16(static_cast<int32_t>((static_cast<int64_t>(x) + (1 << 15)) >> 16)); }
+// Round to nearest: (x + 2^15) >> 16 without the 64-bit add (x >> 16 plus the bit just below it); saturates only for x within 2^15 of the top.
+constexpr q15 to15(q31 x) { return sat16((x >> 16) + ((x >> 15) & 1)); }
 
 // q15 x q31 -> q31 (state update with an audio-rate input)
 constexpr q31 mul31_15(q31 a, q15 b) { return sat32((static_cast<int64_t>(a) * b + (1 << 14)) >> 15); }

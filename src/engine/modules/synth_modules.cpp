@@ -38,7 +38,7 @@ public:
             case OSC_PITCH_MOD: pmod_ = v; break;
         }
     }
-    void process(const ProcessCtx &ctx, const Ports &p) override {
+    SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         const int n = ctx.frames;
         const q15 *cv = p.in[0], *mp = p.mod[OSC_PITCH], *mw = p.mod[OSC_PW], *ml = p.mod[OSC_LEVEL];
         const bool varying = mp || cv[0] != cv[n - 1];
@@ -120,7 +120,7 @@ public:
             case ENV_R_CURVE: lut_[2].build(static_cast<q15>(v)); break;
         }
     }
-    void process(const ProcessCtx &ctx, const Ports &p) override {
+    SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         for (int i = 0; i < ctx.frames; i++) {
             const bool g = p.in[0][i] > 16384;
             if (g && !gate_) { if (y_ < start_) y_ = start_; seg_.begin(y_, kMax, fa_, &lut_[0]); stage_ = Attack; }
@@ -194,7 +194,7 @@ public:
             case EG_ONESHOT: oneshot_ = v != 0; break;
         }
     }
-    void process(const ProcessCtx &ctx, const Ports &p) override {
+    SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         for (int i = 0; i < ctx.frames; i++) {
             const bool g = p.in[0][i] > 16384;
             if (g && !gate_) { next_point(0); }
@@ -257,7 +257,7 @@ public:
             case LFO_RATE_MOD: rmod_ = v; break;
         }
     }
-    void process(const ProcessCtx &ctx, const Ports &p) override {
+    SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         const q15 *mr = p.mod[LFO_RATE];
         uint32_t inc = rate_inc(rate_);
         for (int i = 0; i < ctx.frames; i++) {
@@ -309,7 +309,7 @@ public:
             case FLT_CUT_MOD: cmod_ = v; break;
         }
     }
-    void process(const ProcessCtx &ctx, const Ports &p) override {
+    SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         const q15 *mc = p.mod[FLT_CUTOFF];
         cut_s_ += (cutoff_ - cut_s_) / 4;                        // control-rate smoothing of knob moves
         if (cut_s_ != cutoff_ && (cutoff_ - cut_s_) < 4 && (cut_s_ - cutoff_) < 4) cut_s_ = cutoff_;
@@ -323,7 +323,7 @@ public:
                 svf_tick(c[s], st_[s], x, lp, bp, hp);
                 switch (mode_) {
                     case FLTM_LP: x = lp; break;
-                    case FLTM_BP: x = sat_q28((static_cast<int64_t>(c[s].k) * bp) >> 29); break;     // normalised: 0 dB at the centre
+                    case FLTM_BP: x = svf_kmul(c[s].k, bp); break;     // normalised: 0 dB at the centre
                     case FLTM_HP: x = hp; break;
                     default: x = sat_q28(static_cast<int64_t>(lp) + hp); break;
                 }
@@ -371,7 +371,7 @@ public:
     }
     bool init(Memory &) override { dc_.set_corner(15.0f); return true; }
     void reset() override { dc_.reset(); lp_ = 0; hold_ = 0; cnt_ = 0; }
-    void process(const ProcessCtx &ctx, const Ports &p) override {
+    SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         const q15 *md = p.mod[SHP_DRIVE];
         int32_t gain = gain_q8(drive_);
         for (int i = 0; i < ctx.frames; i++) {
@@ -439,7 +439,7 @@ public:
         return i;
     }
     void set_param(int, int32_t v) override { g_ = static_cast<q15>(v); }
-    void process(const ProcessCtx &ctx, const Ports &p) override {
+    SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         const q15 *m = p.mod[VCA_LEVEL];
         if (!m) { block_gain(p.out[0], p.in[0], g_, ctx.frames); return; }
         for (int i = 0; i < ctx.frames; i++) p.out[0][i] = mul15(p.in[0][i], sat16(g_ + m[i]));
@@ -467,7 +467,7 @@ public:
         return i;
     }
     void set_param(int idx, int32_t v) override { if (idx >= 0 && idx < 4) g_[idx] = static_cast<q15>(v); }
-    void process(const ProcessCtx &ctx, const Ports &p) override {
+    SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         const q15 *mod[4] = {p.mod[0], p.mod[1], p.mod[2], p.mod[3]};
         for (int i = 0; i < ctx.frames; i++) {
             int32_t acc = 0;

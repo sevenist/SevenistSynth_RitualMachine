@@ -71,13 +71,14 @@ void resolve_samples(const rack_t &rack) {
     }
 }
 
+// Same nodes and cables; cable depths may differ (they are applied live, see engine_synth_set_params).
 bool same_structure(const GraphDesc &a, const GraphDesc &b) {
     if (a.n_nodes != b.n_nodes || a.n_edges != b.n_edges) return false;
     for (int i = 0; i < a.n_nodes; i++) if (a.node[i].id != b.node[i].id || a.node[i].type != b.node[i].type) return false;
     for (int i = 0; i < a.n_edges; i++) {
         const EdgeDesc &x = a.edge[i], &y = b.edge[i];
         if (x.src_id != y.src_id || x.src_port != y.src_port || x.dst_id != y.dst_id || x.dst_port != y.dst_port ||
-            x.dst_kind != y.dst_kind || x.depth != y.depth || x.delayed != y.delayed) return false;
+            x.dst_kind != y.dst_kind || x.delayed != y.delayed) return false;
     }
     return true;
 }
@@ -107,6 +108,7 @@ int engine_synth_init(void *fast, size_t fast_bytes, void *bulk, size_t bulk_byt
     Synth &s = s_synth;
     s.fast.init(fast, fast_bytes);
     s.bulk.init(bulk, bulk_bytes);
+    if (fast != bulk) s.fast.set_spill(&s.bulk);              // a full fast heap falls back to the big one instead of failing to create a module
     s.mem = Memory{&s.fast, &s.bulk, &s.bank};
     s.eng.init(s.mem, SYNTH_MAX_VOICES);
     s.bank_on = false; s.cat_n = 0;
@@ -159,6 +161,8 @@ void engine_synth_set_params(const rack_t *rack, const synth_params_t *params) {
         if (!rack_graph_build(*rack, *params, s.eng.registry(), s.cur, s.slot_of, s.cat_n)) return;
     }
     if (!same_structure(s.last.g, s.cur.g) || s.last.fm != s.cur.fm) { engine_synth_build(rack, params); return; }
+    for (int k = 0; k < s.cur.g.n_edges; k++)                         // modulation amounts: a gain write, not a rebuild (unless a cable is, or becomes, exactly unity)
+        if (s.cur.g.edge[k].depth != s.last.g.edge[k].depth && !s.eng.set_edge_depth(k, s.cur.g.edge[k].depth)) { engine_synth_build(rack, params); return; }
     for (int i = 0; i < s.cur.g.n_nodes; i++) {                       // same graph: only values moved
         const NodeDesc &n = s.cur.g.node[i], &o = s.last.g.node[i];
         for (int p = 0; p < kMaxParams; p++)
@@ -216,6 +220,16 @@ void engine_synth_io_pump(void) {
     std::lock_guard<std::mutex> lk(s.mx);
     if (s.bank_on) s.bank.pump(s.eng.blocks() * static_cast<uint64_t>(kBlock) * 1000000ull / static_cast<uint64_t>(kSampleRate));
 }
+
+#ifdef ENGINE_PROFILE
+void engine_synth_profile(void (*cb)(const char *, uint32_t, uint32_t, void *), void *user, uint32_t *blocks) {
+    Engine::ProfEntry e[Engine::kProfMax];
+    const int n = s_ready ? s_synth.eng.prof_take(e, Engine::kProfMax, blocks) : 0;
+    if (!n) { *blocks = 0; return; }
+    const uint32_t b = *blocks ? *blocks : 1;
+    for (int i = 0; i < n; i++) cb(e[i].name, static_cast<uint32_t>(e[i].cycles / b), e[i].calls / b, user);
+}
+#endif
 
 int engine_synth_sample_rate(void) { return kSampleRate; }
 

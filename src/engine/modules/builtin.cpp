@@ -10,7 +10,7 @@ public:
         static const ModuleInfo i = {"NoteIn", Scope::Voice, 0, 3, 0, false, {}, {"pitch", "gate", "vel"}, {}};
         return i;
     }
-    void process(const ProcessCtx &ctx, const Ports &p) override {
+    SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         const VoiceState *v = ctx.voice;
         q15 pitch = v ? pitch_to_cv(v->pitch) : 0, gate = v && v->gate ? kUnity : 0, vel = v ? v->velocity : 0;
         for (int i = 0; i < ctx.frames; i++) { p.out[0][i] = pitch; p.out[1][i] = gate; p.out[2][i] = vel; }
@@ -30,7 +30,7 @@ public:
         else if (idx == VO_PAN) pan_ = static_cast<q15>(v);
         else if (idx == VO_TAIL_MS) tail_blocks_ = static_cast<uint32_t>(v) * kControlRate / 1000u;
     }
-    void process(const ProcessCtx &ctx, const Ports &p) override {
+    SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         // pan: linear, the louder side stays at `level` (centre = both at level)
         int32_t pan = pan_;
         q15 gl = pan > 0 ? mul15(level_, static_cast<q15>(32767 - pan)) : level_;
@@ -54,7 +54,7 @@ public:
         static const ModuleInfo i = {"BusIn", Scope::Global, 0, 2, 0, true, {}, {"L", "R"}, {}};
         return i;
     }
-    void process(const ProcessCtx &ctx, const Ports &p) override {
+    SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         block_copy(p.out[0], ctx.bus_l, ctx.frames);
         block_copy(p.out[1], ctx.bus_r, ctx.frames);
     }
@@ -67,7 +67,7 @@ public:
         return i;
     }
     void set_param(int idx, int32_t v) override { if (idx == 0) level_ = static_cast<q15>(v); }
-    void process(const ProcessCtx &ctx, const Ports &p) override {
+    SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         block_gain(ctx.out_l, p.in[0], level_, ctx.frames);
         block_gain(ctx.out_r, p.in[1], level_, ctx.frames);
     }

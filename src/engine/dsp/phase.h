@@ -42,8 +42,10 @@ inline uint32_t exp2_scale(uint32_t base, int32_t x) {
 
 // Phase increment of a pitch given in 1/256 semitone. [CONTROL]
 inline uint32_t pitch_to_inc(int32_t pitch, uint32_t a4_inc) {
-    int64_t oct_q16 = static_cast<int64_t>(pitch - kPitchA4) * 64 / 3;       // 65536 / (12 * 256)
-    int32_t x = static_cast<int32_t>(oct_q16 < -(1 << 22) ? -(1 << 22) : (oct_q16 > (1 << 22) ? (1 << 22) : oct_q16));
+    // 65536 / (12 * 256) = 64 / 3. Clamped first so the product stays in 32 bits: a 64-bit divide is a library call on the ESP32 (~100+ cycles).
+    const int32_t d = pitch - kPitchA4 < -196608 ? -196608 : (pitch - kPitchA4 > 196608 ? 196608 : pitch - kPitchA4);    // +-768 semitones = +-64 octaves, as before
+    int32_t x = d * 64 / 3;
+    x = x < -(1 << 22) ? -(1 << 22) : (x > (1 << 22) ? (1 << 22) : x);
     uint32_t inc = exp2_scale(a4_inc, x);
     return inc > 2147483648u ? 2147483648u : inc;                             // clamp at Nyquist
 }

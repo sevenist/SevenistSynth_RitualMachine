@@ -4,6 +4,7 @@
   kSineTab[1025]  q15 sine, one cycle, +1 guard entry (linear interpolation reads idx+1)
   kExp2Tab[257]   2^(i/256) as unsigned Q2.30 (1.0 = 2^30, 2.0 = 2^31), +1 guard entry
   kTanTab[234]    tan(pi * i / 512) as unsigned Q4.28 (filter prewarp g, x = fc/fs = i/512)
+  kRecipTab[257]  1/M, M = 0.5 + i/512, as unsigned Q30 (reciprocal seed for the filter coefficients)
   kTanhTab[1025]  tanh(-4 + 8 i / 1024) as q15 (waveshaper)
   kFftCos/kFftSin[N/2]  twiddles cos(2 pi k/N), -sin(2 pi k/N) as q15; kFftRev[N] bit reversal
   kStftWin[N]     sine window sin(pi (n + 0.5) / N) as q15 (sqrt-Hann: analysis x synthesis = Hann)
@@ -17,6 +18,7 @@ import os
 SINE_N = 1024
 EXP2_N = 256
 TAN_N = 233       # tan(pi * i / 512), i = 0..233 covers cutoffs up to 0.4551 * fs (+ guard)
+RECIP_N = 256     # 1/M for M = 0.5 + i/512 in [0.5, 1] as Q30 (start value of the filter's reciprocal Newton step)
 TANH_N = 1024     # tanh over [-4, 4]
 FFT_N = 512       # FFT size (see ADR-016); also the STFT window length
 CORDIC_N = 20
@@ -29,7 +31,7 @@ lines = [
     "",
     "namespace sc {",
     "",
-    "const int16_t kSineTab[%d] = {" % (SINE_N + 1),
+    "SC_TABLE const int16_t kSineTab[%d] = {" % (SINE_N + 1),
 ]
 vals = []
 for i in range(SINE_N + 1):
@@ -37,36 +39,40 @@ for i in range(SINE_N + 1):
     vals.append(max(-32767, min(32767, v)))
 for i in range(0, len(vals), 12):
     lines.append("    " + ", ".join(str(v) for v in vals[i:i + 12]) + ",")
-lines += ["};", "", "const uint32_t kExp2Tab[%d] = {" % (EXP2_N + 1)]
+lines += ["};", "", "SC_TABLE const uint32_t kExp2Tab[%d] = {" % (EXP2_N + 1)]
 vals = [round(2 ** (i / EXP2_N) * (1 << 30)) for i in range(EXP2_N + 1)]
 for i in range(0, len(vals), 6):
     lines.append("    " + ", ".join("%du" % v for v in vals[i:i + 6]) + ",")
-lines += ["};", "", "const uint32_t kTanTab[%d] = {" % (TAN_N + 1)]
+lines += ["};", "", "SC_TABLE const uint32_t kTanTab[%d] = {" % (TAN_N + 1)]
 vals = [round(math.tan(math.pi * i / 512.0) * (1 << 28)) for i in range(TAN_N + 1)]
 for i in range(0, len(vals), 6):
     lines.append("    " + ", ".join("%du" % v for v in vals[i:i + 6]) + ",")
-lines += ["};", "", "const int16_t kTanhTab[%d] = {" % (TANH_N + 1)]
+lines += ["};", "", "SC_TABLE const uint32_t kRecipTab[%d] = {" % (RECIP_N + 1)]
+vals = [round((1 << 30) / (0.5 + i / (2.0 * RECIP_N))) for i in range(RECIP_N + 1)]
+for i in range(0, len(vals), 6):
+    lines.append("    " + ", ".join("%du" % v for v in vals[i:i + 6]) + ",")
+lines += ["};", "", "SC_TABLE const int16_t kTanhTab[%d] = {" % (TANH_N + 1)]
 vals = [max(-32767, min(32767, round(math.tanh(-4.0 + 8.0 * i / TANH_N) * 32767.0))) for i in range(TANH_N + 1)]
 for i in range(0, len(vals), 12):
     lines.append("    " + ", ".join(str(v) for v in vals[i:i + 12]) + ",")
-lines += ["};", "", "const int16_t kFftCos[%d] = {" % (FFT_N // 2)]
+lines += ["};", "", "SC_TABLE const int16_t kFftCos[%d] = {" % (FFT_N // 2)]
 vals = [min(32767, round(math.cos(2 * math.pi * k / FFT_N) * 32768.0)) for k in range(FFT_N // 2)]
 for i in range(0, len(vals), 12):
     lines.append("    " + ", ".join(str(v) for v in vals[i:i + 12]) + ",")
-lines += ["};", "", "const int16_t kFftSin[%d] = {" % (FFT_N // 2)]
+lines += ["};", "", "SC_TABLE const int16_t kFftSin[%d] = {" % (FFT_N // 2)]
 vals = [max(-32768, min(32767, round(-math.sin(2 * math.pi * k / FFT_N) * 32768.0))) for k in range(FFT_N // 2)]
 for i in range(0, len(vals), 12):
     lines.append("    " + ", ".join(str(v) for v in vals[i:i + 12]) + ",")
 bits = FFT_N.bit_length() - 1
 rev = [int(format(i, "0%db" % bits)[::-1], 2) for i in range(FFT_N)]
-lines += ["};", "", "const uint16_t kFftRev[%d] = {" % FFT_N]
+lines += ["};", "", "SC_TABLE const uint16_t kFftRev[%d] = {" % FFT_N]
 for i in range(0, len(rev), 16):
     lines.append("    " + ", ".join(str(v) for v in rev[i:i + 16]) + ",")
-lines += ["};", "", "const int16_t kStftWin[%d] = {" % FFT_N]
+lines += ["};", "", "SC_TABLE const int16_t kStftWin[%d] = {" % FFT_N]
 vals = [min(32767, round(math.sin(math.pi * (n + 0.5) / FFT_N) * 32768.0)) for n in range(FFT_N)]
 for i in range(0, len(vals), 12):
     lines.append("    " + ", ".join(str(v) for v in vals[i:i + 12]) + ",")
-lines += ["};", "", "const uint32_t kCordicAtan[%d] = {" % CORDIC_N]
+lines += ["};", "", "SC_TABLE const uint32_t kCordicAtan[%d] = {" % CORDIC_N]
 vals = [round(math.atan(2.0 ** -i) / (2 * math.pi) * 4294967296.0) for i in range(CORDIC_N)]
 for i in range(0, len(vals), 6):
     lines.append("    " + ", ".join("%du" % v for v in vals[i:i + 6]) + ",")

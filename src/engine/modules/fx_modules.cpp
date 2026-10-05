@@ -54,7 +54,13 @@ public:
             case DLY_TIME_MOD: tmod_ = to_samples(v); break;
         }
     }
-    void process(const ProcessCtx &ctx, const Ports &p) override {
+    SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
+        if (mix_ == 0) {                                                     // no wet signal reaches the output: skip the whole loop (bit-identical)
+            if (!idle_) { l_.clear(); r_.clear(); lpl_ = lpr_ = 0; idle_ = true; }     // the lines are emptied once, so a later switch-on does not replay an old tail (the delay time is left alone)
+            for (int i = 0; i < ctx.frames; i++) { p.out[0][i] = p.in[0][i]; p.out[1][i] = p.in[1][i]; }
+            return;
+        }
+        idle_ = false;
         const int64_t d0 = cur_;
         int64_t step = (target_ - cur_) / 24;                                // exponential approach...
         const int64_t max_step = static_cast<int64_t>(kBlock / 4) << 16;     // ...but the delay never moves faster than 1/4 sample per sample
@@ -89,13 +95,14 @@ private:
     static int64_t to_samples(int32_t sixteenth_ms) { return static_cast<int64_t>(sixteenth_ms) * kSampleRate * 65536 / 16000; }
     q31 lp(q31 state, q15 y) const {
         const int64_t diff = static_cast<int64_t>(to31(y)) - state;
-        return static_cast<q31>(state + ((diff >> 1) * damp_ >> 30));
+        return static_cast<q31>(state + ((static_cast<int64_t>(static_cast<int32_t>(diff >> 1)) * damp_) >> 30));
     }
     DelayLine l_, r_;
     int64_t cur_ = to_samples(350 * 16), target_ = to_samples(350 * 16), tmod_ = to_samples(8 * 16);
     q15 fb_ = 12000, mix_ = 16384;
     q31 damp_ = kQ31Max / 2, lpl_ = 0, lpr_ = 0;
     bool pingpong_ = false;
+    bool idle_ = false;
 };
 
 /* ------------------------------------------------------------------ SpectralFx */
@@ -339,7 +346,13 @@ public:
         }
         gain_tgt_ = wet_on_ ? static_cast<int64_t>(mix_) << 8 : 0;
     }
-    void process(const ProcessCtx &ctx, const Ports &p) override {
+    SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
+        if (!wet_on_ && (gain_cur_ >> 8) == 0) {                             // off and faded out: the wet gain is exactly 0, so the output is the input
+            if (!idle_) { l_.clear(); r_.clear(); lpl_ = lpr_ = 0; idle_ = true; }
+            for (int i = 0; i < ctx.frames; i++) { p.out[0][i] = p.in[0][i]; p.out[1][i] = p.in[1][i]; }
+            return;
+        }
+        idle_ = false;
         for (int i = 0; i < ctx.frames; i++) {
             ph_ += inc_;
             depth_cur_ += (depth_tgt_ - depth_cur_) >> 11;
@@ -360,7 +373,7 @@ public:
 private:
     q31 lp(q31 state, q15 y) const {
         const int64_t diff = static_cast<int64_t>(to31(y)) - state;
-        return static_cast<q31>(state + ((diff >> 1) * lp_ >> 30));
+        return static_cast<q31>(state + ((static_cast<int64_t>(static_cast<int32_t>(diff >> 1)) * lp_) >> 30));
     }
     DelayLine l_, r_;
     int64_t center_ = 0, depth_cur_ = 0, depth_tgt_ = 0, gain_cur_ = 0, gain_tgt_ = 0;
@@ -368,6 +381,7 @@ private:
     q31 lp_ = 0, lpl_ = 0, lpr_ = 0;
     q15 mix_ = 24000;
     bool wet_on_ = true;
+    bool idle_ = false;
 };
 
 /* ------------------------------------------------------------------ Reverb (Dattorro plate) */
@@ -432,7 +446,13 @@ public:
             case RVB_MIX: mix_ = static_cast<q15>(v); break;
         }
     }
-    void process(const ProcessCtx &ctx, const Ports &p) override {
+    SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
+        if (mix_ == 0) {                                                     // dry only: skip the tank (bit-identical output)
+            if (!idle_) { reset(); idle_ = true; }                           // emptied once, so switching the mix up later does not release an old tail
+            for (int i = 0; i < ctx.frames; i++) { p.out[0][i] = p.in[0][i]; p.out[1][i] = p.in[1][i]; }
+            return;
+        }
+        idle_ = false;
         // size glides: the tank delays never move faster than a fraction of a sample per sample, and every
         // length / tap position is interpolated per sample (a per-block step would jump by several samples)
         int64_t step = size_tgt_ - size_cur_;
@@ -502,7 +522,7 @@ private:
     }
     static q31 lp(q31 state, q15 y, q31 coef) {
         const int64_t diff = static_cast<int64_t>(to31(y)) - state;
-        return static_cast<q31>(state + (((diff >> 1) * coef) >> 30));
+        return static_cast<q31>(state + ((static_cast<int64_t>(static_cast<int32_t>(diff >> 1)) * coef) >> 30));
     }
     void update_decay() {
         int32_t dd2 = decay_ + 4915;                                // decay + 0.15
@@ -536,6 +556,7 @@ private:
     q31 bw_ = 0, dampl_ = 0, dampr_ = 0, damp_ = 0, bw_coef_ = 0;
     q15 el_ = 0, er_ = 0, decay_ = 26000, mod_ = 12000, mix_ = 12000;
     int pre_samples_ = 20 * kSampleRate / 1000;
+    bool idle_ = false;
 };
 
 template <typename T>

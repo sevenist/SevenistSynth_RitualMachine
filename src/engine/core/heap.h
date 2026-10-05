@@ -23,6 +23,11 @@ public:
     template <typename T>
     T *alloc_array(size_t n) { return static_cast<T *>(alloc(sizeof(T) * n)); }
 
+    // When this heap is full, alloc() takes the block from `h` instead (a slower memory), and free() hands such a block back to it.
+    // Lets a small fast heap (internal RAM) degrade to the big one (PSRAM) instead of failing.
+    void set_spill(Heap *h) { spill_ = h; }
+    bool owns(const void *p) const { return p >= base_ && p < base_ + cap_; }
+
     size_t used() const { return used_; }               // payload bytes currently allocated
     size_t high_water() const { return high_; }
     size_t capacity() const { return cap_; }
@@ -34,6 +39,7 @@ private:
     Hdr *next(Hdr *h) const;
     uint8_t *base_ = nullptr;
     size_t cap_ = 0, used_ = 0, high_ = 0;
+    Heap *spill_ = nullptr;
 };
 
 }  // namespace sc

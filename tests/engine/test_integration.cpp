@@ -25,6 +25,8 @@ struct App {
         CHECK_EQ(engine_synth_init(fast.data(), fast.size(), bulk.data(), bulk.size()), 0);
         synth_params_default(&params);
         rack_init(&rack);
+        rack.cfg.fxr.slot[1].v[2] = 0;          // the startup patch has delay and reverb on; these tests start dry
+        rack.cfg.fxr.slot[2].v[0] = 0;
     }
     ~App() { engine_synth_shutdown(); }
     void build() { engine_synth_build(&rack, &params); }
@@ -377,7 +379,8 @@ TEST(fx_rack_slots_run_in_order_and_edit_live) {
     a.run(0.15);
     engine_synth_note_off(60);
     std::vector<double> after = a.run(0.5);
-    CHECK(rms(std::vector<double>(after.begin() + 4800, after.begin() + 12000)) > 20.0 * (rms(std::vector<double>(before.begin() + 4800, before.begin() + 12000)) + 1.0));
+    // the note was played 150 ms before `after` starts, so its 200 ms echo lands 50 ms into it (the delay does not record while its mix is 0)
+    CHECK(rms(std::vector<double>(after.begin() + 2400, after.begin() + 7200)) > 20.0 * (rms(std::vector<double>(before.begin() + 2400, before.begin() + 7200)) + 1.0));
 }
 
 TEST(resonator_module_rings_at_the_played_pitch) {

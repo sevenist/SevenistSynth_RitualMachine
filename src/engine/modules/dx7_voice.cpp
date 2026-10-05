@@ -48,7 +48,7 @@ public:
     void set_param(int idx, int32_t v) override { if (idx == DX7_GAIN) gain_ = v; }
     void set_blob(const void *data, size_t bytes) override { if (bytes == sizeof(Dx7Patch)) std::memcpy(&patch_, data, sizeof patch_); }
 
-    void process(const ProcessCtx &ctx, const Ports &p) override {
+    SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         const int n = ctx.frames;
         const bool gate = p.in[1][0] > 16384;
         if (gate && !gate_) { for (int k = 0; k < kDx7Ops; k++) enter(k, 0, false); released_ = false; }

@@ -57,6 +57,7 @@ struct Scratch {
     int n_fb, n_fbv, n_fbg;
     int16_t fb_id[kMaxFb];
     int sec_end[3];
+    uint8_t edge_step[kMaxEdges], edge_slot[kMaxEdges];
 };
 
 struct Compiler {
@@ -120,6 +121,8 @@ struct Compiler {
         for (int i = 0; i < nf; i++) {
             m->src[i] = edge_source(g.edge[found[i]]);
             m->gain[i] = g.edge[found[i]].depth;
+            S.edge_step[found[i]] = static_cast<uint8_t>(pos);
+            S.edge_slot[found[i]] = static_cast<uint8_t>(i);
             use(m->src[i], pos);
         }
         return tmp;
@@ -190,6 +193,7 @@ bool topo(const GraphDesc &g, Scratch &S, int n, bool voice, int *order, int *co
 Err compile_impl(const GraphDesc &g, const Registry &reg, Heap &heap, int nvoices, Scratch &S, Plan **out) {
     const int n = g.n_nodes;
     for (int i = 0; i < 256; i++) S.idx_of[i] = -1;
+    for (int k = 0; k < kMaxEdges; k++) { S.edge_step[k] = 255; S.edge_slot[k] = 0; }
     for (int i = 0; i < n; i++) {
         S.type[i] = reg.get(g.node[i].type);
         if (!S.type[i]) return Err::UnknownType;
@@ -257,6 +261,7 @@ Err compile_impl(const GraphDesc &g, const Registry &reg, Heap &heap, int nvoice
     pl->nvoices = nvoices;
     pl->n_nodes = n;
     for (int i = 0; i < n; i++) { pl->node_id[i] = g.node[i].id; pl->node_type[i] = g.node[i].type; pl->node_scope[i] = S.scope[i]; }
+    for (int k = 0; k < kMaxEdges; k++) { pl->edge_step[k] = S.edge_step[k]; pl->edge_slot[k] = S.edge_slot[k]; }
     pl->n_pre = S.sec_end[0];
     pl->n_voice = S.sec_end[1] - S.sec_end[0];
     pl->n_post = S.sec_end[2] - S.sec_end[1];

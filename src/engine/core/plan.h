@@ -54,6 +54,8 @@ struct Plan {
 
     q15 *pool = nullptr;
     int n_slots = 0;
+    uint8_t edge_step[kMaxEdges];                   // per cable: the MIX step that applies its depth and the slot in it (edge_step 255 = aliased, no gain)
+    uint8_t edge_slot[kMaxEdges];
     q15 *silence = nullptr;
     q15 *fbv = nullptr;                             // voice 0 region first; stride fbv_stride samples per voice
     int fbv_stride = 0;

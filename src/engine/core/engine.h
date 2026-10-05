@@ -34,10 +34,18 @@ public:
     bool note_off(int note);
     bool all_notes_off();
     bool set_param(int node_id, int idx, int32_t value);   // live parameter change, all voices of the node
+    bool set_edge_depth(int edge, q15 depth);           // live depth of cable `edge` (index in the loaded GraphDesc); false = needs load() (aliased unity cable, or the new depth is unity)
     bool set_blob(int node_id, const void *data, size_t bytes);   // structured settings, at most kCmdBlobMax bytes
 
     void render(q15 *l, q15 *r);                        // [AUDIO] exactly kBlock frames
     int active_voices() const;
+
+#ifdef ENGINE_PROFILE
+    // Optional profiler (-DENGINE_PROFILE): CPU cycles spent in each module type, summed over voices. Read and reset it from the audio thread.
+    struct ProfEntry { const char *name; uint64_t cycles; uint32_t calls; };
+    static constexpr int kProfMax = 40;
+    int prof_take(ProfEntry *out, int max, uint32_t *blocks);       // copies and clears; *blocks = blocks rendered since the last call
+#endif
     uint64_t blocks() const { return time_.load(std::memory_order_relaxed); }
     const VoiceState &voice(int v) const { return voices_[v]; }
 
@@ -62,10 +70,16 @@ private:
     std::atomic<Plan *> active_{nullptr};
     std::atomic<Plan *> pending_{nullptr};
     std::atomic<uint32_t> swap_seq_{0};                 // odd while the audio thread switches plans (seqlock for gc)
-    CommandRing<512> cmd_;
+    CommandRing<ENGINE_CMD_RING> cmd_;
     std::atomic<Plan *> retired_{nullptr};              // lock-free stack: pushed by the audio thread, taken whole by gc()
     alignas(16) q15 bus_l_[kBlock] = {}, bus_r_[kBlock] = {};
     std::atomic<uint64_t> time_{0};
+#ifdef ENGINE_PROFILE
+    ProfEntry prof_[kProfMax] = {};
+    int prof_n_ = 0;
+    uint32_t prof_blocks_ = 0;
+    void prof_add(const char *name, uint32_t cycles);
+#endif
 };
 
 }  // namespace sc

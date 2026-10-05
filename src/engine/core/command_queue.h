@@ -8,13 +8,13 @@
 
 namespace sc {
 
-enum class Cmd : uint8_t { None, NoteOn, NoteOff, AllNotesOff, SetParam, SetBlob };
+enum class Cmd : uint8_t { None, NoteOn, NoteOff, AllNotesOff, SetParam, SetBlob, SetDepth };
 
 constexpr int kCmdBlobMax = 256;
 
 struct Command {
     Cmd type = Cmd::None;
-    uint8_t node = 0;           // node id (SetParam / SetBlob)
+    uint8_t node = 0;           // node id (SetParam / SetBlob); edge index (SetDepth)
     uint8_t idx = 0;            // parameter index
     uint8_t note = 0;           // NoteOn / NoteOff
     int32_t value = 0;          // parameter value / velocity

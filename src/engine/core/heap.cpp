@@ -27,7 +27,7 @@ void Heap::init(void *mem, size_t size) {
 }
 
 void *Heap::alloc(size_t bytes) {
-    if (!cap_) return nullptr;
+    if (!cap_) return spill_ ? spill_->alloc(bytes) : nullptr;
     size_t need = (bytes + (kAlign - 1)) & ~(kAlign - 1);
     if (need == 0) need = kAlign;
     for (Hdr *h = reinterpret_cast<Hdr *>(base_); h; h = next(h)) {
@@ -46,11 +46,12 @@ void *Heap::alloc(size_t bytes) {
         for (size_t i = 0; i < h->size; i++) p[i] = 0;
         return p;
     }
-    return nullptr;
+    return spill_ ? spill_->alloc(bytes) : nullptr;
 }
 
 void Heap::free(void *p) {
     if (!p) return;
+    if (!owns(p)) { if (spill_) spill_->free(p); return; }       // a block that spilled into the other heap
     Hdr *h = reinterpret_cast<Hdr *>(static_cast<uint8_t *>(p) - sizeof(Hdr));
     if (h->magic != kMagic || h->is_free) return;               // bad / double free: ignore
     h->is_free = 1;

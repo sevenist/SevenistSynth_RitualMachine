@@ -8,7 +8,7 @@
 
 namespace sc {
 
-enum class Cmd : uint8_t { None, NoteOn, NoteOff, AllNotesOff, SetParam, SetBlob, SetDepth };
+enum class Cmd : uint8_t { None, NoteOn, NoteOff, AllNotesOff, SetParam, SetBlob, SetDepth, VoiceMode };   // VoiceMode: node = mode, idx = legato, value = glide coefficient (q15, 0 = none)
 
 constexpr int kCmdBlobMax = 256;
 

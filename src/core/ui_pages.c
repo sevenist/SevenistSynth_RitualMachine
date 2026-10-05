@@ -74,7 +74,7 @@ static const uint8_t fm_globals[]      = {GP_FM, GP_SEQ, GP_SEQ_CFG};
 
 void synth_ui_rebuild_pages(synth_ui_t *ui, const rack_t *rack) {
     int n = 0;
-    bool fm = rack->cfg.type == SYNTH_FM;
+    bool fm = synth_type_is_fm(rack->cfg.type);
     for (int i = 0; i < (fm ? 0 : rack->count); i++) {
         int t = rack->slot[i].type;
         for (int d = 0; d < mod_pages[t].n && n < SYNTH_UI_MAX_PAGES; d++) {
@@ -129,12 +129,12 @@ bool synth_ui_shows_playhead(const synth_ui_t *ui, const rack_t *rack) {
 /* ---------------- menu tabs ----------------
  * Modular synth: RACK, GENERAL, FX 1, FX 2.  FM synth: GENERAL, ALGORITHM, OPERATOR, ENVELOPE (the DX7 editor), FX 1, FX 2. */
 
-int tab_count(const rack_t *r) { return r->cfg.type == SYNTH_FM ? 5 : 4; }
+int tab_count(const rack_t *r) { return synth_type_is_fm(r->cfg.type) ? 5 : 4; }
 
 tab_t tab_kind(const rack_t *r, int idx) {
     static const tab_t modular[4] = {TAB_RACK, TAB_GENERAL, TAB_SAMPLES, TAB_FX};
     static const tab_t fm[5] = {TAB_GENERAL, TAB_FM_ALGO, TAB_FM_OP, TAB_FM_ENV, TAB_FX};
-    return r->cfg.type == SYNTH_FM ? fm[idx % 5] : modular[idx % 4];
+    return synth_type_is_fm(r->cfg.type) ? fm[idx % 5] : modular[idx % 4];
 }
 
 const char *tab_name(tab_t t) {

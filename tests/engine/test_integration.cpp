@@ -303,6 +303,53 @@ TEST(changing_a_modulation_depth_does_not_rebuild_the_graph) {
     }
 }
 
+TEST(the_mono_type_rebuilds_the_voices_but_glide_and_legato_are_live) {
+    App a;
+    a.rack.cfg.type = SYNTH_MOD_MONO;
+    a.build();
+    a.run(0.01);
+    unsigned before = engine_synth_build_count();
+    a.rack.cfg.glide = 3; a.rack.cfg.legato = 1;                            // note handling: a command, not a graph
+    engine_synth_set_params(&a.rack, &a.params);
+    CHECK_EQ(engine_synth_build_count(), before);
+    a.rack.cfg.glide = 0; a.rack.cfg.legato = 0;
+    engine_synth_set_params(&a.rack, &a.params);
+    CHECK_EQ(engine_synth_build_count(), before);
+    a.rack.cfg.type = SYNTH_MODULAR;                                        // 1 voice -> 8: the voice modules are built again
+    engine_synth_set_params(&a.rack, &a.params);
+    CHECK_EQ(engine_synth_build_count(), before + 1);
+    a.run(0.01);
+    before = engine_synth_build_count();
+    a.rack.cfg.voices = 4;                                                  // Poly: the voice count is real now
+    engine_synth_set_params(&a.rack, &a.params);
+    CHECK_EQ(engine_synth_build_count(), before + 1);
+    a.rack.cfg.glide = 5;                                                   // (no effect outside Mono: nothing to send, nothing to rebuild)
+    engine_synth_set_params(&a.rack, &a.params);
+    CHECK_EQ(engine_synth_build_count(), before + 1);
+}
+
+TEST(mono_plays_one_note_of_two_and_poly_plays_both_through_the_production_path) {
+    for (int type : {SYNTH_MOD_MONO, SYNTH_MODULAR, SYNTH_FM_MONO, SYNTH_FM}) {
+        App a;
+        a.rack.cfg.type = static_cast<uint8_t>(type);
+        const bool mono = synth_type_is_mono(a.rack.cfg.type);
+        a.build();
+        a.run(0.05);
+        engine_synth_note_on(60);
+        engine_synth_note_on(67);                                           // C4 and G4: their fundamentals are not harmonics of each other
+        a.run(0.2);
+        std::vector<double> x = a.run(0.3);
+        const double c4 = tone_power(x, 261.63), g4 = tone_power(x, 392.0);
+        std::printf("    %s: power at C4 %.3g, at G4 %.3g\n", synth_type_name(static_cast<synth_type_t>(type)), c4, g4);
+        if (mono) CHECK(c4 < g4 * 0.02);                                    // only the last key sounds
+        else CHECK(c4 > g4 * 0.01 && g4 > c4 * 0.01);                       // both (a DX7 patch's fundamentals are less even than the rack's: 4 % apart)
+        engine_synth_note_off(67);
+        a.run(0.15);
+        x = a.run(0.3);
+        if (mono) CHECK(tone_power(x, 261.63) > tone_power(x, 392.0) * 20);   // back to the key that is still held
+    }
+}
+
 TEST(the_filters_own_envelope_amount_never_rebuilds_the_graph) {
     App a;
     rack_init(&a.rack);                                                     // demo rack: slot 1 is the filter

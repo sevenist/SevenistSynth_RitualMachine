@@ -57,6 +57,9 @@ void audio_build(const rack_t *r, const synth_params_t *p)      { engine_synth_b
 int audio_sample_count(void)                                     { return engine_synth_sample_count(); }
 bool audio_sample_info(int i, audio_sample_info_t *out)         { return engine_synth_sample_info(i, out); }
 int audio_samples_rescan(void)                                  { return sim_samples_rescan(); }
+sd_state_t audio_sd_state(void)                                 { return SD_OK; }      // the samples/ folder is always there
+uint32_t audio_sd_read_us(void)                                 { return 0; }
+uint32_t audio_sd_generation(void)                              { return 0; }
 bool audio_sample_prepare(int i)                                { return sim_samples_prepare(i) != 0; }
 void audio_set_clock(int bpm, int steps, int swing, int running) { engine_synth_set_clock(bpm, steps, swing, running); }
 void audio_motion_restart(void)                                 { engine_synth_motion_restart(); }

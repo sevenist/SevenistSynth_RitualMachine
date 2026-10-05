@@ -74,7 +74,7 @@ bool depth_target(const rack_slot_t &t, int param, bool supported, DepthTarget &
 bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Registry &reg, RackGraph &out,
                       const int16_t *slot_of_file, int n_files) {
     out.g = GraphDesc{};
-    out.fm = rack.cfg.type == SYNTH_FM;
+    out.fm = synth_type_is_fm(rack.cfg.type);
     out.ms_count = 0;
     B b{out.g, reg};
     const synth_config_t &cfg = rack.cfg;

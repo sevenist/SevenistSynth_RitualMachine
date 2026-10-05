@@ -68,6 +68,10 @@ public:
         const q15 *cv = p.in[0], *mt = p.mod[SMPR_TUNE];
         const bool varying = mt || cv[0] != cv[n - 1];
         int64_t rate = rate_for(cv[0], mt ? mt[0] : 0);
+        if (!varying && fast_block(n, rate, p.out[0])) {
+            stream_.update(static_cast<uint32_t>(pos_ >> 32), dir_, static_cast<int32_t>(rate >> 16));
+            return;
+        }
         for (int i = 0; i < n; i++) {
             if (varying) rate = rate_for(cv[i], mt ? mt[i] : 0);
             const int64_t f = pos_ >> 32;
@@ -114,6 +118,62 @@ public:
     }
 
 private:
+    // The data of frames lo..hi (inclusive) as one contiguous run: a resident head, or one block of the stream ring. nullptr when it is not in
+    // memory (or spans two ring blocks). `first` is the frame that run[0] holds.
+    const q15 *run(int64_t lo, int64_t hi, int64_t &first) {
+        if (lo >= cache_lo_ && hi < cache_hi_) { first = cache_lo_; return cache_ptr_; }
+        for (int h = 0; h < sl_->n_heads; h++) {
+            const Head &hd = sl_->head[h];
+            const int64_t end = static_cast<int64_t>(hd.start_frame) + hd.frames;
+            if (lo >= hd.start_frame && hi < end) { cache_ptr_ = hd.data; cache_lo_ = hd.start_frame; cache_hi_ = end; first = cache_lo_; return cache_ptr_; }
+        }
+        const int64_t blk = lo / kSmpBlockFrames;
+        if (hi / kSmpBlockFrames != blk) return nullptr;
+        const q15 *b = stream_.block(gen_, static_cast<uint32_t>(blk));
+        if (!b) return nullptr;
+        cache_ptr_ = b; cache_lo_ = blk * kSmpBlockFrames; cache_hi_ = cache_lo_ + kSmpBlockFrames;
+        first = cache_lo_;
+        return cache_ptr_;
+    }
+
+    // One block at a steady rate, played forward, that neither wraps a loop nor ends the sample and whose data is one contiguous run in memory:
+    // no per-sample bounds, cache or loop checks (the general loop in process() costs about 490 cycles per sample, this about a fifth of that).
+    // Same arithmetic as the general loop, so the output is identical. Returns false when the block does not qualify (the general loop runs it).
+    bool fast_block(int n, int64_t rate, q15 *out) {
+#ifdef SC_SAMPLER_NO_FAST                                                        // test switch: the general loop only (output comparison)
+        (void)n; (void)rate; (void)out;
+        return false;
+#endif
+        if (dir_ < 0 || underrun_ || xf_ < 32767) return false;
+        const int64_t pos_end = pos_ + rate * n;                                    // where the block ends: the general loop wraps / stops there
+        const int64_t limit = static_cast<int64_t>(loop_.active() ? loop_.end : frames_) << 32;
+        if (pos_end >= limit || (stop_frame_ && (pos_end >> 32) >= stop_frame_)) return false;
+        const int64_t f0 = pos_ >> 32, f_last = (pos_ + rate * (n - 1)) >> 32;
+        if (f0 < 1 || f_last + 2 >= static_cast<int64_t>(frames_)) return false;    // the neighbours of the interpolator exist (outside the file they read as silence)
+        int64_t first;
+        const q15 *data = run(f0 - 1, f_last + 2, first);
+        if (!data) return false;
+        const q15 *base = data - first;                                             // base[f] = frame f
+        int64_t pos = pos_;
+        int32_t s = 0;
+        if (hermite_) {
+            for (int i = 0; i < n; i++, pos += rate) {
+                const q15 *q = base + (pos >> 32);
+                s = hermite15(q[-1], q[0], q[1], q[2], static_cast<uint32_t>(pos >> 16) & 0xFFFFu);
+                out[i] = mul15(sat16(s), gain_eff_);
+            }
+        } else {
+            for (int i = 0; i < n; i++, pos += rate) {
+                const q15 *q = base + (pos >> 32);
+                s = lerp15(q[0], q[1], static_cast<uint32_t>(pos >> 16) & 0xFFFFu);
+                out[i] = mul15(sat16(s), gain_eff_);
+            }
+        }
+        pos_ = pos;
+        held_ = s;                                                                  // what an underrun in the next block would decay from
+        return true;
+    }
+
     int64_t rate_for(q15 cv, q15 mod) const {
         int32_t pitch;
         if (track_) pitch = kPitchCvCenter + scaled(cv, kPitchCvSpan) + tune_total_ + (mod ? scaled(mod, 96 * kSemi) : 0);

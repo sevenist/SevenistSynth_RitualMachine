@@ -3,35 +3,9 @@
 #include "platform/esp32/sd_card.h"
 #include "board_pins.h"
 
-#if defined(HWV1) && defined(HWV1_SD_ARDUINO)
-// Experiment: the Arduino core's own SPI card driver instead of ESP-IDF's sdspi host, on the same pins, mounted at the same place.
-#include <SD.h>
-#include <SPI.h>
-
-#ifndef HWV1_SD_FREQ_KHZ
-#define HWV1_SD_FREQ_KHZ 20000
-#endif
-
-namespace {
-SPIClass g_spi(HSPI);
-bool g_up = false;
-}  // namespace
-
-bool sd_card_mounted() { return g_up; }
-
-bool sd_card_mount() {
-    if (g_up) return true;
-    g_spi.begin(PIN_SD_SCLK, PIN_SD_MISO, PIN_SD_MOSI, PIN_SD_CS);
-    if (!SD.begin(PIN_SD_CS, g_spi, HWV1_SD_FREQ_KHZ * 1000u, SD_MOUNT_POINT, 8)) { Serial.println("[SD] Arduino SD: no card / mount failed"); return false; }
-    g_up = true;
-    Serial.printf("[SD] mounted (Arduino SD driver): type %d, %llu MB, SPI %d kHz\n", (int)SD.cardType(), (unsigned long long)(SD.cardSize() / (1024 * 1024)), (int)HWV1_SD_FREQ_KHZ);
-    return true;
-}
-
-void sd_card_bench() {}
-void sd_card_unmount() { if (g_up) { SD.end(); g_spi.end(); g_up = false; } }
-
-#elif defined(HWV1)
+#if defined(HWV1) && defined(HWV1_SD_IDF)
+// ESP-IDF's sdspi host, kept for comparison (build flag HWV1_SD_IDF). On the first prototype it spends about 40 ms before EVERY command (a CMD13 status
+// takes 40 ms, while the pins show the 55 us transfer only at the end), so the default is the own driver in sd_card_spi.cpp.
 #include <driver/sdspi_host.h>
 #include <driver/spi_common.h>
 #include <esp_heap_caps.h>
@@ -46,6 +20,7 @@ void sd_card_unmount() { if (g_up) { SD.end(); g_spi.end(); g_up = false; } }
 
 namespace {
 constexpr spi_host_device_t kHost = SPI3_HOST;      // SPI2 is the Arduino default bus, left free
+constexpr spi_dma_chan_t kDma = SPI_DMA_CH_AUTO;
 constexpr int kMaxOpenFiles = 8;                    // FATFS file objects held by the VFS (each owns a 512 byte sector buffer): SdStorage keeps 4 open, the scan 1-2
 sdmmc_card_t *g_card = nullptr;
 bool g_bus = false;
@@ -63,7 +38,7 @@ bool sd_card_mount() {
         bus.quadwp_io_num = -1;
         bus.quadhd_io_num = -1;
         bus.max_transfer_sz = 16 * 1024;
-        const esp_err_t e = spi_bus_initialize(kHost, &bus, SDSPI_DEFAULT_DMA);
+        const esp_err_t e = spi_bus_initialize(kHost, &bus, kDma);
         if (e != ESP_OK) { Serial.printf("[SD] spi_bus_initialize failed: %s\n", esp_err_to_name(e)); return false; }
         g_bus = true;
     }
@@ -109,17 +84,60 @@ void sd_card_bench() {
         }
         Serial.printf("%s us (avg %u us, %d failed)\n", line, (unsigned)(total / reps), fails);
     }
+    constexpr uint32_t kReadBlockSingle = 17, kOcrSdhc = 1u << 30, kCmdTimeoutMs = 1000;     // (sdmmc_defs.h is a private header)
+    // below the helper: the same single-sector read as one host transaction (what sdmmc_read_sectors sends), and a plain status command
+    for (int rep = 0; rep < 3; rep++) {
+        sdmmc_command_t cmd = {};
+        cmd.opcode = kReadBlockSingle;
+        cmd.arg = (g_card->ocr & kOcrSdhc) ? 20000u + rep : (20000u + rep) * 512u;
+        cmd.flags = SCF_CMD_ADTC | SCF_CMD_READ | SCF_RSP_R1;
+        cmd.data = buf;
+        cmd.datalen = 512;
+        cmd.blklen = 512;
+        cmd.timeout_ms = kCmdTimeoutMs;
+        const int64_t a = esp_timer_get_time();
+        const esp_err_t e1 = g_card->host.do_transaction(g_card->host.slot, &cmd);
+        const uint32_t t_read = static_cast<uint32_t>(esp_timer_get_time() - a);
+        const int64_t b = esp_timer_get_time();
+        const esp_err_t e2 = sdmmc_get_status(g_card);
+        const uint32_t t_stat = static_cast<uint32_t>(esp_timer_get_time() - b);
+        Serial.printf("[SD] bench direct: CMD17 %u us (%s), CMD13 %u us (%s)\n", (unsigned)t_read, esp_err_to_name(e1), (unsigned)t_stat, esp_err_to_name(e2));
+    }
     heap_caps_free(buf);
 }
+
+// A few single-sector reads, timed: tells a card that can stream (a read takes 0.3-2 ms) from one that cannot (the first prototype's old 1 GB card
+// takes 81 ms per read command whatever the size, 50 KB/s at 4 KB per read). The first read is not counted: it may still carry the mount.
+uint32_t sd_card_probe_us() {
+    if (!g_card) return 0;
+    uint8_t *buf = static_cast<uint8_t *>(heap_caps_malloc(512, MALLOC_CAP_DMA | MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+    if (!buf) return 0;
+    uint32_t total = 0;
+    bool ok = sdmmc_read_sectors(g_card, buf, 2048, 1) == ESP_OK;
+    for (int i = 1; i <= 3 && ok; i++) {
+        const int64_t t0 = esp_timer_get_time();
+        ok = sdmmc_read_sectors(g_card, buf, 2048 + 64 * i, 1) == ESP_OK;
+        total += static_cast<uint32_t>(esp_timer_get_time() - t0);
+    }
+    heap_caps_free(buf);
+    return ok ? total / 3 : 0;
+}
+
+bool sd_card_alive() { return g_card && sdmmc_get_status(g_card) == ESP_OK; }
+
+uint32_t sd_card_id() { return g_card ? g_card->cid.serial : 0; }
 
 void sd_card_unmount() {
     if (g_card) { esp_vfs_fat_sdcard_unmount(SD_MOUNT_POINT, g_card); g_card = nullptr; }
     if (g_bus) { spi_bus_free(kHost); g_bus = false; }
 }
 
-#else   // a revision without a card slot
+#elif !defined(HWV1)   // a revision without a card slot
 bool sd_card_mount() { return false; }
 void sd_card_bench() {}
+uint32_t sd_card_probe_us() { return 0; }
+bool sd_card_alive() { return false; }
+uint32_t sd_card_id() { return 0; }
 void sd_card_unmount() {}
 bool sd_card_mounted() { return false; }
 #endif  // HWV1

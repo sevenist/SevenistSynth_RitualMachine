@@ -39,6 +39,8 @@ bool engine_synth_sample_info(int index, audio_sample_info_t *out);
 // [I/O THREAD or test loop] runs the sample loader; call it every millisecond or so (the desktop starts a thread for it).
 // Returns true while reads are still in flight (call again at once); false when the streams are filled (sleep a tick).
 bool engine_synth_io_pump(void);
+// The card was replaced: forgets the catalog and which samples are loaded (loaded slots stay in memory until reboot: a playing voice may still read them).
+void engine_synth_catalog_reset(void);
 // Streaming health since boot: playheads that found a block missing (audible), and stream blocks read from the card.
 void engine_synth_sampler_stats(uint32_t *underruns, uint32_t *block_reads);
 

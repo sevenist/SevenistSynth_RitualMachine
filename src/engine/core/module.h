@@ -42,7 +42,8 @@ struct ModuleInfo {
 // Per-voice state owned by the engine, visible to voice-scope modules.
 struct VoiceState {
     int note = 0;
-    int32_t pitch = 0;          // 1/256 semitone (note * 256)
+    int32_t pitch = 0;          // 1/256 semitone (note * 256); in Mono mode with glide it moves towards target_pitch
+    int32_t target_pitch = 0;   // Mono mode: where the glide is going
     q15 velocity = 0;
     bool gate = false;          // key held
     bool started = false;       // note-on happened since the previous block

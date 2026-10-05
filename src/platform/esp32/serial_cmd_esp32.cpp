@@ -70,6 +70,20 @@ void run(char *line) {
         Serial.printf("[CMD] patch %s %d %d\n", name, a, b);
         return;
     }
+    if (!strcmp(line, "mode") && g_app) {                 // mode mono | poly [glide_index] [legato 0/1]: the Mono or Poly type of the current synth (a rebuild)
+        char name[8] = {};
+        int glide = g_app->rack.cfg.glide, legato = g_app->rack.cfg.legato;
+        sscanf(arg ? arg : "", "%7s %d %d", name, &glide, &legato);
+        const bool fm = synth_type_is_fm(g_app->rack.cfg.type);
+        if (!strcmp(name, "mono")) g_app->rack.cfg.type = fm ? SYNTH_FM_MONO : SYNTH_MOD_MONO;
+        else if (!strcmp(name, "poly")) g_app->rack.cfg.type = fm ? SYNTH_FM : SYNTH_MODULAR;
+        else { Serial.printf("[CMD] mode mono|poly [glide 0-6] [legato 0|1]\n"); return; }
+        g_app->rack.cfg.glide = (uint8_t)glide;
+        g_app->rack.cfg.legato = (uint8_t)legato;
+        use_rack();
+        Serial.printf("[CMD] mode %s, %d voice(s)\n", name, synth_config_voices(&g_app->rack.cfg));
+        return;
+    }
     if (!strcmp(line, "voices") && g_app) {
         g_app->rack.cfg.voices = (uint8_t)(v < 1 ? 1 : (v > SYNTH_MAX_VOICES ? SYNTH_MAX_VOICES : v));
         use_rack();

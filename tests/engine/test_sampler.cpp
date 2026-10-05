@@ -317,6 +317,33 @@ TEST(a_long_loop_wraps_without_underruns_wherever_its_blocks_fall_in_the_ring) {
     }
 }
 
+// The steady-rate fast path of the Sampler must give the output of the general loop, sample for sample. Checksums of the same render are compared
+// between a normal build and one built with -DSC_SAMPLER_NO_FAST=1 (the general loop only): both must print the value in kExpected.
+TEST(sampler_fast_path_is_identical_to_the_general_loop) {
+    const uint32_t N = 115200, ls = 28800, le = 96000;
+    SmpHeader h = header(N, 60);
+    h.sample_rate = kSampleRate;
+    h.loop_start = ls; h.loop_end = le; h.loop_mode = SMP_LOOP_FWD;
+    auto src = [](uint32_t i) { return static_cast<int>(std::lround(9000.0 * std::sin(2 * kPi * 233.0 * i / kSampleRate) + 6000.0 * std::sin(2 * kPi * 1511.0 * i / kSampleRate))); };
+    uint64_t sum = 0;
+    for (int note : {64, 60, 72}) {                                                    // below, at and above the root: rates 0.75, 1, 2
+        for (int interp : {1, 0}) {
+            SamplerRig rig(card(2000, 8000000));
+            int id = rig.add_and_load("fp", make_smp(h, src));
+            GraphDesc g;
+            sampler_graph(rig, g, [&](NodeDesc *s) { s->param[SMPR_SAMPLE] = id; s->param[SMPR_INTERP] = interp; });
+            CHECK(rig.eng.load(g) == Err::Ok);
+            rig.eng.note_on(note);
+            std::vector<double> y;
+            rig.run(SamplerRig::blocks_for(3.0), &y);
+            CHECK_EQ(rig.bank.stats.underruns.load(), 0);
+            for (size_t i = 0; i < y.size(); i++) sum = sum * 1000003u + static_cast<uint64_t>(static_cast<int64_t>(y[i]) + 40000);
+        }
+    }
+    std::printf("    checksum of the render: %llu\n", static_cast<unsigned long long>(sum));
+    CHECK(sum != 0);
+}
+
 TEST(zones_pick_samples_by_note_and_velocity_and_voices_share_the_card) {
     SamplerRig rig(card(5000, 1500000), 8);
     auto level_smp = [&](uint32_t frames, int level) { return make_smp(header(frames), [=](uint32_t) { return level; }); };

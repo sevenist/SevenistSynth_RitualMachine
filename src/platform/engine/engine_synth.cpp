@@ -36,6 +36,8 @@ struct Synth {
     int16_t slot_of[AUDIO_SAMPLES_MAX];       // catalog index -> bank slot (-1 = not loaded; samples stay loaded once used)
     std::mutex mx;                            // control calls (build, params, catalog) vs the loader thread; never taken by the audio thread
     int clk_bpm = 110, clk_steps = 16, clk_swing = 0, clk_run = 0, clk_restart = 0;   // the note sequencer's clock, for the motion sequencers
+    int last_nv = 0, last_glide = 0, last_legato = 0;      // voice count / note handling of the loaded graph (a different count is a rebuild)
+    bool last_mono = false;
 };
 
 Synth s_synth;
@@ -81,6 +83,16 @@ bool same_structure(const GraphDesc &a, const GraphDesc &b) {
             x.dst_kind != y.dst_kind || x.delayed != y.delayed) return false;
     }
     return true;
+}
+
+// Note handling of the synth type: Mono (one voice, last-note priority, legato, glide) or Poly. Posted like a note; cheap enough to resend.
+void send_voice_mode(const rack_t &rack) {
+    Synth &s = s_synth;
+    const bool mono = synth_type_is_mono(rack.cfg.type);
+    const int glide = synth_config_glide_ms(&rack.cfg);
+    const int legato = mono && rack.cfg.legato ? 1 : 0;
+    s.eng.set_voice_mode(mono ? VoiceMode::Mono : VoiceMode::Poly, legato != 0, glide);
+    s.last_mono = mono; s.last_glide = glide; s.last_legato = legato;
 }
 
 void send_blob(const RackGraph &r) {
@@ -169,7 +181,10 @@ void engine_synth_build(const rack_t *rack, const synth_params_t *params) {
     std::lock_guard<std::mutex> lk(s.mx);
     resolve_samples(*rack);
     if (!rack_graph_build(*rack, *params, s.eng.registry(), s.cur, s.slot_of, s.cat_n)) return;
-    if (s.eng.load(s.cur.g) != Err::Ok) return;
+    const int nv = synth_config_voices(&rack->cfg);
+    if (s.eng.load(s.cur.g, nv) != Err::Ok) return;
+    s.last_nv = nv;
+    send_voice_mode(*rack);
     send_blob(s.cur);
     send_clock(s.cur);
     s.last = s.cur;
@@ -187,6 +202,10 @@ void engine_synth_set_params(const rack_t *rack, const synth_params_t *params) {
         resolve_samples(*rack);
         if (!rack_graph_build(*rack, *params, s.eng.registry(), s.cur, s.slot_of, s.cat_n)) return;
     }
+    if (synth_config_voices(&rack->cfg) != s.last_nv) {                  // another voice count: the voice modules are created anew
+        std::snprintf(s_reason, sizeof s_reason, "voices %d -> %d", s.last_nv, synth_config_voices(&rack->cfg));
+        engine_synth_build(rack, params); return;
+    }
     if (!same_structure(s.last.g, s.cur.g) || s.last.fm != s.cur.fm) {
         std::snprintf(s_reason, sizeof s_reason, "structure n%d/%d e%d/%d fm%d/%d", s.last.g.n_nodes, s.cur.g.n_nodes, s.last.g.n_edges, s.cur.g.n_edges, s.last.fm, s.cur.fm);
         engine_synth_build(rack, params); return;
@@ -202,6 +221,8 @@ void engine_synth_set_params(const rack_t *rack, const synth_params_t *params) {
             if (n.param[p] != o.param[p]) s.eng.set_param(n.id, p, n.param[p]);
     }
     if (s.cur.fm && std::memcmp(&s.cur.fm_patch, &s.last.fm_patch, sizeof(Dx7Patch)) != 0) send_blob(s.cur);
+    if (synth_type_is_mono(rack->cfg.type) != s.last_mono || synth_config_glide_ms(&rack->cfg) != s.last_glide ||
+        (s.last_mono && (rack->cfg.legato ? 1 : 0) != s.last_legato)) send_voice_mode(*rack);
     for (int i = 0; i < s.cur.ms_count; i++)
         if (std::memcmp(&s.cur.ms_blob[i], &s.last.ms_blob[i], sizeof(MotionBlob)) != 0) s.eng.set_blob(s.cur.ms_node[i], &s.cur.ms_blob[i], sizeof(MotionBlob));
     s.last = s.cur;
@@ -254,6 +275,13 @@ bool engine_synth_io_pump(void) {
     if (!s.bank_on) return false;
     s.bank.pump(s.eng.blocks() * static_cast<uint64_t>(kBlock) * 1000000ull / static_cast<uint64_t>(kSampleRate));
     return !s.bank.idle();
+}
+
+void engine_synth_catalog_reset(void) {
+    if (!s_ready) return;
+    std::lock_guard<std::mutex> lk(s_synth.mx);
+    s_synth.cat_n = 0;
+    for (auto &v : s_synth.slot_of) v = -1;
 }
 
 void engine_synth_sampler_stats(uint32_t *underruns, uint32_t *block_reads) {

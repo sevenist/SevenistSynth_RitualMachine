@@ -1,4 +1,5 @@
 #include "engine/core/engine.h"
+#include <cmath>
 #include "engine/dsp/block.h"
 #include "engine/modules/builtin.h"
 
@@ -33,7 +34,7 @@ int Engine::prof_take(ProfEntry *out, int max, uint32_t *blocks) {
 
 bool Engine::init(Memory mem, int nvoices) {
     mem_ = mem;
-    nvoices_ = nvoices < 1 ? 1 : (nvoices > kMaxVoices ? kMaxVoices : nvoices);
+    nvoices_ = default_nv_ = nvoices < 1 ? 1 : (nvoices > kMaxVoices ? kMaxVoices : nvoices);
     register_builtin_modules(reg_);
     return true;
 }
@@ -43,14 +44,15 @@ void Engine::destroy_rec(Rec &r) {
     r.alive = false;
 }
 
-int Engine::find_rec(int id, int type) const {
-    for (int i = 0; i < kMaxRecs; i++) if (rec_[i].alive && rec_[i].id == id && rec_[i].type == type) return i;
+int Engine::find_rec(int id, int type, int nv) const {
+    for (int i = 0; i < kMaxRecs; i++) if (rec_[i].alive && rec_[i].id == id && rec_[i].type == type && rec_[i].nv == nv) return i;
     return -1;
 }
 
-Err Engine::load(const GraphDesc &g) {
+Err Engine::load(const GraphDesc &g, int nvoices) {
+    const int nv = nvoices <= 0 ? default_nv_ : (nvoices > kMaxVoices ? kMaxVoices : nvoices);
     Plan *pl = nullptr;
-    Err e = compile_plan(g, reg_, *mem_.fast, nvoices_, &pl);
+    Err e = compile_plan(g, reg_, *mem_.fast, nv, &pl);
     if (e != Err::Ok) return e;
 
     bool created[kMaxRecs] = {};
@@ -62,9 +64,10 @@ Err Engine::load(const GraphDesc &g) {
     // instances that already exist keep running: their new parameter values are applied by the audio thread at the swap
     int n_updates = 0;
     for (int i = 0; i < g.n_nodes; i++) {
-        if (find_rec(g.node[i].id, g.node[i].type) < 0) continue;
         const ModuleInfo &info = *reg_.get(g.node[i].type)->info;
-        n_updates += info.n_param * (info.scope == Scope::Voice ? nvoices_ : 1);
+        const int count = info.scope == Scope::Voice ? nv : 1;
+        if (find_rec(g.node[i].id, g.node[i].type, count) < 0) continue;      // (a node whose voice count changed is created anew, not updated)
+        n_updates += info.n_param * count;
     }
     if (n_updates > 0) {
         pl->updates = pl->heap->alloc_array<ParamUpdate>(static_cast<size_t>(n_updates));
@@ -75,15 +78,15 @@ Err Engine::load(const GraphDesc &g) {
         const NodeDesc &nd = g.node[i];
         const ModuleType *t = reg_.get(nd.type);
         const ModuleInfo &info = *t->info;
-        int ri = find_rec(nd.id, nd.type);
+        const int count = info.scope == Scope::Voice ? nv : 1;
+        int ri = find_rec(nd.id, nd.type, count);
         bool fresh = ri < 0;
-        const int count = info.scope == Scope::Voice ? nvoices_ : 1;
         if (fresh) {
             for (int k = 0; k < kMaxRecs && ri < 0; k++) if (!rec_[k].alive) ri = k;
             if (ri < 0) { rollback(); return Err::TooBig; }
             Rec &r = rec_[ri];
             r = Rec{};
-            r.alive = true; r.id = nd.id; r.type = nd.type;
+            r.alive = true; r.id = nd.id; r.type = nd.type; r.nv = static_cast<uint8_t>(count);
             created[ri] = true;
             for (int v = 0; v < count; v++) {
                 r.inst[v] = t->create(mem_);
@@ -194,35 +197,97 @@ int Engine::alloc_voice(int note) {
     return best;
 }
 
+// Mono: the single voice plays the key on top of the stack. With legato (and a key already held) only the pitch changes: the envelopes and the
+// other module state keep running. Otherwise the voice restarts, and with a glide it slides from the pitch it has now (also during the release tail).
+void Engine::mono_play(int note, q15 velocity) {
+    VoiceState &s = voices_[0];
+    if (s.active && s.gate && legato_) {
+        s.note = note;
+        s.target_pitch = note * 256;
+        s.velocity = velocity;
+        if (glide_k_ == 0) s.pitch = s.target_pitch;
+        return;
+    }
+    const int32_t from = s.active && glide_k_ > 0 ? s.pitch : note * 256;
+    s = VoiceState{};
+    s.note = note;
+    s.pitch = from;
+    s.target_pitch = note * 256;
+    s.velocity = velocity;
+    s.gate = true;
+    s.started = true;
+    s.active = true;
+}
+
+void Engine::mono_remove(int note) {
+    int k = 0;
+    for (int i = 0; i < stack_n_; i++) if (stack_[i] != note) stack_[k++] = stack_[i];
+    stack_n_ = k;
+}
+
 void Engine::do_note_on(int note, int velocity127) {
+    const q15 vel = static_cast<q15>(clamp_i32(velocity127, 1, 127) * 32767 / 127);
+    if (mode_ == VoiceMode::Mono) {
+        mono_remove(note);                                              // a key pressed again moves to the top
+        if (stack_n_ == kMonoStack) { for (int i = 1; i < kMonoStack; i++) stack_[i - 1] = stack_[i]; stack_n_--; }
+        stack_[stack_n_++] = static_cast<uint8_t>(note);
+        mono_play(note, vel);
+        return;
+    }
     int v = alloc_voice(note);
     VoiceState &s = voices_[v];
     s = VoiceState{};
     s.note = note;
-    s.pitch = note * 256;
-    s.velocity = static_cast<q15>(clamp_i32(velocity127, 1, 127) * 32767 / 127);
+    s.pitch = s.target_pitch = note * 256;
+    s.velocity = vel;
     s.gate = true;
     s.started = true;
     s.active = true;
 }
 
 void Engine::do_note_off(int note) {
+    if (mode_ == VoiceMode::Mono) {
+        mono_remove(note);
+        VoiceState &s = voices_[0];
+        if (!s.active || !s.gate) return;
+        if (stack_n_ == 0) { s.gate = false; return; }                 // the last key went up: release
+        if (s.note == note) mono_play(stack_[stack_n_ - 1], s.velocity);   // the sounding key went up while others are held: back to the one below
+        return;
+    }
     for (int v = 0; v < nvoices_; v++)
         if (voices_[v].active && voices_[v].gate && voices_[v].note == note) voices_[v].gate = false;
+}
+
+bool Engine::set_voice_mode(VoiceMode mode, bool legato, int glide_ms) {
+    Command c;
+    c.type = Cmd::VoiceMode;
+    c.node = static_cast<uint8_t>(mode);
+    c.idx = legato ? 1 : 0;
+    // the fraction of the remaining distance covered per block, for a time constant of glide_ms: 1 - exp(-block_ms / glide_ms)
+    const double block_ms = 1000.0 * kBlock / kSampleRate;
+    c.value = glide_ms <= 0 ? 0 : static_cast<int32_t>(std::lround(32767.0 * (1.0 - std::exp(-block_ms / glide_ms))));
+    if (glide_ms > 0 && c.value < 1) c.value = 1;
+    return cmd_.push(c);
 }
 
 void Engine::apply(const Command &c) {
     switch (c.type) {
     case Cmd::NoteOn: do_note_on(c.note, c.value); break;
     case Cmd::NoteOff: do_note_off(c.note); break;
-    case Cmd::AllNotesOff: for (auto &v : voices_) v = VoiceState{}; break;
+    case Cmd::AllNotesOff: for (auto &v : voices_) v = VoiceState{}; stack_n_ = 0; break;
+    case Cmd::VoiceMode:
+        mode_ = c.node == static_cast<uint8_t>(VoiceMode::Mono) ? VoiceMode::Mono : VoiceMode::Poly;
+        legato_ = c.idx != 0;
+        glide_k_ = c.value;
+        stack_n_ = 0;
+        break;
     case Cmd::SetParam:
     case Cmd::SetBlob: {
         const Plan *pl = active_.load(std::memory_order_acquire);
         if (!pl) break;
         for (int n = 0; n < pl->n_nodes; n++) {
             if (pl->node_id[n] != c.node) continue;
-            const int count = pl->node_scope[n] == Scope::Voice ? nvoices_ : 1;
+            const int count = pl->node_scope[n] == Scope::Voice ? pl->nvoices : 1;
             for (int v = 0; v < count; v++) {
                 Module *m = pl->inst[n][v];
                 if (!m) continue;
@@ -303,6 +368,11 @@ void Engine::render(q15 *l, q15 *r) {
         swap_seq_.fetch_add(1, std::memory_order_acq_rel);                       // odd: gc() must not look at the plans now
         if (Plan *np = pending_.exchange(nullptr, std::memory_order_acq_rel)) {
             for (int k = 0; k < np->n_updates; k++) np->updates[k].m->set_param(np->updates[k].idx, np->updates[k].value);
+            if (np->nvoices != nvoices_) {                                       // another voice count: the voices of the old plan are not the new plan's
+                for (auto &v : voices_) v = VoiceState{};
+                stack_n_ = 0;
+                nvoices_ = np->nvoices;
+            }
             Plan *prev = active_.exchange(np, std::memory_order_acq_rel);
             if (prev) {                                                          // hand the old plan to gc(): push on the retired stack (only this thread pushes)
                 prev->next_retired = retired_.load(std::memory_order_relaxed);
@@ -325,6 +395,15 @@ void Engine::render(q15 *l, q15 *r) {
     const Plan *pl = active_.load(std::memory_order_acquire);
     if (!pl) return;
 
+    if (mode_ == VoiceMode::Mono && glide_k_ > 0) {                              // the glide: a fraction of the remaining distance per block
+        VoiceState &g = voices_[0];
+        if (g.active && g.pitch != g.target_pitch) {
+            const int32_t d = g.target_pitch - g.pitch;
+            int32_t step = static_cast<int32_t>((static_cast<int64_t>(d) * glide_k_) >> 15);
+            if (step == 0) step = d > 0 ? 1 : -1;
+            g.pitch += step;
+        }
+    }
     ProcessCtx ctx{kBlock, t, nullptr, bus_l_, bus_r_, l, r};
     run(pl, 0, pl->n_pre, -1, ctx);
     for (int v = 0; v < nvoices_; v++) {

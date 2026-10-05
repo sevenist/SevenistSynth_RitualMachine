@@ -31,6 +31,9 @@ bool audio_sample_info(int i, audio_sample_info_t *o) {
     return true;
 }
 int audio_samples_rescan(void) { return 3; }
+sd_state_t audio_sd_state(void) { return getenv("UI_DUMP_SD_SLOW") ? SD_SLOW : SD_OK; }
+uint32_t audio_sd_read_us(void) { return 81000; }
+uint32_t audio_sd_generation(void) { static int calls; return getenv("UI_DUMP_SD_SLOW") && calls++ > 0 ? 1 : 0; }   // slow card: the first call (app_init) sees 0, the card "arrives" afterwards
 bool audio_sample_prepare(int i) { (void)i; return true; }
 void audio_set_clock(int b, int s, int w, int r) { (void)b; (void)s; (void)w; (void)r; }
 void audio_motion_restart(void) {}

@@ -47,6 +47,14 @@ bool audio_sample_info(int index, audio_sample_info_t *out);
 bool audio_sample_prepare(int index);    // converts a pending .wav / .mp3 now (called when it is assigned); true when the file is ready to play
 int  audio_samples_rescan(void);     // looks for new files (.smp, and .wav / .mp3 which are imported); returns the count
 
+// The TF card. SD_SLOW = a card is in but its reads are too slow to stream samples from (the synth then runs as if there were no card, and the
+// application shows an error screen). The generation changes on every insertion, removal and finished scan, so the application knows when to
+// re-resolve the sample files of the rack.
+typedef enum { SD_NONE = 0, SD_OK, SD_SLOW } sd_state_t;
+sd_state_t audio_sd_state(void);
+uint32_t   audio_sd_read_us(void);        // SD_SLOW: the measured time of one sector read, in microseconds
+uint32_t   audio_sd_generation(void);
+
 // Monotonic millisecond clock (the sequencer's time base).
 uint32_t audio_millis(void);
 

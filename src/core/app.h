@@ -32,6 +32,8 @@ typedef struct {
     synth_ui_t     ui;
     input_state_t  in;
     bool           dirty;       // the screen needs a redraw after this step
+    uint32_t       sd_gen;      // the TF card generation the app has seen (hal_audio.h)
+    bool           sd_notice;   // the "card too slow" screen is up: the next button press dismisses it
     char           status[48];  // last control -> action, for the simulator panel / debugging ("ENC A > Row +1")
 } app_t;
 

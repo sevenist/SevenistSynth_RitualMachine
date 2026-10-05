@@ -186,7 +186,7 @@ void draw_synth_info(u8g2_t *g, const gui_style_t *st, gui_rect_t box, const rac
     int rh = gui_row_h(g, st);
     gui_rect_t r = gui_rect(box.x, box.y + rh - 1, box.w, rh);
     gui_draw_text_centered(g, r, synth_type_name((synth_type_t)rack->cfg.type));
-    if (rack->cfg.type == SYNTH_FM) {
+    if (synth_type_is_fm(rack->cfg.type)) {
         gui_draw_text_centered(g, gui_below(r, st->gap + 2, rh), rack->cfg.fm.name);
         synth_config_format(&rack->cfg, CFGP_PATCH, buf, sizeof buf);
         gui_draw_text_centered(g, gui_below(r, st->gap + 2 + 2 * rh, rh), buf);
@@ -195,7 +195,8 @@ void draw_synth_info(u8g2_t *g, const gui_style_t *st, gui_rect_t box, const rac
         gui_draw_text_centered(g, gui_below(r, st->gap + 2, rh), buf);
         gui_draw_text_centered(g, gui_below(r, st->gap + 2 + 2 * rh, rh), "rack synth");
     }
-    snprintf(buf, sizeof buf, "%d voices", rack->cfg.voices);
+    if (synth_type_is_mono(rack->cfg.type)) snprintf(buf, sizeof buf, "mono");
+    else snprintf(buf, sizeof buf, "%d voices", rack->cfg.voices);
     gui_draw_text_centered(g, gui_below(r, st->gap + 2 + 4 * rh, rh), buf);
 }
 

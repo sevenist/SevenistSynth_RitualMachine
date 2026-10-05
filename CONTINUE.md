@@ -19,19 +19,37 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
   the vowel / dust filters in float, the dust level compensation.
 - The user's earlier plans: save / load of racks and FM patches "after some fixes"; the engine / UI work of the previous sessions (ADR-028..034) was never listened to either (levels untuned; they asked to skip that step).
 
-## TF card and sampler on the board (first tests by the user, then a fix round; NOTHING of the fix round is verified on the board)
+## Modular engine redesign (ADR-036: Mono / Paraphonic / Poly, capture, cost metadata) - stage 1 done on the host
 
-The user played the cooked demo `.smp` files from the card and reported: loop points misplaced / shifted, only 2-3 voices, the card read "too much".
-- **Loop: found and fixed on the host** (ADR-022 addendum). A fixed `block % 8` ring slot made a loop's end and start blocks collide, so the loop start was never prefetched and every lap dropped out. The new test fails without the fix. Ask the user to listen to `pad_c4` again.
-- **Card reads, fixed by reasoning, not measured:** the ring and heads live in PSRAM, which the SD host cannot fill by DMA, so the driver (from my memory of the ESP-IDF source) reads one sector per command; `SdStorage` now reads through an internal DMA bounce buffer and skips redundant seeks.
-  Also removed: the 64 reads per file the scan did at boot (the overview is stored in the `.smp` header now; old files still work but re-cook them: `.\build.ps1` after putting the sources in `samples_src/`, or `python tools/make_demo_samples.py` for the demos).
-- **2-3 voices: cause NOT established.** Two suspects, in this order: (1) CPU, not the card: the default patch costs about 24k cycles per voice (see the table below), 3 notes = 75 % of the budget, so 3-4 voices of that patch is its limit; a sampler rack with a light patch should do much better.
-  (2) the card (reads per second and the PSRAM bounce above). To tell them apart flash with `-DHWV1_DEBUG_AUDIO -DENGINE_PROFILE` (currently commented out in platformio.ini) and read: `[AUDIO] ... blocks over budget` (CPU), `[PROF]` with the Sampler line (cost per voice),
-  and the new `[SD]` / `[SMP]` line (card KB/s, average read time, `underruns` = dry streams). If `blocks over budget` is 0 while `underruns` rises, it is the card; if it is the other way round, it is the CPU.
-- Possible next steps if the card is still the limit (each is a design choice for the user): voices that play the same sample share the blocks they read (today every voice reads its own copy); fast seek in FATFS (an sdkconfig option the Arduino prebuilt libs do not expose);
-  a faster SPI clock (`HWV1_SD_FREQ_KHZ`, 20000 now); the planned SDMMC 4-bit slot of the next prototype.
-- Task priorities are written down in DEVELOPING.md ("Tasks and priorities"): FreeRTOS was already in place; `sd_io` now runs at 5 (above the UI loop, below input and audio).
-- New workflow: `samples_src/` (+ `build.ps1`, `-Sd E:` to copy to the card). Names to know: files with names longer than 23 characters are cut; only `.smp` is read on the board.
+The sampler is "fine for now" (user); the next topic is the modular engine. Decisions are in ENGINE_DESIGN.md ADR-036 (do not re-litigate): three modes (Mono default, Paraphonic, Poly kept as the legacy mode); "internal resampling" = capture a patch into a sample for the Sampler (not real-time polyphony); paraphonic splits the rack at its first filter with selectable envelope behaviour (first-key / every-key retrigger / per-voice amp env); budget = cost metadata only for now.
+- **Stage 1 (done, host-tested, NOT flashed / measured / heard):** `Engine::load(graph, nvoices)` (the `Voices` setting was cosmetic before: the engine always built 8 copies); a node whose voice count changed is created anew and the old instances are freed by `gc()`; `Engine::set_voice_mode(Mono|Poly, legato, glide_ms)` with a last-note-priority key stack (16 keys), legato (pitch changes, envelopes keep running) or retrigger, exponential glide at block rate; `cfg.mode / glide / legato` in the GENERAL tab (default **Mono**); mode / voice-count changes rebuild, glide / legato are live; serial `mode mono|poly [glide] [legato]`.
+  Host numbers: 1 voice instead of 8 saves about half the module memory in the small test graph (16.6 KB -> 8.8 KB; real patches with Karplus / delay buffers should save much more: measure `[HEAP]` on the board); glide of 100 ms reaches 63 % in 105 ms.
+- **Next on the board (needs a flash):** with the startup patch in Mono, the CPU and `[HEAP] fast heap used` should drop to about a voice's worth; check by ear that Mono feels right (last-note priority, legato on / off, glide) before stage 2.
+- **Stage 2 (paraphonic)**, in the order I would build it: `ProcessCtx` gets the voice array; a global `GateIn` module (any-key gate, a per-key trigger, lowest / last / highest pitch, velocity); `Env` as `Env<Scope>` like the other `_G` variants (it already takes its gate from a cable); the mapper builds per-voice modules up to the first filter and global ones from there; the three envelope policies; paraphonic becomes another synth type (`SYNTH_MOD_PARA`, ADR-036 decision 5: the mode is part of the type, there is no Mode row).
+- Stage 3 (capture): `Capture` module + a RAM-backed `StorageDevice` behind a mux with the card; saving to the card needs write support in `sd_card_spi.cpp` (CMD24 / CMD25 + FATFS write). Stage 4: per module cost model from `[PROF]`, a test against the host profiler.
+
+## TF card and sampler on the board (measured on the board with the automatic loop of the skill; the loop fix and the sound are NOT yet listened to)
+
+The user reported glitchy sampler playback, loops misplaced / shifted, 2-3 voices, the card read "too much". What the measurements found, in order:
+- **Root cause of the glitching: ESP-IDF's sdspi host spent about 40 ms before EVERY SD command on this board** (a plain CMD13 took 40 ms; with a pin trace, CS / MISO stayed quiet for 40.5 ms and the real transfer took 55 us at the end; two different cards (an old 1 GB and a 32 GB), SPI2 and SPI3, 10 and 20 MHz, MISO pull-up: all the same; a bare 10-byte SPI transfer on the same bus was normal).
+  A 4 KB read therefore cost 80 ms = 50 KB/s, and one sampler voice needs about 96 KB/s. Fix: an own small SPI-mode driver (`sd_card_spi.cpp`, read only, registered with FATFS): 1 sector 82 ms -> 1.4 ms, 8 sectors 5 ms, a scan of the 5 demo files 6 s each -> 0.36 s. The IDF host stays behind `-DHWV1_SD_IDF` for comparison.
+- **Loop points** (ADR-022 addendum): a fixed `block % 8` ring slot made a loop's end and start blocks collide, so every lap dropped out; fixed on the host with a test (it fails without the fix). Not yet heard on the board.
+- **Sampler CPU** (measured, 44.1 kHz, `patch sampler 3 2` = pad_c4, forward loop, one filter, no effects): the Sampler cost 15.7k cycles per voice and block (490 per sample). A per-block fast path (steady rate, no wrap, one contiguous run of data; bit-identical output, checksum test `sampler_fast_path_is_identical_to_the_general_loop`) cut it to 5.4k.
+
+| notes held | cycles per block (budget 174149) before -> now | blocks over budget before -> now | sampler underruns before -> now |
+|---|---|---|---|
+| 1 | 27.6k -> 17.1k | 0 -> 0 | 0 -> 0 |
+| 3 | 72k -> 41.5k | 0 -> 0 | 0 -> 0 |
+| 4 | 103k -> 54.7k | 143 -> 0 | 0 -> 0 |
+| 6 | 147k -> 81k (47 %) | 1119 -> 0 | 20 -> 0 |
+| 8 (two octaves) | not measured -> 312k (179 %) | -> 1266 of 2127 | -> 420 |
+
+- **Now the limit is the card at 8 voices**: about 490 KB/s delivered at 7 ms per 4 KB read (0.6 ms per sector: the token poll is one SPI call per byte and every sector is a separate 514-byte transfer plus a copy; the wire time would be 0.2 ms). An underrun sends a voice to the slow general loop (490 cycles per sample), which is why 8 notes also blow the CPU budget.
+  Next steps (in order): (1) read a block's token and data in one SPI transfer for every sector after the first of a command (expected 0.6 -> about 0.35 ms per sector, exact); (2) larger / fewer commands (CMD18 for 16 sectors); (3) design choices for the user: voices playing the same sample share the blocks they read, a faster clock (`HWV1_SD_FREQ_KHZ`, 20000; 26.7 MHz is outside the SD default-speed spec), prefetch deeper.
+- **Card handling** (new, tested with the old card on the board, and the screen in `ui_dump`): the card is polled once a second (no card-detect pin). A card whose sector read takes more than 15 ms is not used and the app shows "SD CARD TOO SLOW"; removal or a swap resets the catalog (loaded sample slots stay in memory until reboot: known debt) and the app rebuilds the synth (a 170 ms audio stall, once per card event).
+  A failing mount attempt must never busy-wait (it starved the idle task before): the own driver returns quickly when no card answers.
+- Task priorities are in DEVELOPING.md ("Tasks and priorities"). `samples_src/` + `build.ps1` (`-Sd E:` copies to the card) is the sample workflow; names are cut to 23 characters; only `.smp` is read on the board.
+- `platformio.ini` currently has `-DENGINE_SR=44100` (the user's test), `DEV_OUTPUT_GAIN_PCT=12`, and the measurement flags (`DEV_SERIAL_CMD`, `ENGINE_PROFILE`, `HWV1_DEBUG_AUDIO`) on.
 
 ## Latest measurements (prototype, startup patch, mono FX + half-rate reverb, budget 160000 cycles per 32-frame block)
 
@@ -89,7 +107,7 @@ The user decides and I record the reasoning and move on, without re-litigating:
 - The user iterates with short requests, tests on the board or in the SDL window, and wants concise answers that say what was verified vs not. Windows 11, PowerShell, MSYS2 UCRT64; AZERTY keyboard; English with some French.
   For design work they want options with pros and cons at each stage; they often pick against my recommendation. **They flash the board themselves** (COM8); never flash. They sometimes say "flashed" about an older build: check (see the skill).
 - The user often keeps the simulator open: `build.ps1` then builds `oled_sim_new.exe`. A stale exe has caused a false "bug" before.
-- PlatformIO: use `C:\.platformio\penv\Scripts\pio.exe`. Running another Python's `pio` once recreated and destroyed the penv. One link failure with no error text happened twice; the immediate rerun succeeded.
+- PlatformIO: use `C:\.platformio\penv\Scripts\pio.exe`, **never a bare `pio`** (PATH points at Python 3.13's pio, which recreates and destroys the penv). It happened twice; the second time (2026-10-05) Claude did it, and the user had to restore the penv by hand. Repair steps: DEVELOPING.md, "ESP32 firmware" warning. One link failure with no error text happened twice; the immediate rerun succeeded.
 - One program per serial port: close the serial monitor before `serial_test.py`.
 - Bash tool: **heredocs containing apostrophes or quotes break; `\n` inside a C string written from a Python literal becomes a real newline** (it hit `printf` lines many times: grep for a string that wrapped, or fix with a regex on `%u[\r\n]+"`).
   Write multi-line scripts with the Write tool and run them; edit with the Edit tool. Many sources are CRLF: scripted edits must keep each file's line endings.
@@ -99,6 +117,9 @@ The user decides and I record the reasoning and move on, without re-litigating:
 - Do not commit unless asked. Delete `run*.txt` serial captures when done (ignored by git now); keep the numbers in this file.
 
 ## Starting the next session (compact prompt)
+
+Run `/session-start` (skill `.claude/skills/session-start/SKILL.md`): it reads these notes, talks through the open items, writes the "Session todo" section here and proposes where to start.
+For board performance work directly:
 
 > Read `CONTINUE.md`, `DEVELOPING.md` and `ENGINE_DESIGN.md` (ADR-035), and the skill `esp32-optimize`. The board is connected on COM8 with the last build flashed. <what I heard / what to change>.
 > Then re-measure with `tools/serial_test.py` and continue with "Next performance steps".

@@ -423,6 +423,30 @@ Rules that follow (each one cost a wrong turn to learn): the FPU wins on a **cha
 Risks accepted: float and fixed point now coexist in the filter (two representations to keep consistent); the supersaw is thinner than the 7-saw version; the half-rate reverb is darker in the top octave; mono FX lose stereo width;
 the interpolated filter coefficients are a (tested, small) approximation for fast but smooth modulation. Items not yet done are listed in CONTINUE.md ("Next performance steps").
 
+### ADR-036: Voice modes (Mono / Paraphonic / Poly), capture, cost metadata (Accepted, staged; user choices of 2026-10, stage 1 in progress)
+
+**Why.** The GENERAL tab's "Voices" was cosmetic: `Engine::init` allocated 8 copies of every voice module and nothing applied `cfg.voices`. A patch could not trade voices for budget, and a polyphonic modular patch costs 24k cycles per voice (ADR-035), so 4 voices is its ceiling.
+The user wants a modular engine whose budget is knowable (a DSP "point" system later), a usable synth with less patching, and a way to get polyphonic sounds out of a rich patch.
+
+**Decisions taken by the user** (options and their trade-offs were offered; recorded, not to be re-litigated):
+1. **Three modular modes.** *Mono* (one real voice, the whole budget for one patch), *Paraphonic* (several voices share one filter and its envelope) and the existing *Poly* kept as a legacy third mode (N real voices, copy of every module per voice). Nothing is removed.
+2. **"Internal resampling" means capture, not real-time polyphony.** The audio of a (mono or paraphonic) modular patch can be recorded into a sample that the Sampler module then plays, chops, loops and pitches in another part of the workflow. (Rejected: pitched real-time playback of the patch's own output; a half-rate voice.) Polyphony of a captured sound comes from the Sampler.
+3. **Paraphonic structure.** A rack is split at its first filter: the modules before it (several oscillators, saturations, audio-rate FM / modulation between them) run per voice; the filter, its envelope and everything after it (post-filter chain: saturation, VCA, ...) run once for all voices. The envelope behaviour is selectable: first-key retrigger (legato gate for added keys), retrigger on every key, or a per-voice amp envelope in front of the shared filter.
+4. **DSP budget.** This round only adds *cost metadata* (a cost model per module type, calibrated from the board's `[PROF]` numbers, and a host/board check). The points meter and the refuse/warn logic in the RACK tab come later.
+5. **The voice mode is part of the synth type** (user, after hearing stage 1 on the board): GENERAL's Type lists *Modular*, *Mod Mono*, *FM*, *FM Mono*; there is no separate Mode row. The Mono types (rack or DX7) have Glide and Legato; the polyphonic ones have Voices. Paraphonic will be another type (e.g. *Mod Para*).
+
+**Plan (each stage ends with host tests, a board measurement and, for anything audible, a listening check):**
+
+| Stage | Content | Status |
+|---|---|---|
+| 1 | Voices are real: `Engine::load(graph, nvoices)` (instances, plan and voice loops use the plan's count; changing it rebuilds the voice modules, the old ones are freed by `gc()`); the Mono voice mode in the engine (last-note priority with a note stack, retrigger or legato, glide); the Mono types `SYNTH_MOD_MONO` / `SYNTH_FM_MONO` with `glide` / `legato` in GENERAL (decision 5; `synth_type_is_mono` / `synth_type_is_fm`); fast-heap saving measured | **done on the host** (144 tests, all six matrix configurations); the first version (a Mode row) was flashed by the user, the type split is not flashed yet; `[HEAP]` / `[PROF]` not measured |
+| 2 | Paraphonic: `GateIn` global module (any-key gate, per-key trigger, lowest / last / highest pitch, velocity) with the voices visible in `ProcessCtx`; global variants of `Env` (and of anything else the post chain needs); the mapper's split at the first filter; the three envelope policies; UI | next |
+| 3 | Capture: a `Capture` global module records the master (or the pre-FX) signal into PSRAM, a RAM-backed `StorageDevice` (zero latency) behind a mux with the card makes it a normal catalog entry the Sampler plays; saving it to the card needs write support in the SD driver (CMD24 / CMD25, FATFS write) | later |
+| 4 | Cost metadata: per module type `cost(params)` in cycles per block (x voices for voice-scope modules), a table generated from `[PROF]` runs, a test that compares the model with the host profiler on the whole module set | later |
+| 5 | Modular engine optimization with the measure loop (`esp32-optimize`): per-voice Filter 4.8k, Env 2.3k, oscillator engines, VoiceOut | alongside |
+
+**Risks accepted / known:** a voice-count or mode change rebuilds the voice modules (a short audio stall and a reset of their state, once per change); mono glide runs at block rate (0.7 ms steps, exponential); the paraphonic split makes modulators that feed the shared half global-scope (a per-voice LFO cannot modulate the shared filter: it is a different LFO, not a mix of the voice ones); a captured sound is a snapshot (no later parameter changes).
+
 ## Known limits and ideas for later
 
 - Not hooked to the UI yet: the **Sampler** and **Granular** modules and the sample bank (stage 6 is engine-level and

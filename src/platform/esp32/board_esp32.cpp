@@ -32,6 +32,17 @@ void board_audio_enable(void) {
                   digitalRead(PIN_I2S_XSMT), PIN_SPK_SD, floating, HWV1_SPK_SD_MODE);
 }
 
+// Off drives SD_MODE low (amplifier shutdown: silent, no hiss, the headphones keep playing); on gives the pin back to its boot setting.
+void board_speaker_on(bool on) {
+    if (!on) { pinMode(PIN_SPK_SD, OUTPUT); digitalWrite(PIN_SPK_SD, LOW); return; }
+#if HWV1_SPK_SD_MODE == 1
+    pinMode(PIN_SPK_SD, OUTPUT);
+    digitalWrite(PIN_SPK_SD, HIGH);
+#else
+    pinMode(PIN_SPK_SD, INPUT);
+#endif
+}
+
 void board_power_poll(void) {
     static uint32_t last = 0;
     const uint32_t now = millis();
@@ -46,6 +57,7 @@ void board_power_poll(void) {
 #else
 void board_power_init(void) {}
 void board_audio_enable(void) {}
+void board_speaker_on(bool) {}
 void board_power_poll(void) {}
 #endif
 #endif // ARDUINO_ARCH_ESP32

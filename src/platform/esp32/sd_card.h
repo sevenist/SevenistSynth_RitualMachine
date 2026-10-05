@@ -7,4 +7,7 @@
 bool sd_card_mount();           // idempotent; false when there is no card (or no wiring on this board)
 void sd_card_unmount();
 bool sd_card_mounted();
+uint32_t sd_card_probe_us();    // average time of a few single-sector reads in microseconds (a healthy card: 300-2000); 0 = the reads failed
+bool sd_card_alive();           // the mounted card still answers (a status command): false once it is pulled out
+uint32_t sd_card_id();          // identifies the card (serial number), to tell "the same card again" from "another card"
 void sd_card_bench();           // dev (HWV1_SD_BENCH): raw sector reads of 1 and 8 sectors, timed, printed as [SD] bench lines

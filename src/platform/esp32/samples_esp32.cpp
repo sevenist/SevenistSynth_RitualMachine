@@ -1,6 +1,7 @@
 // Sample library of the ESP32 build: the .smp files in SD_SAMPLE_DIR of the TF card (cook them on the PC with tools/wav2smp.py; there is no
 // .wav / .mp3 import on the board). One task on core 0 at low priority does everything that touches the card: mount, scan, and the loader
-// (engine_synth_io_pump, ADR-022), so the audio task never waits for it. Like the desktop's samples/ folder, new files are appended to the
+// (engine_synth_io_pump, ADR-022), so the audio task never waits for it. It also watches the card: inserted, too slow (then it is left alone and
+// the synth runs as if there were none), removed or swapped. Like the desktop's samples/ folder, new files are appended to the
 // catalog after the known ones, so the index a rack stores stays valid.
 #if defined(ARDUINO_ARCH_ESP32)
 #include <Arduino.h>
@@ -24,7 +25,10 @@ constexpr int kStackBytes = 8192;                 // long file names (FATFS LFN 
 // Task priorities (FreeRTOS, higher = more urgent): audio 23 (core 1) > input scan 8 > this loader > the Arduino loop that draws the UI (1), both on core 0.
 // The loader has deadlines (a stream that runs dry is audible), a frame of the UI has none, so it ranks above the UI. It does not hog the core:
 // the card transfers wait on DMA, and after kBurst reads in a row it sleeps a tick.
-constexpr UBaseType_t kPriority = 5;
+#ifndef HWV1_SD_IO_PRIO
+#define HWV1_SD_IO_PRIO 5
+#endif
+constexpr UBaseType_t kPriority = HWV1_SD_IO_PRIO;
 constexpr int kBurst = 8;
 SdStorage g_storage;
 audio_sample_info_t g_cat[AUDIO_SAMPLES_MAX];
@@ -135,14 +139,60 @@ void file_bench() {
 }
 #endif
 
-void rescan() {
-    if (!sd_card_mount()) return;
+// ---- the card's life: inserted, too slow, removed ----
+// HWV1 has no card-detect pin, so the card is polled: a mount attempt once a second while there is none, a status command once a second while there is one.
+constexpr uint32_t kSlowReadUs = 15000;           // a single sector read above this: the card cannot stream samples (healthy cards: 300-2000 us)
+constexpr uint32_t kPollMs = 1000, kPollSlowMs = 2000;
+volatile sd_state_t g_state = SD_NONE;
+volatile uint32_t g_slow_us = 0, g_gen = 0;
+uint32_t g_catalog_card = 0;                      // serial number of the card the catalog was read from (0 = none)
+
+void card_gone() {
+    g_storage.close_all();
+    sd_card_unmount();
+    g_state = SD_NONE;
+    g_gen = g_gen + 1;
+    Serial.println("[SD] card removed");
+}
+
+void card_in() {
 #ifdef HWV1_SD_BENCH
     sd_card_bench();
     file_bench();
 #endif
+    const uint32_t id = sd_card_id();
+    const uint32_t us = sd_card_probe_us();
+    if (us == 0) {                                // it mounted but cannot be read: treat it as no card, try again at the next poll
+        Serial.println("[SD] the card does not read: ignored");
+        sd_card_unmount();
+        return;
+    }
+    if (id != g_catalog_card && g_n > 0) {        // another card: its files are not the ones the catalog lists
+        engine_synth_catalog_reset();
+        g_n = 0;
+        g_catalog_card = 0;
+    }
+    if (us > kSlowReadUs) {
+        g_slow_us = us;
+        g_state = SD_SLOW;                        // stays mounted so its removal is seen, but nothing reads it: the synth runs as if there were no card
+        g_gen = g_gen + 1;
+        Serial.printf("[SD] card too slow: a sector read takes %u us (limit %u): not used\n", (unsigned)us, (unsigned)kSlowReadUs);
+        return;
+    }
+    g_catalog_card = id;
     if (!g_attached) g_attached = engine_synth_attach_storage(&g_storage);
+    g_state = SD_OK;
+    Serial.printf("[SD] card ready: a sector read takes %u us\n", (unsigned)us);
     scan();
+    g_gen = g_gen + 1;                            // the application looks the samples of its rack up again
+}
+
+void poll_card() {
+    if (!sd_card_mounted()) {
+        if (sd_card_mount()) { Serial.println("[SD] card inserted"); card_in(); }
+    } else if (!sd_card_alive()) {
+        card_gone();
+    }
 }
 
 #ifdef HWV1_DEBUG_AUDIO
@@ -167,17 +217,22 @@ void report() {
 #endif
 
 void io_task(void *) {
-    rescan();                                       // the library at boot
+    uint32_t t_poll = 0;
+    bool first = true;
     int burst = 0;
     for (;;) {
-        if (ulTaskNotifyTake(pdTRUE, 0)) rescan();
-        const bool more = engine_synth_io_pump();   // reads still in flight: go on at once, a stream may be about to run dry
-        if (more && ++burst < kBurst) continue;
-        burst = 0;
+        const uint32_t now = millis();
+        if (first || now - t_poll >= (g_state == SD_SLOW ? kPollSlowMs : kPollMs)) { first = false; t_poll = now; poll_card(); }
+        if (ulTaskNotifyTake(pdTRUE, 0) && g_state == SD_OK) scan();      // the Scan row of the sample list
+        if (g_state == SD_OK) {
+            const bool more = engine_synth_io_pump();   // reads still in flight: go on at once, a stream may be about to run dry
+            if (more && ++burst < kBurst) continue;
+            burst = 0;
+        }
 #ifdef HWV1_DEBUG_AUDIO
         report();
 #endif
-        vTaskDelay(2);                              // at least one whole tick: the card driver busy-waits, and the idle task of this core must get time (task watchdog)
+        vTaskDelay(g_state == SD_OK ? 2 : pdMS_TO_TICKS(50));   // at least one whole tick: the card driver busy-waits, and the idle task of this core must get time (task watchdog)
     }
 }
 }  // namespace
@@ -192,4 +247,7 @@ int samples_esp32_rescan() {
 }
 
 bool samples_esp32_ready(int index) { return index >= 0 && index < g_n && !g_cat[index].pending; }
+sd_state_t samples_esp32_sd_state() { return g_state; }
+uint32_t samples_esp32_sd_read_us() { return g_slow_us; }
+uint32_t samples_esp32_sd_generation() { return g_gen; }
 #endif  // ARDUINO_ARCH_ESP32

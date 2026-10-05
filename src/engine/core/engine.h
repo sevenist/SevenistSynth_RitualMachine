@@ -20,14 +20,22 @@
 
 namespace sc {
 
+// How note events are given to the voices. Poly: the voice allocator (steals the oldest released voice). Mono: one voice, last-note priority
+// with a stack of held keys (releasing the top key returns to the one below it); `legato` keeps the envelopes running when the pitch changes
+// while a key is held, `glide` slides the pitch (exponential, per block).
+enum class VoiceMode : uint8_t { Poly, Mono };
+
 class Engine {
 public:
-    bool init(Memory mem, int nvoices);                 // registers the builtin modules
+    bool init(Memory mem, int nvoices);                 // registers the builtin modules; nvoices = the default voice count of load()
     bool init(Heap &heap, int nvoices) { return init(Memory{&heap, &heap}, nvoices); }   // one heap for everything
     void shutdown();                                    // frees everything the engine allocated
 
     Registry &registry() { return reg_; }
-    Err load(const GraphDesc &g);                       // [CONTROL]
+    // `nvoices` (1..kMaxVoices, 0 = the count given to init) is how many copies of every voice-scope module this graph gets: memory and CPU scale with it.
+    // Changing it creates new voice instances (their state starts clean; the old ones are freed by gc()) and silences the voices at the switch.
+    Err load(const GraphDesc &g, int nvoices = 0);      // [CONTROL]
+    bool set_voice_mode(VoiceMode mode, bool legato, int glide_ms);   // [CONTROL] posted like a note; glide_ms 0 = jump
     void gc();                                          // [CONTROL]
 
     bool note_on(int note, int velocity127 = 100);      // [CONTROL] false = the command queue was full
@@ -50,21 +58,30 @@ public:
     const VoiceState &voice(int v) const { return voices_[v]; }
 
 private:
-    struct Rec { bool alive; uint8_t id, type; Module *inst[kMaxVoices]; };
+    struct Rec { bool alive; uint8_t id, type, nv; Module *inst[kMaxVoices]; };   // nv = how many instances were made (the voice count of the load that created it)
     static constexpr int kMaxRecs = 2 * kMaxNodes;
+    static constexpr int kMonoStack = 16;
 
-    int find_rec(int id, int type) const;
+    int find_rec(int id, int type, int nv) const;
     void destroy_rec(Rec &r);
     void run(const Plan *pl, int first, int count, int voice, ProcessCtx &ctx);
     int alloc_voice(int note);
     void apply(const Command &c);                       // [AUDIO]
     void do_note_on(int note, int velocity127);
     void do_note_off(int note);
+    void mono_play(int note, q15 velocity);             // [AUDIO] start / retrigger / retarget the single voice
+    void mono_remove(int note);
     void free_retired();
 
     Memory mem_;
     Registry reg_;
-    int nvoices_ = 0;
+    int nvoices_ = 0;                                   // voices of the ACTIVE plan: written and read by the audio thread only (set at the plan switch)
+    int default_nv_ = 0;                                // the count load() uses when it is not given one
+    VoiceMode mode_ = VoiceMode::Poly;                  // audio thread
+    bool legato_ = false;
+    int32_t glide_k_ = 0;                               // q15 fraction of the distance covered per block (0 = jump)
+    uint8_t stack_[kMonoStack] = {};                    // held keys, last on top (Mono)
+    int stack_n_ = 0;
     Rec rec_[kMaxRecs] = {};
     VoiceState voices_[kMaxVoices];
     std::atomic<Plan *> active_{nullptr};

@@ -18,7 +18,7 @@ If you change anything the docs describe, update them before you finish (see sec
 
 ## 1. Standing rules of this project
 
-- **The user flashes the board. You never do** (`pio run -t upload` is off limits). You build, then ask them to flash, then measure.
+- **Flashing: ask first, then it is yours.** By default the user flashes (you build, they flash, you measure). When the user has said you may flash for the task ("you can upload automatically", as in the sampler session of 2026-10), run the automatic loop of section 2b. The permission is for that task, not for later ones. Never flash for a change you have not host-tested.
 - **Quality trades are the user's decision**: give options with pros and cons (what changes in the sound, estimated saving) and wait. Exact optimizations (same sound, fewer cycles) you just do.
   The user has already decided: never go below 44100 Hz sample rate; they accept an FPU exception to "no float" (ADR-035) and prefer measured results over estimates.
 - Hardware pin/board edits live inside `#ifdef HWV1`. Dev-only features sit behind flags (`DEV_*`, `HWV1_DEBUG_*`, `ENGINE_PROFILE`) that must stay removable for release.
@@ -42,6 +42,27 @@ Budget: 160000 cycles per 32-frame block at 240 MHz / 48 kHz (`[PROF] ... budget
 This was wrong once in this project (the user said "flashed" about a build that was not). Ask, or compare a number that must change.
 
 Delete the `run*.txt` logs when done (they are not versioned); put the numbers in CONTINUE.md instead.
+
+## 2b. The automatic loop (only when the user authorised flashing)
+
+One round = **hypothesis -> change -> host test -> build + flash -> set the test synth -> measure -> compare -> (ears?) -> next**. Keep each round to one change so a number can be blamed on it.
+
+```
+# build + flash (log to a file: NEVER pipe pio into Select-Object -First, it kills the upload and leaves half an image; a busy COM8 is usually transient, retry once)
+C:\.platformio\penv\Scripts\pio.exe run -t upload *> $env:TEMP\pio_upload.log ; $LASTEXITCODE
+# experiments without editing platformio.ini: flags are appended
+$env:PLATFORMIO_BUILD_FLAGS = "-DHWV1_SD_BENCH"   ... run ... ; Remove-Item Env:\PLATFORMIO_BUILD_FLAGS
+# set the synth under test over serial, then measure it (the patch lives in RAM until the next reset)
+python tools/serial_test.py --cmd "patch sampler 3 2" --chords 1,3,6,8 --hold 6 --log run.txt
+```
+- Dev serial commands (`DEV_SERIAL_CMD`): `patch startup`, `patch sampler F L` (catalog index F, loop mode L: 0 file 1 off 2 fwd 3 ping-pong; one sampler into one filter, effects off), `voices N`, `samples` (catalog), plus the older `on/off/chord/eng/release/status`.
+  Add a `patch` for any other test synth you need (`rack_init_*` in `core/rack.c`): the loop is only as good as its repeatable patches.
+- The board reboots on flash (RTS): to see the **boot log** start `serial_test.py --raw --seconds 25` right after the upload returns. `--raw` prints only lines newer than the `--cmd` pauses, so replies to `--cmd` do not show there: use the normal mode, or read `run.txt`.
+- The report prints CPU (`cycles per engine block`, `blocks over budget`) and the card (`reads/s`, KB/s, average read, `sampler underruns`) side by side per phase: **over budget with no underruns = CPU, underruns with no over budget = card.** They cascade: an underrun sends a voice to the slow path, which costs more CPU.
+- Task watchdog / crash backtraces: decode with `C:\.platformio\packages\toolchain-xtensa-esp-elf\bin\xtensa-esp32s3-elf-addr2line.exe -pfiaC -e .pio\build\waveshare_esp32s3_pico\firmware.elf <addresses>` (the ELF must be the flashed build). Rules the watchdog taught: a task that busy-waits (the SD driver, loops over card reads) must give the CPU away (`vTaskDelay`) at least every few ms, and failing mount attempts included.
+- **When to pause for human ears: after any change that can alter the sound** (not after an exact optimization proven by an identical checksum / SNR test), after fixing something that was reported as audible (loops, glitches), and before the loop moves on to a quality trade. Say exactly what to play and listen for (which patch, which notes, how many voices), then ask with `AskUserQuestion` using concrete options ("clean / click at the loop point / crackle with many notes / other") and wait. Do not stack further sound changes on an unlistened one.
+- Bit-exactness check for a hot-path rewrite: a host test that prints a checksum of a long render, run in the normal build and with a `-DSC_..._NO_FAST` switch that keeps the old path; the two numbers must match (done for the Sampler fast path).
+- Stop the loop and report when two rounds in a row move nothing, when a number gets worse for a reason you cannot explain, or when the next step is a quality trade (options with pros and cons, the user decides).
 
 ## 3. Locate: from the total to the instruction
 
@@ -111,7 +132,15 @@ After they say flashed: rerun section 2, compare with a before/now table, say if
 8. **Parameter changes must not rebuild the graph.** A knob that crossed 0.00 or the maximum added/removed a node or an aliased cable and stalled the audio 170 ms. A `[AUDIO] ... graph builds N (last: reason)` counter found it in one run; a host test (`engine_synth_build_count()`) keeps it fixed.
 9. **Halving the work structurally beats polishing**: the reverb tank at half rate (ENGINE_REVERB_HALF) halved its cost and memory; mono FX halved the delay. These change the sound, so they were offered as options and decided by the user.
 
+10. **Instrument the layer below before blaming the card.** Glitchy sampler -> the first suspects (loop logic, card quality, priorities) were all wrong. Timing a raw sector read (below FATFS), then a bare CMD13, then watching CS / MISO from the other core
+    showed 40 ms of silence BEFORE every command and a 55 us transfer at the end: ESP-IDF's sdspi host on this board. A bare SPI transfer on the same bus was fast, so a small own SPI-mode driver (`sd_card_spi.cpp`) fixed it: 82 ms -> 1.4 ms per sector. Order of tools: per-operation timing, then an A/B of the two driver layers, then pin-level tracing.
+11. **The hot loop of a streaming module was the general one.** `Sampler` cost 490 cycles per sample because every sample ran bounds, cache and loop-wrap checks; a per-block fast path (steady rate, no wrap, one contiguous run of data) cut it to 5.4k per voice-block, 3x, with a bit-identical render (checksum test). Look for "the common case of a block" before polishing arithmetic.
+12. **Two failure modes cascade.** A saturated card -> underruns -> voices fall back to the slow path -> CPU spikes -> more late blocks. Fix the first stage, and read both counters before concluding.
+
 ## Environment traps (also in CONTINUE.md)
+
+- **Scripted edits through this harness lose one level of backslashes**: `\\n` written in a Python heredoc reaches the C file as a real newline (the printf then does not compile). Use the Edit tool for any line with `\n`, or build the character with `chr(92)` outside the quoted block. After a scripted printf edit, grep that the format string is one line.
+- PowerShell does not expand `*.c` for gcc (compile ui_dump from bash); `Select-Object -First N` on a pipeline closes it and kills the upstream process (an upload!).
 
 - Bash heredocs and Python literals: `\n` inside a C string in a script becomes a real newline, and heredocs with quotes break. Edit with the Edit tool or write a script file with the Write tool, then run it. After any scripted edit of a `printf`, grep that the string is still on one line.
 - Many source files are CRLF; scripted edits must preserve the file's line endings (read with `newline=''`, normalise, write back).

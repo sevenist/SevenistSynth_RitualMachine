@@ -12,9 +12,13 @@
 extern "C" {
 #endif
 
+// The engine that builds the sound and how it plays (ADR-036). The polyphonic types copy every voice module `voices` times; the Mono types
+// have one voice, last-note priority, optional legato and glide, and give the whole budget to one patch. (Paraphonic is stage 2.)
 typedef enum {
-    SYNTH_MODULAR,      // built from the rack (oscillators, filters, ...)
-    SYNTH_FM,           // DX7-style 6-operator FM with the patch editor
+    SYNTH_MODULAR,      // built from the rack (oscillators, filters, ...), polyphonic
+    SYNTH_MOD_MONO,     // the rack synth, monophonic
+    SYNTH_FM,           // DX7-style 6-operator FM with the patch editor, polyphonic
+    SYNTH_FM_MONO,      // the FM synth, monophonic
     SYNTH_TYPE_COUNT
 } synth_type_t;
 
@@ -22,7 +26,7 @@ typedef enum {
 #define SYNTH_MAX_VOICES 8
 
 typedef enum {
-    CFGP_TYPE, CFGP_PATCH, CFGP_VOICES, CFGP_VOLUME, CFGP_OUTPUT,    // GENERAL tab
+    CFGP_TYPE, CFGP_PATCH, CFGP_VOICES, CFGP_GLIDE, CFGP_LEGATO, CFGP_VOLUME, CFGP_OUTPUT, CFGP_SPEAKER,    // GENERAL tab
     CFGP_GENERAL_COUNT,
     CFGP_COUNT = CFGP_GENERAL_COUNT
 } cfg_param_id_t;
@@ -30,9 +34,12 @@ typedef enum {
 typedef struct {
     uint8_t type;        // synth_type_t
     uint8_t fm_patch;    // factory patch the edit copy `fm` was loaded from, 0..127 (shown as 1..128)
-    uint8_t voices;      // 1..SYNTH_MAX_VOICES
+    uint8_t voices;      // 1..SYNTH_MAX_VOICES (the polyphonic types)
+    uint8_t glide;       // Mono: index into the glide times (0 = off)
+    uint8_t legato;      // Mono: 1 = a new key while one is held changes the pitch only (envelopes keep running)
     float   volume;      // master volume 0..2 (applied at the very end of the chain, after the master effects)
     uint8_t mono;        // 0 = stereo output, 1 = (L + R) / 2 on both channels
+    uint8_t speaker;     // built-in loudspeaker level in 5 % steps: 0 = off (amplifier shut down), 1..20 = 5..100 % (the board scales the channel that feeds it)
     dx7_patch_t fm;      // the FM patch being played / edited (a copy: factory edits do not change the bank)
     fxrack_t fxr;        // the master effects rack (four slots, see core/fxrack.h)
 } synth_config_t;
@@ -47,6 +54,13 @@ cfg_effect_t synth_config_adjust(synth_config_t *c, cfg_param_id_t id, int dir);
 const char  *synth_config_label(cfg_param_id_t id);
 void         synth_config_format(const synth_config_t *c, cfg_param_id_t id, char *out, size_t n);
 const char  *synth_type_name(synth_type_t t);
+static inline bool synth_type_is_fm(uint8_t t)   { return t == SYNTH_FM || t == SYNTH_FM_MONO; }
+static inline bool synth_type_is_mono(uint8_t t) { return t == SYNTH_MOD_MONO || t == SYNTH_FM_MONO; }
+
+// What the audio layer needs: how many voices the engine builds (1 for Mono) and the glide time in ms (0 = off).
+int          synth_config_voices(const synth_config_t *c);
+int          synth_config_glide_ms(const synth_config_t *c);
+int          synth_config_speaker_pct(const synth_config_t *c);   // 0 (off) .. 100
 
 #ifdef __cplusplus
 }

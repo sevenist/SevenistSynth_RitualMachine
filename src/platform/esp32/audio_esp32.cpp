@@ -15,6 +15,8 @@
 #include "platform/esp32/bench_esp32.h"
 #include "platform/esp32/samples_esp32.h"
 #include "board_pins.h"
+#include "platform/esp32/board_esp32.h"
+#include <atomic>
 
 namespace {
 constexpr size_t kFastMarginBytes = 40 * 1024;     // internal RAM kept free for what is created after audio_init (tasks, DMA, display buffer)
@@ -34,6 +36,22 @@ constexpr int kFrames = 64;                        // frames per I2S write (the 
 
 i2s_chan_handle_t tx;
 TaskHandle_t audio_task;
+// The built-in loudspeaker (GENERAL "Spk"): the MAX98357A plays one DAC channel, the left one, so its level scales that channel. Off is gain 0,
+// plus an attempt to shut the amplifier down through SD_MODE (board_speaker_on).
+constexpr int kSpeakerCh = 0;                      // 0 = left, 1 = right
+std::atomic<int32_t> g_spk_gain{32768};            // Q15, written by the UI, read by the audio task
+int g_spk_pct = -1;                                // UI side: the last level applied
+
+void apply_speaker(const rack_t *r) {
+    const int pct = synth_config_speaker_pct(&r->cfg);
+    if (pct == g_spk_pct) return;
+    if ((pct == 0) != (g_spk_pct == 0) || g_spk_pct < 0) board_speaker_on(pct > 0);
+    // Off is a zero gain on the speaker channel: pulling SD_MODE low alone did not silence the speaker on the prototype (2026-10-05), so the pin
+    // is not proven to reach the amplifier. The headphones did not follow the speaker level in the same test.
+    g_spk_gain.store(pct * 32768 / 100, std::memory_order_relaxed);
+    Serial.printf("[SPK] %d %%, SD pin (GPIO %d) reads %d\n", pct, PIN_SPK_SD, digitalRead(PIN_SPK_SD));
+    g_spk_pct = pct;
+}
 
 void audio_task_main(void *) {
     static int16_t buf[kFrames * 2];
@@ -64,6 +82,16 @@ void audio_task_main(void *) {
 #endif
         if (kOutGainQ15 != 32768)
             for (int i = 0; i < kFrames * 2; i++) buf[i] = (int16_t)(((int32_t)buf[i] * kOutGainQ15) >> 15);
+        {   // the speaker channel: ramped over the buffer from the previous gain, so a 5 % step does not click
+            static int32_t g_prev = 32768;
+            const int32_t g_new = g_spk_gain.load(std::memory_order_relaxed);
+            if (g_new != 32768 || g_prev != 32768)
+                for (int i = 0; i < kFrames; i++) {
+                    const int32_t g = g_prev + (g_new - g_prev) * (i + 1) / kFrames;
+                    buf[2 * i + kSpeakerCh] = (int16_t)(((int32_t)buf[2 * i + kSpeakerCh] * g) >> 15);
+                }
+            g_prev = g_new;
+        }
         size_t written = 0;
         i2s_channel_write(tx, buf, sizeof buf, &written, portMAX_DELAY);     // blocks until the DMA ring has room: this paces the task
 #ifdef HWV1_DEBUG_AUDIO
@@ -168,12 +196,15 @@ extern "C" void audio_shutdown(void) {
     engine_synth_shutdown();
 }
 
-extern "C" void audio_set_params(const rack_t *r, const synth_params_t *p) { engine_synth_set_params(r, p); }
-extern "C" void audio_build(const rack_t *r, const synth_params_t *p)      { engine_synth_build(r, p); }
+extern "C" void audio_set_params(const rack_t *r, const synth_params_t *p) { apply_speaker(r); engine_synth_set_params(r, p); }
+extern "C" void audio_build(const rack_t *r, const synth_params_t *p)      { apply_speaker(r); engine_synth_build(r, p); }
 extern "C" int audio_sample_count(void)                                     { return engine_synth_sample_count(); }   // filled by the TF card scan (samples_esp32.cpp)
 extern "C" bool audio_sample_info(int i, audio_sample_info_t *out)         { return engine_synth_sample_info(i, out); }
 extern "C" bool audio_sample_prepare(int i)                                { return samples_esp32_ready(i); }     // only cooked .smp files on the card: nothing to convert
 extern "C" int audio_samples_rescan(void)                                  { return samples_esp32_rescan(); }     // the I/O task looks at the card; new files appear as it reads them
+extern "C" sd_state_t audio_sd_state(void)                                  { return samples_esp32_sd_state(); }
+extern "C" uint32_t audio_sd_read_us(void)                                  { return samples_esp32_sd_read_us(); }
+extern "C" uint32_t audio_sd_generation(void)                               { return samples_esp32_sd_generation(); }
 extern "C" void audio_set_clock(int bpm, int steps, int swing, int running) { engine_synth_set_clock(bpm, steps, swing, running); }
 extern "C" void audio_motion_restart(void)                                 { engine_synth_motion_restart(); }
 extern "C" void audio_note_on(int midi_note)                               { engine_synth_note_on(midi_note); }

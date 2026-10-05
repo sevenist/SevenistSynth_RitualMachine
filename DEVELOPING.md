@@ -147,6 +147,7 @@ That is what lets one generic list renderer show any of them.
   (`synth_ui_rebuild_pages`): in Modular mode every rack module contributes its own pages (OC: `OSC n` + `OSC n TUNE` + `OSC n DEST`; every modulator (OC, LFO, ENV, EG) has a `... DEST` page with Tgt / Prm / Dpth, same as the RACK tab; FL: `FILTER n` + `FILT n ENV`; SA: `SAT n`; LFO: `LFO n`; ENV: `ENV n` + `ENV n CRV` (curves, hold, start); EG: `EG n` (the selected point) + `EG n REL`; RS: `RES n`; FL also has `FILT n CRV`; the global `AMP ENV` is followed by `AMP CURVE`;
   MS: `MOTION n` + `MS n LANE`; SM: `SMP n`, `SMP n LOOP`, `SMP n SLICE`)
   followed by `AMP ENV`, `SEQUENCER`, `SEQ SETUP`. In FM mode the pages are `FM SYNTH` (Patch, Vol), `SEQUENCER`, `SEQ SETUP`.
+- **GENERAL tab**: **Type** = Modular, Mod Mono, FM, FM Mono (the Mono types: one real voice, last-note priority; the others: a copy of every voice module per voice), Patch (FM types), Voices (polyphonic types), **Glide** and **Legato** (Mono types), Vol, Out, **Spk** (built-in loudspeaker: Off, 5..100 % in 5 % steps; ESP32 only, `audio_esp32.cpp`: the MAX98357A plays the left DAC channel (`kSpeakerCh`), so the level scales that channel; on the prototype the headphones do not follow it. Off = gain 0 on that channel; it also pulls `PIN_SPK_SD` (GPIO 5) low, but that alone did not silence the speaker (2026-10-05): GPIO 5 is not proven to reach the amplifier's SD_MODE, `[SPK]` on the serial log prints what the pin reads). Only the rows that apply are shown. The default is Mod Mono (ADR-036); the voice count is real: `Engine::load(graph, nvoices)`. Test for a family with `synth_type_is_fm()` / `synth_type_is_mono()`, never `type == SYNTH_FM`.
 - **Menu** (Enter): tabs switched with Left/Right on row 0. Modular: `RACK`, `GENERAL`, `SAMPLES` (library browser), `FX RACK` (four master slots).
   FM: `GENERAL`, `ALGORITHM`, `OPERATOR`, `ENVELOPE`, `FX RACK`. Closing the menu with structural edits
   regenerates the pages and rebuilds the graph. Effect edits are live (no rebuild).
@@ -320,6 +321,13 @@ C:\.platformio\penv\Scripts\pio.exe run -t upload        # flash. THE USER flash
 C:\.platformio\penv\Scripts\python.exe tools\serial_test.py   # measure on COM8 (close any serial monitor first)
 ```
 
+> **Warning: never type a bare `pio`.** `pio` on PATH is `Python313\Scripts\pio.exe` (PlatformIO 6.2.0 installed into the user's Python 3.13). It sees that
+> `C:\.platformio\penv` was made with Python 3.11, tries to recreate it with 3.13, fails (`uv installation via pip failed with exit code 106`) and leaves the penv
+> without `pio.exe` or `pyvenv.cfg`: no build, no flash. This happened twice, the last time on 2026-10-05. Repair: close VS Code (its PlatformIO extension keeps files in
+> the penv open), delete `C:\.platformio\penv`, then `C:\.platformio\python3\python.exe -m venv C:\.platformio\penv` and
+> `C:\.platformio\penv\Scripts\python.exe -m pip install platformio` (or reopen VS Code and let the extension reinstall it). The bundled `C:\.platformio\python3`
+> (3.11.7) and the toolchains in `C:\.platformio\packages` / `platforms` are not touched by this failure.
+
 ### Files (`src/platform/esp32/`)
 
 | File | What |
@@ -333,7 +341,7 @@ C:\.platformio\penv\Scripts\python.exe tools\serial_test.py   # measure on COM8 
 | `leds_esp32.cpp` | LED HAL (`hal_leds.h`): frame buffer and key -> LED map; the driver that pushes it is a TODO |
 | `audio_esp32.cpp` | I2S (MSB format, no MCLK) and the audio task on core 1; sizes the fast heap (internal RAM) and the bulk heap (PSRAM); applies `DEV_OUTPUT_GAIN_PCT`; prints the `[AUDIO]` / `[PROF]` / `[SEC]` / `[OSC]` / `[HEAP]` lines |
 | `bench_esp32.*` | boot micro benchmark (`HWV1_BENCH`): cycles per operation, RAM vs PSRAM |
-| `sd_card.*`, `storage_sd.*`, `samples_esp32.*` | the TF card: `sd_card` mounts it as FAT at `/sdcard` (the only file that knows the wiring: ESP-IDF sdspi on HWV1, pins in `board_pins.h`, `HWV1_SD_FREQ_KHZ` = 20000), `SdStorage` is the sampler's `StorageDevice`, `samples_esp32` is the I/O task (core 0, priority 5, see "Tasks and priorities"): mount, list `/sdcard/samples/*.smp` into the catalog (the header of each file carries the amplitude overview, so a scan reads one block per file), run the loader. Cook files on the PC (`samples_src/` + build.ps1); there is no .wav / .mp3 import on the board. `SdStorage` reads through an 8 KB internal DMA-capable bounce buffer (a PSRAM destination would make the SD driver issue one command per 512 bytes) |
+| `sd_card.*`, `sd_card_spi.cpp`, `storage_sd.*`, `samples_esp32.*` | the TF card: `sd_card.h` is the interface (mount as FAT at `/sdcard`, probe the read time, alive / identity check); `sd_card_spi.cpp` is HWV1's own small SPI-mode driver (read only, registered with FATFS; ESP-IDF's sdspi host spent 40 ms before every command on this board); a new prototype with an SDMMC slot replaces that one file. The card is polled once a second (no card-detect pin): inserted -> a timed read test -> a card slower than 15 ms per sector is not used and the app shows the "SD CARD TOO SLOW" screen (any button dismisses it; the synth runs as if there were no card); removed or swapped -> the catalog is reset, `SdStorage` is the sampler's `StorageDevice`, `samples_esp32` is the I/O task (core 0, priority 5, see "Tasks and priorities"): mount, list `/sdcard/samples/*.smp` into the catalog (the header of each file carries the amplitude overview, so a scan reads one block per file), run the loader. Cook files on the PC (`samples_src/` + build.ps1); there is no .wav / .mp3 import on the board. `SdStorage` reads through an 8 KB internal DMA-capable bounce buffer (a PSRAM destination would make the SD driver issue one command per 512 bytes) |
 | `serial_cmd_esp32.*` | dev commands over the serial port (`DEV_SERIAL_CMD`) |
 
 ### Build flags (`platformio.ini`)
@@ -343,7 +351,11 @@ C:\.platformio\penv\Scripts\python.exe tools\serial_test.py   # measure on COM8 
 | `HWV1` | selects the pin block and drivers of the first prototype | keep for this board |
 | `DEV_OUTPUT_GAIN_PCT=N` | output level in percent of full scale (the first prototype's output stage is harsh on headphones) | remove or 100 |
 | `DEV_BOOT_DELAY_MS=3000` | wait after `Serial.begin` so a monitor catches the boot log | remove |
-| `DEV_SERIAL_CMD` | serial commands (`ping`, `on N`, `off N`, `chord K`, `eng a b c d`, `release`, `status`) | remove |
+| `DEV_SERIAL_CMD` | serial commands (`ping`, `on N`, `off N`, `chord K`, `eng a b c d`, `release`, `status`, `samples`, `patch startup`, `patch sampler F L`, `mode mono|poly [glide] [legato]`, `voices N`; the patch ones rebuild the synth like leaving the menu) | remove |
+| `HWV1_SD_BENCH` | boot-time card benchmark (`[SD] bench ...` lines: raw reads of 1 / 8 / 16 sectors, file reads of 512 B / 4 KB) | remove |
+| `HWV1_SD_FREQ_KHZ=N` | SPI clock of the card once initialised (default 20000) | keep / tune |
+| `HWV1_SD_IO_PRIO=N` | priority of the card I/O task (default 5) | keep |
+| `HWV1_SD_IDF` | use ESP-IDF's sdspi host instead of the own SPI driver: on HWV1 it costs about 40 ms before EVERY command, kept for comparison only | do not use |
 | `HWV1_DEBUG_AUDIO`, `ENGINE_PROFILE` | once a second: `[AUDIO]` render time / blocks over budget / graph builds, `[PROF]` cycles per module, `[SEC]`, `[OSC]`, `[HEAP]` | remove |
 | `HWV1_DEBUG_INPUT`, `HWV1_BENCH`, `HWV1_TEST_TONE` | raw key log; boot benchmark; 440 Hz test tone instead of the engine | remove |
 | `ENGINE_FX_MONO=1` | delay and reverb compute one channel (user choice) | decision |

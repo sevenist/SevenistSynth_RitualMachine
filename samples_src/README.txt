@@ -1,4 +1,4 @@
-Put your .wav and .mp3 files here, then run  .\build.ps1  (or  .\build.ps1 -Sd E:  to copy them to the TF card as well).
+Put your .wav and .mp3 files here, then run  .\build.ps1  (or  .\build.ps1 -Sd <SDCard Path eg: E:>  to copy them to the TF card as well).
 
 Every new or changed file is converted to ..\samples\<name>.smp, the format the engine plays (the simulator reads samples\,
 the board reads the card's samples\ folder).

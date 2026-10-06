@@ -36,4 +36,4 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
     draw_fx_picture(g, ui_picture_box(st), &c->rack->cfg.fxr, c->ui->fx_slot);
 }
 
-const screen_def_t scr_fx_screen = {elements, N_ELEMENTS, true, layout, NULL, NULL, draw_extra};
+const screen_def_t scr_fx_screen = {elements, N_ELEMENTS, true, false, layout, NULL, NULL, draw_extra};

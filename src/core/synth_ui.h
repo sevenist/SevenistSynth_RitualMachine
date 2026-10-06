@@ -27,7 +27,15 @@ typedef enum {
     UI_SELECT,                  // push-to-activate: like UI_RIGHT on a row, nothing on row 0
     UI_MENU,                    // open / close the menu
     UI_BACK,                    // delete the selected module (RACK tab)
-    UI_PLAY                     // start / stop the sequencer
+    UI_PLAY,                    // start / stop the sequencer
+    UI_JUMP_1,                  // 8 jump slot so a key can be used to go directly to a location
+    UI_JUMP_2,                  // Shift-jump_key_1 saves the current ui screen as target
+    UI_JUMP_3,
+    UI_JUMP_4,
+    UI_JUMP_5,
+    UI_JUMP_6,
+    UI_JUMP_7,
+    UI_JUMP_8,
 } ui_event_t;
 
 // Knobs. Slots 0..3 drive rows 1..4 of the current page, 4..6 are the macros (right-hand knobs), 7 is the master volume.
@@ -39,6 +47,16 @@ typedef enum {
 
 typedef enum { MACRO_NONE, MACRO_MODULE, MACRO_GLOBAL, MACRO_SEQ } macro_kind_t;
 typedef struct { uint8_t kind, id, prm; } macro_t;      // MODULE: rack slot id + parameter index in slot.v[]; GLOBAL: param_id_t; SEQ: seq_param_id_t
+
+typedef struct {
+    bool    valid;
+    bool    in_rack;
+    int     page;
+    int     row;
+    int     menu_tab;
+} jump_slot_t;
+
+#define SYNTH_UI_JUMP_SLOTS 8
 
 typedef struct {
     int page;           // index into the generated page list
@@ -65,10 +83,16 @@ typedef struct {
     uint8_t pg_def[SYNTH_UI_MAX_PAGES];
     int     page_count;
     macro_t macro[SYNTH_UI_MACROS];        // what the right-hand knobs drive
+    macro_t knob_shift[SYNTH_UI_COL_KNOBS]; // what each col knob drives while Shift is held (default: knob 0 = speaker, 1 = volume)
     int     knob_key[SYNTH_UI_KNOBS];      // what each knob last drove and where it was set (see knob_new_position)
     int     knob_pos[SYNTH_UI_KNOBS];
+    int8_t  knob_catch_dir[SYNTH_UI_COL_KNOBS]; // catch state per col knob: 0 = caught, -1 = turn left to catch, +1 = turn right
+    int     knob_cur[SYNTH_UI_COL_KNOBS];       // step of the driven parameter at the last catch refresh; -1 unknown, -2 the knob itself just set it
+    int     knob_val[SYNTH_UI_COL_KNOBS];       // last physical position of each col knob (0..INPUT_VALUE_MAX), -1 = not moved yet
+    bool    shift_held;                         // Shift is held (set by the app): the col knobs drive knob_shift[], the page rows hide their catch arrows
     bool rebuild;          // set when the RACK page is left with edits: app must audio_build()
     int run_anim;   // gui animation id shown while the sequencer runs (owned by app.c)
+    jump_slot_t jump[SYNTH_UI_JUMP_SLOTS]; // rapid-navigation slots: save with Shift+key, recall with key
 } synth_ui_t;
 
 void synth_ui_init(synth_ui_t *ui, const rack_t *rack);
@@ -83,6 +107,12 @@ bool synth_ui_handle(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t 
 
 // Knobs (value 0..INPUT_VALUE_MAX = the whole range of the parameter). All return true when a sound value changed.
 bool synth_ui_knob_row(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int row, int value);   // row 1..4 of the current page
+bool synth_ui_knob_row_shift(synth_ui_t *ui, rack_t *rack, int row, int value);                                 // Shift + col knob row 1..4
+// What Shift + col knob `row` drives, for the popup: its name, its value and the way to turn while it is not caught (-1 / +1, 0 = caught).
+// Returns false when the knob has no Shift target.
+bool synth_ui_knob_shift_describe(const synth_ui_t *ui, const rack_t *rack, int row, char *name, int nn, char *value, int nv, int *arrow);
+// Recomputes whether each col knob is in sync with what it drives now. Call after a manual change (page, row, Shift, a value edited by hand), not after a knob move.
+void synth_ui_catch_refresh(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, bool shift);
 bool synth_ui_set_volume(synth_ui_t *ui, rack_t *rack, int value);                                              // master volume
 bool synth_ui_macro(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int k, int value);       // macro k = 0..2
 bool synth_ui_macro_learn(synth_ui_t *ui, const rack_t *rack, int k);        // macro k takes the parameter under the cursor
@@ -96,6 +126,7 @@ bool synth_ui_shows_seq(const synth_ui_t *ui);
 // True while a page with a playhead (sequencer, motion steps) is on screen.
 bool synth_ui_shows_playhead(const synth_ui_t *ui, const rack_t *rack);
 
+// Draws the screen into the display buffer. Does not send it: the app draws its popups on top, then sends (display_send).
 void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *params, const seq_t *seq, const rack_t *rack, u8g2_t *g);
 
 #ifdef __cplusplus

@@ -1,3 +1,4 @@
+// Dev serial commands (DEV_SERIAL_CMD). Every command, its options and examples: human_docs/SERIAL_COMMANDS.md (keep it in step when adding one).
 #if defined(ARDUINO_ARCH_ESP32) && defined(DEV_SERIAL_CMD)
 #include <Arduino.h>
 #include <stdlib.h>
@@ -113,6 +114,23 @@ void run(char *line) {
         g_app->rack.cfg.voices = (uint8_t)(v < 1 ? 1 : (v > SYNTH_MAX_VOICES ? SYNTH_MAX_VOICES : v));
         use_rack();
         Serial.printf("[CMD] voices %d\n", g_app->rack.cfg.voices);
+        return;
+    }
+    if (!strcmp(line, "popup") && g_app) {                // popup info | error | ask: raises a test popup (core/popup.h); the answer is printed
+        const char *k = arg ? arg : "";
+        auto answer = [](void *, bool yes) { Serial.printf("[CMD] popup answer %s\n", yes ? "yes" : "no"); };
+        if (!strcmp(k, "error")) popup_error(&g_app->popup, nullptr, "The card could not be read. Check that it is inserted.", answer, nullptr);
+        else if (!strcmp(k, "ask")) popup_ask(&g_app->popup, "SD CARD", "The card is not formatted. Format it?", false, answer, nullptr);
+        else popup_info(&g_app->popup, "SD CARD", "Card inserted", 0, millis(), 2000);
+        g_app->redraw_owed = true;                         // not `dirty`: app_step clears that before it looks
+        Serial.printf("[CMD] popup %s\n", k[0] ? k : "info");
+        return;
+    }
+    if (!strcmp(line, "flt") && g_app) {                  // flt T: the type of every FL module (0 Off 1 LP 2 BP 3 HP 4 LP24 5 Notch 6 LP6 7 Ladr 8 ChLP), a live change
+        for (int i = 0; i < g_app->rack.count; i++)
+            if (g_app->rack.slot[i].type == MOD_FILTER) g_app->rack.slot[i].v[MP_FL_TYPE] = (float)(v < 0 ? 0 : (v >= FILT_COUNT ? FILT_COUNT - 1 : v));
+        audio_set_params(&g_app->rack, &g_app->params);
+        Serial.printf("[CMD] flt %d\n", v);
         return;
     }
     if (!strcmp(line, "str") && g_app) {                  // str <field> <value>: Strings settings for tests (wave osc det mix lvl lp ftype), "str fx 0" = every FX slot None

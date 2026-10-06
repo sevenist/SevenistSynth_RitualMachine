@@ -9,7 +9,7 @@
 #include <string.h>
 #include <stdlib.h>
 
-static void draw_keys_notice(app_t *app);
+static void draw_frame(app_t *app);
 
 void app_init(app_t *app, u8g2_t *display) {
     memset(&app->in, 0, sizeof app->in);
@@ -23,6 +23,7 @@ void app_init(app_t *app, u8g2_t *display) {
     app->boot_ms = audio_millis();
     app->reset_held = false;
     app->status[0] = 0;
+    popup_init(&app->popup);
     keymap_init();
     keymap_load();                      // the simulator has its card at once; the board's card shows up later (check_sd)
     app->keys_notice_ms = 0;
@@ -32,14 +33,13 @@ void app_init(app_t *app, u8g2_t *display) {
     rack_init_startup(&app->rack);
     synth_ui_init(&app->ui, &app->rack);
     audio_build(&app->rack, &app->params);
-    synth_ui_draw(&app->ui, &app->params, &app->seq, &app->rack, app->display);
     if (input_boot_reset()) {           // the reset key was held at power-on (read by the board before its key scan started)
         keymap_reset();
         keymap_save();                  // no card yet: saved when it shows up (check_sd)
         app->keys_notice = true;
         app->keys_notice_ms = app->boot_ms;
-        draw_keys_notice(app);
     }
+    draw_frame(app);
 }
 
 /* ---------------- actions ---------------- */
@@ -48,10 +48,15 @@ static void set_status(app_t *app, const binding_t *b, int amount) {
     snprintf(app->status, sizeof app->status, "%s > %s %+d", control_name(b->ctl), action_name(b->act), amount);
 }
 
+// Set by every manual change (page, row, a value edited by hand, a macro, Shift): the column knobs are checked against what they drive
+// before the next draw. A knob move itself never sets it, so a knob that just caught its value keeps it.
+static bool catch_stale;
+
 // Gives the UI one event; pushes the sound to the audio side when a value changed.
 static void ui_event(app_t *app, ui_event_t ev) {
     if (synth_ui_handle(&app->ui, &app->params, &app->seq, &app->rack, ev)) audio_set_params(&app->rack, &app->params);
     app->dirty = true;
+    catch_stale = true;
 }
 
 // The same event `n` times in the direction of n's sign (an encoder can report several detents at once).
@@ -63,6 +68,7 @@ static void ui_event_n(app_t *app, int n, ui_event_t down_or_next, ui_event_t up
     for (int i = 0; i < n; i++) changed |= synth_ui_handle(&app->ui, &app->params, &app->seq, &app->rack, ev);
     if (changed) audio_set_params(&app->rack, &app->params);
     app->dirty = true;
+    catch_stale = true;
 }
 
 static void note_on(app_t *app, control_id_t ctl, int semitones) {
@@ -78,8 +84,34 @@ static void note_off(app_t *app, control_id_t ctl) {
     app->in.held[ctl] = 0;
 }
 
+// While a modal popup is up it gets the actions (so the key layout works as elsewhere). Notes, Shift and the master volume still act;
+// everything else is ignored, so nothing edits the screen behind the popup. Returns true when the popup took the action.
+static bool popup_action(app_t *app, const binding_t *b, input_event_t e) {
+    const int amount = e.kind == IN_DELTA ? e.value * b->arg : b->arg;
+    switch (b->act) {
+        case ACT_NOTE: case ACT_SHIFT: case ACT_MASTER_VOLUME: case ACT_VOLUME_STEP:
+            return false;
+        case ACT_NAV:
+            if (b->arg == NAV_LEFT || b->arg == NAV_RIGHT) popup_move(&app->popup, b->arg == NAV_LEFT ? -1 : 1);
+            break;
+        case ACT_VALUE_ADJUST: case ACT_ROW_MOVE: case ACT_PAGE_MOVE:
+            popup_move(&app->popup, amount);
+            break;
+        case ACT_LATCH: case ACT_SELECT:
+            if (e.kind != IN_RELEASE) popup_confirm(&app->popup);
+            break;
+        case ACT_BACK:
+            if (e.kind != IN_RELEASE) popup_cancel(&app->popup);
+            break;
+        default: break;
+    }
+    app->dirty = true;
+    return true;
+}
+
 // Runs one binding for one event. `e.kind` is IN_RELEASE only for hold actions.
 static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
+    if (popup_modal(&app->popup) && popup_action(app, b, e)) return;
     const int amount = e.kind == IN_DELTA ? e.value : 1;
     const int n = amount * b->arg;
     bool changed;
@@ -115,9 +147,36 @@ static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             changed = synth_ui_knob_row(&app->ui, &app->params, &app->seq, &app->rack, b->arg, e.value);
             if (changed) { audio_set_params(&app->rack, &app->params); app->dirty = true; }
             break;
+        case ACT_PAGE_KNOB_SHIFT: {
+            changed = synth_ui_knob_row_shift(&app->ui, &app->rack, b->arg, e.value);
+            if (changed) audio_set_params(&app->rack, &app->params);
+            char name[16], val[16], title[24];                  // the popup says what the knob drives now and, while it is not caught, the way to turn
+            int arrow;
+            if (synth_ui_knob_shift_describe(&app->ui, &app->rack, b->arg, name, sizeof name, val, sizeof val, &arrow)) {
+                popup_info(&app->popup, name, val, arrow, audio_millis(), POPUP_INFO_MS);
+            } else {
+                snprintf(title, sizeof title, "Knob %d", b->arg);
+                popup_info(&app->popup, title, "No Shift target", 0, audio_millis(), POPUP_INFO_MS);
+            }
+            app->dirty = true;
+            break;
+        }
+        case ACT_JUMP: {
+            const int slot = b->arg;
+            if (slot < 0 || slot >= SYNTH_UI_JUMP_SLOTS) break;
+            if (app->in.shift) {
+                app->ui.jump[slot] = (jump_slot_t){true, app->ui.in_rack, app->ui.page, app->ui.row, app->ui.menu_tab};
+                snprintf(app->status, sizeof app->status, "Saved jump %d", slot + 1);
+                app->dirty = true;
+            } else {
+                ui_event(app, (ui_event_t)(UI_JUMP_1 + slot));
+                snprintf(app->status, sizeof app->status, app->ui.jump[slot].valid ? "Jump %d" : "Jump %d (empty)", slot + 1);
+            }
+            break;
+        }
         case ACT_MACRO:
             changed = synth_ui_macro(&app->ui, &app->params, &app->seq, &app->rack, b->arg, e.value);
-            if (changed) { audio_set_params(&app->rack, &app->params); app->dirty = true; }
+            if (changed) { audio_set_params(&app->rack, &app->params); app->dirty = true; catch_stale = true; }
             synth_ui_macro_describe(&app->ui, &app->rack, b->arg, app->status, (int)sizeof app->status);
             break;
         case ACT_MACRO_LEARN:
@@ -232,7 +291,6 @@ static void draw_keys_notice(app_t *app) {
     snprintf(l, sizeof l, "the layout %s.", keymap_layout_name(0));
     u8g2_DrawStr(g, 4, 30, l);
     u8g2_DrawStr(g, 4, 42, "Release the key.");
-    display_send(g);
 }
 
 
@@ -260,6 +318,17 @@ static void draw_sd_notice(app_t *app) {
         u8g2_DrawStr(g, 4, 96, "insert a card.");
         u8g2_DrawStr(g, 4, 118, "Press any key");
     }
+}
+
+// One frame: the full-screen notice or the UI, the popup on top, then the buffer goes to the display.
+static void draw_frame(app_t *app) {
+    u8g2_t *g = app->display;
+    if (app->keys_notice) draw_keys_notice(app);
+    else if (app->sd_notice) draw_sd_notice(app);
+    else synth_ui_draw(&app->ui, &app->params, &app->seq, &app->rack, g);
+    gui_style_t st;
+    gui_style_init(&st, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
+    popup_draw(&app->popup, g, &st);
     display_send(g);
 }
 
@@ -314,6 +383,11 @@ bool app_step(app_t *app, input_event_t e) {
         audio_build(&app->rack, &app->params);
     }
 
+    static bool last_shift;
+    if (app->in.shift != last_shift) { last_shift = app->in.shift; app->ui.shift_held = app->in.shift; app->dirty = true; catch_stale = true; }   // Shift swaps what the col knobs drive
+    if (popup_tick(&app->popup, now)) app->dirty = true;
+    if (catch_stale) { catch_stale = false; synth_ui_catch_refresh(&app->ui, &app->params, &app->seq, &app->rack, app->in.shift); }
+
     audio_update();
 
     // Run indicator animation: created when the sequencer starts, deleted when it stops.
@@ -339,9 +413,7 @@ bool app_step(app_t *app, input_event_t e) {
         app->redraw_owed = true;
     } else if (want) {
         app->redraw_owed = false;
-        if (app->keys_notice) draw_keys_notice(app);
-        else if (app->sd_notice) draw_sd_notice(app);
-        else synth_ui_draw(&app->ui, &app->params, &app->seq, &app->rack, app->display);
+        draw_frame(app);
     }
     key_leds_update(app, e.kind != IN_NONE, now);
     return true;

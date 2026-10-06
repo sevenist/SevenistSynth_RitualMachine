@@ -103,13 +103,20 @@ bool screen_event(const screen_def_t *s, const ui_ctx_t *c, ui_event_t ev) {
         case UI_NAV_LEFT: case UI_NAV_RIGHT: case UI_NAV_UP: case UI_NAV_DOWN: {
             const char dir = ev == UI_NAV_LEFT ? 'l' : ev == UI_NAV_RIGHT ? 'r' : ev == UI_NAV_UP ? 'u' : 'd';
             if (cur < 0) {                                      // header: left / right change the tab
-                if (dir == 'l' || dir == 'r') { header_step(c, dir == 'r' ? 1 : -1); ui->latched = false; return false; }
+                if (dir == 'l' || dir == 'r') { header_step(c, dir == 'r' ? 1 : -1); return false; }
             } else {
                 const el_def_t *e = &s->el[cur];
-                if (ui->latched && e->kind == EL_VALUE)         // latched: the joystick edits the value
-                    return adjust_el(s, c, cur, (dir == 'r' || dir == 'u') ? 1 : -1);
-                if (e->kind == EL_DIRECT && (dir == 'l' || dir == 'r'))
-                    return adjust_el(s, c, cur, dir == 'r' ? 1 : -1);
+                if (dir == 'l' || dir == 'r') {
+                    if (e->kind == EL_DIRECT)
+                        return adjust_el(s, c, cur, dir == 'r' ? 1 : -1);
+                    if (e->kind == EL_VALUE) {
+                        if (s->use_latch && ui->latched)             // latch screens: L/R edits while latched
+                            return adjust_el(s, c, cur, dir == 'r' ? 1 : -1);
+                        const int next = nav(s, c, cur, dir);
+                        if (next == cur) return adjust_el(s, c, cur, dir == 'r' ? 1 : -1);  // no neighbour: adjust directly
+                        ui->row = next + 1; ui->latched = false; return false;
+                    }
+                }
             }
             const int next = nav(s, c, cur, dir);
             if (next != cur) { ui->row = next + 1; ui->latched = false; }
@@ -126,7 +133,7 @@ bool screen_event(const screen_def_t *s, const ui_ctx_t *c, ui_event_t ev) {
             return false;
         case UI_LATCH:
             if (cur < 0) return false;
-            if (s->el[cur].kind == EL_VALUE && el_enabled(s, c, cur)) ui->latched = !ui->latched;
+            if (s->use_latch && s->el[cur].kind == EL_VALUE && el_enabled(s, c, cur)) ui->latched = !ui->latched;
             else if (s->el[cur].kind == EL_BUTTON) activate_el(s, c, cur);
             return false;
         case UI_SELECT:
@@ -150,6 +157,7 @@ void screen_draw(const screen_def_t *s, u8g2_t *g, const gui_style_t *st0, const
     gui_rect_t rect[MAX_ELEMENTS];
     s->layout(g, st, c, area, rect);
     if (s->draw_extra) s->draw_extra(g, st, c, area, rect);
+    u8g2_SetClipWindow(g, area.x, area.y, area.x + area.w, area.y + area.h);    // rows scrolled off the list do not draw over the header
     for (int i = 0; i < s->n; i++) {
         const el_def_t *e = &s->el[i];
         const bool enabled = el_enabled(s, c, i);
@@ -165,6 +173,7 @@ void screen_draw(const screen_def_t *s, u8g2_t *g, const gui_style_t *st0, const
         if (e->kind == EL_BUTTON) { gui_draw_button(g, st, rect[i], (enabled && val[0]) ? val : label, state); continue; }
         gui_draw_field_state(g, st, rect[i], label, val, enabled ? state : GUI_PLAIN);
     }
+    u8g2_SetMaxClipWindow(g);
 }
 
 /* ---------------- shared layout and the screen of each tab ---------------- */

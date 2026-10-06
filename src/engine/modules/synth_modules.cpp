@@ -434,6 +434,8 @@ private:
                 lp += c * bp;
                 const float hp = static_cast<float>(in[i]) * (1.0f / 32768.0f) - lp - q * bp;
                 bp += c * hp;
+                lp = lp > 2.0f ? 2.0f : (lp < -2.0f ? -2.0f : lp);               // keep states bounded: prevents resonance blow-up and loud reset transients
+                bp = bp > 2.0f ? 2.0f : (bp < -2.0f ? -2.0f : bp);
                 out[i] = svf_out_f(lp);
                 c += dc;
             }

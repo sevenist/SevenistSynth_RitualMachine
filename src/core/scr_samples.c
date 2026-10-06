@@ -87,4 +87,4 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
 // Keep the highlighted file inside the library (a rescan can shrink it).
 static void after_edit(const ui_ctx_t *c) { if (c->ui->smp_cur >= audio_sample_count()) c->ui->smp_cur = 0; }
 
-const screen_def_t scr_samples_screen = {elements, N_ELEMENTS, false, layout, NULL, after_edit, draw_extra};
+const screen_def_t scr_samples_screen = {elements, N_ELEMENTS, false, false, layout, NULL, after_edit, draw_extra};

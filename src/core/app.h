@@ -9,6 +9,7 @@
 #include "core/synth_ui.h"
 #include "hal/hal_input.h"
 #include "core/bindings.h"
+#include "core/popup.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -42,6 +43,7 @@ typedef struct {
     uint32_t       boot_ms;     // when app_init ran: the key-layout reset only works in the first seconds
     bool           reset_held;  // the reset key went down in the first seconds and is still held
     uint32_t       reset_since; // ... since then
+    popup_t        popup;       // popup messages over the screen (core/popup.h); a modal one takes the input
     char           status[48];  // last control -> action, for the simulator panel / debugging ("ENC A > Row +1")
 } app_t;
 

@@ -72,6 +72,6 @@ static void extra_env(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_r
     draw_eg_editor(g, ui_picture_box(st), &patch(c)->op[c->ui->fm_op], c->ui->fm_pt);
 }
 
-const screen_def_t scr_fm_algo_screen = {algo_elements, COUNT(algo_elements), true, layout_algo, NULL, NULL, extra_algo};
-const screen_def_t scr_fm_op_screen   = {op_elements,   COUNT(op_elements),   true, layout_op,   NULL, NULL, extra_algo};     // the algorithm diagram, with the selected operator marked
-const screen_def_t scr_fm_env_screen  = {env_elements,  COUNT(env_elements),  true, layout_env,  NULL, NULL, extra_env};
+const screen_def_t scr_fm_algo_screen = {algo_elements, COUNT(algo_elements), true, false, layout_algo, NULL, NULL, extra_algo};
+const screen_def_t scr_fm_op_screen   = {op_elements,   COUNT(op_elements),   true, false, layout_op,   NULL, NULL, extra_algo};     // the algorithm diagram, with the selected operator marked
+const screen_def_t scr_fm_env_screen  = {env_elements,  COUNT(env_elements),  true, false, layout_env,  NULL, NULL, extra_env};

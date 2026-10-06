@@ -6,19 +6,65 @@ not: state, the latest measurements and what to do next, the user's working styl
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
 `tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
-## Session todo (updated 2026-10-06, second session)
+## Session todo (updated 2026-10-06, second UI session)
 
-- [x] Mixer polish: sources are cables into one plan MIX step (no Mix4 chain), VoiceOut one product when centred; measured on the board (done 2026-10-06, see below)
-- [ ] Optional, user decides: voice bus in 32 bits with one saturation at BusIn (VoiceOut ~790 cycles per voice per 64 frames is near the floor of the q15 saturating version; clipping would happen once on the sum instead of per voice add) (from: measurements)
-- [x] RGB key LEDs: FastLED driver + play feedback (`core/key_leds.c`), colour order and layout checked by the user on the board (done 2026-10-06, see below)
-- [ ] Audio blocks over budget while keys are PLAYED (0.4-0.5 % of blocks, worst ~2.3 ms render; LEDs on 92 / off 63 of 17250): serial notes never do it, so the key path (TCA8418 interrupt / I2C on the audio core?, UI work) - find where (from: measurements)
-- [ ] Listen to Strings and the rack oscillator's Q (Blep / Mip / Naive); confirm the `chord 16` "aliasing" is cluster beating; then levels / defaults (from: user)
+- [ ] Shift + column knob 2 = master volume (on HWV1 the volume also has its own knob, pot 0; on the new prototype the volume is Shift + knob only). Fixed on the host, built, NOT flashed:
+  (1) `CFGP_VOLUME` steps are an integer count (0.05 x 0..40): adding 0.05 drifted, the knob walk saw 41 steps and the first catch check dropped the volume one step;
+  (2) `synth_ui_catch_refresh`: the "knob set this value" mark (`knob_cur == -2`) counts only for the same target, so a page-knob move no longer makes the Shift target "caught" (the volume jumped 2.00 -> 0.95 on the next move).
+  (3) feedback: Shift + col knob raises an INFO popup (target name, value, the turn arrow while not caught; "No Shift target" for knobs 3 / 4), and the page rows hide their catch arrows while Shift is held (`ui->shift_held`).
+  Done = the user hears / sees it work on the board (from: user)
+- [ ] Popup widget (`core/popup.c`): INFO / ERROR / ASK built, host-checked with `ui_dump` (128 x 64: wrap, Yes / No focus, queue ERROR behind ASK, Latch closes), firmware builds, NOT flashed.
+  Board test: Shift + knobs; serial `popup ask` then joystick left / right + push (prints `[CMD] popup answer`), `popup error`. Not yet used by the SD code (next todo items) (from: user)
+- [ ] Persist the UI settings together with the key bindings (one settings file on the TF card, or `keys.cfg` extended): Knob mode, jump slots, Shift-knob targets; done = they survive a reboot (from: user)
+- [ ] Create the TF card's directory structure at startup (missing folders made on mount; layout to agree on: samples, settings, racks / patches ...) (from: user)
+- [ ] Use the popups for the card: "SD card inserted" (INFO), "unformatted, format?" (ASK; needs a decision on format support: FATFS mkfs on the card), read / write errors (ERROR) (from: user)
+- [x] Jump keys and Shift + jump save: work on the board, no parameter reset (done 2026-10-06, checked by the user)
+- [x] Catch fixes (`knob_measure` restores the value) flashed; no reset reported (done 2026-10-06, checked by the user)
+
+Open, UI:
+- [ ] Role-based key LED colours, configurable and saved on the TF card (the jump LEDs would be one role) (from: user)
+- [ ] Quick macro UI: a button next to a mappable element, so a macro is assigned without Shift + knob (from: user)
+- [ ] Shift-knob targets are global config params only (`MACRO_GLOBAL`); knobs 3 and 4 have none. Make them assignable (from: notes)
+- [ ] Convert the main view (the pages) to a declarative screen: it still translates the new events to the old ones and has no latch (UI_GUIDE.md section 8) (from: debt)
+- [ ] The full list of UI/UX items from the start of this session was not copied into this file: ask the user whether anything on it (for example Shift + F1..F4 section keys, now covered by the jump keys?) is still open (from: notes)
+
+Open, engine / board:
+- [ ] Listen: 20 ms cutoff glide, 32-bit bus on loud chords; say what to change (from: user)
 - [ ] Integration findings for an engine-independent "audio backend" interface (own voice allocator, mono -> stereo, memory policy, measurement hooks) (from: user)
 - [ ] Check the F1 power-on keys reset (`[KBD] key r4 c7 held at power-on`) (from: notes)
 - [ ] Decide the SD options (a)-(d) and listen to the sampler after the loop fix (from: notes)
 - [ ] Internal RAM for the startup patch: what stays internal with a 74 KB fast heap (reverb tank, delay, filters) or free internal RAM (IRAM code 124 KB) (from: measurements)
-- [x] Mod Para and Para listened to: no issues; legato and glide OK (user) (done 2026-10-06)
-- [x] Build without ESP32Synth flashed and tested; pending work committed (0542d79) (done 2026-10-06)
+
+## UI/UX round (2026-10-06; built, mostly confirmed by the user on the board; the user flashes)
+
+The user wanted the confusion about the joystick gone and a safer knob. Order taken: navigation, Shift knob + catch, knob mode setting, rack links, jump keys. What exists:
+- **Navigation** (`ui_screen.c`, `screen_def_t.use_latch`): left / right move to the spatial neighbour; with none on that side (and on `EL_DIRECT`) they edit. Push latches only where `use_latch` is
+  set (the RACK tab; a first version removed latch everywhere and the user found the rack unusable without it). Encoder behaviour was left as it was.
+- **Column knobs** (`ui_input.c`): catch by default. The first version only released on an exact step hit, which a normal sweep skips: now it releases on crossing the value. The first arrow was
+  inverted (knob above the value means turn left). A 4 px wedge at the right end of the row (`ui_draw.c`) shows the way. `cfg.knob_mode` (GENERAL "Knob") switches to Direct.
+- **Re-evaluation after manual changes** (`synth_ui_catch_refresh`, called by `app_step` when `catch_stale`): the catch state used to change only when a knob moved, so a page change or an encoder edit
+  left a knob "caught". The first refresh ran after knob moves too and the knob stopped latching (the step re-measured by walking differs by one from the step the knob just set); the user had it backed
+  out. It is back with two rules: it never runs after a knob move, and `knob_cur == -2` keeps a knob that just set its value caught. **Not tested by the user yet.**
+  Bug found by the user (a jump key "reset every parameter of the page to 0"): the measuring helper (`knob_param_pos`, now `knob_measure`) left the parameter at its minimum and overcounted the range by the
+  start position, so every catch check and every refresh parked the page's parameters at 0 and skewed the catch maths (the "finicky" catch). Now it restores the value and returns the true range.
+- **Shift + column knob** (`ACT_PAGE_KNOB_SHIFT`, `ui->knob_shift[]`): knob 1 = speaker level (off -> 5 % .. 100 %), knob 2 = master volume. Bindings: the plain column-knob rows are `MODS_NONE`.
+- **GENERAL tab**: seven rows on a 64 px screen did not fit (the user could not see "Knob"). The list scrolls to keep the focus visible and `screen_draw` clips to the area under the header
+  (clipping applies to every declarative screen: if a tab ever draws outside its area, look there).
+- **RACK tab links** (`scr_rack.c`): every link is drawn; a module scrolled out of the window stands at the window border on its side (stub + lane), so links never vanish while scrolling.
+- **Jump keys** (`ACT_JUMP`, `UI_JUMP_1..8` that the user added to `ui_event_t`; `jump[]` in `synth_ui_t`; `fns[]` in `keymap.c`): Shift + key saves (`in_rack`, tab, page, row), key goes there.
+  A first version had two actions and no keymap entry (unreachable): found by a review the user asked for after a model change; fixed. Leaving the rack editor by a jump now rebuilds the synth.
+- Risks / limits: the jump slots and the knob mode are not saved; saved page numbers go stale after rack edits (clamped, may land elsewhere); `catch_stale` is a file-level static in `app.c`;
+  refresh walks up to four parameters per manual change (cheap, not measured on the board).
+
+## Filters, UI latency, voice bus (2026-10-06; flashed and measured, NOT listened to; decisions in ENGINE_DESIGN.md ADR-038)
+
+- UI: `display_send()` replaces `u8g2_SendBuffer` (HAL); on the board a `display` task (core 0, prio 1) sends only changed tiles; `app_step` puts the redraw off while input is
+  queued. Measured with `HWV1_DEBUG_UI` while playing: slowest UI step ~120 ms -> 4-16 ms, up to 92 events and 69 synth updates per second (was ~8). Screen checked by the user
+  after the column-wrap fix (the panel's column offset 96 must wrap: a run at tile x is sent with the offset moved).
+- Note-on overruns: `OscEngines::reset()` cleared the 4 KB Karplus buffer in PSRAM for every oscillator; rapid notes now 0 over budget (startup worst 2.3 -> 0.92 ms).
+- Cutoff: ~20 ms glide at any block size, coefficients interpolated across the block. New FL types LP6 / Ladr / ChLP (`algo` of the Filter module, live switch), measured
+  per 4 voices: LP 18.0k, LP24 24.7k, LP6 7.8k, ChLP 6.4k, Ladr 15.9k. Serial `flt T`. Host test `light_filters_lp6_ladder_and_chamberlin`.
+- Not done: listening (all of it); the Ladr tuning at high cutoffs is approximate (not zero-delay); the light types have no exact per-sample path for audio-rate cutoff FM.
 
 ## Key LEDs (2026-10-06; flashed, checked by the user: every key lights its own LED, colours right)
 
@@ -27,6 +73,7 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
   **brightness capped at 20 % (51/255, `HW_LED_MAX_BRIGHTNESS`): the user's limit, full white on 36 LEDs ~2 A browns out the board / USB**. A transfer only when the frame changed.
 - What they show (user choice "play feedback"): `core/key_leds.c` from the key layout: notes in piano colours (C teal, naturals dim white, sharps dim blue), held = orange;
   Shift yellow (bright while on), Menu blue (bright while open), Back red, Play green (bright while the sequencer runs), Octave violet (bright when shifted that way), navigation dim white.
+  Jump keys (`Jump 1..8`): dim teal while the slot is empty, bright teal once saved.
   Repainted at most every 20 ms, at once on input. The simulator's LED HAL is a no-op (the panel window does not draw them yet).
 - Serial (dev): `leds N`, `leds all`, `leds off` / `leds on`. Audio while playing keys: see the todo (the overruns happen with the LEDs off too).
 
@@ -206,6 +253,8 @@ The user decides and I record the reasoning and move on, without re-litigating:
 
 ## Known debt / small issues
 
+- UI: the main view (pages) is not a declarative screen yet (no latch, old events); the Mono / Para GENERAL tab has 7 rows and only scrolls on a short screen; the Knob mode, jump slots and Shift-knob targets are not saved;
+  the sim's panel does not draw the key LEDs; this session's UI changes were verified on the board by the user, not by host tests (the 160 engine tests do not cover `src/core/ui_*.c`; `tools/ui_dump.c` can).
 - Sample library: whole files are copied to RAM in the simulator; loaded samples are never unloaded; imports block the UI thread; a rack stores the file *index*
   (names needed when saving). Zones are engine-only (no UI). MS targets are limited to what the mapper realises (OC Pit / Lvl / PW, FL Cut, SA Drv, SM Pit).
 - Sound-design round (ADR-031..034), not listened to: the convolver costs 2 x taps MACs per sample (not measured on the S3), the compressor / shifter / engines are tested against theory only,

@@ -29,6 +29,14 @@ static const fn_def_t fns[] = {
     {ACT_PAGE_MOVE,    +1,        "Page +", "page+"},
     {ACT_VALUE_ADJUST, -1,        "Val -",  "val-"},
     {ACT_VALUE_ADJUST, +1,        "Val +",  "val+"},
+    {ACT_JUMP,         0,         "Jump 1", "jump1"},
+    {ACT_JUMP,         1,         "Jump 2", "jump2"},
+    {ACT_JUMP,         2,         "Jump 3", "jump3"},
+    {ACT_JUMP,         3,         "Jump 4", "jump4"},
+    {ACT_JUMP,         4,         "Jump 5", "jump5"},
+    {ACT_JUMP,         5,         "Jump 6", "jump6"},
+    {ACT_JUMP,         6,         "Jump 7", "jump7"},
+    {ACT_JUMP,         7,         "Jump 8", "jump8"},
 };
 #define N_FNS ((int)(sizeof fns / sizeof fns[0]))
 

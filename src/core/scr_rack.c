@@ -157,18 +157,22 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
     const int S = MODULE_SPRITE_W, sc = ui->rack_scroll, x0 = strip_x0(strip);
     const int bottom = strip.y + STRIP_TOP + MODULE_SPRITE_H;
     const int lane_a = lane_audio_y(st, strip) - 1, lane_m = lane_mod_y(st, strip) - 1;
-    const int xmin = x0 + 2 + S / 2, xmax = x0 + (RACK_VIS - 1) * RACK_PITCH + 2 + S / 2;
+    // Every link is always drawn. A module scrolled off screen is stood at the border of the window on its side (left of the first
+    // cell / right of the last one), where its stub still shows, so the lanes read as continuing beyond the edge.
+    const int xl = x0 - 1 > strip.x ? x0 - 1 : strip.x;
+    const int xr = x0 + RACK_VIS * RACK_PITCH < strip.x + strip.w - 1 ? x0 + RACK_VIS * RACK_PITCH : strip.x + strip.w - 1;
 #define CELL_VIS(i) ((i) >= sc && (i) < sc + RACK_VIS)
 #define CELL_CX(i) (x0 + ((i) - sc) * RACK_PITCH + 2 + S / 2)
-#define LINK_X(i) (CELL_CX(i) < xmin ? xmin : CELL_CX(i) > xmax ? xmax : CELL_CX(i))      // links to cells off screen end at the edge
+#define LINK_X(i) (CELL_VIS(i) ? CELL_CX(i) : (i) < sc ? xl : xr)
 
     // audio chain: solid while a source feeds it, dotted otherwise
     int prev = RACK_NONE;
     for (int i = 0; i < r->count; i++) {
         if (!rack_slot_is_audio(r, i)) continue;
-        if (CELL_VIS(i)) u8g2_DrawVLine(g, CELL_CX(i), bottom, lane_a - bottom + 1);
-        if (prev != RACK_NONE && (CELL_VIS(i) || CELL_VIS(prev) || (prev < sc && i >= sc + RACK_VIS))) {
-            const int px = LINK_X(prev), cx = LINK_X(i);
+        const int cx = LINK_X(i);
+        u8g2_DrawVLine(g, cx, bottom, lane_a - bottom + 1);
+        if (prev != RACK_NONE) {
+            const int px = LINK_X(prev);
             if (rack_has_signal(r, prev)) u8g2_DrawHLine(g, px, lane_a, cx - px + 1);
             else dotted_h(g, px, cx, lane_a);
         }
@@ -178,18 +182,18 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
         const int px = LINK_X(prev), ox = LINK_X(RACK_MAX);
         if (rack_has_signal(r, prev)) u8g2_DrawHLine(g, px, lane_a, ox - px + 1);
         else dotted_h(g, px, ox, lane_a);
-        if (CELL_VIS(RACK_MAX)) u8g2_DrawVLine(g, ox, bottom, lane_a - bottom + 1);
+        u8g2_DrawVLine(g, ox, bottom, lane_a - bottom + 1);
     }
 
-    // modulator links: a stub at each visible end, the lane runs to the edge when the other end is off screen
+    // modulator links
     for (int i = 0; i < r->count; i++) {
         const rack_slot_t *s = &r->slot[i];
         if (!rack_slot_is_mod(r, i) || !s->tgt_id) continue;
         const int ti = rack_find(r, s->tgt_id);
         if (ti == RACK_NONE) continue;
         const int mx = LINK_X(i) + 1, tx = LINK_X(ti) + 1;
-        if (CELL_VIS(i))  dotted_v(g, mx, bottom, lane_m);
-        if (CELL_VIS(ti)) dotted_v(g, tx, bottom, lane_m);
+        dotted_v(g, mx, bottom, lane_m);
+        dotted_v(g, tx, bottom, lane_m);
         dotted_h(g, mx, tx, lane_m);
     }
     for (int i = 0; i < r->count; i++) {                         // motion sequencer: one link per lane that has a target
@@ -199,8 +203,8 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
             const int ti = pat->lane[l].tgt_id ? rack_find(r, pat->lane[l].tgt_id) : RACK_NONE;
             if (ti == RACK_NONE) continue;
             const int mx = LINK_X(i) + 1, tx = LINK_X(ti) + 1;
-            if (CELL_VIS(i))  dotted_v(g, mx, bottom, lane_m);
-            if (CELL_VIS(ti)) dotted_v(g, tx, bottom, lane_m);
+            dotted_v(g, mx, bottom, lane_m);
+            dotted_v(g, tx, bottom, lane_m);
             dotted_h(g, mx, tx, lane_m);
         }
     }
@@ -236,4 +240,4 @@ static void after_edit(const ui_ctx_t *c) {
     if (row >= 1 && elements[row - 1].enabled && !elements[row - 1].enabled(c)) { c->ui->row = 1; c->ui->latched = false; }
 }
 
-const screen_def_t scr_rack_screen = {elements, E_COUNT, false, layout, back_delete, after_edit, draw_extra};
+const screen_def_t scr_rack_screen = {elements, E_COUNT, false, true, layout, back_delete, after_edit, draw_extra};

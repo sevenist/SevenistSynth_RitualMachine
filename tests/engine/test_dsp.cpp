@@ -135,7 +135,9 @@ TEST(light_filters_lp6_ladder_and_chamberlin) {
     use(FLTA_CHAM, q707);
     const double c_lo = b.gain_db(250.0), c_fc = b.gain_db(fc), c_hi = b.gain_db(4000.0);
     use(FLTA_CHAM, 32767);                                             // Q 10
-    const double c_res = b.gain_db(fc);
+    b.rig.eng.set_param(1, OSC_LEVEL, 2048);                           // a quiet input: x 10 at full level would clip at the output
+    const double c_res = b.gain_db(fc, 2048.0 / 1.41421356);
+    b.rig.eng.set_param(1, OSC_LEVEL, 16384);
     std::printf("    Chamberlin 1 kHz Q 0.71: 250 Hz %.1f, 1 kHz %.1f, 4 kHz %.1f dB; Q 10 at the cutoff %.1f dB\n", c_lo, c_fc, c_hi, c_res);
     CHECK(c_lo > -1.0);
     CHECK_NEAR(c_fc, -3.0, 1.5);

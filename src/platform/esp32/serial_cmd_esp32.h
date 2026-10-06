@@ -11,6 +11,7 @@
 //   patch startup   -> the default patch (four oscillator engines, delay, reverb)
 //   patch sampler F [L]   -> one sampler on catalog entry F (0-based, see `samples`) with loop mode L (0 file 1 off 2 fwd 3 ping-pong) into one filter, effects off
 //   voices N        -> voice count 1..8 (a rebuild)
+//   popup info | error | ask   -> a test popup on the screen; ask / error print "[CMD] popup answer yes|no" when closed
 // patch / voices rebuild the synth the way leaving the menu does; they are run from loop(), like the UI.
 // Every command answers with a "[CMD]" line. Notes go straight to the audio engine: the UI does not see them.
 #include "core/app.h"

@@ -256,29 +256,24 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
     if (ui->in_rack) {                           // every tab of the menu is a declarative screen (ui_screen.h)
         const ui_ctx_t ctx = {(synth_ui_t *)ui, (rack_t *)rack, 0};         // drawing only reads
         screen_draw(screen_for_tab(tab_kind(rack, ui->menu_tab)), g, st, &ctx, screen);
-        display_send(g);
         return;
     }
     if (pg.graph == GRAPH_SEQ) {
         draw_seq(g, st, screen, ui, seq);
-        display_send(g);
         return;
     }
     if (pg.graph == GRAPH_MS_STEPS) {
         draw_ms_steps(g, st, screen, ui, seq, rack, pg.slot);
-        display_send(g);
         return;
     }
     if (pg.graph == GRAPH_EG) {
         gui_rect_t l3 = gui_take_left(&screen, st->list_w);
         draw_eg_page(g, st, l3, gui_rect(st->graph.x, st->graph.y, st->graph.w, st->graph.h), ui, &rack->slot[pg.slot]);
-        display_send(g);
         return;
     }
     if (pg.graph == GRAPH_MS_LANE) {
         gui_rect_t l2 = gui_take_left(&screen, st->list_w);
         draw_ms_lane(g, st, l2, gui_rect(st->graph.x, st->graph.y, st->graph.w, st->graph.h), ui, seq, rack, pg.slot);
-        display_send(g);
         return;
     }
 
@@ -315,6 +310,28 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
             param_format(p, (param_id_t)pg.params[i], val, sizeof val);
         }
         gui_draw_field(g, st, row, label, val, sel);
+        // Catch indicator: a 3x2 px chevron at the right edge of the row when the col knob is not yet caught.
+        // Not while Shift is held: the knobs then drive their Shift targets, whose catch state the popup shows.
+        if (i < SYNTH_UI_COL_KNOBS && !ui->shift_held) {
+            const int8_t cd = ui->knob_catch_dir[i];
+            if (cd != 0) {
+                const int ax = gui_right(row) - 1;      // right edge of the row (inside the list width)
+                const int ay = row.y + row.h / 2 - 1;  // vertically centred, 2 px tall
+                if (sel) u8g2_SetDrawColor(g, 0); else u8g2_SetDrawColor(g, 1);
+                if (cd > 0) {                           // ► knob needs to go higher (clockwise on HWV1: right)
+                    u8g2_DrawPixel(g, ax - 1, ay + 1);
+                    u8g2_DrawPixel(g, ax - 1, ay);   u8g2_DrawPixel(g, ax,     ay);
+                    u8g2_DrawPixel(g, ax - 1, ay - 1);
+                    
+                } else {                                // ◄ knob needs to go lower (counter-clockwise: left)
+                    
+                    u8g2_DrawPixel(g, ax, ay + 1);   
+                    u8g2_DrawPixel(g, ax, ay);u8g2_DrawPixel(g, ax,     ay - 1);
+                    u8g2_DrawPixel(g, ax, ay - 1);
+                }
+                u8g2_SetDrawColor(g, 1);
+            }
+        }
         row = gui_below(row, st->gap, row_h);
     }
     if (pg.graph == GRAPH_FM) {                  // rows above were drawn from param_label(); redraw them from the cfg
@@ -358,5 +375,4 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
         case GRAPH_FM:      draw_synth_info(g, st, box, rack); break;
         default: break;
     }
-    display_send(g);
 }

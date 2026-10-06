@@ -34,14 +34,14 @@ control -> action and the octave / Shift state.
 | --- | --- | --- |
 | Encoder A turn / push | previous / next element, i.e. rows (with Shift: pages) / jump to the page selector | `[` `]` / `\` |
 | Encoder B turn / push | change the focused value, **no latch needed** (with Shift: 4 steps per detent) / activate a button | `;` `'` / `/` |
-| Joystick | move the focus (in the menu: in 2D; in the main view: rows and values as before). **Push = latch** (in the menu only; in the main view it activates the row) the focused value: the joystick then changes it (left / right, or up / down), push again to release; on a button, push activates it. The module strip of the RACK tab and the page / tab selector change with left / right without a latch. With Shift: up / down = octave, left / right = page | arrow keys, push = Right Ctrl |
+| Joystick | **one navigation model on every screen** (`ui_screen.c`): up / down / left / right move the focus to the neighbouring element; an element with no neighbour on that side (and every `EL_DIRECT` element: the module strip, the page / tab selector) is edited by left / right instead. **Push = latch, only on screens with `use_latch` (today: the RACK tab, whose dense multi-column grid needs it)**: the joystick then edits the latched value, push again to release; on a button, push activates it. In the main view (pages, not converted yet): rows and values, push activates the row. With Shift: up / down = octave, left / right = page | arrow keys, push = Right Ctrl |
 | Button 1 | open / close the menu | Enter |
 | Button 2 | delete the selected module (RACK tab) | Backspace / Delete |
 | Button 3 (hold) | **Shift** | Left Shift |
 | Play | start / stop the sequencer | Space |
 | Matrix keys | **the key layout** (`core/keymap.c`, KEYS tab of the menu): function row F1..F4 = Shift, Menu, Back, Play (F5..F8 on the simulator: Octave - / +, Page - / +); note rows by layout: *Keys 8x4* (default: bottom-left = C4 (60) + octave, +1 per key to the right, +8 per row up), *Two 4x4* (left block 0..15 with +4 per row, right block 16..31), *Notes+Nav* (left block 0..15, right block = octave, cursor cross with Latch, Select, Value, Row, Page), *User* | `F1`-`F8` / `1`-`8` / `Q`-`I` / `A`-`K` / `Z`-`,` (top to bottom) |
 | Octave | -5..+4: every MIDI note 0..127 is reachable | Shift + joystick up / down |
-| Column knobs 1..4 | the value of row 1..4 of the current page (jump mode: the value follows the knob as soon as it moves) | mouse |
+| Column knobs 1..4 | the value of row 1..4 of the current page. **Catch mode (default, GENERAL tab "Knob")**: a knob is ignored until it crosses the current value (or lands on it), so no jump; a small arrow at the right edge of the row says which way to turn (right = turn right). It is re-evaluated after every manual change (page, row, encoder / joystick edit, macro, Shift) but never after a knob move. *Direct* mode: the value follows the knob at once, no arrows. **With Shift**: the knob drives its secondary target (`ui->knob_shift[]`; default knob 1 = speaker level, knob 2 = master volume; global config params only), with the same catch | mouse |
 | Right knobs R1..R3 | macros: start on the first filter's cutoff / resonance and the first LFO's rate; **Shift + knob** assigns the parameter under the cursor | mouse |
 | Master volume knob | master volume (same value as Vol in the GENERAL tab; 0..2 = the gain, ramped over one audio block). On the prototype it is an endless knob: one step of 0.05 per detent from the current value | mouse |
 | Esc, closing a window | quit | |
@@ -56,6 +56,11 @@ User), *Reset* goes back to *Keys 8x4*. The right box lists the keys with their 
 TF card when the menu closes (a text file: `layout user` then `key <row>.<col> <function>` lines, editable on a PC; the simulator keeps it next to `samples/`). A card that
 shows up gives its `keys.cfg`, unless the keys were changed meanwhile (then they are written to it). **Lock-out escape**: hold F1 (the top-left function key)
 for 2 s within 4 s of start: the layout goes back to *Keys 8x4* and a "KEYS RESET" screen shows until F1 is released.
+
+**Jump keys.** *Func* also offers `Jump 1..8` (`ACT_JUMP`, arg = slot). Pressing a jump key goes to the location saved in its slot (menu or main view, tab, page, row; `synth_ui_t.jump[]`,
+`ui_input.c`); **Shift + the key saves the current location** in the slot. Leaving the rack editor by a jump rebuilds the synth like closing it with Menu; a saved row / page is clamped to
+what exists now (saved page numbers go stale when the rack is edited). The slots are not saved to the card yet (lost at power-off). The key's LED is dim teal when the slot is empty, bright when saved.
+On the KEYS tab a jump key only selects itself.
 
 Requirements: MSYS2 UCRT64 (`C:\msys64\ucrt64`) with gcc, g++ and SDL2, and Python 3 for the generator tools.
 `lib/` is not versioned. `lib/u8g2` (https://github.com/olikraus/u8g2, needs `csrc/` and `sys/sdl/common/`) is required; `lib/minimp3` (`minimp3.h`, `minimp3_ex.h` from
@@ -160,6 +165,10 @@ That is what lets one generic list renderer show any of them.
 - **Menu** (Enter): tabs switched with Left/Right on row 0. Modular: `RACK`, `GENERAL`, `SAMPLES` (library browser), `FX RACK` (four master slots).
   FM: `GENERAL`, `ALGORITHM`, `OPERATOR`, `ENVELOPE`, `FX RACK`. Closing the menu with structural edits
   regenerates the pages and rebuilds the graph. Effect edits are live (no rebuild).
+- **Popups** (`core/popup.h`, `app->popup`): a box over any screen. `popup_info` (goes after a time, input passes through: the Shift-knob value),
+  `popup_error` (OK) and `popup_ask` (Yes / No, answer by callback) are modal and queued (4); while one is up `app_run_action` hands it the actions
+  (Nav left / right, Value, Row: the button; Latch / Select: press; Back: No), notes / Shift / volume still act, the rest is ignored.
+  `synth_ui_draw` no longer sends the buffer: `draw_frame` (app.c) draws the screen, the popup on top, then `display_send`. Dev tests: serial `popup info|error|ask`, `ui_dump popup:ask`.
 
 ## Where to make changes
 
@@ -248,6 +257,10 @@ Recipes:
 - *Knobs*: a knob reports a position 0..1023 and a binding gives it an action (`ACT_PAGE_KNOB`, `ACT_MACRO`, `ACT_MASTER_VOLUME`). A parameter only knows
   "one step up / down", so `ui_input.c` (`knob_set`) walks the parameter to both ends and back to the step that matches the position: nothing to add when a new
   parameter appears. Rows that select or cycle (targets, sample file, step editors) are not driven by knobs (`row_is_knobbable`).
+  *Catch* (`knob_check_catch`, `synth_ui_catch_refresh` in `ui_input.c`): `knob_catch_dir[k]` is 0 = caught, -1 / +1 = the way to turn (drawn as a 4 px wedge by `ui_draw.c`), 127 = not
+  measured yet. A blocked knob is released when it crosses the value (a fast turn skips the exact step). `app.c` sets `catch_stale` after manual changes and Shift, and calls
+  `synth_ui_catch_refresh` before drawing; `knob_cur[k] == -2` marks "the knob set this value itself" (walking can measure the step one off). The Catch / Direct choice is `cfg.knob_mode`.
+  The Shift targets are `ui->knob_shift[]` (`macro_t`, today only `MACRO_GLOBAL` + `cfg_param_id_t`).
 - *Test without the window*: `tools/ui_dump.c` takes control events (`encA:+1`, `shift`, `knob:27:900`, `key:4.0`...), see the top of the file.
 
 ### Add a HAL function / a platform
@@ -348,7 +361,7 @@ C:\.platformio\penv\Scripts\python.exe tools\serial_test.py   # measure on COM8 
 | `board_pins.h` | the pin map, inside `#ifdef HWV1` (I2S, OLED, mux, joystick, keyboard I2C, LED, power, SD) |
 | `hwv1_layout.h` | how the old board's physical keys and knobs map to the HAL controls (`kHwv1KeyMap`: the 4 function keys = HAL row 0, the 4 x 8 note keys = rows 1..4; `HWV1_KEY_PRESENT`; `kHwv1Knobs`, flip flags, counts per revolution) |
 | `kbd_tca8418.*`, `mux_esp32.*`, `input_esp32.cpp` | keyboard (Adafruit TCA8418 on Wire1, config watchdog, bus recovery), mux reads, and the scan task on core 0 that turns them into HAL events (quadrature decode with hysteresis, joystick) |
-| `display_esp32.cpp` | `U8G2_SH1107_128X128_F_HW_I2C`, 400 kHz |
+| `display_esp32.cpp` | `U8G2_SH1107_128X128_F_HW_I2C`, 400 kHz (a full frame takes ~120 ms). `display_send()` (HAL, in place of `u8g2_SendBuffer`) copies the frame and wakes the `display` task, which sends only the changed 8 x 8 tiles; this panel's column offset (96) wraps, so a run starting at tile x is sent with the offset moved to (96 + 8x) mod 128. `app_step` also puts a redraw off while input is queued (`input_pending()`) |
 | `board_esp32.*` | power hold (PWR_ON_EN), amplifier / DAC enable (XSMT; SPK_SD left floating, `HWV1_SPK_SD_MODE=1` drives it), power polling |
 | `leds_esp32.cpp` | LED HAL (`hal_leds.h`): FastLED 3.10.6 (pinned; its first RMT channel uses DMA on the S3), SK6812 colour order RGB, key -> chain map (physical columns, checked on the board), brightness capped at `HW_LED_MAX_BRIGHTNESS` = 20 % (power: the user's limit), sends only when the frame changed. Serial (dev): `leds N` (chain LED N red for 5 s), `leds all`, `leds off` / `leds on` (stop / resume every transfer). What the keys show: `core/key_leds.c` (play feedback, called at the end of `app_step`) |
 | `audio_esp32.cpp` | I2S (MSB format, no MCLK) and the audio task on core 1; sizes the fast heap (internal RAM) and the bulk heap (PSRAM); applies `DEV_OUTPUT_GAIN_PCT`; prints the `[AUDIO]` / `[PROF]` / `[SEC]` / `[OSC]` / `[HEAP]` lines |
@@ -364,7 +377,8 @@ C:\.platformio\penv\Scripts\python.exe tools\serial_test.py   # measure on COM8 
 | `DEV_OUTPUT_GAIN_PCT=N` | output level in percent of full scale (the first prototype's output stage is harsh on headphones) | remove or 100 |
 | `DEV_SPEAKER_DEFAULT=N` | the built-in speaker's starting level (0 = off, 20 = 100 %; GENERAL "Spk" still changes it) | remove (full) |
 | `DEV_BOOT_DELAY_MS=3000` | wait after `Serial.begin` so a monitor catches the boot log | remove |
-| `DEV_SERIAL_CMD` | serial commands (`ping`, `on N`, `off N`, `chord K` (up to 48 notes), `eng a b c d`, `release`, `status`, `samples`, `patch startup`, `patch sampler F L`, `patch strings`, `patch para N V` (N Strng oscillators into one filter, Mod Para, V voices), `mode mono|poly [glide] [legato]`, `mode para [env 0-2]`, `voices N`, `str wave|osc|det|mix|lvl|lp|ftype|fx V` (Strings settings; `str fx 0` = every FX slot None), `dump N` (the next N engine output samples as `[DUMP] @index v ...` lines, before the dev gain: offline spectrum checks); the patch ones rebuild the synth like leaving the menu) | remove |
+| `DEV_SERIAL_CMD` | serial commands, full guide with examples in [human_docs/SERIAL_COMMANDS.md](human_docs/SERIAL_COMMANDS.md) (`ping`, `on N`, `off N`, `chord K` (up to 48 notes), `eng a b c d`, `release`, `status`, `samples`, `patch startup`, `patch sampler F L`, `patch strings`, `patch para N V` (N Strng oscillators into one filter, Mod Para, V voices), `mode mono|poly [glide] [legato]`, `mode para [env 0-2]`, `voices N`, `str wave|osc|det|mix|lvl|lp|ftype|fx V` (Strings settings; `str fx 0` = every FX slot None), `flt T` (type of every FL module: 0 Off 1 LP 2 BP 3 HP 4 LP24 5 Notch 6 LP6 7 Ladr 8 ChLP), `leds N|all|on|off`, `dump N` (the next N engine output samples as `[DUMP] @index v ...` lines, before the dev gain: offline spectrum checks); the patch ones rebuild the synth like leaving the menu) | remove |
+| `HWV1_DEBUG_UI` | once a second while the controls are used: input events, the slowest app step, the slowest `audio_set_params` (`[UI]` lines) | remove |
 | `HWV1_SD_BENCH` | boot-time card benchmark (`[SD] bench ...` lines: raw reads of 1 / 8 / 16 sectors, file reads of 512 B / 4 KB) | remove |
 | `HWV1_SD_FREQ_KHZ=N` | SPI clock of the card once initialised (default 20000) | keep / tune |
 | `HWV1_SD_IO_PRIO=N` | priority of the card I/O task (default 5) | keep |
@@ -412,7 +426,8 @@ The firmware already runs on FreeRTOS (the Arduino core is built on ESP-IDF, dua
 | `audio` | 1 | 23 (`configMAX_PRIORITIES - 2`) | engine render + I2S write | a missed block is a click; core 1 is otherwise idle |
 | `input` | 0 | 8 | keyboard / mux / joystick scan | short and periodic, must not lose events |
 | `sd_io` | 0 | 5 | card mount / scan, the sample loader | has deadlines (a dry stream is audible) but only milliseconds of CPU; sleeps 2 ticks after 8 reads in a row and during a scan (the card driver busy-waits, so without that the core-0 idle task starves and the task watchdog fires) |
-| Arduino `loop()` | 0 | 1 | app, sequencer, display | no deadline: a late frame is invisible |
+| Arduino `loop()` | 0 | 1 | app, sequencer, LEDs; draws frames into RAM | notes and knobs must not wait for the display bus |
+| `display` | 0 | 1 | sends the changed tiles of the newest frame over I2C | the bus waits block, so `loop()` runs meanwhile |
 
 Rules: nothing on core 1 except `audio`; anything that waits on hardware (card, I2C) must block (DMA / semaphore), never spin; the loader holds the engine mutex while it reads, so a UI build can wait a few ms behind a card read (never the audio task).
 If something new needs the CPU on core 0, give it a priority by its deadline, not by its importance.

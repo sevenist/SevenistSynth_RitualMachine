@@ -88,4 +88,4 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
     }
 }
 
-const screen_def_t scr_keys_screen = {elements, N_ELEMENTS, false, layout, NULL, NULL, draw_extra};
+const screen_def_t scr_keys_screen = {elements, N_ELEMENTS, false, false, layout, NULL, NULL, draw_extra};

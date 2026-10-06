@@ -144,6 +144,7 @@ with `gui_center_box`. That is why the same code works at 128x64 and 128x128. Th
 | `UI_UP / DOWN` | encoder A | previous / next row or element |
 | `UI_SELECT` | encoder B push | activate a button |
 | `UI_PAGE_PREV / NEXT`, `UI_ROW_TOP`, `UI_MENU`, `UI_BACK`, `UI_PLAY` | page-move, encoder A push, button 1, button 2, play | |
+| `UI_JUMP_1 .. UI_JUMP_8` | `ACT_JUMP` (a key with the function `Jump n`) | go to the location saved in slot n (`synth_ui_t.jump[]`); the save (Shift + the key) is done by `app.c` directly |
 | `UI_LEFT / RIGHT` | (internal) | the old events: change the value of the focused row; on row 0 change page or tab |
 
 Which control sends which event is decided in `bindings.c`, not in the UI.
@@ -158,6 +159,8 @@ Which control sends which event is decided in `bindings.c`, not in the UI.
 Knobs do not go through events. They call `synth_ui_knob_row` (column knobs: rows 1..4 of the current main-view page), `synth_ui_macro` / `synth_ui_macro_learn` (right-hand knobs) and
 `synth_ui_set_volume`. A parameter only knows "one step up / down", so `knob_set` in `ui_input.c` walks it to both ends and back to the step that matches the knob position.
 Rows that select or cycle (targets, sample file, step editors) are skipped (`row_is_knobbable`). The knobs act on the main view only, not inside the menu.
+Column knobs have **catch** (default; GENERAL "Knob" = Catch / Direct): a knob is ignored until it crosses the parameter's current value, and the row shows a 4 px wedge for the way to turn.
+With Shift a column knob drives its secondary target (`knob_shift[]`: speaker level, master volume). Details and the re-evaluation rule: DEVELOPING.md, "Knobs".
 
 ## 8. Declarative screens (`ui_screen.h`: every tab of the menu)
 
@@ -171,13 +174,16 @@ instead of showing `n/a`. A screen (`screen_def_t`) is the element table plus:
   on the right" tabs; the RACK tab has its own (strip on top, a grid of fields below).
 - `draw_extra()`: what is drawn behind the elements (the picture in the graph box, the connection lanes).
 - `compact`: on a short screen (under 100 px high) draw with padding 0 and gap 0 so more rows fit.
+- `use_latch`: the joystick push latches an `EL_VALUE` so the joystick edits it (only the RACK tab: a dense multi-column grid). On the other screens there is no latch: left / right edit the focused
+  value when no element is next to it on that side, otherwise they move the focus.
+- Drawing is clipped to the area under the header (`screen_draw`), so a list that scrolls (the GENERAL tab has more rows than a 64 px screen shows) can lay rows outside it.
 - `back()`: what the Back button does. `after_edit()`: called after anything changed (keep a selection valid).
 
 The three kinds and how the controls act on them (`screen_event`):
 
 | Kind | Joystick | Joystick push | Encoder B | Example |
 | --- | --- | --- | --- | --- |
-| `EL_VALUE` | moves the focus; once latched, changes the value | latch / release | changes the value | Type, Tgt, Voices, Algo |
+| `EL_VALUE` | moves the focus to the neighbour; with no neighbour on that side, changes the value (RACK tab: once latched, changes the value) | latch / release (`use_latch` screens only) | changes the value | Type, Tgt, Voices, Algo |
 | `EL_DIRECT` | left / right change it, up / down move the focus | nothing | changes it | the module strip of the RACK tab |
 | `EL_BUTTON` | moves the focus | activates | its push (`UI_SELECT`) activates | Insert, Delete, Assign, Scan |
 

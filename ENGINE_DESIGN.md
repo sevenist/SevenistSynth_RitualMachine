@@ -490,6 +490,26 @@ the envelope is linear (as the library's); the Strng engine follows the pitch at
 real voice count (heap), so the ceiling costs almost nothing. Measured on the board (`dump` of the engine output, C5, dry): saw Mip -40.6 dB / Naive -18.4 dB of
 inharmonic power, pulse -40.2 / -20.1, triangle -39.7 / -39.7, identical to the host.
 
+### ADR-038: Light filter types, a 32-bit voice bus, the knob glide (Accepted; user choices of 2026-10-06; measured on the board, NOT listened to)
+
+**Context.** The user asked for a lighter filter, a cheaper voice sum, and a fix for the latency / steps when moving the cutoff.
+
+**Decisions (the user's).**
+1. Three new FL types, opt-in (the default patches keep theirs): **LP6** (one-pole, 6 dB/oct), **Ladr** (four one-poles + resonance feedback + cubic soft clip, 24 dB/oct, Moog-like,
+   not zero-delay), **ChLP** (Chamberlin state-variable LP, cutoff stops at about fs / 6). They are an `algo` parameter of the existing Filter module, so a type change is a live
+   parameter, not a rebuild. Float (the integer Chamberlin would overflow at high Q without 64-bit products); one coefficient per block end, interpolated: no exact per-sample path
+   for audio-rate cutoff FM. Res (Q 0.5..10) maps to 0..1: Ladr feedback 3.9 x res (output x (1 + 0.5 k)), ChLP Q directly.
+2. The voice bus is 32 bits: VoiceOut adds without clipping, BusIn saturates once (before: a q15 bus clipped after every voice). Changes the sound only when the voice sum clipped.
+3. The cutoff knob glides with a ~20 ms one-pole (was a quarter step per block, 2-5 ms), and the coefficients follow it across the block.
+
+**Measured** (board, 44.1 kHz / 64 frames, startup patch in Poly, 4 voices, Filter cycles per block): LP 18.0k, LP24 24.7k, **LP6 7.8k, ChLP 6.4k, Ladr 15.9k**.
+VoiceOut with the 32-bit bus: 6331 -> 4213 for 8 voices (Para 4 x 8, 8 keys; whole block 71.5k -> 69.4k). Host: responses against theory (LP6 -3.0 dB at the cutoff,
+Ladr -49 dB two octaves up, ChLP Q 10 = +20 dB), bounded at full resonance with the cutoff at its top.
+
+**Found on the way (exact fixes, measured):** a voice start cleared every OscEngines' 4 KB Karplus buffer in PSRAM whatever the engine (about 1.5 ms of the block per note-on:
+an audio dropout on every played note); now only the strike clears it. The UI loop waited ~120 ms for each full-frame I2C redraw, so notes, LEDs and knob moves arrived late
+(DEVELOPING.md, `display_esp32.cpp`).
+
 ## Known limits and ideas for later
 
 - Not hooked to the UI yet: the **Sampler** and **Granular** modules and the sample bank (stage 6 is engine-level and

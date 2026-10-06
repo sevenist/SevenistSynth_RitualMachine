@@ -54,6 +54,7 @@ typedef struct {
     const el_def_t *el;
     int             n;
     bool            compact;                                      // on a short screen (under 100 px) draw with padding 0 and gap 0 so more rows fit
+    bool            use_latch;                                    // joystick push latches EL_VALUE elements so L/R edits them (for dense multi-column screens like the rack)
     // gives every element its rectangle, inside `area` (what is left under the header)
     void (*layout)(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, gui_rect_t *rect);
     bool (*back)(const ui_ctx_t *c);                              // the Back button (NULL: nothing)

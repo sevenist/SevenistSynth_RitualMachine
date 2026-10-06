@@ -23,10 +23,14 @@ const binding_t bindings[] = {
     /* ---- matrix keyboard: the keys are not in this table, their layout is chosen at run time (core/keymap.h) ---- */
 
     /* ---- matrix keyboard: the knob above each column edits row 1..4 of the current page ---- */
-    {CTL_COL_KNOB_0, IN_VALUE, MODS_ANY,   ACT_PAGE_KNOB,       1},
-    {CTL_COL_KNOB_1, IN_VALUE, MODS_ANY,   ACT_PAGE_KNOB,       2},
-    {CTL_COL_KNOB_2, IN_VALUE, MODS_ANY,   ACT_PAGE_KNOB,       3},
-    {CTL_COL_KNOB_3, IN_VALUE, MODS_ANY,   ACT_PAGE_KNOB,       4},
+    {CTL_COL_KNOB_0, IN_VALUE, MODS_NONE,  ACT_PAGE_KNOB,       1},
+    {CTL_COL_KNOB_1, IN_VALUE, MODS_NONE,  ACT_PAGE_KNOB,       2},
+    {CTL_COL_KNOB_2, IN_VALUE, MODS_NONE,  ACT_PAGE_KNOB,       3},
+    {CTL_COL_KNOB_3, IN_VALUE, MODS_NONE,  ACT_PAGE_KNOB,       4},
+    {CTL_COL_KNOB_0, IN_VALUE, MODS_SHIFT, ACT_PAGE_KNOB_SHIFT, 1},
+    {CTL_COL_KNOB_1, IN_VALUE, MODS_SHIFT, ACT_PAGE_KNOB_SHIFT, 2},
+    {CTL_COL_KNOB_2, IN_VALUE, MODS_SHIFT, ACT_PAGE_KNOB_SHIFT, 3},
+    {CTL_COL_KNOB_3, IN_VALUE, MODS_SHIFT, ACT_PAGE_KNOB_SHIFT, 4},
 
     /* ---- right section ---- */
     {CTL_KNOB_R1,    IN_VALUE, MODS_NONE,  ACT_MACRO,           0},       // macros ...
@@ -60,6 +64,8 @@ const char *action_name(action_id_t a) {
         [ACT_SELECT] = "Select", [ACT_MENU] = "Menu", [ACT_BACK] = "Back", [ACT_PLAY] = "Play", [ACT_SHIFT] = "Shift",
         [ACT_NOTE] = "Note", [ACT_OCTAVE] = "Octave", [ACT_PAGE_KNOB] = "Page knob", [ACT_MACRO] = "Macro",
         [ACT_MACRO_LEARN] = "Learn", [ACT_MASTER_VOLUME] = "Volume", [ACT_VOLUME_STEP] = "Volume",
+        [ACT_PAGE_KNOB_SHIFT] = "Knob shift",
+        [ACT_JUMP]            = "Jump",
     };
     return (a >= 0 && a < ACT_COUNT && n[a]) ? n[a] : "?";
 }

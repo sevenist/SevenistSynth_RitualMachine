@@ -29,6 +29,7 @@ static const el_def_t elements[] = {
     {"Vol",    EL_VALUE, 5, 0, 1, cfg_value, cfg_adjust, NULL, NULL, NULL,      cfg_label, CFGP_VOLUME, 0},
     {"Out",    EL_VALUE, 6, 0, 1, cfg_value, cfg_adjust, NULL, NULL, NULL,      cfg_label, CFGP_OUTPUT, 0},
     {"Spk",    EL_VALUE, 7, 0, 1, cfg_value, cfg_adjust, NULL, NULL, NULL,      cfg_label, CFGP_SPEAKER, 0},
+    {"Knob",   EL_VALUE, 8, 0, 1, cfg_value, cfg_adjust, NULL, NULL, NULL,      cfg_label, CFGP_KNOB_MODE, 0},
 };
 #define N_ELEMENTS ((int)(sizeof elements / sizeof elements[0]))
 
@@ -36,10 +37,23 @@ static const el_def_t elements[] = {
 static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, gui_rect_t *rect) {
     gui_rect_t slot[N_ELEMENTS];
     ui_layout_column(g, st, area, N_ELEMENTS, slot);
+    const int stride = slot[1].y - slot[0].y;
+    const int fit = stride > 0 ? (area.y + area.h - slot[0].y) / stride : N_ELEMENTS;
+    int shown_n = 0, focus_k = 0;
+    for (int i = 0; i < N_ELEMENTS; i++) {
+        const bool shown = !(elements[i].flags & EF_HIDE_WHEN_DISABLED) || !elements[i].enabled || elements[i].enabled(c);
+        if (!shown) continue;
+        if (c->ui->row == i + 1) focus_k = shown_n;
+        shown_n++;
+    }
+    const int first = shown_n > fit && focus_k >= fit ? focus_k - fit + 1 : 0;      // the list scrolls to keep the focused row on screen
     int k = 0;
     for (int i = 0; i < N_ELEMENTS; i++) {
         const bool shown = !(elements[i].flags & EF_HIDE_WHEN_DISABLED) || !elements[i].enabled || elements[i].enabled(c);
-        rect[i] = shown ? slot[k++] : slot[N_ELEMENTS - 1];             // a hidden row is not drawn: its rectangle does not matter
+        if (!shown) { rect[i] = slot[N_ELEMENTS - 1]; continue; }       // a hidden row is not drawn: its rectangle does not matter
+        const int pos = k++ - first;
+        rect[i] = slot[pos < 0 ? 0 : pos];
+        if (pos < 0) rect[i].y = -100;                                  // scrolled out above: clipped away
     }
 }
 
@@ -50,4 +64,4 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
     draw_synth_info(g, st, box, c->rack);
 }
 
-const screen_def_t scr_general_screen = {elements, N_ELEMENTS, true, layout, NULL, NULL, draw_extra};   // compact: up to 6 rows fit on a 64 px screen
+const screen_def_t scr_general_screen = {elements, N_ELEMENTS, true, false, layout, NULL, NULL, draw_extra};   // compact: up to 6 rows fit on a 64 px screen

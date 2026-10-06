@@ -13,6 +13,8 @@
 #include <string.h>
 #include "core/app.h"
 #include "hal/hal_audio.h"
+#include "hal/hal_display.h"
+#include "hal/hal_leds.h"
 
 // no audio in this tool
 void audio_init(void) {}
@@ -45,6 +47,10 @@ bool input_key_present(int row, int col) { return row > 0 || col < 4; }      // 
 bool input_boot_reset(void) { return false; }
 int  storage_read(const char *name, char *buf, int cap) { (void)name; (void)buf; (void)cap; return -1; }   // no card: the dump starts from the built-in layout
 bool storage_write(const char *name, const char *data, int len) { (void)name; (void)data; (void)len; return false; }
+void display_send(u8g2_t *g) { (void)g; }
+bool input_pending(void) { return false; }
+void leds_set(control_id_t ctl, led_color_t color) { (void)ctl; (void)color; }
+void leds_show(void) {}
 
 static u8g2_t disp;
 
@@ -63,6 +69,7 @@ static void dump(const char *title) {
 // Event names: the hardware controls, by the role they have in the default binding table.
 //   up down left right (joystick directions)  latch (joystick push)  menu (BTN 1)  back (BTN 2)  play  shift / unshift (BTN 3 down / up)
 //   encA:+1  encB:-2 (encoder turns)  encAsw encBsw (encoder pushes)  knob:<ctl number>:<0..1023>  key:<row>.<col>  keyup:<row>.<col>
+//   popup:info popup:error popup:ask (raise a test popup, core/popup.h)
 static input_event_t ev(const char *name) {
     input_event_t e = {CTL_NONE, IN_NONE, 0, false};
     int a = 0, b = 0, c = 0;
@@ -91,7 +98,12 @@ static void feed(app_t *app, const char *script) {
     char buf[512];
     strncpy(buf, script, sizeof buf - 1);
     buf[sizeof buf - 1] = 0;
-    for (char *t = strtok(buf, " "); t; t = strtok(NULL, " ")) app_step(app, ev(t));
+    for (char *t = strtok(buf, " "); t; t = strtok(NULL, " ")) {
+        if (!strcmp(t, "popup:info"))  { popup_info(&app->popup, "SD CARD", "Card inserted", 0, audio_millis(), 2000); app->redraw_owed = true; }
+        else if (!strcmp(t, "popup:error")) { popup_error(&app->popup, NULL, "The card could not be read. Check that it is inserted.", NULL, NULL); app->redraw_owed = true; }
+        else if (!strcmp(t, "popup:ask"))   { popup_ask(&app->popup, "SD CARD", "The card is not formatted. Format it?", false, NULL, NULL); app->redraw_owed = true; }
+        app_step(app, ev(t));
+    }
 }
 
 int main(int argc, char **argv) {

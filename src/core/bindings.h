@@ -37,6 +37,8 @@ typedef enum {
     ACT_MACRO_LEARN,        // arg = macro 0..2: the macro takes the parameter under the cursor
     ACT_MASTER_VOLUME,      // master volume (an absolute knob: the simulator's panel)
     ACT_VOLUME_STEP,        // master volume by arg steps of 0.05 per detent (an endless knob: the prototype)
+    ACT_PAGE_KNOB_SHIFT,    // arg = row 1..4: Shift + col knob drives the shift target for that row
+    ACT_JUMP,               // arg = slot 0..7: go to the saved UI location; with Shift: save the current location in the slot
     ACT_COUNT
 } action_id_t;
 

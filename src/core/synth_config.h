@@ -31,6 +31,7 @@ typedef enum {
 typedef enum {
     CFGP_TYPE, CFGP_PATCH, CFGP_VOICES, CFGP_GLIDE, CFGP_LEGATO, CFGP_VOLUME, CFGP_OUTPUT, CFGP_SPEAKER,    // GENERAL tab
     CFGP_PARA_ENV,                                                                                         // GENERAL tab, Mod Para only
+    CFGP_KNOB_MODE,                                                                                        // GENERAL tab: column knobs catch the value or set it at once
     CFGP_GENERAL_COUNT,
     CFGP_COUNT = CFGP_GENERAL_COUNT
 } cfg_param_id_t;
@@ -48,6 +49,7 @@ typedef struct {
     uint8_t glide;       // Mono: index into the glide times (0 = off)
     uint8_t legato;      // Mono: 1 = a new key while one is held changes the pitch only (envelopes keep running)
     uint8_t para_env;    // Mod Para: how the shared envelopes follow the keys, para_env_t
+    uint8_t knob_mode;   // column knobs: 0 = Catch (ignored until they cross the value, no jumps), 1 = Direct (set the value at once)
     float   volume;      // master volume 0..2 (applied at the very end of the chain, after the master effects)
     uint8_t mono;        // 0 = stereo output, 1 = (L + R) / 2 on both channels
     uint8_t speaker;     // built-in loudspeaker level in 5 % steps: 0 = off (amplifier shut down), 1..20 = 5..100 % (the board scales the channel that feeds it)

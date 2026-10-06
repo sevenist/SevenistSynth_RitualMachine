@@ -1,4 +1,5 @@
 #include "core/rack.h"
+#include "core/synth_params.h"
 #include <stdio.h>
 #include <string.h>
 

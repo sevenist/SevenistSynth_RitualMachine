@@ -7,8 +7,9 @@ static const char *const para_env_names[PARA_ENV_COUNT] = {"Legato", "Retrig", "
 static const int glide_ms[] = {0, 25, 50, 100, 200, 400, 800};
 #define GLIDE_STEPS ((int)(sizeof glide_ms / sizeof glide_ms[0]))
 #define SPEAKER_STEPS 20                   // 5 % each
+#define VOLUME_STEPS_PER_UNIT 20           // 0.05 each
 
-static const char *const labels[CFGP_GENERAL_COUNT] = {"Type", "Patch", "Voices", "Glide", "Legato", "Vol", "Out", "Spk", "PEnv"};
+static const char *const labels[CFGP_GENERAL_COUNT] = {"Type", "Patch", "Voices", "Glide", "Legato", "Vol", "Out", "Spk", "PEnv", "Knob"};
 
 void synth_config_init(synth_config_t *c) {
     c->type = SYNTH_MOD_MONO;              // one real voice: the full budget for one patch (ADR-036)
@@ -19,6 +20,7 @@ void synth_config_init(synth_config_t *c) {
     c->legato = 0;
     c->para_env = PARA_ENV_LEGATO;
     c->volume = 1.0f;
+    c->knob_mode = 0;
     c->mono = 1;
 #ifdef DEV_SPEAKER_DEFAULT
     c->speaker = DEV_SPEAKER_DEFAULT;      // dev only (platformio.ini): 0 = the speaker starts off while testing with headphones
@@ -70,12 +72,10 @@ cfg_effect_t synth_config_adjust(synth_config_t *c, cfg_param_id_t id, int dir) 
         *nv = (uint8_t)v;
         return CFG_REBUILD;
     }
-    case CFGP_VOLUME: {
-        float f = c->volume + 0.05f * (float)dir;
-        if (f < 0.0f) f = 0.0f;
-        if (f > 2.0f) f = 2.0f;
-        if (f == c->volume) return CFG_UNCHANGED;
-        c->volume = f;
+    case CFGP_VOLUME: {                                          // 0..2 in steps of 0.05, counted as an integer: adding 0.05 drifted, so the knob walk saw 41 steps
+        v = (int)(c->volume * VOLUME_STEPS_PER_UNIT + 0.5f) + dir;
+        if (v < 0 || v > 2 * VOLUME_STEPS_PER_UNIT) return CFG_UNCHANGED;
+        c->volume = (float)v / VOLUME_STEPS_PER_UNIT;
         return CFG_LIVE;
     }
     case CFGP_OUTPUT:
@@ -88,6 +88,11 @@ cfg_effect_t synth_config_adjust(synth_config_t *c, cfg_param_id_t id, int dir) 
         if (v < 0 || v >= PARA_ENV_COUNT) return CFG_UNCHANGED;
         c->para_env = (uint8_t)v;
         return CFG_REBUILD;                                      // the graph's shape changes (per-voice or shared amp envelope)
+    case CFGP_KNOB_MODE:
+        v = c->knob_mode + dir;
+        if (v < 0 || v > 1) return CFG_UNCHANGED;
+        c->knob_mode = (uint8_t)v;
+        return CFG_LIVE;
     case CFGP_SPEAKER:
         v = c->speaker + dir;
         if (v < 0 || v > SPEAKER_STEPS) return CFG_UNCHANGED;
@@ -108,6 +113,7 @@ void synth_config_format(const synth_config_t *c, cfg_param_id_t id, char *out, 
     case CFGP_OUTPUT: snprintf(out, n, "%s", c->mono ? "Mono" : "Stereo"); break;
     case CFGP_SPEAKER: if (c->speaker == 0) snprintf(out, n, "Off"); else snprintf(out, n, "%d%%", synth_config_speaker_pct(c)); break;
     case CFGP_PARA_ENV: snprintf(out, n, "%s", para_env_names[c->para_env < PARA_ENV_COUNT ? c->para_env : 0]); break;
+    case CFGP_KNOB_MODE: snprintf(out, n, "%s", c->knob_mode ? "Direct" : "Catch"); break;
     default: out[0] = 0;
     }
 }

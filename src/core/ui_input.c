@@ -1,5 +1,6 @@
 // What events do: editing a row, the menu tabs, knobs and macros, and synth_ui_handle() (the entry point for UI events).
 #include "core/ui_screen.h"
+#include "core/synth_config.h"
 #include "hal/hal_input.h"
 #include <stdio.h>
 
@@ -96,13 +97,46 @@ static void knob_set(step_fn f, void *ctx, int value) {
     for (int i = total; i > idx; i--) f(ctx, -1);
 }
 
-// Knob bookkeeping: `key` identifies what the knob drives; an event that lands on the position the knob already applied is ignored
-// (a knob sends many events per step, and each applied one costs a walk over the range). A new key applies at once (no pickup).
+// Measures a parameter without changing it: returns its current step index (0 = min) and puts the number of steps from min to max in *total.
+// It walks to the bottom, up to the top, and back down to where it was.
+static int knob_measure(step_fn f, void *ctx, int *total) {
+    int down = 0, up = 0;
+    while (down < KNOB_MAX_STEPS && f(ctx, -1)) down++;
+    while (up < KNOB_MAX_STEPS && f(ctx, +1)) up++;
+    for (int i = up; i > down; i--) f(ctx, -1);
+    *total = up;
+    return down;
+}
+
+// Knob bookkeeping. `key` identifies what the knob drives.
+// Returns true when the event should be applied. For col knobs (knob < SYNTH_UI_COL_KNOBS): catch mode — the knob is
+// ignored until it crosses the current parameter value; once caught it applies normally. knob_catch_dir is 0 when caught.
 static bool knob_new_position(synth_ui_t *ui, int knob, int key, int value) {
     const int pos = value >> 3;                         // 128 positions are enough to tell steps apart
-    if (ui->knob_key[knob] == key && ui->knob_pos[knob] == pos) return false;
+    const bool key_changed = ui->knob_key[knob] != key;
+    if (!key_changed && ui->knob_pos[knob] == pos) return false;
     ui->knob_key[knob] = key; ui->knob_pos[knob] = pos;
+    if (knob >= SYNTH_UI_COL_KNOBS) return true;       // macro / volume knobs: no catch
+    if (key_changed) ui->knob_catch_dir[knob] = 127;   // new parameter: force re-catch (sentinel, resolved on first step_fn call)
     return true;
+}
+
+// For col knobs: check catch and update knob_catch_dir. Returns true if the knob is caught and knob_set should run.
+// param_pos_out receives the current step index so knob_set can skip the re-walk when already caught.
+static bool knob_check_catch(synth_ui_t *ui, const rack_t *rack, int knob, int value, step_fn f, void *ctx) {
+    if (rack->cfg.knob_mode) { ui->knob_catch_dir[knob] = 0; return true; }   // Direct mode: no catch, no arrow
+    if (ui->knob_catch_dir[knob] == 0) return true;    // already caught
+    int total;
+    const int cur = knob_measure(f, ctx, &total);
+    int knob_idx = (int)((long)value * (total + 1) / (INPUT_VALUE_MAX + 1));
+    if (knob_idx > total) knob_idx = total;
+    const int diff = knob_idx - cur;                   // > 0: the knob is above the value, so it has to be turned down
+    const int dir = diff > 0 ? -1 : 1;
+    // Caught on an exact hit, or when the knob has crossed the value since it was last seen (a fast turn skips the exact step).
+    const int prev = ui->knob_catch_dir[knob];
+    if (diff == 0 || (prev != 127 && prev != 0 && prev != dir)) { ui->knob_catch_dir[knob] = 0; return true; }
+    ui->knob_catch_dir[knob] = (int8_t)dir;
+    return false;
 }
 
 typedef struct { synth_ui_t *ui; synth_params_t *params; seq_t *seq; rack_t *rack; const page_t *pg; int row; } row_ctx_t;
@@ -118,13 +152,16 @@ static bool row_is_knobbable(const rack_t *rack, const page_t *pg, int row) {
 }
 
 bool synth_ui_knob_row(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int row, int value) {
+    if (row >= 1 && row <= SYNTH_UI_COL_KNOBS) ui->knob_val[row - 1] = value;
     if (ui->in_rack || row < 1 || row > SYNTH_UI_COL_KNOBS) return false;
     page_t pg;
     get_page(ui, rack, ui->page, &pg);
     if (row > pg.count || !row_is_knobbable(rack, &pg, row)) return false;
     if (!knob_new_position(ui, row - 1, ui->page * 8 + row, value)) return false;
     row_ctx_t c = {ui, params, seq, rack, &pg, row};
+    if (!knob_check_catch(ui, rack, row - 1, value, row_step, &c)) return false;
     knob_set(row_step, &c, value);
+    ui->knob_cur[row - 1] = -2;
     return true;
 }
 
@@ -198,7 +235,73 @@ void synth_ui_macro_describe(const synth_ui_t *ui, const rack_t *rack, int k, ch
     else                                snprintf(out, (size_t)n, "R%d (unassigned)", k + 1);
 }
 
+typedef struct { rack_t *rack; cfg_param_id_t id; } cfg_ctx_t;
+static bool cfg_step(void *c, int dir) { cfg_ctx_t *x = c; return synth_config_adjust(&x->rack->cfg, x->id, dir) != CFG_UNCHANGED; }
+
+bool synth_ui_knob_row_shift(synth_ui_t *ui, rack_t *rack, int row, int value) {
+    if (row < 1 || row > SYNTH_UI_COL_KNOBS) return false;
+    ui->knob_val[row - 1] = value;
+    const macro_t *m = &ui->knob_shift[row - 1];
+    if (m->kind != MACRO_GLOBAL) return false;           // only global (cfg) params wired for now
+    const int knob = row - 1;
+    const int key = 0x200 + m->prm;                     // distinct key from page-knob keys
+    if (!knob_new_position(ui, knob, key, value)) return false;
+    cfg_ctx_t c = {rack, (cfg_param_id_t)m->prm};
+    if (!knob_check_catch(ui, rack, knob, value, cfg_step, &c)) return false;
+    knob_set(cfg_step, &c, value);
+    ui->knob_cur[knob] = -2;
+    return true;
+}
+
+bool synth_ui_knob_shift_describe(const synth_ui_t *ui, const rack_t *rack, int row, char *name, int nn, char *value, int nv, int *arrow) {
+    if (row < 1 || row > SYNTH_UI_COL_KNOBS || ui->knob_shift[row - 1].kind != MACRO_GLOBAL) return false;
+    const cfg_param_id_t id = (cfg_param_id_t)ui->knob_shift[row - 1].prm;
+    snprintf(name, (size_t)nn, "%s", synth_config_label(id));
+    synth_config_format(&rack->cfg, id, value, (size_t)nv);
+    const int cd = ui->knob_catch_dir[row - 1];
+    *arrow = cd == 1 || cd == -1 ? cd : 0;              // 127: not measured yet
+    return true;
+}
+
+void synth_ui_catch_refresh(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, bool shift) {
+    page_t pg;
+    if (!ui->in_rack) get_page(ui, rack, ui->page, &pg);
+    for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) {
+        int8_t dir = 0;
+        int key = -1;
+        step_fn f = NULL;
+        row_ctx_t rc;
+        cfg_ctx_t cc;
+        void *ctx = NULL;
+        if (!ui->in_rack && ui->knob_val[k] >= 0 && !rack->cfg.knob_mode) {
+            if (shift) {
+                const macro_t *m = &ui->knob_shift[k];
+                if (m->kind == MACRO_GLOBAL) { cc = (cfg_ctx_t){rack, (cfg_param_id_t)m->prm}; f = cfg_step; ctx = &cc; key = 0x200 + m->prm; }
+            } else if (k + 1 <= pg.count && row_is_knobbable(rack, &pg, k + 1)) {
+                rc = (row_ctx_t){ui, params, seq, rack, &pg, k + 1}; f = row_step; ctx = &rc; key = ui->page * 8 + k + 1;
+            }
+        }
+        if (f) {
+            int total;
+            const int cur = knob_measure(f, ctx, &total);
+            int idx = (int)((long)ui->knob_val[k] * (total + 1) / (INPUT_VALUE_MAX + 1));
+            if (idx > total) idx = total;
+            // A knob that set the value itself stays caught until something else changes the parameter (walking can measure it one step off).
+            // Only for the same target: Shift swaps the target, and a knob that set the page value has not caught the Shift target.
+            const bool same = ui->knob_key[k] == key;
+            const bool kept = same && (ui->knob_cur[k] == -2 || (ui->knob_catch_dir[k] == 0 && ui->knob_cur[k] == cur));
+            dir = (int8_t)(kept || idx == cur ? 0 : idx > cur ? -1 : 1);
+            ui->knob_cur[k] = cur;
+            ui->knob_key[k] = key;
+        } else {
+            ui->knob_cur[k] = -1;
+        }
+        ui->knob_catch_dir[k] = dir;
+    }
+}
+
 // The macros start on the first filter's cutoff and resonance and the first LFO's rate, when the rack has them.
+// Shift-knob defaults: knob 0 = speaker level, knob 1 = master volume, knobs 2/3 unassigned.
 void macros_default(synth_ui_t *ui, const rack_t *rack) {
     for (int k = 0; k < SYNTH_UI_MACROS; k++) macro_clear(&ui->macro[k]);
     int fl = RACK_NONE, lf = RACK_NONE;
@@ -211,7 +314,11 @@ void macros_default(synth_ui_t *ui, const rack_t *rack) {
         ui->macro[1] = (macro_t){MACRO_MODULE, rack->slot[fl].id, MP_FL_RES};
     }
     if (lf != RACK_NONE) ui->macro[2] = (macro_t){MACRO_MODULE, rack->slot[lf].id, MP_LF_RATE};
+    for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) macro_clear(&ui->knob_shift[k]);
+    ui->knob_shift[0] = (macro_t){MACRO_GLOBAL, 0, CFGP_SPEAKER};
+    ui->knob_shift[1] = (macro_t){MACRO_GLOBAL, 0, CFGP_VOLUME};
     for (int i = 0; i < SYNTH_UI_KNOBS; i++) { ui->knob_key[i] = -1; ui->knob_pos[i] = -1; }
+    for (int i = 0; i < SYNTH_UI_COL_KNOBS; i++) { ui->knob_catch_dir[i] = 127; ui->knob_val[i] = -1; ui->knob_cur[i] = -1; }   // force catch on first touch
 }
 
 /* ---------------- events ---------------- */
@@ -227,6 +334,22 @@ static int rows_on_screen(const synth_ui_t *ui, const rack_t *rack) {
 bool synth_ui_handle(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, ui_event_t e) {
     if (e == UI_PLAY) { seq_set_running(seq, !seq->running); return false; }
     if (e == UI_ROW_TOP) { ui->row = 0; ui->latched = false; return false; }
+
+    if (e >= UI_JUMP_1 && e <= UI_JUMP_8) {
+        const int slot = e - UI_JUMP_1;
+        const jump_slot_t *j = &ui->jump[slot];
+        if (!j->valid) return false;
+        ui->latched = false;
+        if (ui->in_rack && !j->in_rack && ui->rack_dirty) {      // leaving the rack editor: same as closing it with MENU
+            ui->rebuild = true; ui->rack_dirty = false; synth_ui_rebuild_pages(ui, rack);
+        }
+        ui->in_rack  = j->in_rack;
+        ui->menu_tab = j->menu_tab < tab_count(rack) ? j->menu_tab : 0;
+        ui->page     = j->page < ui->page_count ? j->page : 0;
+        const int rows = rows_on_screen(ui, rack);
+        ui->row      = j->row > rows ? rows : j->row;
+        return false;
+    }
 
     // Every tab of the menu is a declarative screen (ui_screen.h) and gets the events as they are. The main view (pages) is not converted yet:
     // it understands only the old events, so the joystick moves the row / changes the value, encoder B changes the value, a push of the joystick activates.

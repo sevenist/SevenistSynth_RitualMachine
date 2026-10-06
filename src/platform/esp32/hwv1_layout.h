@@ -39,7 +39,6 @@ static const control_id_t kHwv1KeyMap[HW_KBD_ROWS][HW_KBD_COLS] = {
 };
 #undef K
 #define HWV1_KEY_PRESENT(row, col) ((row) > 0 || (col) < 4)
-#define HWV1_BOOT_HOLD_MS 2000          // the top-left function key held this long at power-on: input_boot_reset() (the key layout is reset)
 
 // ---- relative knobs ---------------------------------------------------------------------------------------------------------
 // 7 potentiometers without end stops. Each one is read as a sin / cos pair on two mux channels (pot n -> channels 2+2n and 3+2n) and

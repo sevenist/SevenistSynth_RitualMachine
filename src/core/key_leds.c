@@ -20,7 +20,7 @@ static led_color_t key_color(const app_t *app, control_id_t ctl, key_fn_t f) {
         case ACT_BACK:   return rgb(90, 0, 0);
         case ACT_PLAY:   return app->seq.running ? rgb(0, 255, 0) : rgb(0, 50, 0);
         case ACT_OCTAVE: return (f.arg > 0 ? app->in.octave > 0 : app->in.octave < 0) ? rgb(170, 0, 255) : rgb(50, 0, 80);
-        case ACT_JUMP:   return app->ui.jump[f.arg & 7].valid ? rgb(0, 160, 120) : rgb(0, 40, 30);
+        case ACT_JUMP:   return synth_ui_jump_ready(&app->ui, &app->rack, f.arg & 7) ? rgb(0, 160, 120) : rgb(0, 40, 30);   // bright: a jump goes somewhere now
         case ACT_NONE:   return rgb(0, 0, 0);
         default:         return rgb(30, 30, 30);                              // navigation and the other control actions
     }

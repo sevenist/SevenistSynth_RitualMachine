@@ -55,7 +55,7 @@ int tab_count(const rack_t *r);
 tab_t tab_kind(const rack_t *r, int idx);
 const char *tab_name(tab_t t);
 int tab_rows(tab_t t);
-int tab_index_of(const rack_t *r, tab_t t);
+int tab_index_of(const rack_t *r, tab_t t);       // index of the tab of that kind in the current synth type, -1 = the type has none
 
 /* ---- ui_input.c ---- */
 void macros_default(synth_ui_t *ui, const rack_t *rack);

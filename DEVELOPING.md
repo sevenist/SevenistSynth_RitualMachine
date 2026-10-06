@@ -54,13 +54,13 @@ On an AZERTY keyboard the keys keep their physical position: "Q" is the key labe
 Three layouts are built in (in flash); the fourth, *User*, is the user's. In the KEYS tab: *Layout* picks one, *Key* picks a key (or press it: on this tab a key
 selects itself and only notes, Shift and Menu still act), *Func* gives it a function (the controls, then notes C4..B7; editing a built-in layout copies it into
 User), *Reset* goes back to *Keys 8x4*. The right box lists the keys with their functions. The layout and the User keys are saved in `system/config/keys.cfg` on the
-TF card when the menu closes (a text file: `layout user` then `key <row>.<col> <function>` lines, editable on a PC; the simulator's card is `sdcard/`). A card that
+TF card when the menu closes (the other UI settings, Knob mode, jump slots and Shift-knob targets, are in `system/config/ui.cfg`: `core/ui_settings.c`, written 2 s after a change) (a text file: `layout user` then `key <row>.<col> <function>` lines, editable on a PC; the simulator's card is `sdcard/`). A card that
 shows up gives its `keys.cfg`, unless the keys were changed meanwhile (then they are written to it). **Lock-out escape**: hold F1 (the top-left function key)
 for 2 s within 4 s of start: the layout goes back to *Keys 8x4* and a "KEYS RESET" screen shows until F1 is released.
 
 **Jump keys.** *Func* also offers `Jump 1..8` (`ACT_JUMP`, arg = slot). Pressing a jump key goes to the location saved in its slot (menu or main view, tab, page, row; `synth_ui_t.jump[]`,
 `ui_input.c`); **Shift + the key saves the current location** in the slot. Leaving the rack editor by a jump rebuilds the synth like closing it with Menu; a saved row / page is clamped to
-what exists now (saved page numbers go stale when the rack is edited). The slots are not saved to the card yet (lost at power-off). The key's LED is dim teal when the slot is empty, bright when saved.
+what exists now (saved page numbers go stale when the rack is edited). The slots are saved in `system/config/ui.cfg` (`core/ui_settings.c`). A slot stores WHAT it points at (`jump_slot_t`: module id + type + which of its pages, a global page, or a menu tab's kind), resolved to a page index once per page rebuild (`synth_ui_jump_resolve`): inserting modules does not move it; deleting its module clears it (LED dim); a page the synth type does not show (FM) makes it wait (popup "Not in this synth"). The key's LED is dim teal when the slot is empty, bright when saved.
 On the KEYS tab a jump key only selects itself.
 
 Requirements: MSYS2 UCRT64 (`C:\msys64\ucrt64`) with gcc, g++ and SDL2, and Python 3 for the generator tools.

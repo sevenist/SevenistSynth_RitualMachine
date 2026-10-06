@@ -3,6 +3,7 @@
 #include "core/ui_screen.h"
 #include "hal/hal_input.h"
 #include <stdio.h>
+#include <string.h>
 
 /* ---- pages are generated from the rack: every module contributes its own pages, then the
  *      global pages follow (amp envelope, sequencer). ---- */
@@ -96,6 +97,51 @@ void synth_ui_rebuild_pages(synth_ui_t *ui, const rack_t *rack) {
     ui->page_count = n;
     if (ui->page >= n) ui->page = n - 1;
     if (ui->page < 0) ui->page = 0;
+    synth_ui_jump_resolve(ui, rack);
+}
+
+/* ---------------- jump slots: saved by identity, resolved once per page rebuild ---------------- */
+
+void synth_ui_jump_save(synth_ui_t *ui, const rack_t *rack, int k) {
+    jump_slot_t *j = &ui->jump[k];
+    memset(j, 0, sizeof *j);
+    j->valid = true;
+    j->row = (uint8_t)(ui->row < 0 ? 0 : ui->row);
+    if (ui->in_rack) {
+        j->in_rack = true;
+        j->tab = (uint8_t)tab_kind(rack, ui->menu_tab);
+        j->at = (int16_t)ui->menu_tab;
+        return;
+    }
+    const int slot = ui->pg_slot[ui->page];
+    if (slot != GLOBAL_PAGE) { j->mod_id = rack->slot[slot].id; j->mod_type = rack->slot[slot].type; }
+    j->def = ui->pg_def[ui->page];
+    j->at = (int16_t)ui->page;
+}
+
+// One pass over the pages per slot (at most SYNTH_UI_MAX_PAGES bytes), only when the pages were rebuilt; a key press then reads `at`.
+void synth_ui_jump_resolve(synth_ui_t *ui, const rack_t *rack) {
+    for (int k = 0; k < SYNTH_UI_JUMP_SLOTS; k++) {
+        jump_slot_t *j = &ui->jump[k];
+        if (!j->valid) continue;
+        if (j->in_rack) { j->at = (int16_t)tab_index_of(rack, (tab_t)j->tab); continue; }
+        int slot = GLOBAL_PAGE;
+        if (j->mod_id) {
+            const int s = rack_find(rack, j->mod_id);
+            if (s == RACK_NONE || rack->slot[s].type != j->mod_type) { j->valid = false; continue; }   // the module is gone: the slot is free again
+            slot = s;
+        }
+        j->at = -1;                                                   // the module exists but its pages are not shown (FM, Strings): the slot waits
+        for (int p = 0; p < ui->page_count; p++)
+            if (ui->pg_slot[p] == slot && ui->pg_def[p] == j->def) { j->at = (int16_t)p; break; }
+    }
+}
+
+bool synth_ui_jump_ready(const synth_ui_t *ui, const rack_t *rack, int k) {
+    const jump_slot_t *j = &ui->jump[k];
+    if (!j->valid) return false;
+    if (j->in_rack) return tab_index_of(rack, (tab_t)j->tab) >= 0;             // the tab list follows the synth type at once, so it is looked up here
+    return j->at >= 0 && j->at < ui->page_count;
 }
 
 void get_page(const synth_ui_t *ui, const rack_t *rack, int idx, page_t *out) {
@@ -164,5 +210,5 @@ int tab_rows(tab_t t) { return screen_for_tab(t)->n; }      // every tab is a de
 
 int tab_index_of(const rack_t *r, tab_t t) {
     for (int i = 0; i < tab_count(r); i++) if (tab_kind(r, i) == t) return i;
-    return 0;
+    return -1;
 }

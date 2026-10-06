@@ -339,13 +339,14 @@ bool synth_ui_handle(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t 
         const int slot = e - UI_JUMP_1;
         const jump_slot_t *j = &ui->jump[slot];
         if (!j->valid) return false;
-        ui->latched = false;
-        if (ui->in_rack && !j->in_rack && ui->rack_dirty) {      // leaving the rack editor: same as closing it with MENU
+        if (ui->in_rack && !j->in_rack && ui->rack_dirty) {      // leaving the rack editor: same as closing it with MENU (the slots are resolved again)
             ui->rebuild = true; ui->rack_dirty = false; synth_ui_rebuild_pages(ui, rack);
         }
-        ui->in_rack  = j->in_rack;
-        ui->menu_tab = j->menu_tab < tab_count(rack) ? j->menu_tab : 0;
-        ui->page     = j->page < ui->page_count ? j->page : 0;
+        if (!synth_ui_jump_ready(ui, rack, slot)) return false;  // cleared (its module was deleted) or not shown in this synth type: stay
+        ui->latched = false;
+        ui->in_rack = j->in_rack;
+        if (j->in_rack) ui->menu_tab = tab_index_of(rack, (tab_t)j->tab);
+        else            ui->page = j->at;
         const int rows = rows_on_screen(ui, rack);
         ui->row      = j->row > rows ? rows : j->row;
         return false;

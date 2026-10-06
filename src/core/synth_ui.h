@@ -48,12 +48,18 @@ typedef enum {
 typedef enum { MACRO_NONE, MACRO_MODULE, MACRO_GLOBAL, MACRO_SEQ } macro_kind_t;
 typedef struct { uint8_t kind, id, prm; } macro_t;      // MODULE: rack slot id + parameter index in slot.v[]; GLOBAL: param_id_t; SEQ: seq_param_id_t
 
+// A jump slot remembers WHAT it points at, not where it was: page indexes and tab positions change when the rack or the synth type changes.
+//   a module page:  mod_id (the module's rack id, stable while it exists; never reused) + mod_type (a guard against a replaced rack) + def (which of its pages)
+//   a global page:  mod_id 0 + def (GP_*)
+//   a menu tab:     in_rack + tab (tab_t, the kind of tab)
+// `at` is derived (synth_ui_jump_resolve, after every page rebuild): the page index now, -1 = not shown in this synth type (the slot waits).
 typedef struct {
     bool    valid;
     bool    in_rack;
-    int     page;
-    int     row;
-    int     menu_tab;
+    uint8_t mod_id, mod_type, def;
+    uint8_t tab;
+    uint8_t row;
+    int16_t at;
 } jump_slot_t;
 
 #define SYNTH_UI_JUMP_SLOTS 8
@@ -117,6 +123,12 @@ bool synth_ui_set_volume(synth_ui_t *ui, rack_t *rack, int value);              
 bool synth_ui_macro(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int k, int value);       // macro k = 0..2
 bool synth_ui_macro_learn(synth_ui_t *ui, const rack_t *rack, int k);        // macro k takes the parameter under the cursor
 void synth_ui_macro_describe(const synth_ui_t *ui, const rack_t *rack, int k, char *out, int n);   // "R1 > FL1 Cut"
+
+// Jump slots (see jump_slot_t). save: the page / tab on screen goes into slot k. resolve: finds every slot's page again (called by
+// synth_ui_rebuild_pages; a slot whose module was deleted is cleared). ready: the slot can be jumped to now (its LED is bright).
+void synth_ui_jump_save(synth_ui_t *ui, const rack_t *rack, int k);
+void synth_ui_jump_resolve(synth_ui_t *ui, const rack_t *rack);
+bool synth_ui_jump_ready(const synth_ui_t *ui, const rack_t *rack, int k);
 
 // True while the KEYS tab of the menu is on screen (a matrix key then selects itself in the list).
 bool synth_ui_on_keys_tab(const synth_ui_t *ui, const rack_t *rack);

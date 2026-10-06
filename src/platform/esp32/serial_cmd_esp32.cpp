@@ -5,6 +5,7 @@
 #include <string.h>
 #include "hal/hal_audio.h"
 #include "platform/engine/engine_synth.h"
+#include "core/ui_settings.h"
 #include "platform/esp32/serial_cmd_esp32.h"
 #ifdef HWV1
 #include "platform/esp32/leds_esp32.h"
@@ -29,6 +30,7 @@ void release_all() { for (int n = 0; n < 128; n++) note_off(n); chord_held = 0; 
 void use_rack() {
     release_all();
     synth_ui_init(&g_app->ui, &g_app->rack);
+    ui_settings_load(&g_app->ui, &g_app->rack);         // the jump slots and Shift targets stay (the autosave would write the reset ones)
     audio_build(&g_app->rack, &g_app->params);
     g_app->dirty = true;
 }

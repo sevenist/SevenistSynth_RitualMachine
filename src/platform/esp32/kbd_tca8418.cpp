@@ -22,7 +22,6 @@ bool present = false;
 uint8_t fail_count = 0;
 uint32_t last_watchdog = 0;
 bool down[HW_KBD_ROWS][HW_KBD_COLS];
-bool boot_hold = false;
 
 uint8_t read_reg(uint8_t reg) {
     Wire1.beginTransmission(HW_TCA_ADDR);
@@ -79,28 +78,9 @@ void recover_bus() {
     drain_fifo();
     fail_count = 0;
 }
-// Is the key between TCA row `row` and column `col` held, held for `hold_ms`? The key scan reports CHANGES only, so a key that is already down
-// when the matrix is configured never makes an event. This reads it before the scan starts: after begin() every pin is a GPIO input with its
-// pull-up on, so driving the column low pulls the row low through a held key. Polled every 10 ms; returns at once when the key is not down.
-bool key_held_raw(int row, int col, uint32_t hold_ms) {
-    constexpr uint8_t REG_DAT_STAT_1 = 0x14, REG_DAT_OUT_2 = 0x18, REG_DIR_2 = 0x24, REG_PULL_1 = 0x2C;
-    const uint8_t cbit = static_cast<uint8_t>(1u << col), rbit = static_cast<uint8_t>(1u << row);
-    write_reg(REG_PULL_1, read_reg(REG_PULL_1) & ~rbit);   // the row's pull-up on (0 = enabled; it is the reset state)
-    write_reg(REG_DAT_OUT_2, read_reg(REG_DAT_OUT_2) & ~cbit);
-    write_reg(REG_DIR_2, cbit);                            // only this column drives (low)
-    bool held = true;
-    for (uint32_t t0 = millis(); held && millis() - t0 < hold_ms;) {
-        delay(10);
-        held = (read_reg(REG_DAT_STAT_1) & rbit) == 0;
-    }
-    write_reg(REG_DIR_2, 0x00);                            // back to inputs before the matrix takes the pins
-    return held;
-}
 }  // namespace
 
-bool kbd_boot_hold(void) { return boot_hold; }
-
-bool kbd_init(int hold_row, int hold_col, uint32_t hold_ms) {
+bool kbd_init(void) {
     Wire1.begin(PIN_KBD_SDA, PIN_KBD_SCL, HW_KBD_I2C_HZ);
     Wire1.setTimeout(3);
     delay(200);                                // pull-ups and the chip's supply settle
@@ -109,10 +89,6 @@ bool kbd_init(int hold_row, int hold_col, uint32_t hold_ms) {
         if (!present) delay(200);
     }
     if (!present) { Serial.println("[KBD] TCA8418 not found"); return false; }
-    if (hold_row >= 0 && hold_row < 8 && hold_col >= 0 && hold_col < 8) {
-        boot_hold = key_held_raw(hold_row, hold_col, hold_ms);
-        if (boot_hold) Serial.printf("[KBD] key r%d c%d held at power-on for %u ms\n", hold_row, hold_col, (unsigned)hold_ms);
-    }
     apply_config();
     drain_fifo();
     memset(down, 0, sizeof down);

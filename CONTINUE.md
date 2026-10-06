@@ -6,25 +6,27 @@ not: state, the latest measurements and what to do next, the user's working styl
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
 `tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
-## Session todo (updated 2026-10-06, second UI session)
+## Session todo (updated 2026-10-07)
 
-- [ ] Shift + column knob 2 = master volume (on HWV1 the volume also has its own knob, pot 0; on the new prototype the volume is Shift + knob only). Fixed on the host, built, NOT flashed:
-  (1) `CFGP_VOLUME` steps are an integer count (0.05 x 0..40): adding 0.05 drifted, the knob walk saw 41 steps and the first catch check dropped the volume one step;
-  (2) `synth_ui_catch_refresh`: the "knob set this value" mark (`knob_cur == -2`) counts only for the same target, so a page-knob move no longer makes the Shift target "caught" (the volume jumped 2.00 -> 0.95 on the next move).
-  (3) feedback: Shift + col knob raises an INFO popup (target name, value, the turn arrow while not caught; "No Shift target" for knobs 3 / 4), and the page rows hide their catch arrows while Shift is held (`ui->shift_held`).
-  Done = the user hears / sees it work on the board (from: user)
-- [ ] Popup widget (`core/popup.c`): INFO / ERROR / ASK built, host-checked with `ui_dump` (128 x 64: wrap, Yes / No focus, queue ERROR behind ASK, Latch closes), firmware builds, NOT flashed.
-  Board test: Shift + knobs; serial `popup ask` then joystick left / right + push (prints `[CMD] popup answer`), `popup error`. Not yet used by the SD code (next todo items) (from: user)
-- [ ] Persist the UI settings together with the key bindings (one settings file on the TF card, or `keys.cfg` extended): Knob mode, jump slots, Shift-knob targets; done = they survive a reboot (from: user)
-- [ ] Card events + folder layout (built, host-tested, firmware builds, NOT flashed). User decisions 2026-10-06: layout **all under /system** (`system/samples`, `system/config` with keys.cfg,
-  `import`, `presets`; `STORAGE_FOLDERS` in hal_storage.h), missing folders -> **ASK popup** (No focused; Yes = make them, moving the old `/samples` and `/keys.cfg` into `/system`).
-  `storage_poll_event()`: INSERTED (read time, slow, missing mask), REMOVED, FOLDERS_DONE; the app shows them as popups (the full-screen "too slow" notice is gone).
-  Simulator: the card is `sdcard/` (build.ps1 makes the folders and copies samples there), F12 = out / in. Host checks: ui_dump `UI_DUMP_CARD=new|part|slow`, a scratch test of storage_sim.c (migration, toggle).
-  **Board test: the user's card still has the old layout: expect "Card inserted" + the ASK; Yes must move /samples and keys.cfg (back the card up first: FAT renames + mkdir through our write driver).**
-  `build.ps1 -Sd E:` now copies to `E:\system\samples` (from: user)
+- [x] F1 key reset after the revert: checked by the user on the board, works; popups at boot OK (done 2026-10-07). Risk kept: F1 is the Shift key, so Shift held 2 s within 4 s
+  of start resets the layout (fix if it bites: shorter window / longer hold in keymap.h, or a key combination)
+- F1 history: the board-side power-on read (`kbd_init` polled F1 for up to 2 s before the key scan, commit f714a84) held the boot too long: REVERTED 2026-10-07
+  (kbd_tca8418.* back to 0d15ed6, `input_boot_reset()` returns false on the board). What remains is the app's check: F1 pressed within 4 s of start (`KEYMAP_RESET_WINDOW_MS`), held 2 s
+  (`KEYMAP_RESET_HOLD_MS`); before f714a84 that did not fire for a key already held at power-on (the TCA reports changes only). The user compares, then decides. Also: the KEYS RESET
+  screen hides the popups now, and "Card inserted" is not shown in the first 5 s after start (`CARD_QUIET_MS`; errors and the folder ASK still show). Built, NOT flashed (from: user)
+- [ ] UI settings saved (built, host round trip tested, firmware builds, NOT flashed): `core/ui_settings.c`, `system/config/ui.cfg` next to keys.cfg (a separate text file: `knob`, `jump N page P row R` /
+  `jump N menu T row R`, `shift N cfg <label>` / `none`). Loaded at start and when a card arrives (unsaved changes are written to it instead, as keys.cfg); saved by itself 2 s after
+  a change (`settings_autosave` in app.c, no menu close needed). Board test: set Knob Direct, save two jump slots, wait 2 s, reboot: all three must come back (from: user)
+- [ ] Jump slots by identity (built, host-tested: insert in front, delete the module, FM and back, old-format conversion; NOT flashed): a slot = module id + type + page def /
+  global page / menu tab kind, resolved once per page rebuild. Module deleted -> slot cleared (LED dim); page not shown by the synth type -> waits (popup). Future rack presets must
+  save module ids, or slots into a replaced rack are dropped (never wrong: the type guard) (from: user)
 - [ ] Unformatted card: a mount that fails for lack of a file system is still "no card"; an ASK "format?" needs FATFS mkfs on the card and a decision (from: user)
-- [x] Jump keys and Shift + jump save: work on the board, no parameter reset (done 2026-10-06, checked by the user)
-- [x] Catch fixes (`knob_measure` restores the value) flashed; no reset reported (done 2026-10-06, checked by the user)
+- [ ] MODIFIERS menu tab, like the KEYS tab: configure what Shift + a control does and the same for a Mod / Alt key (in the simulator: B2, Backspace), including Shift / Mod + each knob
+  (the Shift-knob targets of ui.cfg move there; today the bindings are the fixed table in bindings.c and knobs 3 / 4 have no Shift target); saved on the card (from: user)
+- [x] Shift + column knobs (volume, speaker, popup feedback): works everywhere on the board, more testing later (done 2026-10-07)
+- [x] Listen: cutoff glide, 32-bit bus on loud chords, sampler after the loop fix: OK, the filter sounds nice; a check on a good sound system later (done 2026-10-07)
+- [x] Popup widget (`core/popup.c`: INFO / ERROR / ASK, modal queue, actions routed through the bindings): checked on the board, Yes / No works (done 2026-10-06)
+- [x] Card events + folder layout (all under /system, ASK before creating, old /samples and /keys.cfg moved): checked on the board with the user's card, messages show, no bug (done 2026-10-06)
 
 Open, UI:
 - [ ] Role-based key LED colours, configurable and saved on the TF card (the jump LEDs would be one role) (from: user)
@@ -34,10 +36,8 @@ Open, UI:
 - [ ] The full list of UI/UX items from the start of this session was not copied into this file: ask the user whether anything on it (for example Shift + F1..F4 section keys, now covered by the jump keys?) is still open (from: notes)
 
 Open, engine / board:
-- [ ] Listen: 20 ms cutoff glide, 32-bit bus on loud chords; say what to change (from: user)
 - [ ] Integration findings for an engine-independent "audio backend" interface (own voice allocator, mono -> stereo, memory policy, measurement hooks) (from: user)
-- [ ] Check the F1 power-on keys reset (`[KBD] key r4 c7 held at power-on`) (from: notes)
-- [ ] Decide the SD options (a)-(d) and listen to the sampler after the loop fix (from: notes)
+- [ ] Decide the SD options (a)-(d) (from: notes)
 - [ ] Internal RAM for the startup patch: what stays internal with a 74 KB fast heap (reverb tank, delay, filters) or free internal RAM (IRAM code 124 KB) (from: measurements)
 
 ## UI/UX round (2026-10-06; built, mostly confirmed by the user on the board; the user flashes)
@@ -58,7 +58,7 @@ The user wanted the confusion about the joystick gone and a safer knob. Order ta
 - **RACK tab links** (`scr_rack.c`): every link is drawn; a module scrolled out of the window stands at the window border on its side (stub + lane), so links never vanish while scrolling.
 - **Jump keys** (`ACT_JUMP`, `UI_JUMP_1..8` that the user added to `ui_event_t`; `jump[]` in `synth_ui_t`; `fns[]` in `keymap.c`): Shift + key saves (`in_rack`, tab, page, row), key goes there.
   A first version had two actions and no keymap entry (unreachable): found by a review the user asked for after a model change; fixed. Leaving the rack editor by a jump now rebuilds the synth.
-- Risks / limits: the jump slots and the knob mode are not saved; saved page numbers go stale after rack edits (clamped, may land elsewhere); `catch_stale` is a file-level static in `app.c`;
+- Risks / limits: (the jump slots and the knob mode are saved since 2026-10-07, ui.cfg; slots point at module id + page since 2026-10-07, so rack edits no longer move them); `catch_stale` is a file-level static in `app.c`;
   refresh walks up to four parameters per manual change (cheap, not measured on the board).
 
 ## Filters, UI latency, voice bus (2026-10-06; flashed and measured, NOT listened to; decisions in ENGINE_DESIGN.md ADR-038)
@@ -171,7 +171,8 @@ The user reported glitchy sampler playback, loops misplaced / shifted, 2-3 voice
 - **Card handling** (new, tested with the old card on the board, and the screen in `ui_dump`): the card is polled once a second (no card-detect pin). A card whose sector read takes more than 15 ms is not used and the app shows "SD CARD TOO SLOW"; removal or a swap resets the catalog (loaded sample slots stay in memory until reboot: known debt) and the app rebuilds the synth (a 170 ms audio stall, once per card event).
   A failing mount attempt must never busy-wait (it starved the idle task before): the own driver returns quickly when no card answers.
 - Task priorities are in DEVELOPING.md ("Tasks and priorities"). `samples_src/` + `build.ps1` (`-Sd E:` copies to the card) is the sample workflow; names are cut to 23 characters; only `.smp` is read on the board.
-- `platformio.ini` currently has `-DENGINE_SR=44100` (the user's test), `DEV_OUTPUT_GAIN_PCT=12`, and the measurement flags (`DEV_SERIAL_CMD`, `ENGINE_PROFILE`, `HWV1_DEBUG_AUDIO`) on.
+- `platformio.ini` (2026-10-07, set by the user): `-DENGINE_SR=44100`, `DEV_OUTPUT_GAIN_PCT=25`, `DEV_BOOT_DELAY_MS=500`, `DEV_SERIAL_CMD` on; **`HWV1_BENCH`, `ENGINE_PROFILE`,
+  `HWV1_DEBUG_AUDIO`, `HWV1_DEBUG_UI` are commented out: turn them back on before any measurement (`serial_test.py` needs `ENGINE_PROFILE` + `HWV1_DEBUG_AUDIO`)**.
 
 ## Latest measurements (prototype, startup patch, mono FX + half-rate reverb, budget 160000 cycles per 32-frame block)
 
@@ -258,7 +259,7 @@ The user decides and I record the reasoning and move on, without re-litigating:
 
 ## Known debt / small issues
 
-- UI: the main view (pages) is not a declarative screen yet (no latch, old events); the Mono / Para GENERAL tab has 7 rows and only scrolls on a short screen; the Knob mode, jump slots and Shift-knob targets are not saved;
+- UI: the main view (pages) is not a declarative screen yet (no latch, old events); the Mono / Para GENERAL tab has 7 rows and only scrolls on a short screen; the Knob mode, jump slots and Shift-knob targets are saved in ui.cfg (2026-10-07);
   the sim's panel does not draw the key LEDs; this session's UI changes were verified on the board by the user, not by host tests (the 160 engine tests do not cover `src/core/ui_*.c`; `tools/ui_dump.c` can).
 - Sample library: whole files are copied to RAM in the simulator; loaded samples are never unloaded; imports block the UI thread; a rack stores the file *index*
   (names needed when saving). Zones are engine-only (no UI). MS targets are limited to what the mapper realises (OC Pit / Lvl / PW, FL Cut, SA Drv, SM Pit).

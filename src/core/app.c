@@ -2,6 +2,7 @@
 #include "core/gui.h"
 #include "core/key_leds.h"
 #include "core/keymap.h"
+#include "core/ui_settings.h"
 #include "core/sprites.h"
 #include "hal/hal_audio.h"
 #include "hal/hal_display.h"
@@ -32,6 +33,8 @@ void app_init(app_t *app, u8g2_t *display) {
     seq_init(&app->seq);
     rack_init_startup(&app->rack);
     synth_ui_init(&app->ui, &app->rack);
+    ui_settings_load(&app->ui, &app->rack);   // Knob mode, jump slots, Shift-knob targets (the board's card shows up later: check_sd)
+    app->settings_pending = false;
     audio_build(&app->rack, &app->params);
     if (input_boot_reset()) {           // the reset key was held at power-on (read by the board before its key scan started)
         keymap_reset();
@@ -165,12 +168,18 @@ static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             const int slot = b->arg;
             if (slot < 0 || slot >= SYNTH_UI_JUMP_SLOTS) break;
             if (app->in.shift) {
-                app->ui.jump[slot] = (jump_slot_t){true, app->ui.in_rack, app->ui.page, app->ui.row, app->ui.menu_tab};
+                synth_ui_jump_save(&app->ui, &app->rack, slot);
                 snprintf(app->status, sizeof app->status, "Saved jump %d", slot + 1);
                 app->dirty = true;
             } else {
                 ui_event(app, (ui_event_t)(UI_JUMP_1 + slot));
-                snprintf(app->status, sizeof app->status, app->ui.jump[slot].valid ? "Jump %d" : "Jump %d (empty)", slot + 1);
+                const bool ready = synth_ui_jump_ready(&app->ui, &app->rack, slot);
+                snprintf(app->status, sizeof app->status, ready ? "Jump %d" : app->ui.jump[slot].valid ? "Jump %d: not in this synth" : "Jump %d (empty)", slot + 1);
+                if (!ready && app->ui.jump[slot].valid) {           // saved, but its page or tab is not shown by this synth type (it comes back with the type)
+                    char t[24];
+                    snprintf(t, sizeof t, "Jump %d", slot + 1);
+                    popup_info(&app->popup, t, "Not in this synth", 0, audio_millis(), POPUP_INFO_MS);
+                }
             }
             break;
         }
@@ -297,11 +306,13 @@ static void draw_keys_notice(app_t *app) {
 // One frame: the full-screen notice or the UI, the popup on top, then the buffer goes to the display.
 static void draw_frame(app_t *app) {
     u8g2_t *g = app->display;
-    if (app->keys_notice) draw_keys_notice(app);
-    else synth_ui_draw(&app->ui, &app->params, &app->seq, &app->rack, g);
-    gui_style_t st;
-    gui_style_init(&st, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
-    popup_draw(&app->popup, g, &st);
+    if (app->keys_notice) draw_keys_notice(app);   // the full-screen notice hides the popups until it goes (they wait in their queue)
+    else {
+        synth_ui_draw(&app->ui, &app->params, &app->seq, &app->rack, g);
+        gui_style_t st;
+        gui_style_init(&st, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
+        popup_draw(&app->popup, g, &st);
+    }
     display_send(g);
 }
 
@@ -311,14 +322,30 @@ static void check_sd(app_t *app) {
     const uint32_t gen = audio_sd_generation();
     if (gen == app->sd_gen) return;
     app->sd_gen = gen;
-    if (audio_sd_state() != SD_NONE) { if (keymap_dirty()) keymap_save(); else keymap_load(); }
+    if (audio_sd_state() != SD_NONE) {
+        if (keymap_dirty()) keymap_save(); else keymap_load();
+        if (ui_settings_changed(&app->ui, &app->rack)) ui_settings_save(&app->ui, &app->rack); else ui_settings_load(&app->ui, &app->rack);
+    }
     audio_build(&app->rack, &app->params);
     app->dirty = true;
+}
+
+/* ---------------- UI settings (ui.cfg): saved by themselves a moment after they change ---------------- */
+
+#define SETTINGS_SAVE_MS 2000           // after the first change: a few edits in a row make one write
+
+static void settings_autosave(app_t *app, uint32_t now) {
+    if (!ui_settings_changed(&app->ui, &app->rack)) { app->settings_pending = false; return; }
+    if (!app->settings_pending) { app->settings_pending = true; app->settings_ms = now; return; }
+    if (now - app->settings_ms < SETTINGS_SAVE_MS || audio_sd_state() == SD_NONE) return;   // no card: saved when one shows up (check_sd)
+    if (ui_settings_save(&app->ui, &app->rack)) app->settings_pending = false;
+    else app->settings_ms = now;                                    // try again a bit later
 }
 
 /* ---------------- card events (hal_storage.h): what the platform found, told with popups ---------------- */
 
 #define CARD_INFO_MS 2000
+#define CARD_QUIET_MS 5000              // no "Card inserted" in the first seconds after start (the boot-time mount); errors and questions still show
 
 static void answer_folders(void *ctx, bool yes) {
     (void)ctx;
@@ -336,7 +363,7 @@ static void card_events(app_t *app) {
                 snprintf(t, sizeof t, "A read takes %u ms (max %u). Samples are off for this card.",
                          (unsigned)((ev.read_us + 500) / 1000), (unsigned)(ev.read_limit_us / 1000));
                 popup_error(&app->popup, "SD CARD TOO SLOW", t, NULL, NULL);
-            } else {
+            } else if (audio_millis() - app->boot_ms >= CARD_QUIET_MS) {   // a card that was in at power-on is no news
                 popup_info(&app->popup, "SD CARD", "Card inserted", 0, audio_millis(), CARD_INFO_MS);
             }
             if (ev.missing) {                           // the card is not set up (or only partly): ask before writing to it
@@ -390,6 +417,7 @@ bool app_step(app_t *app, input_event_t e) {
     }
     joy_repeat(app, now);
     key_reset_check(app, now);
+    settings_autosave(app, now);
 
     if (app->menu_open && !app->ui.in_rack && keymap_dirty() && !keymap_save())        // the menu was closed: the key layout goes to the card
         snprintf(app->status, sizeof app->status, "Keys not saved (no card)");

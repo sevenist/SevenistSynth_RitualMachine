@@ -56,6 +56,13 @@ void draw_engine_preview(u8g2_t *g, gui_rect_t box, int engine, float timbre, fl
                 v = sinf(u * (6.0f + 18.0f * (1.0f - timbre)) * 2 * PI_F) * expf(-u * (6.0f - 4.5f * morph));
             } break;
             case 6: for (int k = 1; k <= 8; k++) v += sinf((float)k * ph) * powf((float)k, -(2.0f - 1.8f * timbre)) * ((k & 1) ? 1.0f : 1.0f - morph); v *= 0.8f; break;
+            case 8: {                                                                // strings: a detuned pair of saw / pulse / triangle (morph thirds)
+                for (int k = -1; k <= 1; k += 2) {
+                    const float p = fmodf(ph * (1.0f + (float)k * 0.03f * timbre) / (2 * PI_F), 1.0f);
+                    v += morph < 0.34f ? 2.0f * p - 1.0f : (morph < 0.67f ? (p < 0.5f ? 1.0f : -1.0f) : 4.0f * fabsf(p - 0.5f) - 1.0f);
+                }
+                v *= 0.5f;
+            } break;
             default: {                                                               // dust: a few pings at pseudo-random places
                 const int cell = (int)(t * (4.0f + 28.0f * timbre));
                 const float u = t * (4.0f + 28.0f * timbre) - (float)cell;

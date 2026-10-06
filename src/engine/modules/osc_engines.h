@@ -12,14 +12,18 @@
 //   VOWEL formant vowel position A E I O U            resonance (bandwidth) of the formants
 //   ADD   additive (12 harmonics) brightness (slope)  odd / even balance (1 = odd only)
 //   DUST  crackle  density (2 Hz .. 4 kHz)            resonance of the pitched pings
+//   STR   strings  detune of a pair of oscillators    wave: saw -> pulse -> triangle (thirds)          (ADR-037: the Strings voice's oscillators)
+//
+// quality (STR, and nothing else here): 0 = Blep (means Mip for STR), 1 = Mip (band-limited tables), 2 = Naive (cheapest, aliases).
+// STR follows the pitch at block rate.
 //
 // in 0 pitch CV (like Osc), in 1 gate (strikes KARP / MODAL, retriggers); mod: pitch (+-pitch_mod), timbre, morph (q15, block rate).
 #include "engine/core/module.h"
 
 namespace sc {
 
-enum OscxEngine : int { OSCX_KARP, OSCX_MODAL, OSCX_FM2, OSCX_FOLD, OSCX_SSAW, OSCX_VOWEL, OSCX_ADD, OSCX_DUST, OSCX_ENGINES };
-enum { OSCX_ENGINE, OSCX_PITCH, OSCX_TIMBRE, OSCX_MORPH, OSCX_LEVEL, OSCX_PITCH_MOD, OSCX_N };
+enum OscxEngine : int { OSCX_KARP, OSCX_MODAL, OSCX_FM2, OSCX_FOLD, OSCX_SSAW, OSCX_VOWEL, OSCX_ADD, OSCX_DUST, OSCX_STR, OSCX_ENGINES };
+enum { OSCX_ENGINE, OSCX_PITCH, OSCX_TIMBRE, OSCX_MORPH, OSCX_LEVEL, OSCX_PITCH_MOD, OSCX_QUAL, OSCX_N };
 
 constexpr int T_OSCX = 60;
 

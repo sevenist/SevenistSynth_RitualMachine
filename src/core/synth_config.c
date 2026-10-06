@@ -1,13 +1,14 @@
 #include "core/synth_config.h"
 #include <stdio.h>
 
-static const char *const type_names[SYNTH_TYPE_COUNT] = {"Modular", "Mod Mono", "FM", "FM Mono", "Strings"};
+static const char *const type_names[SYNTH_TYPE_COUNT] = {"Modular", "Mod Mono", "Mod Para", "FM", "FM Mono", "Strings"};
+static const char *const para_env_names[PARA_ENV_COUNT] = {"Legato", "Retrig", "Voice"};
 
 static const int glide_ms[] = {0, 25, 50, 100, 200, 400, 800};
 #define GLIDE_STEPS ((int)(sizeof glide_ms / sizeof glide_ms[0]))
 #define SPEAKER_STEPS 20                   // 5 % each
 
-static const char *const labels[CFGP_GENERAL_COUNT] = {"Type", "Patch", "Voices", "Glide", "Legato", "Vol", "Out", "Spk"};
+static const char *const labels[CFGP_GENERAL_COUNT] = {"Type", "Patch", "Voices", "Glide", "Legato", "Vol", "Out", "Spk", "PEnv"};
 
 void synth_config_init(synth_config_t *c) {
     c->type = SYNTH_MOD_MONO;              // one real voice: the full budget for one patch (ADR-036)
@@ -16,6 +17,7 @@ void synth_config_init(synth_config_t *c) {
     c->str_voices = SYNTH_STR_MAX_VOICES;
     c->glide = 0;
     c->legato = 0;
+    c->para_env = PARA_ENV_LEGATO;
     c->volume = 1.0f;
     c->mono = 1;
 #ifdef DEV_SPEAKER_DEFAULT
@@ -81,6 +83,11 @@ cfg_effect_t synth_config_adjust(synth_config_t *c, cfg_param_id_t id, int dir) 
         if (v < 0 || v > 1) return CFG_UNCHANGED;
         c->mono = (uint8_t)v;
         return CFG_LIVE;
+    case CFGP_PARA_ENV:
+        v = c->para_env + dir;
+        if (v < 0 || v >= PARA_ENV_COUNT) return CFG_UNCHANGED;
+        c->para_env = (uint8_t)v;
+        return CFG_REBUILD;                                      // the graph's shape changes (per-voice or shared amp envelope)
     case CFGP_SPEAKER:
         v = c->speaker + dir;
         if (v < 0 || v > SPEAKER_STEPS) return CFG_UNCHANGED;
@@ -100,6 +107,7 @@ void synth_config_format(const synth_config_t *c, cfg_param_id_t id, char *out, 
     case CFGP_VOLUME: snprintf(out, n, "%.2f", c->volume); break;
     case CFGP_OUTPUT: snprintf(out, n, "%s", c->mono ? "Mono" : "Stereo"); break;
     case CFGP_SPEAKER: if (c->speaker == 0) snprintf(out, n, "Off"); else snprintf(out, n, "%d%%", synth_config_speaker_pct(c)); break;
+    case CFGP_PARA_ENV: snprintf(out, n, "%s", para_env_names[c->para_env < PARA_ENV_COUNT ? c->para_env : 0]); break;
     default: out[0] = 0;
     }
 }

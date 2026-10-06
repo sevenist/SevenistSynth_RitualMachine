@@ -454,10 +454,18 @@ The user wants a modular engine whose budget is knowable (a DSP "point" system l
 | Stage | Content | Status |
 |---|---|---|
 | 1 | Voices are real: `Engine::load(graph, nvoices)` (instances, plan and voice loops use the plan's count; changing it rebuilds the voice modules, the old ones are freed by `gc()`); the Mono voice mode in the engine (last-note priority with a note stack, retrigger or legato, glide); the Mono types `SYNTH_MOD_MONO` / `SYNTH_FM_MONO` with `glide` / `legato` in GENERAL (decision 5; `synth_type_is_mono` / `synth_type_is_fm`); fast-heap saving measured | **done on the host** (144 tests, all six matrix configurations); the first version (a Mode row) was flashed by the user, the type split is not flashed yet; `[HEAP]` / `[PROF]` not measured |
-| 2 | Paraphonic: `GateIn` global module (any-key gate, per-key trigger, lowest / last / highest pitch, velocity) with the voices visible in `ProcessCtx`; global variants of `Env` (and of anything else the post chain needs); the mapper's split at the first filter; the three envelope policies; UI | next |
+| 2 | Paraphonic: `GateIn` global module (any-key gate, per-key trigger, lowest / last / highest pitch, velocity) with the voices visible in `ProcessCtx`; global variants of `Env` (and of anything else the post chain needs); the mapper's split at the first filter; the three envelope policies; UI | **done 2026-10-06** (host-tested, measured on the board, not listened to): type *Mod Para* (decision 5), GENERAL row *PEnv* = Legato / Retrig / Voice (decision 3; Voice = per-voice amp env, the shared filter env then retriggers on every key), `GateIn` (newest key leads), `ParaGate`, `EnvG`; board, 8 Strng osc x 4 voices 47 %, 4 x 8 58 % (FX dry) |
 | 3 | Capture: a `Capture` global module records the master (or the pre-FX) signal into PSRAM, a RAM-backed `StorageDevice` (zero latency) behind a mux with the card makes it a normal catalog entry the Sampler plays; saving it to the card needs write support in the SD driver (CMD24 / CMD25, FATFS write) | later |
 | 4 | Cost metadata: per module type `cost(params)` in cycles per block (x voices for voice-scope modules), a table generated from `[PROF]` runs, a test that compares the model with the host profiler on the whole module set | later |
 | 5 | Modular engine optimization with the measure loop (`esp32-optimize`): per-voice Filter 4.8k, Env 2.3k, oscillator engines, VoiceOut | alongside |
+
+**Stage 2 as built (2026-10-06).** `ProcessCtx` carries the voice array and the held-key count. Per voice: NoteIn, the sources and every processor before the first
+filter (sources placed after it join the voice part, so they also go through the shared filter), then `ParaGate` (a released key is muted in 5 ms while other keys
+are held; the keys of the last chord keep sounding through the shared release) or, with PEnv = Voice, the AMP ENV per voice; VoiceOut (tail = amp release + 400 ms).
+Shared, after `BusIn` (left: the voices are centred): the filter (`Filter_G`) with its envelope (`EnvG` gated by `GateIn`), the processors after it (`Shaper_G`), the
+shared amp (`EnvG` + `Vca_G`, unless PEnv = Voice), then the FX rack. No filter in the rack: only the amp is shared. Limits: a Resonator (Comb) after the split is
+dropped (it follows the key); an EG or an oscillator aimed at a shared module is not realised (no global EG yet; a voice cannot feed the shared chain); the shared
+chain is mono until the FX rack; cost per voice of the voice part's Mix4 chain grows with the oscillator count (about 2k cycles per voice with 8 oscillators).
 
 **Risks accepted / known:** a voice-count or mode change rebuilds the voice modules (a short audio stall and a reset of their state, once per change); mono glide runs at block rate (0.7 ms steps, exponential); the paraphonic split makes modulators that feed the shared half global-scope (a per-voice LFO cannot modulate the shared filter: it is a different LFO, not a mix of the voice ones); a captured sound is a snapshot (no later parameter changes).
 
@@ -473,7 +481,14 @@ a purpose-built engine of our own for lush pads and many-voice instruments, and 
 3. **Both oscillator kinds, switchable**, so the user can judge sound against CPU / RAM: a naive phase accumulator (cheapest, aliases) and band-limited mipmap tables (one table per octave band).
 4. **After the voices:** a shared filter (Strings type only, stereo) and a new string **Ensemble** effect (FX rack, any synth type). **Per voice:** a one-pole lowpass that can be switched off, its cutoff following the voice's envelope and the key.
 
-**Risks / known:** 32 voices raise the engine's static RAM by about 13 KB and each live plan by about 6 KB (pointer tables sized by the ceiling): watch `[HEAP]` for a spill of the startup patch; mipmap tables switch band per octave (a small timbre step, no crossfade); the tables are read from flash (a cache miss costs ~120 cycles) unless copied to RAM; the envelope is linear (as the library's).
+5. **In the modular rack too (user, 2026-10-06, "Both"):** an oscillator engine *Strng* (OSC Wav list: a detuned pair, Timbre = detune up to 50 cents, Morph = saw / pulse / tri
+   in thirds) and a quality row *Q* on the OSC TUNE page: Blep (PolyBLEP, as before) / Mip / Naive for Saw, Pulse and Tri (and Naive / Mip for Strng). One table oscillator
+   (`wt_osc` in `dsp/wavetables.h`) serves the Strings voice, the Strng engine and the plain waves.
+
+**Risks / known:** mipmap tables switch band per octave (a small timbre step, no crossfade); the tables are read from flash (a cache miss costs ~120 cycles) unless copied to RAM;
+the envelope is linear (as the library's); the Strng engine follows the pitch at block rate. The 32-voice ceiling: the plan and instance-record tables are now sized by the
+real voice count (heap), so the ceiling costs almost nothing. Measured on the board (`dump` of the engine output, C5, dry): saw Mip -40.6 dB / Naive -18.4 dB of
+inharmonic power, pulse -40.2 / -20.1, triangle -39.7 / -39.7, identical to the host.
 
 ## Known limits and ideas for later
 

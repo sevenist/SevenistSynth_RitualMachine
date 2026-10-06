@@ -59,6 +59,11 @@ struct ProcessCtx {
     VoiceState *voice;          // voice-scope modules only, else nullptr
     q15 *bus_l, *bus_r;         // summed voice output (VoiceOut accumulates here)
     q15 *out_l, *out_r;         // final output (MasterOut writes here)
+    // Every voice, for global modules that follow the keyboard as a whole (GateIn, paraphonic mode, ADR-036 stage 2). Filled before the
+    // pre-voice section: `started` is still set for the voices that began in this block.
+    const VoiceState *voices = nullptr;
+    int nvoices = 0;
+    int keys_held = 0;          // voices whose key is down
 };
 
 struct Ports {

@@ -13,11 +13,13 @@ enum SynthType : int {
     T_OSC = 32, T_ENV, T_LFO_V, T_LFO_G, T_FILTER_V, T_FILTER_G, T_VCA_V, T_VCA_G,
     T_MIX4_V, T_MIX4_G, T_MULT_V, T_MULT_G, T_SHAPER_V, T_SHAPER_G, T_CONST_V, T_CONST_G,
     T_EG = 59,                                      // multi-stage envelope (see Eg)
+    T_ENV_G = 71,                                   // Env in global scope (the paraphonic mode's shared envelopes)
     T_OSC_G = 51,                                   // the oscillator in global scope (drones, audio-rate sources for FX tests)
 };
 
 // Osc: in 0 pitch CV (added to `pitch`), out 0.   mod: pitch (+-pitch_mod), pw, level
-enum { OSC_WAVE, OSC_PITCH, OSC_PW, OSC_LEVEL, OSC_PITCH_MOD, OSC_N };
+// quality (saw / pulse / triangle only): 0 = PolyBLEP (dsp/osc.h), 1 = Mip (band-limited tables, dsp/wavetables.h, cheaper), 2 = Naive (cheapest, aliases)
+enum { OSC_WAVE, OSC_PITCH, OSC_PW, OSC_LEVEL, OSC_PITCH_MOD, OSC_QUAL, OSC_N };
 enum { WAVE_SINE_, WAVE_SAW_, WAVE_PULSE_, WAVE_TRI_, WAVE_NOISE_, WAVE_SAW_DOWN_ };
 
 // Env (ADSR with hold, start level and curves): in 0 gate, out 0 in 0..1.   times in ms, sustain / start q15, curves q15 (-1..+1, see dsp/curve.h:

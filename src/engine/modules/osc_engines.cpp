@@ -10,6 +10,7 @@
 #include "engine/dsp/phase.h"
 #include "engine/dsp/svf.h"
 #include "engine/dsp/util.h"
+#include "engine/dsp/wavetables.h"
 #include "engine/modules/builtin.h"
 
 namespace sc {
@@ -54,7 +55,7 @@ public:
     const ModuleInfo &info() const override {
         static const ModuleInfo i = {"OscEngines", Scope::Voice, 2, 1, OSCX_N, false, {"pitch", "gate"}, {"out"},
             {{"engine", OSCX_KARP, 0, OSCX_ENGINES - 1}, {"pitch", 60 * kSemi, 0, 127 * kSemi}, {"timbre", 16384, 0, kUnity},
-             {"morph", 16384, 0, kUnity}, {"level", kUnity, 0, kUnity}, {"pitch_mod", 12 * kSemi, 0, 96 * kSemi}}};
+             {"morph", 16384, 0, kUnity}, {"level", kUnity, 0, kUnity}, {"pitch_mod", 12 * kSemi, 0, 96 * kSemi}, {"quality", 0, 0, 2}}};
         return i;
     }
 
@@ -87,6 +88,7 @@ public:
             case OSCX_MORPH: morph_ = static_cast<q15>(v); break;
             case OSCX_LEVEL: level_ = static_cast<q15>(v); break;
             case OSCX_PITCH_MOD: pmod_ = v; break;
+            case OSCX_QUAL: qual_ = v; prep_ok_ = false; break;
         }
     }
 
@@ -120,10 +122,11 @@ public:
                 case OSCX_SSAW: for (int i = 0; i < n; i++) out[i] = mul15(sat16(ssaw(inc, timbre, morph)), lv); break;
                 case OSCX_VOWEL: for (int i = 0; i < n; i++) out[i] = mul15(sat16(vowel(inc)), lv); break;
                 case OSCX_ADD: for (int i = 0; i < n; i++) out[i] = mul15(sat16(additive(inc)), lv); break;
+                case OSCX_STR: str_block(out, n, lv); break;
                 default: for (int i = 0; i < n; i++) out[i] = mul15(sat16(dust()), lv); break;
             }
 #if defined(ENGINE_PROFILE) && defined(ARDUINO_ARCH_ESP32)
-            g_osc_prof[engine_ & 7] += esp_cpu_get_cycle_count() - prof_t0;
+            g_osc_prof[engine_ < OSCX_ENGINES ? engine_ : 0] += esp_cpu_get_cycle_count() - prof_t0;
 #endif
             return;
         }
@@ -141,12 +144,13 @@ public:
                 case OSCX_SSAW: y = ssaw(inc, timbre, morph); break;
                 case OSCX_VOWEL: y = vowel(inc); break;
                 case OSCX_ADD: y = additive(inc); break;
+                case OSCX_STR: y = str(); break;
                 default: y = dust(); break;
             }
             p.out[0][i] = mul15(sat16(y), level_);
         }
 #if defined(ENGINE_PROFILE) && defined(ARDUINO_ARCH_ESP32)
-        g_osc_prof[engine_ & 7] += esp_cpu_get_cycle_count() - prof_t0;
+        g_osc_prof[engine_ < OSCX_ENGINES ? engine_ : 0] += esp_cpu_get_cycle_count() - prof_t0;
 #endif
     }
 
@@ -219,6 +223,17 @@ private:
                 }
                 break;
             }
+            case OSCX_STR: {
+                // detune: up to 50 cents between the pair, half each side (Q16 octaves: cents / 1200 / 2)
+                const int32_t x = static_cast<int32_t>((static_cast<int64_t>(timbre) * 50 * 65536) / (1200LL * 2 * 32767));
+                str_inc_[0] = exp2_scale(inc, -x);
+                str_inc_[1] = exp2_scale(inc, x);
+                str_wave_ = morph < 10923 ? WT_SAW : (morph < 21846 ? WT_PULSE : WT_TRI);
+                str_mip_ = qual_ != 2;
+                str_tab_[0] = str_mip_ ? wt_table(str_wave_, str_inc_[0]) : nullptr;
+                str_tab_[1] = str_mip_ ? wt_table(str_wave_, str_inc_[1]) : nullptr;
+                break;
+            }
             case OSCX_DUST: {
                 dust_thr_ = exp2_scale(one_hz_ * 2u, static_cast<int32_t>((static_cast<int64_t>(timbre) * 11 * 65536) >> 15));          // impulses per sample (as a phase increment)
                 const int32_t k = (1 << 29) / 2 - static_cast<int32_t>((static_cast<int64_t>(morph) * ((1 << 29) / 2 - (1 << 29) / 60)) >> 15);   // Q 2 .. 60
@@ -244,6 +259,9 @@ private:
                 ks_[i] = static_cast<int16_t>((lp * 23000) >> 15);
             }
             w_ = d & (kKsLen - 1);
+        } else if (engine_ == OSCX_STR) {
+            ph_[0] = noise_.next_u32();                                          // random start phases: the pair never starts in phase
+            ph_[1] = noise_.next_u32();
         } else if (engine_ == OSCX_MODAL) {
             for (int k = 0; k < kModes; k++) { mx_[k] = 0; my_[k] = t_->amp[k] << 15; }          // start in sine phase, at full amplitude
         }
@@ -306,6 +324,38 @@ private:
         const int32_t gq8 = 256 + ((timbre * 2048) >> 15);                                    // 1x .. 9x
         const int32_t v = src * gq8;                                                          // Q23
         return (static_cast<int32_t>(sine(static_cast<uint32_t>(v) << 7)) * 23000) >> 15;
+    }
+
+    // STR: the two table oscillators summed (x 0.5); one sample, or a whole steady block with the wave / quality resolved once
+    int32_t str() {
+        const int32_t y = (wt_osc_any(str_wave_, str_mip_, ph_[0], 0x80000000u, str_tab_[0]) + wt_osc_any(str_wave_, str_mip_, ph_[1], 0x80000000u, str_tab_[1])) >> 1;
+        ph_[0] += str_inc_[0];
+        ph_[1] += str_inc_[1];
+        return y;
+    }
+    template <int W, bool Mip>
+    void str_loop(q15 *out, int n, q15 lv) {
+        uint32_t p0 = ph_[0], p1 = ph_[1];
+        const uint32_t i0 = str_inc_[0], i1 = str_inc_[1];
+        const int16_t *t0 = str_tab_[0], *t1 = str_tab_[1];
+        for (int i = 0; i < n; i++) {
+            const int32_t y = (wt_osc<W, Mip>(p0, 0x80000000u, t0) + wt_osc<W, Mip>(p1, 0x80000000u, t1)) >> 1;
+            out[i] = mul15(static_cast<q15>(y), lv);
+            p0 += i0;
+            p1 += i1;
+        }
+        ph_[0] = p0;
+        ph_[1] = p1;
+    }
+    void str_block(q15 *out, int n, q15 lv) {
+        switch (str_wave_ * 2 + (str_mip_ ? 1 : 0)) {
+            case WT_SAW * 2:       str_loop<WT_SAW, false>(out, n, lv); break;
+            case WT_SAW * 2 + 1:   str_loop<WT_SAW, true>(out, n, lv); break;
+            case WT_PULSE * 2:     str_loop<WT_PULSE, false>(out, n, lv); break;
+            case WT_PULSE * 2 + 1: str_loop<WT_PULSE, true>(out, n, lv); break;
+            case WT_TRI * 2:       str_loop<WT_TRI, false>(out, n, lv); break;
+            default:               str_loop<WT_TRI, true>(out, n, lv); break;
+        }
     }
 
     int32_t ssaw(uint32_t, q15, q15 morph) {
@@ -386,6 +436,10 @@ private:
     float ds_gain_ = 32768.0f * 14.0f;
     // state
     uint32_t ph_[kSaws] = {}, fm_ph_ = 0;
+    int32_t qual_ = 0, str_wave_ = WT_SAW;                    // STR: quality (0 Blep = Mip here, 1 Mip, 2 Naive), wave from Morph
+    bool str_mip_ = true;
+    uint32_t str_inc_[2] = {};
+    const int16_t *str_tab_[2] = {nullptr, nullptr};
     int32_t mx_[kModes] = {}, my_[kModes] = {}, lp_ = 0;      // modal phasors
     int w_ = 0;
     SvfStateF sv_[3], ds_;

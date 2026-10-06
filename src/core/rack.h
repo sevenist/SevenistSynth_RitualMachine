@@ -32,8 +32,9 @@ typedef enum { MOD_OSC, MOD_FILTER, MOD_SAT, MOD_LFO, MOD_MSEQ, MOD_ENV, MOD_SAM
 #define MOD_PARAM_MAX 20    // editable parameters per module (floats; enums store their index)
 
 // Parameter indexes (slot.v[i]) per module type. See the descriptor tables in rack.c.
-enum { MP_OC_WAVE, MP_OC_PW, MP_OC_LEVEL, MP_OC_COARSE, MP_OC_FINE, MP_OC_MUTE, MP_OC_DEPTH, MP_OC_MORPH };
-#define OC_FIRST_ENGINE 6      // Wav values 0..5 are the classic waves, 6.. the engines (Karp Modal FM2 Fold SSaw Vowel Add Dust); PW becomes Timbre, Mrph = morph
+enum { MP_OC_WAVE, MP_OC_PW, MP_OC_LEVEL, MP_OC_COARSE, MP_OC_FINE, MP_OC_MUTE, MP_OC_DEPTH, MP_OC_MORPH, MP_OC_QUAL };
+#define OC_FIRST_ENGINE 6      // Wav values 0..5 are the classic waves, 6.. the engines (Karp Modal FM2 Fold SSaw Vowel Add Dust Strng); PW becomes Timbre, Mrph = morph
+                               // MP_OC_QUAL: Blep / Mip / Naive for Saw, Pulse, Tri and the Strng engine (Blep = Mip there)
 enum { MP_FL_TYPE, MP_FL_CUT, MP_FL_RES, MP_FL_ENVAMT, MP_FL_A, MP_FL_D, MP_FL_S, MP_FL_R, MP_FL_ACV, MP_FL_DCV, MP_FL_RCV };
 enum { MP_SA_MODE, MP_SA_DRIVE, MP_SA_MIX };
 enum { MP_LF_SHAPE, MP_LF_RATE, MP_LF_DEPTH };

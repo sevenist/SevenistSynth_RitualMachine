@@ -11,7 +11,7 @@ typedef struct { const char *fmt; graph_t graph; int count; int p[6]; bool needs
 
 static const mpage_def_t oc_pages[] = {
     {"OSC %d",      GRAPH_WAVE,   4, {MP_OC_WAVE, MP_OC_PW, MP_OC_MORPH, MP_OC_LEVEL}},
-    {"OSC %d TUNE", GRAPH_WAVE,   2, {MP_OC_COARSE, MP_OC_FINE}},
+    {"OSC %d TUNE", GRAPH_WAVE,   3, {MP_OC_COARSE, MP_OC_FINE, MP_OC_QUAL}},
     {"OSC %d DEST", GRAPH_WAVE,   4, {PRM_TGT, PRM_TPRM, MP_OC_DEPTH, MP_OC_MUTE}},   // Tgt "--" = a plain oscillator
 };
 static const mpage_def_t fl_pages[] = {

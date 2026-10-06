@@ -14,7 +14,8 @@ typedef struct {                // descriptor of one module parameter
     const char *const *names;       // K_ENUM
 } mp_t;
 
-static const char *const wave_names[]   = {"Sine", "Pulse", "SawDn", "SawUp", "Tri", "Noise", "Karp", "Modal", "FM2", "Fold", "SSaw", "Vowel", "Add", "Dust"};
+static const char *const wave_names[]   = {"Sine", "Pulse", "SawDn", "SawUp", "Tri", "Noise", "Karp", "Modal", "FM2", "Fold", "SSaw", "Vowel", "Add", "Dust", "Strng"};
+static const char *const qual_names[]   = {"Blep", "Mip", "Naive"};
 static const char *const filter_names[] = {"Off", "LP", "BP", "HP", "LP24", "Notch"};
 static const char *const sat_names[]    = {"Tanh", "Clip", "Fold", "Crush", "Tube", "Tape", "Diode", "Cheb", "Rect", "Decim"};
 static const char *const loop_names[]   = {"File", "Off", "Fwd", "Ping"};
@@ -26,7 +27,7 @@ static const char *const out_names[]    = {"On", "Mute"};
 static const char *const lfo_names[]    = {"Sine", "Tri", "SawDn", "Pulse"};
 
 static const mp_t osc_mp[] = {
-    [MP_OC_WAVE]   = {"Wav",  K_ENUM, 0, 13, 1, 2, "", 0, wave_names},
+    [MP_OC_WAVE]   = {"Wav",  K_ENUM, 0, 14, 1, 2, "", 0, wave_names},
     [MP_OC_PW]     = {"PW",   K_LIN, 0.05f, 0.95f, 0.05f, 0.5f, "", 2, 0},
     [MP_OC_LEVEL]  = {"Lvl",  K_LIN, 0, 1, 0.05f, 1, "", 2, 0},
     [MP_OC_COARSE] = {"Crs",  K_LIN, -24, 24, 1, 0, "st", 0, 0},
@@ -34,6 +35,7 @@ static const mp_t osc_mp[] = {
     [MP_OC_MUTE]   = {"Out",  K_ENUM, 0, 1, 1, 0, "", 0, out_names},       // with a target: Mute silences the chain output, not the modulation
     [MP_OC_DEPTH]  = {"Dpth", K_LIN, 0, 2, 0.05f, 1, "", 2, 0},            // with a target: modulation depth (in the target's unit, see rack_depth_*)
     [MP_OC_MORPH]  = {"Mrph", K_LIN, 0, 1, 0.05f, 0.5f, "", 2, 0},         // engines only
+    [MP_OC_QUAL]   = {"Q",    K_ENUM, 0, 2, 1, 0, "", 0, qual_names},     // Saw / Pulse / Tri and Strng: PolyBLEP, mipmap table, naive
 };
 static const mp_t flt_mp[] = {
     [MP_FL_TYPE]   = {"Typ", K_ENUM, 0, 5, 1, 1, "", 0, filter_names},

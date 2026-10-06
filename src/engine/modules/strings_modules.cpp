@@ -14,23 +14,9 @@ constexpr int32_t kEnvOne = 1 << 30;                    // envelope full scale (
 
 /* ------------------------------------------------------------------ Strings voice */
 
-// One sample of one oscillator. Pulse = the difference of two saws half a level apart (duty = pw), as in the band-limited case.
+static_assert(int(STRW_SAW) == int(WT_SAW) && int(STRW_PULSE) == int(WT_PULSE) && int(STRW_TRI) == int(WT_TRI), "the Strings waves are the table oscillator's");
 template <int W, bool Mip>
-inline int32_t osc(uint32_t ph, uint32_t pw_off, const int16_t *tab) {
-    if (Mip) {
-        if (W == STRW_TRI) return mip_read(tab, ph);
-        const int32_t a = mip_read(tab, ph);
-        if (W == STRW_SAW) return a;
-        return (a - mip_read(tab, ph + pw_off)) >> 1;
-    }
-    if (W == STRW_TRI) {                                                   // |saw| folded: -1 at phase 0, +1 at half a cycle (-32768 .. 32766)
-        const int32_t s = static_cast<int32_t>(ph) >> 16;
-        return ((s ^ (s >> 31)) - 16384) * 2;
-    }
-    const int32_t a = static_cast<int32_t>(ph) >> 16;
-    if (W == STRW_SAW) return a;
-    return (a - (static_cast<int32_t>(ph + pw_off) >> 16)) >> 1;
-}
+inline int32_t osc(uint32_t ph, uint32_t pw_off, const int16_t *tab) { return wt_osc<W, Mip>(ph, pw_off, tab); }
 
 class Strings : public Module {
 public:
@@ -151,11 +137,7 @@ private:
         }
     }
 
-    const int16_t *table(uint32_t inc) const {
-        if (!mip_) return nullptr;
-        const int k = mip_band(inc);
-        return wave_ == STRW_TRI ? kMipTri[k] : kMipSaw[k];
-    }
+    const int16_t *table(uint32_t inc) const { return mip_ ? wt_table(wave_, inc) : nullptr; }
 
     template <int W, bool Mip, bool Lp>
     SC_HOT void render(Ctx &c, q15 *out, int n) {

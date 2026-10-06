@@ -17,6 +17,7 @@ extern "C" {
 typedef enum {
     SYNTH_MODULAR,      // built from the rack (oscillators, filters, ...), polyphonic
     SYNTH_MOD_MONO,     // the rack synth, monophonic
+    SYNTH_MOD_PARA,     // the rack synth, paraphonic: the voices play up to the first filter, one shared filter / amp chain after their sum (ADR-036)
     SYNTH_FM,           // DX7-style 6-operator FM with the patch editor, polyphonic
     SYNTH_FM_MONO,      // the FM synth, monophonic
     SYNTH_STRINGS,      // thin voices for pads and big chords, up to 32 (ADR-037); its pages are in synth_params (P_STR_*)
@@ -29,9 +30,15 @@ typedef enum {
 
 typedef enum {
     CFGP_TYPE, CFGP_PATCH, CFGP_VOICES, CFGP_GLIDE, CFGP_LEGATO, CFGP_VOLUME, CFGP_OUTPUT, CFGP_SPEAKER,    // GENERAL tab
+    CFGP_PARA_ENV,                                                                                         // GENERAL tab, Mod Para only
     CFGP_GENERAL_COUNT,
     CFGP_COUNT = CFGP_GENERAL_COUNT
 } cfg_param_id_t;
+
+// Mod Para envelope policies (ADR-036 decision 3): LEGATO = the shared filter and amp envelopes start with the first key and keep running while
+// keys are added; RETRIG = they restart their attack on every new key; VOICE = every voice has its own amp envelope in front of the shared
+// filter, whose envelope restarts on every key.
+typedef enum { PARA_ENV_LEGATO, PARA_ENV_RETRIG, PARA_ENV_VOICE, PARA_ENV_COUNT } para_env_t;
 
 typedef struct {
     uint8_t type;        // synth_type_t
@@ -40,6 +47,7 @@ typedef struct {
     uint8_t str_voices;  // 1..SYNTH_STR_MAX_VOICES (Strings; kept apart so switching types keeps both counts)
     uint8_t glide;       // Mono: index into the glide times (0 = off)
     uint8_t legato;      // Mono: 1 = a new key while one is held changes the pitch only (envelopes keep running)
+    uint8_t para_env;    // Mod Para: how the shared envelopes follow the keys, para_env_t
     float   volume;      // master volume 0..2 (applied at the very end of the chain, after the master effects)
     uint8_t mono;        // 0 = stereo output, 1 = (L + R) / 2 on both channels
     uint8_t speaker;     // built-in loudspeaker level in 5 % steps: 0 = off (amplifier shut down), 1..20 = 5..100 % (the board scales the channel that feeds it)
@@ -60,7 +68,8 @@ const char  *synth_type_name(synth_type_t t);
 static inline bool synth_type_is_fm(uint8_t t)   { return t == SYNTH_FM || t == SYNTH_FM_MONO; }
 static inline bool synth_type_is_mono(uint8_t t) { return t == SYNTH_MOD_MONO || t == SYNTH_FM_MONO; }
 static inline bool synth_type_is_strings(uint8_t t) { return t == SYNTH_STRINGS; }
-static inline bool synth_type_is_rack(uint8_t t) { return t == SYNTH_MODULAR || t == SYNTH_MOD_MONO; }   // built from the module rack
+static inline bool synth_type_is_rack(uint8_t t) { return t == SYNTH_MODULAR || t == SYNTH_MOD_MONO || t == SYNTH_MOD_PARA; }   // built from the module rack
+static inline bool synth_type_is_para(uint8_t t) { return t == SYNTH_MOD_PARA; }
 
 // What the audio layer needs: how many voices the engine builds (1 for Mono) and the glide time in ms (0 = off).
 int          synth_config_voices(const synth_config_t *c);

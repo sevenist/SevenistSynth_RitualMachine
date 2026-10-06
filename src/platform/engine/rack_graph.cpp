@@ -6,6 +6,7 @@
 #include "engine/modules/fx2_modules.h"
 #include "engine/modules/motion_seq.h"
 #include "engine/modules/osc_engines.h"
+#include "engine/modules/para_modules.h"
 #include "engine/modules/sampler_modules.h"
 #include "engine/modules/strings_modules.h"
 #include "engine/modules/synth_modules.h"
@@ -37,6 +38,7 @@ struct B {
 };
 
 int node_of(int rack_id) { return RN_MODULES + 2 * (rack_id % 100); }
+bool is_source(int type) { return type == MOD_OSC || type == MOD_SAMPLER; }
 
 int osc_wave(int w) {
     static const int map[6] = {WAVE_SINE_, WAVE_PULSE_, WAVE_SAW_DOWN_, WAVE_SAW_, WAVE_TRI_, WAVE_NOISE_};   // Sine Pulse SawDn SawUp Tri Noise
@@ -79,6 +81,7 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
     out.ms_count = 0;
     B b{out.g, reg};
     const synth_config_t &cfg = rack.cfg;
+    int para_out = 0;                                                // Mod Para: the node that ends the shared chain (the FX rack starts there)
 
     /* ---- voice ---- */
     b.add(RN_NOTE, T_NOTE_IN);
@@ -129,9 +132,58 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
         NodeDesc *chain_gain[RACK_MAX] = {}; int chain_in[RACK_MAX] = {};                       // targeted oscillators: their gain into the chain (0 when muted)
         int run = 0;                                                 // node id of the running signal, 0 = none yet
 
-        for (int i = 0; i < rack.count; i++) {
+        // Mod Para (ADR-036 stage 2): the sources and everything before the first filter run per voice; that filter and what follows run once,
+        // on the voices' sum, as global modules. Sources placed after the filter join the voice part (they are mixed before the shared filter).
+        const bool para = synth_type_is_para(cfg.type);
+        const int gate_port = cfg.para_env == PARA_ENV_LEGATO ? 0 : 1;   // GateIn output that gates the shared envelopes (legato / every key)
+        int order[RACK_MAX], n_order = 0, split_at = rack.count;
+        if (para) {
+            for (int i = 0; i < rack.count; i++)
+                if (rack.slot[i].type == MOD_FILTER && rack_slot_is_audio(&rack, i) && static_cast<int>(rack.slot[i].v[MP_FL_TYPE]) != FILT_OFF) { split_at = i; break; }
+            for (int i = 0; i < split_at; i++) order[n_order++] = i;
+            for (int i = split_at; i < rack.count; i++) if (is_source(rack.slot[i].type)) order[n_order++] = i;
+            for (int i = split_at; i < rack.count; i++) if (!is_source(rack.slot[i].type)) order[n_order++] = i;
+        } else {
+            for (int i = 0; i < rack.count; i++) order[n_order++] = i;
+        }
+        bool global = false;                                         // past the split: global variants, fed by the voices' sum
+        bool tgt_global[RACK_MAX] = {};                              // the slot's node is global (a modulator aimed at it must be global too)
+        auto amp_env_params = [&](NodeDesc *e) {
+            e->param[ENV_ATTACK] = ms_i(params.amp_env.attack_ms); e->param[ENV_DECAY] = ms_i(params.amp_env.decay_ms);
+            e->param[ENV_SUSTAIN] = q(params.amp_env.sustain); e->param[ENV_RELEASE] = ms_i(params.amp_env.release_ms);
+            e->param[ENV_HOLD] = static_cast<int32_t>(params.amp_env.hold_ms);
+            e->param[ENV_A_CURVE] = q(params.amp_env.a_curve / 100.0); e->param[ENV_D_CURVE] = q(params.amp_env.d_curve / 100.0); e->param[ENV_R_CURVE] = q(params.amp_env.r_curve / 100.0);
+        };
+        // The end of the voice part: each voice is gated (or gets its own amp envelope), the voices are summed, the shared chain starts.
+        auto split = [&]() {
+            int tail = 0;
+            if (cfg.para_env == PARA_ENV_VOICE) {
+                NodeDesc *ae = b.add(RN_AMP_ENV, T_ENV), *av = b.add(RN_AMP_VCA, T_VCA_V);
+                if (!ae || !av) return;
+                amp_env_params(ae);
+                av->param[VCA_LEVEL] = 0;
+                b.cable(RN_NOTE, 1, RN_AMP_ENV, Dst::In, 0);
+                if (run != 0) b.cable(run, 0, RN_AMP_VCA, Dst::In, 0);
+                b.cable(RN_AMP_ENV, 0, RN_AMP_VCA, Dst::Param, VCA_LEVEL);
+                tail = RN_AMP_VCA;
+            } else {
+                if (!b.add(RN_PARA_GATE, T_PARA_GATE)) return;
+                if (run != 0) b.cable(run, 0, RN_PARA_GATE, Dst::In, 0);
+                tail = RN_PARA_GATE;
+            }
+            b.cable(tail, 0, RN_VOICE_OUT, Dst::In, 0);
+            vo->param[VO_TAIL_MS] = ms_i(params.amp_env.release_ms) + 400;    // the last chord sounds through the shared release
+            b.add(RN_BUS, T_BUS_IN);
+            b.add(RN_GATE_IN, T_GATE_IN);
+            run = RN_BUS;                                            // its output 0 (left; the voices are centred, left = right)
+            global = true;
+        };
+
+        for (int oi = 0; oi < n_order; oi++) {
+            const int i = order[oi];
             if (!rack_slot_is_audio(&rack, i)) continue;
             const rack_slot_t &s = rack.slot[i];
+            if (para && !global && i >= split_at && !is_source(s.type)) split();
             const int id = node_of(s.id), aux = id + 1;
             if (s.type == MOD_OSC) {
                 const int wave = static_cast<int>(s.v[MP_OC_WAVE]);
@@ -146,6 +198,7 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                     o->param[OSCX_TIMBRE] = q(s.v[MP_OC_PW]);
                     o->param[OSCX_MORPH] = q(s.v[MP_OC_MORPH]);
                     o->param[OSCX_PITCH_MOD] = 96 * kSemi;
+                    o->param[OSCX_QUAL] = static_cast<int32_t>(s.v[MP_OC_QUAL]);
                     lvl_idx = OSCX_LEVEL;
                     b.cable(RN_NOTE, 1, id, Dst::In, 1);                 // the gate strikes the string / modes
                 } else {
@@ -153,6 +206,7 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                     o->param[OSC_PITCH] = tune;
                     o->param[OSC_PW] = q(s.v[MP_OC_PW]);
                     o->param[OSC_PITCH_MOD] = 96 * kSemi;                // cable depth = semitones / 96
+                    o->param[OSC_QUAL] = static_cast<int32_t>(s.v[MP_OC_QUAL]);
                     lvl_idx = OSC_LEVEL;
                 }
                 b.cable(RN_NOTE, 0, id, Dst::In, 0);
@@ -215,7 +269,8 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
             } else if (s.type == MOD_FILTER) {
                 const int type = static_cast<int>(s.v[MP_FL_TYPE]);
                 if (run == 0 || type == FILT_OFF) continue;           // a filter with nothing to its left (or switched off) does nothing
-                NodeDesc *f = b.add(id, T_FILTER_V);
+                NodeDesc *f = b.add(id, global ? T_FILTER_G : T_FILTER_V);
+                tgt_global[i] = global;
                 if (!f) break;
                 static const int mode[6] = {FLTM_LP, FLTM_LP, FLTM_BP, FLTM_HP, FLTM_LP, FLTM_NOTCH};
                 const int sections = type == FILT_LP24 ? 2 : 1;
@@ -235,17 +290,17 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                 // The envelope node is always present (amount 0 = a cable with gain 0): creating it only when the amount is above 0 made the
                 // amount knob change the graph's shape at 0.00, and a shape change is a full rebuild (a stall of 100+ ms). Costs one Env per voice.
                 if (!replaced) {
-                    NodeDesc *e = b.add(aux, T_ENV);
+                    NodeDesc *e = b.add(aux, global ? T_ENV_G : T_ENV);
                     if (!e) break;
                     e->param[ENV_ATTACK] = ms_i(s.v[MP_FL_A]); e->param[ENV_DECAY] = ms_i(s.v[MP_FL_D]);
                     e->param[ENV_SUSTAIN] = q(s.v[MP_FL_S]); e->param[ENV_RELEASE] = ms_i(s.v[MP_FL_R]);
                     e->param[ENV_A_CURVE] = q(s.v[MP_FL_ACV] / 100.0); e->param[ENV_D_CURVE] = q(s.v[MP_FL_DCV] / 100.0); e->param[ENV_R_CURVE] = q(s.v[MP_FL_RCV] / 100.0);
-                    b.cable(RN_NOTE, 1, aux, Dst::In, 0);
+                    if (global) b.cable(RN_GATE_IN, gate_port, aux, Dst::In, 0); else b.cable(RN_NOTE, 1, aux, Dst::In, 0);
                     b.cable(aux, 0, id, Dst::Param, FLT_CUTOFF, qd(std::fmax(0.0, s.v[MP_FL_ENVAMT]) / 8.0));
                 }
                 run = id;
             } else if (s.type == MOD_COMB) {
-                if (run == 0) continue;                                  // a processor with nothing to its left does nothing
+                if (run == 0 || global) continue;                        // nothing to its left; or past the paraphonic split (it follows the key: per voice only)
                 NodeDesc *c = b.add(id, T_COMB);
                 if (!c) break;
                 c->param[CMB_TUNE] = 60 * kSemi + static_cast<int32_t>(std::lround(s.v[MP_RS_TUNE] * kSemi));
@@ -258,7 +313,8 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                 run = id;
             } else if (s.type == MOD_SAT) {
                 if (run == 0) continue;
-                NodeDesc *sh = b.add(id, T_SHAPER_V);
+                NodeDesc *sh = b.add(id, global ? T_SHAPER_G : T_SHAPER_V);
+                tgt_global[i] = global;
                 if (!sh) break;
                 sh->param[SHP_MODE] = static_cast<int>(s.v[MP_SA_MODE]) % SHPM_N;        // the rack's list is the engine's order
                 sh->param[SHP_DRIVE] = static_cast<int32_t>(std::lround(std::log2(s.v[MP_SA_DRIVE] < 1 ? 1 : s.v[MP_SA_DRIVE]) * kSemi));
@@ -270,6 +326,8 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                 run = id;
             }
         }
+
+        if (para && !global) split();                                // no filter: the whole chain is per voice, only the amp is shared
 
         // ---- modulators
         for (int i = 0; i < rack.count; i++) {
@@ -285,25 +343,28 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
             const int dst_param = dt.dst;
             // the modulator itself
             double dpth = 1.0;
+            const bool to_global = tgt_global[ti];                   // the target runs once (Mod Para): the modulator must be global too
             if (s.type == MOD_LFO) {
-                NodeDesc *l = b.add(id, T_LFO_V);
+                NodeDesc *l = b.add(id, to_global ? T_LFO_G : T_LFO_V);
                 if (!l) break;
                 l->param[LFO_SHAPE] = lfo_shape(static_cast<int>(s.v[MP_LF_SHAPE]));
                 l->param[LFO_RATE] = static_cast<int32_t>(std::lround(12.0 * kSemi * std::log2(s.v[MP_LF_RATE])));
                 dpth = s.v[MP_LF_DEPTH];
             } else if (s.type == MOD_OSC) {
+                if (to_global) continue;                             // a voice oscillator cannot reach the shared chain
                 dpth = s.v[MP_OC_DEPTH];                             // the node already exists: it is the chain's oscillator
                 if (s.v[MP_OC_MUTE] > 0.5f) chain_gain[i]->param[chain_in[i]] = 0;
             } else if (s.type == MOD_ENV) {
-                NodeDesc *e = b.add(id, T_ENV);
+                NodeDesc *e = b.add(id, to_global ? T_ENV_G : T_ENV);
                 if (!e) break;
                 e->param[ENV_ATTACK] = ms_i(s.v[MP_EN_A]); e->param[ENV_DECAY] = ms_i(s.v[MP_EN_D]);
                 e->param[ENV_SUSTAIN] = q(s.v[MP_EN_S]); e->param[ENV_RELEASE] = ms_i(s.v[MP_EN_R]);
                 e->param[ENV_HOLD] = static_cast<int32_t>(s.v[MP_EN_HOLD]); e->param[ENV_START] = q(s.v[MP_EN_START]);
                 e->param[ENV_A_CURVE] = q(s.v[MP_EN_ACV] / 100.0); e->param[ENV_D_CURVE] = q(s.v[MP_EN_DCV] / 100.0); e->param[ENV_R_CURVE] = q(s.v[MP_EN_RCV] / 100.0);
-                b.cable(RN_NOTE, 1, id, Dst::In, 0);
+                if (to_global) b.cable(RN_GATE_IN, gate_port, id, Dst::In, 0); else b.cable(RN_NOTE, 1, id, Dst::In, 0);
                 dpth = s.v[MP_EN_DEPTH];
             } else if (s.type == MOD_EG) {
+                if (to_global) continue;                             // (no global EG yet: not realised on the shared chain)
                 NodeDesc *e = b.add(id, T_EG);
                 if (!e) break;
                 for (int pt = 0; pt < 4; pt++) {
@@ -356,9 +417,24 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
             out.ms_node[out.ms_count++] = id;
         }
 
-        // ---- amplitude: the global AMP ENV page shapes every note
-        NodeDesc *ae = b.add(RN_AMP_ENV, T_ENV);
-        NodeDesc *av = b.add(RN_AMP_VCA, T_VCA_V);
+        // ---- amplitude: the global AMP ENV page shapes every note (Mod Para: one shared amp envelope, unless every voice has its own)
+        if (para) {
+            if (cfg.para_env == PARA_ENV_VOICE) {
+                para_out = run;
+            } else {
+                NodeDesc *ge = b.add(RN_PARA_AMP_ENV, T_ENV_G), *gv = b.add(RN_PARA_AMP_VCA, T_VCA_G);
+                if (ge && gv) {
+                    amp_env_params(ge);
+                    gv->param[VCA_LEVEL] = 0;
+                    b.cable(RN_GATE_IN, gate_port, RN_PARA_AMP_ENV, Dst::In, 0);
+                    b.cable(run, 0, RN_PARA_AMP_VCA, Dst::In, 0);
+                    b.cable(RN_PARA_AMP_ENV, 0, RN_PARA_AMP_VCA, Dst::Param, VCA_LEVEL);
+                    para_out = RN_PARA_AMP_VCA;
+                }
+            }
+        }
+        NodeDesc *ae = para ? nullptr : b.add(RN_AMP_ENV, T_ENV);
+        NodeDesc *av = para ? nullptr : b.add(RN_AMP_VCA, T_VCA_V);
         if (ae && av) {
             ae->param[ENV_ATTACK] = ms_i(params.amp_env.attack_ms); ae->param[ENV_DECAY] = ms_i(params.amp_env.decay_ms);
             ae->param[ENV_SUSTAIN] = q(params.amp_env.sustain); ae->param[ENV_RELEASE] = ms_i(params.amp_env.release_ms);
@@ -374,15 +450,15 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
     }
 
     /* ---- master effects: BusIn -> the four slots of the FX rack in order -> MasterOut ---- */
-    NodeDesc *bus = b.add(RN_BUS, T_BUS_IN);
+    NodeDesc *bus = para_out ? nullptr : b.add(RN_BUS, T_BUS_IN);        // (Mod Para added it at the split)
     NodeDesc *ma = b.add(RN_MASTER, T_MASTER_OUT);
-    if (bus && ma) {
+    if ((bus || para_out) && ma) {
         // volume 0..2 = the gain: up to 1 the level itself, above 1 half of it doubled by the boost (min(vol, 1) here made every volume above 1 a gain of 2)
         const bool boost = cfg.volume > 1.0f;
         ma->param[0] = q(boost ? cfg.volume * 0.5f : cfg.volume);
         ma->param[1] = boost ? 1 : 0;
         ma->param[2] = cfg.mono;
-        int srcl = RN_BUS, srcr = RN_BUS, portl = 0, portr = 1;
+        int srcl = para_out ? para_out : RN_BUS, srcr = srcl, portl = 0, portr = para_out ? 0 : 1;   // Mod Para: the mono shared chain on both sides
         const str_params_t &sp = params.str;
         if (synth_type_is_strings(cfg.type) && sp.ftype != FILT_OFF && sp.ftype < FILT_COUNT) {
             // the Strings type's shared filter, before the effects (one per channel; Off = not built, a change of that is a rebuild)

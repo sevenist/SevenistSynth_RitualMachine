@@ -58,7 +58,10 @@ public:
     const VoiceState &voice(int v) const { return voices_[v]; }
 
 private:
-    struct Rec { bool alive; uint8_t id, type, nv; Module *inst[kMaxVoices]; };   // nv = how many instances were made (the voice count of the load that created it)
+    // nv = how many instances were made (the voice count of the load that created it); inst = nv pointers from the fast heap (a fixed
+    // kMaxVoices array here cost 128 x 32 pointers = 16 KB of internal RAM at the 32-voice ceiling, ADR-037)
+    // A single instance (global nodes, one-voice patches) lives in `one`: no tiny heap block for it.
+    struct Rec { bool alive; uint8_t id, type, nv; Module **inst; Module *one; };
     static constexpr int kMaxRecs = 2 * kMaxNodes;
     static constexpr int kMonoStack = 16;
 

@@ -5,14 +5,13 @@
 #include "hal/hal_audio.h"
 #include "platform/engine/engine_synth.h"
 #include "platform/esp32/serial_cmd_esp32.h"
-#ifdef ALT_ESP32SYNTH
-#include "platform/esp32/alt_esp32synth.h"
-#endif
+
+extern "C" void audio_dev_dump(int n);
 
 namespace {
 constexpr int kMaxTest = 8;
 const int kChord[kMaxTest] = {48, 52, 55, 59, 62, 65, 69, 72};     // C E G B D F A C: eight distinct notes, so no voice retriggers another
-constexpr int kMaxChord = 48;                                      // chord 9..48 adds chromatic notes above C5 (73, 74, ...): voice-count tests of the "alt" engine
+constexpr int kMaxChord = 48;                                      // chord 9..48 adds chromatic notes above C5 (73, 74, ...): voice-count tests (Strings, 32 voices)
 int chord_note(int i) { return i < kMaxTest ? kChord[i] : kChord[kMaxTest - 1] + 1 + (i - kMaxTest); }
 bool held[128];                                                    // notes started by these commands
 int chord_held = 0;
@@ -71,6 +70,22 @@ void run(char *line) {
         if (!strcmp(name, "startup")) rack_init_startup(&g_app->rack);
         else if (!strcmp(name, "sampler")) rack_init_sampler(&g_app->rack, a, b);
         else if (!strcmp(name, "strings")) g_app->rack.cfg.type = SYNTH_STRINGS;          // the Strings type, current pages and effects (ADR-037)
+        else if (!strcmp(name, "para")) {                 // patch para N V: N Strng oscillators (spread in detune / octave) into one filter, Mod Para, V voices
+            const int n = a < 1 ? 4 : (a > 8 ? 8 : a);
+            rack_clear(&g_app->rack);
+            for (int i = 0; i < n; i++) {
+                rack_insert(&g_app->rack, i, MOD_OSC);
+                rack_slot_t &s = g_app->rack.slot[i];
+                s.v[MP_OC_WAVE] = (float)(OC_FIRST_ENGINE + 8);
+                s.v[MP_OC_PW] = 0.3f + 0.1f * (float)(i % 4);                // detune 15 .. 30 cents
+                s.v[MP_OC_MORPH] = 0;                                        // saw
+                s.v[MP_OC_COARSE] = (float)((i % 3 == 2) ? 12 : 0);
+                s.v[MP_OC_QUAL] = 1;                                         // Mip
+            }
+            rack_insert(&g_app->rack, n, MOD_FILTER);
+            g_app->rack.cfg.type = SYNTH_MOD_PARA;
+            g_app->rack.cfg.voices = (uint8_t)(b < 1 ? 4 : (b > SYNTH_MAX_VOICES ? SYNTH_MAX_VOICES : b));
+        }
         else { Serial.printf("[CMD] unknown patch '%s'\n", name); return; }
         use_rack();
         Serial.printf("[CMD] patch %s %d %d\n", name, a, b);
@@ -83,7 +98,8 @@ void run(char *line) {
         const bool fm = synth_type_is_fm(g_app->rack.cfg.type);
         if (!strcmp(name, "mono")) g_app->rack.cfg.type = fm ? SYNTH_FM_MONO : SYNTH_MOD_MONO;
         else if (!strcmp(name, "poly")) g_app->rack.cfg.type = fm ? SYNTH_FM : SYNTH_MODULAR;
-        else { Serial.printf("[CMD] mode mono|poly [glide 0-6] [legato 0|1]\n"); return; }
+        else if (!strcmp(name, "para")) { g_app->rack.cfg.type = SYNTH_MOD_PARA; g_app->rack.cfg.para_env = (uint8_t)(glide < 0 || glide > 2 ? 0 : glide); }   // mode para [env 0 legato / 1 retrig / 2 voice]
+        else { Serial.printf("[CMD] mode mono|poly [glide 0-6] [legato 0|1] | para [env 0-2]\n"); return; }
         g_app->rack.cfg.glide = (uint8_t)glide;
         g_app->rack.cfg.legato = (uint8_t)legato;
         use_rack();
@@ -96,14 +112,25 @@ void run(char *line) {
         Serial.printf("[CMD] voices %d\n", g_app->rack.cfg.voices);
         return;
     }
-#ifdef ALT_ESP32SYNTH
-    if (!strcmp(line, "alt")) {                           // alt on | off: ESP32Synth instead of our engine (off rebuilds ours); other words: alt_command
-        if (arg && !strcmp(arg, "on")) { release_all(); alt_set_active(true); }
-        else if (arg && !strcmp(arg, "off")) { release_all(); alt_set_active(false); if (g_app) use_rack(); }
-        else alt_command(arg);
+    if (!strcmp(line, "str") && g_app) {                  // str <field> <value>: Strings settings for tests (wave osc det mix lvl lp ftype), "str fx 0" = every FX slot None
+        char f[8] = {};
+        float x = 0;
+        sscanf(arg ? arg : "", "%7s %f", f, &x);
+        str_params_t &s = g_app->params.str;
+        if (!strcmp(f, "wave")) s.wave = (uint8_t)x;
+        else if (!strcmp(f, "osc")) s.osc = (uint8_t)x;
+        else if (!strcmp(f, "det")) s.detune = x;
+        else if (!strcmp(f, "mix")) s.mix = x;
+        else if (!strcmp(f, "lvl")) s.level = x;
+        else if (!strcmp(f, "lp")) s.lp_on = (uint8_t)x;
+        else if (!strcmp(f, "ftype")) s.ftype = (uint8_t)x;
+        else if (!strcmp(f, "fx")) { for (int k = 0; k < FXR_SLOTS; k++) fxr_set_type(&g_app->rack.cfg.fxr.slot[k], FX_NONE); }
+        else { Serial.println("[CMD] str wave|osc|det|mix|lvl|lp|ftype|fx <value>"); return; }
+        audio_build(&g_app->rack, &g_app->params);
+        Serial.printf("[CMD] str %s %g\n", f, (double)x);
         return;
     }
-#endif
+    if (!strcmp(line, "dump")) { audio_dev_dump(v); return; }       // dump N: the next N output samples as "[DUMP]" lines (audio_esp32.cpp)
     if (!strcmp(line, "status")) { Serial.printf("[CMD] status chord %d, uptime %lu ms, free heap %u\n", chord_held, (unsigned long)millis(), (unsigned)ESP.getFreeHeap()); return; }
     Serial.printf("[CMD] unknown '%s'\n", line);
 }

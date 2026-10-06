@@ -40,7 +40,12 @@ bool Engine::init(Memory mem, int nvoices) {
 }
 
 void Engine::destroy_rec(Rec &r) {
-    for (int v = 0; v < kMaxVoices; v++) { destroy_module(*mem_.fast, r.inst[v]); r.inst[v] = nullptr; }
+    if (r.inst) {
+        for (int v = 0; v < r.nv; v++) destroy_module(*mem_.fast, r.inst[v]);
+        if (r.inst != &r.one) mem_.fast->free(r.inst);
+        r.inst = nullptr;
+        r.one = nullptr;
+    }
     r.alive = false;
 }
 
@@ -88,6 +93,9 @@ Err Engine::load(const GraphDesc &g, int nvoices) {
             r = Rec{};
             r.alive = true; r.id = nd.id; r.type = nd.type; r.nv = static_cast<uint8_t>(count);
             created[ri] = true;
+            r.inst = count == 1 ? &r.one : mem_.fast->alloc_array<Module *>(static_cast<size_t>(count));
+            if (!r.inst) { rollback(); return Err::NoMem; }
+            for (int v = 0; v < count; v++) r.inst[v] = nullptr;
             for (int v = 0; v < count; v++) {
                 r.inst[v] = t->create(mem_);
                 if (!r.inst[v]) { rollback(); return Err::NoMem; }
@@ -405,6 +413,9 @@ void Engine::render(q15 *l, q15 *r) {
         }
     }
     ProcessCtx ctx{kBlock, t, nullptr, bus_l_, bus_r_, l, r};
+    ctx.voices = voices_;
+    ctx.nvoices = nvoices_;
+    for (int v = 0; v < nvoices_; v++) ctx.keys_held += voices_[v].active && voices_[v].gate;
     run(pl, 0, pl->n_pre, -1, ctx);
     for (int v = 0; v < nvoices_; v++) {
         VoiceState &vs = voices_[v];

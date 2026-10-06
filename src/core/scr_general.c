@@ -17,6 +17,7 @@ static bool cfg_adjust(const ui_ctx_t *c, int dir) {
 static bool en_fm(const ui_ctx_t *c)     { return synth_type_is_fm(c->rack->cfg.type); }
 static bool en_voices(const ui_ctx_t *c) { return !synth_type_is_mono(c->rack->cfg.type); }
 static bool en_mono(const ui_ctx_t *c)   { return synth_type_is_mono(c->rack->cfg.type); }
+static bool en_para(const ui_ctx_t *c)   { return synth_type_is_para(c->rack->cfg.type); }
 
 static const el_def_t elements[] = {
     {"Type",   EL_VALUE, 0, 0, 1, cfg_value, cfg_adjust, NULL, NULL, NULL,      cfg_label, CFGP_TYPE,   0},
@@ -24,6 +25,7 @@ static const el_def_t elements[] = {
     {"Voices", EL_VALUE, 2, 0, 1, cfg_value, cfg_adjust, NULL, NULL, en_voices, cfg_label, CFGP_VOICES, EF_HIDE_WHEN_DISABLED},
     {"Glide",  EL_VALUE, 3, 0, 1, cfg_value, cfg_adjust, NULL, NULL, en_mono,   cfg_label, CFGP_GLIDE,  EF_HIDE_WHEN_DISABLED},
     {"Legato", EL_VALUE, 4, 0, 1, cfg_value, cfg_adjust, NULL, NULL, en_mono,   cfg_label, CFGP_LEGATO, EF_HIDE_WHEN_DISABLED},
+    {"PEnv",   EL_VALUE, 3, 0, 1, cfg_value, cfg_adjust, NULL, NULL, en_para,   cfg_label, CFGP_PARA_ENV, EF_HIDE_WHEN_DISABLED},   // shares Glide's row (never both)
     {"Vol",    EL_VALUE, 5, 0, 1, cfg_value, cfg_adjust, NULL, NULL, NULL,      cfg_label, CFGP_VOLUME, 0},
     {"Out",    EL_VALUE, 6, 0, 1, cfg_value, cfg_adjust, NULL, NULL, NULL,      cfg_label, CFGP_OUTPUT, 0},
     {"Spk",    EL_VALUE, 7, 0, 1, cfg_value, cfg_adjust, NULL, NULL, NULL,      cfg_label, CFGP_SPEAKER, 0},

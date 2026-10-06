@@ -38,4 +38,37 @@ inline int32_t mip_read(const int16_t *t, uint32_t ph) {
     return a + (((b - a) * frac) >> 15);
 }
 
+// The table oscillator shared by the Strings voice, the Strings engine of the rack oscillator and the plain Osc waves in "Mip" / "Naive" quality.
+// W: WT_SAW (rising), WT_PULSE (the difference of two saws `pw_off` apart, same level), WT_TRI. Mip = the band-limited table `tab`
+// (wt_table), else the naive phase accumulator (`tab` unused). Output about +-0.95 full scale.
+enum WtWave { WT_SAW, WT_PULSE, WT_TRI, WT_WAVES };
+
+inline const int16_t *wt_table(int wave, uint32_t inc) { return wave == WT_TRI ? kMipTri[mip_band(inc)] : kMipSaw[mip_band(inc)]; }
+
+template <int W, bool Mip>
+inline int32_t wt_osc(uint32_t ph, uint32_t pw_off, const int16_t *tab) {
+    if (Mip) {
+        if (W == WT_TRI) return mip_read(tab, ph);
+        const int32_t a = mip_read(tab, ph);
+        if (W == WT_SAW) return a;
+        return (a - mip_read(tab, ph + pw_off)) >> 1;
+    }
+    if (W == WT_TRI) {                                                     // |saw| folded: -1 at phase 0, +1 at half a cycle (-32768 .. 32766)
+        const int32_t s = static_cast<int32_t>(ph) >> 16;
+        return ((s ^ (s >> 31)) - 16384) * 2;
+    }
+    const int32_t a = static_cast<int32_t>(ph) >> 16;
+    if (W == WT_SAW) return a;
+    return (a - (static_cast<int32_t>(ph + pw_off) >> 16)) >> 1;
+}
+
+// Runtime choice of the same (for loops that already branch per sample).
+inline int32_t wt_osc_any(int wave, bool mip, uint32_t ph, uint32_t pw_off, const int16_t *tab) {
+    switch (wave) {
+        case WT_PULSE: return mip ? wt_osc<WT_PULSE, true>(ph, pw_off, tab) : wt_osc<WT_PULSE, false>(ph, pw_off, tab);
+        case WT_TRI:   return mip ? wt_osc<WT_TRI, true>(ph, pw_off, tab) : wt_osc<WT_TRI, false>(ph, pw_off, tab);
+        default:       return mip ? wt_osc<WT_SAW, true>(ph, pw_off, tab) : wt_osc<WT_SAW, false>(ph, pw_off, tab);
+    }
+}
+
 }  // namespace sc

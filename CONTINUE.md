@@ -8,16 +8,32 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
 
 ## Session todo (updated 2026-10-06)
 
-- [ ] Strings on the board (ADR-037): flash, GENERAL Type = Strings (or serial `patch strings`), play pads and big chords; try Osc Naive vs Mip, the VOICE LP, the STR FILTER, an Ensemble in the FX rack; "done" = the user says how it sounds and what to change (from: user)
-- [ ] Strings vs ESP32Synth, measured: `chord 8 / 16 / 32` (`chord` takes up to 48) with Type Strings -> `[PROF]` "Strings" cycles per block (and per voice) for Osc Naive and Mip; the same chords with `alt on` (`alt poly 32`, `alt wave saw`) -> `[ALT]`; `[HEAP]` fast heap used / spilled with the 32-voice ceiling; tables in flash vs `-DENGINE_WT_RAM=1` (from: user)
-- [ ] Remove ESP32Synth once the comparison is recorded: `src/platform/esp32/esp32synth/`, `alt_esp32synth.*`, `ALT_ESP32SYNTH` + `build_src_filter` in platformio.ini, the `alt` serial command, its DEVELOPING.md rows (from: user)
-- [ ] ESP32Synth's vector types: static check done (0 `ee.*` S3 SIMD instructions; GCC splits `v4i32` into scalar ops); a bench of their saw loop vs a plain one only if still interesting before the removal (from: user)
+- [ ] Listen to Mod Para on the board (ADR-036 stage 2): `patch para 8 4` / `patch para 4 8` (Strng oscillators, one filter) or GENERAL Type = Mod Para; PEnv Legato / Retrig / Voice; "done" = the user says how it plays and what to change (from: user)
+- [ ] Listen to Strings and to the rack oscillator's Q (Blep / Mip / Naive) and the Strng engine; the user heard "aliasing" on `chord 16` but the board's own output measures clean (see below): check a single note dry, then decide levels / defaults (from: user)
+- [ ] Mix4 chain cost in the voice part: about 2k cycles per voice with 8 oscillators (one Mix4 per added source); a single N-input mixer would cut it; VoiceOut / NoteIn overhead (~1.2k per voice) likewise (from: measurements)
 - [ ] Integration findings: write down what the adapter needed (own voice allocator, mono -> stereo, memory policy, measurement hooks, what of `engine_synth.h` an outside engine cannot use) as input for an engine-independent "audio backend" interface (from: user)
-- [ ] Flash and check the F1 power-on keys reset (`[KBD] key r4 c7 held at power-on`) (from: notes)
-- [ ] ADR-036 stage 1 on the board: Mono heap / CPU drop, last-note priority, legato, glide by ear (from: notes)
-- [ ] Decide the SD options (a)-(d) and listen to the sampler after the loop fix; commit the pending work of the last two sessions (from: notes)
+- [ ] Flash and check the F1 power-on keys reset (`[KBD] key r4 c7 held at power-on`); ADR-036 stage 1 Mono by ear (from: notes)
+- [ ] Decide the SD options (a)-(d) and listen to the sampler after the loop fix (from: notes)
+- [x] ESP32Synth removed from the project (user) (done 2026-10-06)
+- [ ] Flash the build without ESP32Synth (built OK, RAM 48.4 %): the upload failed because COM8 was busy (a serial monitor open); the board still runs the build with `alt`
+- [x] Strings type built (ADR-037), measured on the board: 16 voices 87k cycles per block with the startup FX (Strings 1.6k, VoiceOut 0.87k, NoteIn 0.32k per voice); ESP32Synth 506 per voice (one oscillator, no filter) (done 2026-10-06)
+- [x] Fast heap back in internal RAM (it fell to PSRAM: largest internal block 90 KB - 40 KB margin < 64 KB); margin 16 KB, now 73.7 KB internal, 55 KB internal left after boot. Startup patch (Mod Mono): 67.5 KB used, 65.9 KB of module data spilled to PSRAM (likely part of the reverb tank), 1 key 63.5k cycles (36 %) (done 2026-10-06)
+- [ ] Internal RAM for the startup patch: decide what should stay internal when the fast heap is 74 KB (reverb tank, delay, filters) or free more internal RAM (IRAM code 124 KB) (from: measurements)
 
-## Strings, the third synth type (ADR-037; 2026-10-06; built and host-tested, NOT flashed / heard / measured)
+## Mod Para, the rack oscillator's quality and the Strng engine (2026-10-06; host-tested, flashed and measured, NOT listened to)
+
+Decisions in ENGINE_DESIGN.md (ADR-036 stage 2 "as built", ADR-037 decision 5). The user flashed-and-test permission covers this task (COM8).
+- Mod Para: GENERAL Type "Mod Para", Voices 1..8, PEnv Legato / Retrig / Voice. The rack splits at its first filter; `GateIn`, `ParaGate`, `EnvG` (T_ENV_G) are the new engine
+  parts, `ProcessCtx` carries the voices and the held-key count. Host tests (`test_para.cpp`): both keys sound, a released key stops while another is held (power 1e15 -> 1e7),
+  the last chord rings through the shared release, Retrig raises the level x 2.8 on a new key, Legato x 0.98, Voice releases a key alone.
+- Board (`patch para N V`, Strng saw Mip, FX dry): 8 osc x 4 voices: 1 key 28.8k, 2 keys 46.8k, 4 keys 82.7k cycles (47 %); 4 osc x 8 voices: 1 key 20.3k, 4 keys 51.7k, 8 keys 100.5k (58 %);
+  0 blocks over budget. One Strng oscillator (a pair) about 1.5-1.9k cycles per block per voice; Mix4 2k per voice at 8 oscillators.
+- Rack OSC: Wav "Strng" (engine 8: Timbre = detune up to 50 c, Morph = saw / pulse / tri), Q row on OSC TUNE (Blep / Mip / Naive). Host C7 saw: Blep -28.2, Mip -40.6, Naive -12.5 dB.
+- Aliasing check on the board (`dump` + an offline DFT, C5 single note, dry): saw Mip -40.6 / Naive -18.4 dB, pulse -40.2 / -20.1, triangle -39.7 / -39.7 = the host's numbers.
+  What the user heard on `chord 16` (8 notes + a chromatic cluster C#5..G#5, 2 detuned saws per voice) is most likely beating of the cluster, not aliasing; to confirm by ear.
+- Engine memory: the instance records and plans are sized by the real voice count (no static kMaxVoices tables): firmware RAM 50.7-51 % (was 55.6 % with the first Strings build).
+
+## Strings, the third synth type (ADR-037; 2026-10-06; flashed and measured, NOT listened to by the user)
 
 User decisions in ENGINE_DESIGN.md ADR-037 (do not re-litigate). What exists:
 - `engine/modules/strings_modules.*`: `Strings` (voice scope: two detuned oscillators saw / pulse / tri, naive or mipmap, linear ADSR per block, one-pole LP on / off with
@@ -30,16 +46,14 @@ User decisions in ENGINE_DESIGN.md ADR-037 (do not re-litigate). What exists:
   16.6 / 8.8 KB -> 13.0 / 4.8 KB for 8 / 1 voices); the instance records still grow ~13 KB static (firmware RAM 51.5 -> 55.6 %).
 - Host: 151 tests, all six matrix configurations green. C7 saw inharmonic power: naive -12.5 dB, mipmap -40.6 dB; 32 voices are real (rms 8 notes 4211, 32 notes 7208, 32 notes on 8 voices 3301);
   linear attack / release at half way 0.51 / 0.48. Screens checked with `ui_dump` at 128 x 128.
-- Not done: board CPU / heap numbers, listening, level balance (Lvl 0.5 x VoiceOut 0.5 per voice: 32 voices may clip, Mix 1.0 default), default pad envelope (AMP ENV is shared with Modular).
+- Board: see the todo (16 voices 87k with the startup FX). Not done: listening, level balance (Lvl 0.5 x VoiceOut 0.5 per voice: 32 voices may clip, Mix 1.0 default), default pad envelope (AMP ENV is shared with Modular).
 
-## ESP32Synth as a second engine (2026-10-06; built, NOT flashed; to be removed after the comparison, user)
+## ESP32Synth (removed 2026-10-06)
 
-The user wants to compare the ESP32Synth library (github.com/danilogcrf2-oss/ESP32Synth, MIT) with our engine inside this project and see what integrating an outside engine
-says about the framework. It is an oscillator bank (one oscillator x linear ADSR x volume per voice, buses with FX callbacks, no filter): its "80+ voices" are bare
-oscillators, so compare it with osc -> Env -> Vca, never with the startup patch. Built with `-DALT_ESP32SYNTH` (on in platformio.ini); details in DEVELOPING.md
-(`alt_esp32synth.*`, build flags). The audio task renders it instead of ours while `alt on` (ours is not rendered: UI edits meanwhile may drop engine commands, `alt off` rebuilds);
-its object (~15 KB at 48 voices) is allocated at `alt on` so our fast heap is not shrunk at boot. Its SD streaming / recording are not wired (they use Arduino `SD`, i.e. the IDF sdspi
-host that cost 40 ms per command here). Firmware build OK (RAM 51.5 %); nothing run on the board.
+The ESP32Synth library (github.com/danilogcrf2-oss/ESP32Synth, MIT) was tried as a second engine on the board (`alt on`, a lazy-allocated object rendered by our audio
+task) and removed at the user's request once the Strings type existed (git history: commit f714a84 has it). What it taught: thin voices (one oscillator x a linear
+per-block envelope) make many voices cheap (506 cycles per voice and 32 frames, saw, measured); its S3 "SIMD" vector types compile to scalar code (0 `ee.*` instructions);
+an outside engine needs its own voice allocator, mono -> stereo and its own measurement hooks: `engine_synth.h` is not an engine-neutral backend interface.
 
 ## State (end of the ESP32 bring-up and optimization session)
 

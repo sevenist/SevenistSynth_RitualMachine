@@ -8,6 +8,7 @@
 #include "engine/dsp/smooth.h"
 #include "engine/dsp/svf.h"
 #include "engine/dsp/util.h"
+#include "engine/dsp/wavetables.h"
 
 namespace sc {
 namespace {
@@ -24,7 +25,7 @@ public:
     const ModuleInfo &info() const override {
         static const ModuleInfo i = {"Osc", S, 1, 1, OSC_N, false, {"pitch"}, {"out"},
             {{"wave", WAVE_SAW_, 0, 5}, {"pitch", 60 * kSemi, 0, 127 * kSemi}, {"pw", 16384, 1024, 31744},
-             {"level", kUnity, 0, kUnity}, {"pitch_mod", 12 * kSemi, 0, 96 * kSemi}}};
+             {"level", kUnity, 0, kUnity}, {"pitch_mod", 12 * kSemi, 0, 96 * kSemi}, {"quality", 0, 0, 2}}};
         return i;
     }
     bool init(Memory &) override { a4_ = inc_a4(); return true; }
@@ -36,6 +37,7 @@ public:
             case OSC_PW: pw_ = static_cast<q15>(v); break;
             case OSC_LEVEL: level_ = static_cast<q15>(v); break;
             case OSC_PITCH_MOD: pmod_ = v; break;
+            case OSC_QUAL: qual_ = v; break;
         }
     }
     SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
@@ -43,6 +45,22 @@ public:
         const q15 *cv = p.in[0], *mp = p.mod[OSC_PITCH], *mw = p.mod[OSC_PW], *ml = p.mod[OSC_LEVEL];
         const bool varying = mp || cv[0] != cv[n - 1];
         uint32_t inc = pitch_to_inc(pitch_ + scaled(cv[0], kPitchCvSpan), a4_);
+        if (qual_ != 0 && wave_ != WAVE_SINE_ && wave_ != WAVE_NOISE_) {   // table / naive waves (the table band is chosen once per block)
+            const int w = wave_ == WAVE_PULSE_ ? WT_PULSE : (wave_ == WAVE_TRI_ ? WT_TRI : WT_SAW);
+            const bool mip = qual_ == 1, down = wave_ == WAVE_SAW_DOWN_;
+            const int16_t *tab = mip ? wt_table(w, inc) : nullptr;
+            for (int i = 0; i < n; i++) {
+                if (varying) inc = pitch_to_inc(pitch_ + scaled(cv[i], kPitchCvSpan) + (mp ? scaled(mp[i], pmod_) : 0), a4_);
+                q15 pw = mw ? sat16(pw_ + mw[i]) : pw_;
+                if (pw < 1024) pw = 1024;
+                int32_t s = wt_osc_any(w, mip, ph_, static_cast<uint32_t>(pw) << 17, tab);
+                if (down) s = -s;
+                const q15 lv = ml ? sat16(level_ + ml[i]) : level_;
+                p.out[0][i] = mul15(sat16(s), lv);
+                ph_ += inc;
+            }
+            return;
+        }
         for (int i = 0; i < n; i++) {
             if (varying) inc = pitch_to_inc(pitch_ + scaled(cv[i], kPitchCvSpan) + (mp ? scaled(mp[i], pmod_) : 0), a4_);
             q15 pw = mw ? sat16(pw_ + mw[i]) : pw_;
@@ -62,7 +80,7 @@ public:
         }
     }
 private:
-    int32_t wave_ = WAVE_SAW_, pitch_ = 60 * kSemi, pmod_ = 12 * kSemi;
+    int32_t wave_ = WAVE_SAW_, pitch_ = 60 * kSemi, pmod_ = 12 * kSemi, qual_ = 0;
     q15 pw_ = 16384, level_ = kUnity;
     uint32_t ph_ = 0, a4_ = 0;
     Noise noise_{0xC0FFEEu};
@@ -95,11 +113,13 @@ inline int32_t ms_frames(int32_t ms) {
 }
 
 // ADSR with a hold stage, a start level and a curve (tension) on attack, decay and release. Segments have an exact length: the
-// attack reaches 1.0 after `attack` ms, the release reaches 0 after `release` ms, whatever the curve.
+// attack reaches 1.0 after `attack` ms, the release reaches 0 after `release` ms, whatever the curve. Global variant (T_ENV_G): the shared
+// filter / amp envelope of the paraphonic mode, gated by GateIn.
+template <Scope S>
 class Env : public Module {
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"Env", Scope::Voice, 1, 1, ENV_N, false, {"gate"}, {"out"},
+        static const ModuleInfo i = {S == Scope::Voice ? "Env" : "EnvG", S, 1, 1, ENV_N, false, {"gate"}, {"out"},
             {{"attack", 5, 1, 20000}, {"decay", 200, 1, 20000}, {"sustain", 20000, 0, kUnity}, {"release", 300, 1, 20000},
              {"hold", 0, 0, 20000}, {"start", 0, 0, kUnity}, {"a_curve", 18000, -kUnity, kUnity}, {"d_curve", 20000, -kUnity, kUnity},
              {"r_curve", 20000, -kUnity, kUnity}}};
@@ -537,7 +557,8 @@ ModuleType type_of() { static T probe; return {&probe.info(), &create_module<T>}
 void register_synth_modules(Registry &r) {
     r.add(T_OSC, type_of<Osc<Scope::Voice>>());
     r.add(T_OSC_G, type_of<Osc<Scope::Global>>());
-    r.add(T_ENV, type_of<Env>());
+    r.add(T_ENV, type_of<Env<Scope::Voice>>());
+    r.add(T_ENV_G, type_of<Env<Scope::Global>>());
     r.add(T_EG, type_of<Eg>());
     r.add(T_LFO_V, type_of<Lfo<Scope::Voice>>());
     r.add(T_LFO_G, type_of<Lfo<Scope::Global>>());

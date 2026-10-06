@@ -16,13 +16,13 @@
 #include "platform/esp32/samples_esp32.h"
 #include "board_pins.h"
 #include "platform/esp32/board_esp32.h"
-#ifdef ALT_ESP32SYNTH
-#include "platform/esp32/alt_esp32synth.h"
-#endif
 #include <atomic>
 
 namespace {
-constexpr size_t kFastMarginBytes = 40 * 1024;     // internal RAM kept free for what is created after audio_init (tasks, DMA, display buffer)
+// Internal RAM kept free in the largest block for what is created after audio_init (tasks, DMA, display buffer). 40 KB made the fast heap fall
+// into PSRAM on HWV1 (2026-10-06: 134 KB free in two blocks, the largest 90 KB -> 50 KB < kFastMinBytes); the other block (~44 KB) takes those:
+// the boot log's "running" line shows the largest block untouched after them.
+constexpr size_t kFastMarginBytes = 16 * 1024;
 constexpr size_t kFastMaxBytes = 256 * 1024;       // no point in taking more than this
 constexpr size_t kFastMinBytes = 64 * 1024;        // below this the internal block is not worth it: the fast heap goes to PSRAM
 constexpr size_t kFastSpiramBytes = 400 * 1024;    // the fast heap when it has to live in PSRAM
@@ -56,6 +56,20 @@ void apply_speaker(const rack_t *r) {
     g_spk_pct = pct;
 }
 
+#ifdef DEV_SERIAL_CMD
+// Dev capture (serial "dump N"): the next N left-channel samples of the engine output, before the dev gain, for offline analysis on the PC.
+int16_t *g_cap = nullptr;
+std::atomic<int> g_cap_want{0}, g_cap_n{0};
+void capture(const int16_t *stereo, int frames) {
+    const int want = g_cap_want.load(std::memory_order_acquire);
+    if (!want) return;
+    int n = g_cap_n.load(std::memory_order_relaxed);
+    for (int i = 0; i < frames && n < want; i++) g_cap[n++] = stereo[2 * i];
+    g_cap_n.store(n, std::memory_order_release);
+    if (n >= want) g_cap_want.store(0, std::memory_order_release);
+}
+#endif
+
 void audio_task_main(void *) {
     static int16_t buf[kFrames * 2];
 #ifdef HWV1_DEBUG_AUDIO
@@ -75,11 +89,10 @@ void audio_task_main(void *) {
             buf[2 * i] = buf[2 * i + 1] = v;
         }
 #else
-#ifdef ALT_ESP32SYNTH
-        if (alt_active()) alt_render(buf, kFrames);      // dev: the other engine instead of ours (serial "alt on"); ours is not rendered meanwhile
-        else
-#endif
         engine_synth_render(buf, kFrames);
+#endif
+#ifdef DEV_SERIAL_CMD
+        capture(buf, kFrames);
 #endif
 #ifdef HWV1_DEBUG_AUDIO
         const uint32_t dt = micros() - t0;
@@ -105,9 +118,6 @@ void audio_task_main(void *) {
         if (millis() - t_report >= 1000 && Serial.availableForWrite() > 160) {      // skip the report rather than block when the port is not being read
             Serial.printf("[AUDIO] render avg %u us, worst %u us, budget %u us per %d frames, %u blocks over budget of %u, graph builds %u (last: %s)\n", (unsigned)(total / blocks),
                           (unsigned)worst, (unsigned)budget_us, kFrames, (unsigned)late, (unsigned)blocks, engine_synth_build_count(), engine_synth_build_reason());
-#ifdef ALT_ESP32SYNTH
-            alt_report();
-#endif
 #ifdef ENGINE_PROFILE
             {   // CPU cycles per rendered block, per module type; the block budget is cpu_hz * block / sample_rate
                 struct Row { const char *name; uint32_t cyc, calls; };
@@ -131,7 +141,7 @@ void audio_task_main(void *) {
                                   (unsigned)(g_sec_prof[4] / nblocks), (unsigned)(g_sec_prof[5] / nblocks), (unsigned)(g_sec_prof[8] / nblocks), (unsigned)(g_sec_prof[9] / nblocks),
                                   (unsigned)(g_sec_prof[10] / nblocks), (unsigned)(g_sec_prof[11] / nblocks));
                     for (auto &v : g_sec_prof) v = 0;
-                    static const char *const names[sc::OSCX_ENGINES] = {"karp", "modal", "fm2", "fold", "ssaw", "vowel", "add", "dust"};
+                    static const char *const names[sc::OSCX_ENGINES] = {"karp", "modal", "fm2", "fold", "ssaw", "vowel", "add", "dust", "str"};
                     {
                         size_t fu = 0, fc = 0, fh = 0, bu = 0, sp = 0;
                         engine_synth_heap_stats(&fu, &fc, &fh, &bu, &sp);
@@ -181,9 +191,6 @@ extern "C" void audio_init(void) {
     Serial.printf("[AUDIO] fast heap %u bytes (%s), bulk heap %u bytes (PSRAM)\n", (unsigned)fast_bytes, fast_internal ? "internal RAM" : "PSRAM", (unsigned)bulk_bytes);
     if (!fast || !bulk) { Serial.printf("[AUDIO] allocation failed: fast %p, bulk %p\n", fast, bulk); return; }
     if (engine_synth_init(fast, fast_bytes, bulk, bulk_bytes) != 0) { Serial.println("[AUDIO] engine_synth_init failed"); return; }
-#ifdef ALT_ESP32SYNTH
-    alt_init(engine_synth_sample_rate());
-#endif
 
     i2s_chan_config_t chan = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     chan.dma_desc_num = 6;
@@ -198,10 +205,35 @@ extern "C" void audio_init(void) {
     };
     i2s_channel_init_std_mode(tx, &cfg);
     i2s_channel_enable(tx);
-    Serial.println("[AUDIO] running");
+    Serial.printf("[AUDIO] running; internal free %u (largest block %u)\n", (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
     xTaskCreatePinnedToCore(audio_task_main, "audio", 8192, nullptr, configMAX_PRIORITIES - 2, &audio_task, 1);
     samples_esp32_start();                              // TF card library + the sample loader (its own task on core 0)
 }
+
+#ifdef DEV_SERIAL_CMD
+// Serial "dump N" (UI loop, core 0): waits for the audio task to capture N samples (at most 16384, PSRAM) and prints them, 32 per "[DUMP]" line.
+extern "C" void audio_dev_dump(int n) {
+    if (n < 1) n = 1;
+    if (n > 16384) n = 16384;
+    if (!g_cap) g_cap = static_cast<int16_t *>(heap_caps_malloc(16384 * sizeof(int16_t), MALLOC_CAP_SPIRAM));
+    if (!g_cap) { Serial.println("[DUMP] no memory"); return; }
+    g_cap_n.store(0, std::memory_order_relaxed);
+    g_cap_want.store(n, std::memory_order_release);
+    const uint32_t t0 = millis();
+    while (g_cap_want.load(std::memory_order_acquire) && millis() - t0 < 3000) delay(5);
+    const int got = g_cap_n.load(std::memory_order_acquire);
+    Serial.printf("[DUMP] begin %d samples at %d Hz\n", got, engine_synth_sample_rate());
+    for (int i = 0; i < got; i += 32) {
+        char line[300];
+        int len = snprintf(line, sizeof line, "[DUMP] @%d", i);         // the index lets the reader detect a lost or mangled line
+        for (int k = i; k < got && k < i + 32; k++) len += snprintf(line + len, sizeof line - len, " %d", g_cap[k]);
+        while (Serial.availableForWrite() < len + 2) delay(1);
+        Serial.println(line);
+    }
+    Serial.println("[DUMP] end");
+}
+#endif
 
 extern "C" void audio_shutdown(void) {
     if (audio_task) vTaskDelete(audio_task);
@@ -220,13 +252,8 @@ extern "C" uint32_t audio_sd_read_us(void)                                  { re
 extern "C" uint32_t audio_sd_generation(void)                               { return samples_esp32_sd_generation(); }
 extern "C" void audio_set_clock(int bpm, int steps, int swing, int running) { engine_synth_set_clock(bpm, steps, swing, running); }
 extern "C" void audio_motion_restart(void)                                 { engine_synth_motion_restart(); }
-#ifdef ALT_ESP32SYNTH
-extern "C" void audio_note_on(int midi_note)                               { if (alt_active()) alt_note_on(midi_note); else engine_synth_note_on(midi_note); }
-extern "C" void audio_note_off(int midi_note)                              { if (alt_active()) alt_note_off(midi_note); else engine_synth_note_off(midi_note); }
-#else
 extern "C" void audio_note_on(int midi_note)                               { engine_synth_note_on(midi_note); }
 extern "C" void audio_note_off(int midi_note)                              { engine_synth_note_off(midi_note); }
-#endif
 extern "C" uint32_t audio_millis(void)                                     { return engine_synth_millis(); }
 extern "C" void audio_update(void)                                         {}     // nothing to pump: the audio task is independent
 #endif // ARDUINO_ARCH_ESP32

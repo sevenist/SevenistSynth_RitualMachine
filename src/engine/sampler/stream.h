@@ -11,8 +11,9 @@
 #include "engine/sampler/smp_format.h"
 
 #ifndef ENGINE_RING_BLOCKS
-#define ENGINE_RING_BLOCKS 8        // 32 KB per stream. The blocks wanted at any time are the current one, one for the interpolator,
-                                    // and the path of the next kLookaheadBlocks blocks (<= kLookaheadBlocks + 4 when it wraps a loop)
+#define ENGINE_RING_BLOCKS 12       // 48 KB per stream. The blocks wanted at any time are the current one, one for the interpolator,
+                                    // and the path of the next kLookaheadBlocks blocks (<= kLookaheadBlocks + 4 when it wraps a loop).
+                                    // 8 (3 ahead) underran at 8x pitch on the prototype: a block lasts 5.3 ms there, a slow card read 22 ms.
 #endif
 
 namespace sc {

@@ -10,4 +10,5 @@ bool sd_card_mounted();
 uint32_t sd_card_probe_us();    // average time of a few single-sector reads in microseconds (a healthy card: 300-2000); 0 = the reads failed
 bool sd_card_alive();           // the mounted card still answers (a status command): false once it is pulled out
 uint32_t sd_card_id();          // identifies the card (serial number), to tell "the same card again" from "another card"
+uint32_t sd_card_crc_errors();  // data blocks that arrived with a wrong CRC and were read again (0 when the driver does not check)
 void sd_card_bench();           // dev (HWV1_SD_BENCH): raw sector reads of 1 and 8 sectors, timed, printed as [SD] bench lines

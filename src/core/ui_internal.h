@@ -28,7 +28,8 @@
 
 static inline int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
-typedef enum { GRAPH_WAVE, GRAPH_ENV, GRAPH_FILTER, GRAPH_SAT, GRAPH_AMP_ENV, GRAPH_SEQ, GRAPH_SEQ_CFG, GRAPH_FM, GRAPH_MS_STEPS, GRAPH_MS_LANE, GRAPH_SAMPLE, GRAPH_EG, GRAPH_EG_REL, GRAPH_COMB } graph_t;
+typedef enum { GRAPH_WAVE, GRAPH_ENV, GRAPH_FILTER, GRAPH_SAT, GRAPH_AMP_ENV, GRAPH_SEQ, GRAPH_SEQ_CFG, GRAPH_FM, GRAPH_MS_STEPS, GRAPH_MS_LANE, GRAPH_SAMPLE, GRAPH_EG, GRAPH_EG_REL, GRAPH_COMB,
+               GRAPH_STR_OSC, GRAPH_STR_LP, GRAPH_STR_FILTER } graph_t;
 
 // A resolved page: what to show for ui->page right now.
 typedef struct {

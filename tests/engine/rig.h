@@ -8,6 +8,7 @@
 #include "engine/modules/fx2_modules.h"
 #include "engine/modules/motion_seq.h"
 #include "engine/modules/osc_engines.h"
+#include "engine/modules/strings_modules.h"
 #include "engine/modules/synth_modules.h"
 #include "test.h"
 
@@ -30,6 +31,7 @@ struct DspRig {
         register_dx7_module(eng.registry());
         register_motion_module(eng.registry());
         register_osc_engines(eng.registry());
+        register_strings_modules(eng.registry());
     }
     ~DspRig() { eng.shutdown(); }
     NodeDesc *add(GraphDesc &g, int id, int type) { return g.add_node(eng.registry(), id, type); }

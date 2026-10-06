@@ -46,8 +46,10 @@ struct Plan {
     uint8_t node_type[kMaxNodes] = {};
     Scope node_scope[kMaxNodes] = {};
     int rec[kMaxNodes] = {};                        // engine instance record per node (filled by the engine)
-    Module *inst[kMaxNodes][kMaxVoices] = {};       // [node][voice] (global nodes use voice 0)
+    Module **inst_ = nullptr;                       // n_nodes x nvoices, allocated with the plan (sized by the plan's voices, not the ceiling)
     int nvoices = 0;
+    Module *&inst(int node, int voice) { return inst_[node * nvoices + voice]; }             // global nodes use voice 0
+    Module *inst(int node, int voice) const { return inst_[node * nvoices + voice]; }
 
     Step *steps = nullptr;
     int n_pre = 0, n_voice = 0, n_post = 0;         // steps[0..n_pre) pre, then voice, then post

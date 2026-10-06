@@ -101,7 +101,7 @@ Err Engine::load(const GraphDesc &g, int nvoices) {
             } else {
                 for (int p = 0; p < info.n_param; p++) pl->updates[pl->n_updates++] = ParamUpdate{r.inst[v], static_cast<uint8_t>(p), nd.param[p]};
             }
-            pl->inst[i][v] = r.inst[v];
+            pl->inst(i, v) = r.inst[v];
         }
         pl->rec[i] = ri;
         if (nd.type == T_MASTER_OUT) pl->has_master = true;
@@ -289,7 +289,7 @@ void Engine::apply(const Command &c) {
             if (pl->node_id[n] != c.node) continue;
             const int count = pl->node_scope[n] == Scope::Voice ? pl->nvoices : 1;
             for (int v = 0; v < count; v++) {
-                Module *m = pl->inst[n][v];
+                Module *m = pl->inst(n, v);
                 if (!m) continue;
                 if (c.type == Cmd::SetParam) m->set_param(c.idx, c.value);
                 else m->set_blob(c.blob, c.size);
@@ -326,7 +326,7 @@ void Engine::run(const Plan *pl, int first, int count, int voice, ProcessCtx &ct
         const bool move = s.fb && voice > 0;
         switch (s.kind) {
         case StepKind::Module: {
-            Module *m = pl->inst[s.node][voice > 0 ? voice : 0];
+            Module *m = pl->inst(s.node, voice > 0 ? voice : 0);
 #ifdef ENGINE_PROFILE
             const uint32_t t0 = prof_now();
 #endif
@@ -411,7 +411,7 @@ void Engine::render(q15 *l, q15 *r) {
         if (!vs.active) continue;
         if (vs.started) {
             for (int n = 0; n < pl->n_nodes; n++)
-                if (pl->node_scope[n] == Scope::Voice && pl->inst[n][v]) pl->inst[n][v]->reset();
+                if (pl->node_scope[n] == Scope::Voice && pl->inst(n, v)) pl->inst(n, v)->reset();
         }
         ctx.voice = &vs;
         run(pl, pl->n_pre, pl->n_voice, v, ctx);

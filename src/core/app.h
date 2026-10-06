@@ -35,7 +35,8 @@ typedef struct {
     bool           dirty;       // the screen needs a redraw after this step
     uint32_t       sd_gen;      // the TF card generation the app has seen (hal_audio.h)
     bool           sd_notice;   // the "card too slow" screen is up: the next button press dismisses it
-    bool           keys_notice; // the "keys reset" screen is up until the reset key is released
+    bool           keys_notice; // the "keys reset" screen is up until a key is pressed or released, or a few seconds passed
+    uint32_t       keys_notice_ms;
     bool           menu_open;   // the menu was open at the previous step (closing it saves the key layout)
     uint32_t       boot_ms;     // when app_init ran: the key-layout reset only works in the first seconds
     bool           reset_held;  // the reset key went down in the first seconds and is still held

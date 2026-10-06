@@ -190,13 +190,16 @@ void draw_synth_info(u8g2_t *g, const gui_style_t *st, gui_rect_t box, const rac
         gui_draw_text_centered(g, gui_below(r, st->gap + 2, rh), rack->cfg.fm.name);
         synth_config_format(&rack->cfg, CFGP_PATCH, buf, sizeof buf);
         gui_draw_text_centered(g, gui_below(r, st->gap + 2 + 2 * rh, rh), buf);
+    } else if (synth_type_is_strings(rack->cfg.type)) {
+        gui_draw_text_centered(g, gui_below(r, st->gap + 2, rh), "pads, chords");
+        gui_draw_text_centered(g, gui_below(r, st->gap + 2 + 2 * rh, rh), "2 osc/voice");
     } else {
         snprintf(buf, sizeof buf, "%d modules", rack->count);
         gui_draw_text_centered(g, gui_below(r, st->gap + 2, rh), buf);
         gui_draw_text_centered(g, gui_below(r, st->gap + 2 + 2 * rh, rh), "rack synth");
     }
     if (synth_type_is_mono(rack->cfg.type)) snprintf(buf, sizeof buf, "mono");
-    else snprintf(buf, sizeof buf, "%d voices", rack->cfg.voices);
+    else snprintf(buf, sizeof buf, "%d voices", synth_config_voices(&rack->cfg));
     gui_draw_text_centered(g, gui_below(r, st->gap + 2 + 4 * rh, rh), buf);
 }
 
@@ -341,6 +344,15 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
         case GRAPH_FILTER:  draw_filter(g, box, (int)ms->v[MP_FL_TYPE], ms->v[MP_FL_CUT], ms->v[MP_FL_RES]); break;
         case GRAPH_SAT:     draw_sat(g, box, (int)ms->v[MP_SA_MODE], ms->v[MP_SA_DRIVE], ms->v[MP_SA_MIX]); break;
         case GRAPH_AMP_ENV: draw_env(g, box, &p->amp_env); break;
+        case GRAPH_STR_OSC: {
+            static const int wave[STRW_COUNT] = {WAVE_SAW_UP, WAVE_PULSE, WAVE_TRIANGLE};
+            draw_wave(g, box, wave[p->str.wave < STRW_COUNT ? p->str.wave : 0], p->str.pw);
+        } break;
+        case GRAPH_STR_LP:
+            if (p->str.lp_on) draw_filter(g, box, FILT_LP, p->str.lp_cut, 0.7f);
+            else gui_draw_text_centered(g, gui_rect(box.x, box.y + box.h / 2 - 4, box.w, 9), "off");
+            break;
+        case GRAPH_STR_FILTER: draw_filter(g, box, p->str.ftype, p->str.fcut, p->str.fres); break;
         case GRAPH_SEQ_CFG: draw_seq_cfg(g, st, box, seq); break;
         case GRAPH_FM:      draw_synth_info(g, st, box, rack); break;
         default: break;

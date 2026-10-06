@@ -252,6 +252,10 @@ void SampleBank::issue_streams(uint64_t now_us) {
             int64_t blk[kRingBlocks + 4], until[kRingBlocks + 4];
             const int n = desired_blocks(sn, blk, until);
             const int64_t nblocks = sl.h.blocks();
+            // the ring's tags, read once: each is a 64-bit atomic (a locked library call on the ESP32), and the matching below looks at every
+            // slot for every wanted block. Reading them inside the loops cost milliseconds per issued read with a few voices.
+            uint64_t tag[kRingBlocks];
+            for (int s = 0; s < kRingBlocks; s++) tag[s] = st->slot_tag(s);
             for (int i = 0; i < n; i++) {
                 const int64_t b = blk[i];
                 if (b >= nblocks) continue;
@@ -263,13 +267,13 @@ void SampleBank::issue_streams(uint64_t now_us) {
                 if (in_head) continue;
                 const uint64_t want = Stream::make_tag(sn.gen, static_cast<uint32_t>(b));
                 bool have = false;                                                    // already there, or on its way
-                for (int s = 0; s < kRingBlocks && !have; s++) have = st->slot_tag(s) == want || (st->busy[s] && st->fetching[s] == want);
+                for (int s = 0; s < kRingBlocks && !have; s++) have = tag[s] == want || (st->busy[s] && st->fetching[s] == want);
                 if (have) continue;
                 // any slot that is not being read and does not hold a block that is still wanted (empty ones and stale generations first)
                 int rs = -1;
                 for (int s = 0; s < kRingBlocks; s++) {
                     if (st->busy[s]) continue;
-                    const uint64_t cur = st->slot_tag(s);
+                    const uint64_t cur = tag[s];
                     bool wanted = false;
                     if (cur) {
                         const uint32_t cb = static_cast<uint32_t>(cur & 0xFFFFFFFFu), cg = static_cast<uint32_t>((cur >> 32) & 0x7FFFFFFFu);

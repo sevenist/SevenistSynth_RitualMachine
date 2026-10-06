@@ -64,11 +64,12 @@ public:
             else if (++retry_ > 64) want_start_ = false;                    // the sample never became ready: stay silent
         }
         if (!active_) { block_clear(p.out[0], n); return; }
+        miss_blk_ = -1;                                                     // a block missing in the last call may have arrived since
 
         const q15 *cv = p.in[0], *mt = p.mod[SMPR_TUNE];
         const bool varying = mt || cv[0] != cv[n - 1];
         int64_t rate = rate_for(cv[0], mt ? mt[0] : 0);
-        if (!varying && fast_block(n, rate, p.out[0])) {
+        if (!varying && (fast_block(n, rate, p.out[0]) || starved_block(n, rate, p.out[0]))) {
             stream_.update(static_cast<uint32_t>(pos_ >> 32), dir_, static_cast<int32_t>(rate >> 16));
             return;
         }
@@ -174,6 +175,35 @@ private:
         return true;
     }
 
+    // One block whose playhead stays inside a ring block that has not arrived (an underrun that lasts the whole block): every sample of the
+    // general loop would miss its y1 frame and output the held value decaying by 1/64. Same output for a few cycles per sample: the general loop
+    // spent ~490 cycles per sample on it (~31k per starved voice and block), so a few starved voices overran the audio budget and the whole synth
+    // stuttered. Same conditions as fast_block: forward, steady rate, no loop wrap or end inside the block.
+    bool starved_block(int n, int64_t rate, q15 *out) {
+#ifdef SC_SAMPLER_NO_FAST
+        (void)n; (void)rate; (void)out;
+        return false;
+#endif
+        if (dir_ < 0) return false;
+        const int64_t pos_end = pos_ + rate * n;
+        const int64_t limit = static_cast<int64_t>(loop_.active() ? loop_.end : frames_) << 32;
+        if (pos_end >= limit || (stop_frame_ && (pos_end >> 32) >= stop_frame_)) return false;
+        const int64_t f0 = pos_ >> 32, f_last = (pos_ + rate * (n - 1)) >> 32;
+        if (f0 < 1 || f_last + 2 >= static_cast<int64_t>(frames_)) return false;
+        if (f0 / kSmpBlockFrames != f_last / kSmpBlockFrames) return false;        // y1 of every sample is in the same ring block ...
+        q15 probe;
+        if (fetch(f0, probe)) return false;                                         // ... and that block is missing
+        if (!underrun_) { underrun_ = true; bank_->stats.underruns.fetch_add(1, std::memory_order_relaxed); }
+        int32_t h = held_;
+        for (int i = 0; i < n; i++) {
+            h -= h >> 6;
+            out[i] = mul15(sat16(h), gain_eff_);
+        }
+        held_ = h;
+        pos_ = pos_end;
+        return true;
+    }
+
     int64_t rate_for(q15 cv, q15 mod) const {
         int32_t pitch;
         if (track_) pitch = kPitchCvCenter + scaled(cv, kPitchCvSpan) + tune_total_ + (mod ? scaled(mod, 96 * kSemi) : 0);
@@ -234,6 +264,9 @@ private:
     }
 
     // One source frame; out-of-range frames read as silence. false = the data has not arrived (underrun).
+    // A ring block found missing is not searched again in the same process() call (miss_blk_): the search reads every slot's 64-bit atomic
+    // tag, a locked library call on the ESP32, and a starved voice did it 4 times per sample (182k cycles per block for one voice at 8x pitch,
+    // measured). Data that lands during the block is picked up at the next block, at most 64 samples later.
     bool fetch(int64_t f, q15 &out) {
         if (f < 0 || f >= static_cast<int64_t>(frames_)) { out = 0; return true; }
         if (f >= cache_lo_ && f < cache_hi_) { out = cache_ptr_[f - cache_lo_]; return true; }
@@ -246,8 +279,9 @@ private:
             }
         }
         const uint32_t blk = static_cast<uint32_t>(f / kSmpBlockFrames);
+        if (static_cast<int64_t>(blk) == miss_blk_) return false;
         const q15 *b = stream_.block(gen_, blk);
-        if (!b) return false;
+        if (!b) { miss_blk_ = blk; return false; }
         cache_ptr_ = b; cache_lo_ = static_cast<int64_t>(blk) * kSmpBlockFrames; cache_hi_ = cache_lo_ + kSmpBlockFrames;
         out = cache_ptr_[f - cache_lo_];
         return true;
@@ -261,6 +295,7 @@ private:
     uint32_t gen_ = 0, frames_ = 0, stop_frame_ = 0, base_q28_ = 1u << 28;
     LoopInfo loop_;
     int64_t pos_ = 0, cache_lo_ = 0, cache_hi_ = 0;
+    int64_t miss_blk_ = -1;                     // the ring block found missing in this process() call (-1: none)
     const q15 *cache_ptr_ = nullptr;
     int dir_ = 1, retry_ = 0;
     int32_t held_ = 0, xf_ = 32767, root_pitch_ = 60 * kSemi, tune_total_ = 0;

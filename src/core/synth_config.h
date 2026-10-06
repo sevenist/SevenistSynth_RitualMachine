@@ -19,11 +19,13 @@ typedef enum {
     SYNTH_MOD_MONO,     // the rack synth, monophonic
     SYNTH_FM,           // DX7-style 6-operator FM with the patch editor, polyphonic
     SYNTH_FM_MONO,      // the FM synth, monophonic
+    SYNTH_STRINGS,      // thin voices for pads and big chords, up to 32 (ADR-037); its pages are in synth_params (P_STR_*)
     SYNTH_TYPE_COUNT
 } synth_type_t;
 
 #define FM_PATCH_COUNT 128      // the 128 DX7 factory patches
-#define SYNTH_MAX_VOICES 8
+#define SYNTH_MAX_VOICES 8      // Modular / FM
+#define SYNTH_STR_MAX_VOICES 32 // Strings (the engine's ceiling, ENGINE_MAX_VOICES)
 
 typedef enum {
     CFGP_TYPE, CFGP_PATCH, CFGP_VOICES, CFGP_GLIDE, CFGP_LEGATO, CFGP_VOLUME, CFGP_OUTPUT, CFGP_SPEAKER,    // GENERAL tab
@@ -35,6 +37,7 @@ typedef struct {
     uint8_t type;        // synth_type_t
     uint8_t fm_patch;    // factory patch the edit copy `fm` was loaded from, 0..127 (shown as 1..128)
     uint8_t voices;      // 1..SYNTH_MAX_VOICES (the polyphonic types)
+    uint8_t str_voices;  // 1..SYNTH_STR_MAX_VOICES (Strings; kept apart so switching types keeps both counts)
     uint8_t glide;       // Mono: index into the glide times (0 = off)
     uint8_t legato;      // Mono: 1 = a new key while one is held changes the pitch only (envelopes keep running)
     float   volume;      // master volume 0..2 (applied at the very end of the chain, after the master effects)
@@ -56,6 +59,8 @@ void         synth_config_format(const synth_config_t *c, cfg_param_id_t id, cha
 const char  *synth_type_name(synth_type_t t);
 static inline bool synth_type_is_fm(uint8_t t)   { return t == SYNTH_FM || t == SYNTH_FM_MONO; }
 static inline bool synth_type_is_mono(uint8_t t) { return t == SYNTH_MOD_MONO || t == SYNTH_FM_MONO; }
+static inline bool synth_type_is_strings(uint8_t t) { return t == SYNTH_STRINGS; }
+static inline bool synth_type_is_rack(uint8_t t) { return t == SYNTH_MODULAR || t == SYNTH_MOD_MONO; }   // built from the module rack
 
 // What the audio layer needs: how many voices the engine builds (1 for Mono) and the glide time in ms (0 = off).
 int          synth_config_voices(const synth_config_t *c);

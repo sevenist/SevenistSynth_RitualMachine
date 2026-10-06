@@ -39,6 +39,7 @@ static const control_id_t kHwv1KeyMap[HW_KBD_ROWS][HW_KBD_COLS] = {
 };
 #undef K
 #define HWV1_KEY_PRESENT(row, col) ((row) > 0 || (col) < 4)
+#define HWV1_BOOT_HOLD_MS 2000          // the top-left function key held this long at power-on: input_boot_reset() (the key layout is reset)
 
 // ---- relative knobs ---------------------------------------------------------------------------------------------------------
 // 7 potentiometers without end stops. Each one is read as a sin / cos pair on two mux channels (pot n -> channels 2+2n and 3+2n) and
@@ -58,7 +59,7 @@ typedef struct {
 
 #define HWV1_KNOB_COUNT 7
 static const hwv1_knob_t kHwv1Knobs[HWV1_KNOB_COUNT] = {
-    /* pot 0, top left   */ {CTL_VOLUME,     HW_KNOB_ABSOLUTE, +1, 768},
+    /* pot 0, top left   */ {CTL_VOLUME,     HW_KNOB_ENCODER,  +1, 0},      // endless: steps from the current volume (absolute jumped to the knob's own count)
     /* pot 1, top centre */ {CTL_ENC_A,      HW_KNOB_ENCODER,  +1, 0},      // rows
     /* pot 2, top right  */ {CTL_ENC_B,      HW_KNOB_ENCODER,  -1, 0},      // value
     /* pot 3, around joystick, TR */ {CTL_COL_KNOB_1, HW_KNOB_ABSOLUTE, -1, 512},

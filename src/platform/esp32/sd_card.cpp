@@ -126,6 +126,7 @@ uint32_t sd_card_probe_us() {
 bool sd_card_alive() { return g_card && sdmmc_get_status(g_card) == ESP_OK; }
 
 uint32_t sd_card_id() { return g_card ? g_card->cid.serial : 0; }
+uint32_t sd_card_crc_errors() { return 0; }                     // the IDF host checks CRCs itself
 
 void sd_card_unmount() {
     if (g_card) { esp_vfs_fat_sdcard_unmount(SD_MOUNT_POINT, g_card); g_card = nullptr; }
@@ -138,6 +139,7 @@ void sd_card_bench() {}
 uint32_t sd_card_probe_us() { return 0; }
 bool sd_card_alive() { return false; }
 uint32_t sd_card_id() { return 0; }
+uint32_t sd_card_crc_errors() { return 0; }
 void sd_card_unmount() {}
 bool sd_card_mounted() { return false; }
 #endif  // HWV1

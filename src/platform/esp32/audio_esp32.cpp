@@ -16,6 +16,9 @@
 #include "platform/esp32/samples_esp32.h"
 #include "board_pins.h"
 #include "platform/esp32/board_esp32.h"
+#ifdef ALT_ESP32SYNTH
+#include "platform/esp32/alt_esp32synth.h"
+#endif
 #include <atomic>
 
 namespace {
@@ -72,6 +75,10 @@ void audio_task_main(void *) {
             buf[2 * i] = buf[2 * i + 1] = v;
         }
 #else
+#ifdef ALT_ESP32SYNTH
+        if (alt_active()) alt_render(buf, kFrames);      // dev: the other engine instead of ours (serial "alt on"); ours is not rendered meanwhile
+        else
+#endif
         engine_synth_render(buf, kFrames);
 #endif
 #ifdef HWV1_DEBUG_AUDIO
@@ -98,6 +105,9 @@ void audio_task_main(void *) {
         if (millis() - t_report >= 1000 && Serial.availableForWrite() > 160) {      // skip the report rather than block when the port is not being read
             Serial.printf("[AUDIO] render avg %u us, worst %u us, budget %u us per %d frames, %u blocks over budget of %u, graph builds %u (last: %s)\n", (unsigned)(total / blocks),
                           (unsigned)worst, (unsigned)budget_us, kFrames, (unsigned)late, (unsigned)blocks, engine_synth_build_count(), engine_synth_build_reason());
+#ifdef ALT_ESP32SYNTH
+            alt_report();
+#endif
 #ifdef ENGINE_PROFILE
             {   // CPU cycles per rendered block, per module type; the block budget is cpu_hz * block / sample_rate
                 struct Row { const char *name; uint32_t cyc, calls; };
@@ -171,6 +181,9 @@ extern "C" void audio_init(void) {
     Serial.printf("[AUDIO] fast heap %u bytes (%s), bulk heap %u bytes (PSRAM)\n", (unsigned)fast_bytes, fast_internal ? "internal RAM" : "PSRAM", (unsigned)bulk_bytes);
     if (!fast || !bulk) { Serial.printf("[AUDIO] allocation failed: fast %p, bulk %p\n", fast, bulk); return; }
     if (engine_synth_init(fast, fast_bytes, bulk, bulk_bytes) != 0) { Serial.println("[AUDIO] engine_synth_init failed"); return; }
+#ifdef ALT_ESP32SYNTH
+    alt_init(engine_synth_sample_rate());
+#endif
 
     i2s_chan_config_t chan = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
     chan.dma_desc_num = 6;
@@ -207,8 +220,13 @@ extern "C" uint32_t audio_sd_read_us(void)                                  { re
 extern "C" uint32_t audio_sd_generation(void)                               { return samples_esp32_sd_generation(); }
 extern "C" void audio_set_clock(int bpm, int steps, int swing, int running) { engine_synth_set_clock(bpm, steps, swing, running); }
 extern "C" void audio_motion_restart(void)                                 { engine_synth_motion_restart(); }
+#ifdef ALT_ESP32SYNTH
+extern "C" void audio_note_on(int midi_note)                               { if (alt_active()) alt_note_on(midi_note); else engine_synth_note_on(midi_note); }
+extern "C" void audio_note_off(int midi_note)                              { if (alt_active()) alt_note_off(midi_note); else engine_synth_note_off(midi_note); }
+#else
 extern "C" void audio_note_on(int midi_note)                               { engine_synth_note_on(midi_note); }
 extern "C" void audio_note_off(int midi_note)                              { engine_synth_note_off(midi_note); }
+#endif
 extern "C" uint32_t audio_millis(void)                                     { return engine_synth_millis(); }
 extern "C" void audio_update(void)                                         {}     // nothing to pump: the audio task is independent
 #endif // ARDUINO_ARCH_ESP32

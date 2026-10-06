@@ -320,6 +320,29 @@ TEST(lfo_rate_shapes_and_unipolar) {
     CHECK(changes >= 3 && changes <= 8);                               // 5 held values per second
 }
 
+TEST(master_gain_ramps_over_a_block_and_boost_doubles_it) {
+    DspRig rig;
+    GraphDesc g;
+    rig.add(g, 1, T_CONST_G)->param[CONST_VALUE] = 8192;               // 0.25
+    NodeDesc *m = rig.add(g, 2, T_MASTER_OUT);
+    m->param[0] = 16384;                                                // level 0.5 x boost 2 = gain 1.0 (the master volume 1.0)
+    m->param[1] = 1;
+    g.connect(1, 0, 2, Dst::In, 0);
+    CHECK(rig.eng.load(g) == Err::Ok);
+    std::vector<double> x;
+    rig.run(2, &x);
+    CHECK_NEAR(x[0], 8192, 1);                                          // the first gain applies at once (no fade-in at build)
+    CHECK_NEAR(x.back(), 8192, 1);
+    rig.eng.set_param(2, 0, 32767);                                     // gain 2.0: one block ramps there, without a jump
+    x.clear();
+    rig.run(2, &x);
+    double worst = 0;
+    for (int i = 1; i < kBlock; i++) { CHECK(x[i] >= x[i - 1]); worst = std::fmax(worst, x[i] - x[i - 1]); }
+    CHECK(worst <= 8192.0 / 8);                                         // a ramp over the engine's block (16 frames at the smallest), not a step of 8192
+    CHECK_NEAR(x[kBlock - 1], 16384, 2);
+    CHECK_NEAR(x.back(), 16384, 2);
+}
+
 namespace {
 // Global Const -> unit under test -> master; returns the output for a given input value.
 struct ShaperBench {

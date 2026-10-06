@@ -172,11 +172,14 @@ void scan_task(void *) {
 void input_esp32_init(void) {
     mux_init();
     joystick_init();
-    kbd_init();                                // on failure the keys are dead but the knobs and the joystick still work
+    // the HAL key (0, 0) on the TCA (the inverse of scan_keys): the key layout's reset key, checked at power-on (input_boot_reset)
+    const int boot_row = HWV1_FLIP_ROWS ? 0 : HW_KBD_ROWS - 1, boot_col = HWV1_FLIP_COLS ? HW_KBD_COLS - 1 : 0;
+    kbd_init(boot_row, boot_col, HWV1_BOOT_HOLD_MS);   // on failure the keys are dead but the knobs and the joystick still work
     xTaskCreatePinnedToCore(scan_task, "input", 4096, nullptr, 8, nullptr, 0);
 }
 
 extern "C" bool input_key_present(int row, int col) { return row >= 0 && row < KEY_ROWS && col >= 0 && col < KEY_COLS && HWV1_KEY_PRESENT(row, col); }
+extern "C" bool input_boot_reset(void) { return kbd_boot_hold(); }
 
 extern "C" input_event_t input_poll(void) {
     input_event_t e{CTL_NONE, IN_NONE, 0, false};
@@ -190,5 +193,6 @@ extern "C" input_event_t input_poll(void) {
 void input_esp32_init(void) {}
 extern "C" input_event_t input_poll(void) { return input_event_t{CTL_NONE, IN_NONE, 0, false}; }
 extern "C" bool input_key_present(int, int) { return false; }
+extern "C" bool input_boot_reset(void) { return false; }
 #endif // HWV1
 #endif // ARDUINO_ARCH_ESP32

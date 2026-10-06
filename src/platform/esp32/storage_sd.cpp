@@ -54,7 +54,9 @@ bool SdStorage::submit(const sc::IoRead &r, uint64_t) {
 bool SdStorage::read_into(File &fl, uint32_t offset, void *dst, uint32_t bytes) {
     const int fd = fl.fd;
     if (fl.pos != offset) {                                              // a sequential stream needs no seek: the FAT cluster chain is walked from the
+        const int64_t t0 = esp_timer_get_time();
         if (lseek(fd, static_cast<off_t>(offset), SEEK_SET) != static_cast<off_t>(offset)) { fl.pos = kUnknownPos; return false; }   // file start on a backward one
+        stats_.seek_us += static_cast<uint64_t>(esp_timer_get_time() - t0);
         stats_.seeks++;
     }
     const bool direct = esp_ptr_dma_capable(dst) && (reinterpret_cast<uintptr_t>(dst) & 3u) == 0;

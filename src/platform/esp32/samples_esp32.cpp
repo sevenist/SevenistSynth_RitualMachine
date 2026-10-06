@@ -200,8 +200,8 @@ void poll_card() {
 #ifdef HWV1_DEBUG_AUDIO
 // Every 2 s, when anything happened: what the card delivered and whether a playhead ran dry ("underruns" is what you hear as a dropout).
 void report() {
-    static uint32_t t_last = 0, reads0 = 0, under0 = 0, blocks0 = 0;
-    static uint64_t bytes0 = 0, us0 = 0;
+    static uint32_t t_last = 0, reads0 = 0, under0 = 0, blocks0 = 0, seeks0 = 0;
+    static uint64_t bytes0 = 0, us0 = 0, seek_us0 = 0;
     const uint32_t now = millis();
     if (now - t_last < 2000) return;
     const SdStorage::Stats s = g_storage.stats();
@@ -210,11 +210,17 @@ void report() {
     if (s.reads != reads0 || under != under0) {
         const uint32_t dr = s.reads - reads0;
         const uint32_t dt = now - t_last;
-        Serial.printf("[SD] %u reads in %u ms: %u KB/s, avg %u us, worst ever %u us; opens %u, seeks %u, errors %u | [SMP] stream blocks +%u, underruns %u (+%u)\n",
+        const uint32_t ds = s.seeks - seeks0;
+        Serial.printf("[SD] %u reads in %u ms: %u KB/s, avg %u us, worst ever %u us; opens %u, seeks %u, errors %u | [SMP] stream blocks +%u, underruns %u (+%u); seek avg %u us\n",
                       (unsigned)dr, (unsigned)dt, (unsigned)((s.bytes - bytes0) * 1000 / 1024 / (dt ? dt : 1)), dr ? (unsigned)((s.read_us - us0) / dr) : 0u, (unsigned)s.max_us,
-                      (unsigned)s.opens, (unsigned)s.seeks, (unsigned)s.errors, (unsigned)(blocks - blocks0), (unsigned)under, (unsigned)(under - under0));
+                      (unsigned)s.opens, (unsigned)s.seeks, (unsigned)s.errors, (unsigned)(blocks - blocks0), (unsigned)under, (unsigned)(under - under0),
+                      ds ? (unsigned)((s.seek_us - seek_us0) / ds) : 0u);
     }
-    t_last = now; reads0 = s.reads; bytes0 = s.bytes; us0 = s.read_us; under0 = under; blocks0 = blocks;
+    static uint32_t crc0 = 0;
+    const uint32_t crc = sd_card_crc_errors();
+    if (crc != crc0) Serial.printf("[SD] data CRC errors %u (+%u), each block read again\n", (unsigned)crc, (unsigned)(crc - crc0));
+    crc0 = crc;
+    t_last = now; reads0 = s.reads; bytes0 = s.bytes; us0 = s.read_us; under0 = under; blocks0 = blocks; seeks0 = s.seeks; seek_us0 = s.seek_us;
 }
 #endif
 

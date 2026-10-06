@@ -11,6 +11,7 @@
 #include "engine/modules/motion_seq.h"
 #include "engine/modules/osc_engines.h"
 #include "engine/modules/sampler_modules.h"
+#include "engine/modules/strings_modules.h"
 #include "engine/sampler/sample_bank.h"
 #include "engine/modules/synth_modules.h"
 #include "platform/engine/rack_graph.h"
@@ -129,6 +130,7 @@ int engine_synth_init(void *fast, size_t fast_bytes, void *bulk, size_t bulk_byt
     register_synth_modules(s.eng.registry());
     register_fx_modules(s.eng.registry());
     register_fx2_modules(s.eng.registry());
+    register_strings_modules(s.eng.registry());
     register_dx7_module(s.eng.registry());
     register_motion_module(s.eng.registry());
     register_osc_engines(s.eng.registry());

@@ -68,25 +68,33 @@ public:
         return i;
     }
     // level: q15 gain; boost = 1 doubles it (saturating), so the master volume reaches 2.0; mono = 1 sends (L + R) / 2 to both outputs.
+    // A new gain is reached by a linear ramp over one block: the volume knob moves in 5 % steps, applied at once they were audible as zipper noise.
     void set_param(int idx, int32_t v) override {
         if (idx == 0) level_ = static_cast<q15>(v);
         else if (idx == 1) boost_ = v != 0;
         else if (idx == 2) mono_ = v != 0;
+        target_ = boost_ ? 2 * static_cast<int32_t>(level_) : level_;     // q15 gain, up to 2.0
+        if (first_) { gain_ = target_; }
     }
     SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         const q15 *l = p.in[0], *r = p.in[1];
-        for (int i = 0; i < ctx.frames; i++) {
+        first_ = false;
+        const int n = ctx.frames;
+        const int32_t step = (target_ - gain_) / n;                           // the last sample lands exactly on the target
+        int32_t g = gain_;
+        for (int i = 0; i < n; i++) {
+            g = i == n - 1 ? target_ : g + step;
             q15 a = l[i], b = r[i];
             if (mono_) a = b = static_cast<q15>((static_cast<int32_t>(a) + b) >> 1);
-            a = mul15(a, level_); b = mul15(b, level_);
-            if (boost_) { a = add15(a, a); b = add15(b, b); }
-            ctx.out_l[i] = a;
-            ctx.out_r[i] = b;
+            ctx.out_l[i] = sat16((static_cast<int32_t>(a) * g + (1 << 14)) >> 15);
+            ctx.out_r[i] = sat16((static_cast<int32_t>(b) * g + (1 << 14)) >> 15);
         }
+        gain_ = target_;
     }
 private:
     q15 level_ = kUnity;
-    bool boost_ = false, mono_ = false;
+    bool boost_ = false, mono_ = false, first_ = true;
+    int32_t target_ = kUnity, gain_ = kUnity;                                 // q15 gain (0..65534): the set one, and where the ramp is
 };
 
 template <typename T>

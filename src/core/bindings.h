@@ -35,7 +35,8 @@ typedef enum {
     ACT_PAGE_KNOB,          // arg = row 1..4 of the current page: sets that parameter
     ACT_MACRO,              // arg = macro 0..2: sets the parameter the macro drives
     ACT_MACRO_LEARN,        // arg = macro 0..2: the macro takes the parameter under the cursor
-    ACT_MASTER_VOLUME,      // master volume
+    ACT_MASTER_VOLUME,      // master volume (an absolute knob: the simulator's panel)
+    ACT_VOLUME_STEP,        // master volume by arg steps of 0.05 per detent (an endless knob: the prototype)
     ACT_COUNT
 } action_id_t;
 

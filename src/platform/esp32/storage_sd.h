@@ -22,7 +22,7 @@ public:
     void close_all();                                                    // the card is going away: drop every descriptor (handles stay valid and reopen)
 
     // what the card did since boot (the I/O task prints them with HWV1_DEBUG_AUDIO)
-    struct Stats { uint32_t reads, errors, opens, seeks; uint64_t bytes, read_us; uint32_t max_us; };
+    struct Stats { uint32_t reads, errors, opens, seeks; uint64_t bytes, read_us, seek_us; uint32_t max_us; };   // seek_us: part of read_us spent in lseek
     Stats stats() const { return stats_; }
 
 private:

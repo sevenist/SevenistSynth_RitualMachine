@@ -16,6 +16,9 @@ typedef struct {
 
 static const char *const wave_names[]   = {"Sine", "Pulse", "SawDn", "SawUp", "Tri", "Noise"};
 static const char *const filter_names[] = {"Off", "LP", "BP", "HP", "LP24", "Notch"};
+static const char *const str_wave_names[] = {"Saw", "Pulse", "Tri"};
+static const char *const str_osc_names[]  = {"Naive", "Mip"};
+static const char *const off_on_names[]   = {"Off", "On"};
 
 #define F(field) offsetof(synth_params_t, field)
 
@@ -39,6 +42,19 @@ static const desc_t table[P_COUNT] = {
     [P_AMP_ACV]        = {"ACv", KIND_LIN,  F(amp_env.a_curve),       -100, 100, 5, "%", 0, 0},
     [P_AMP_DCV]        = {"DCv", KIND_LIN,  F(amp_env.d_curve),       -100, 100, 5, "%", 0, 0},
     [P_AMP_RCV]        = {"RCv", KIND_LIN,  F(amp_env.r_curve),       -100, 100, 5, "%", 0, 0},
+    [P_STR_WAVE]       = {"Wav", KIND_ENUM, F(str.wave),              0, STRW_COUNT - 1, 1, "", 0, str_wave_names},
+    [P_STR_OSC]        = {"Osc", KIND_ENUM, F(str.osc),               0, 1, 1, "", 0, str_osc_names},
+    [P_STR_DETUNE]     = {"Det", KIND_LIN,  F(str.detune),            0, 100, 1, "c", 0, 0},
+    [P_STR_MIX]        = {"Mix", KIND_LIN,  F(str.mix),               0, 1, 0.05f, "", 2, 0},
+    [P_STR_PW]         = {"PW",  KIND_LIN,  F(str.pw),                0.05f, 0.95f, 0.05f, "", 2, 0},
+    [P_STR_LEVEL]      = {"Lvl", KIND_LIN,  F(str.level),             0, 1, 0.05f, "", 2, 0},
+    [P_STR_LP]         = {"LP",  KIND_ENUM, F(str.lp_on),             0, 1, 1, "", 0, off_on_names},
+    [P_STR_LPCUT]      = {"Cut", KIND_LOG,  F(str.lp_cut),            50, 18000, 1.12f, "Hz", 0, 0},
+    [P_STR_LPENV]      = {"Env", KIND_LIN,  F(str.lp_env),            0, 8, 0.25f, "oct", 2, 0},
+    [P_STR_LPKEY]      = {"Key", KIND_LIN,  F(str.lp_key),            0, 1, 0.05f, "", 2, 0},
+    [P_STR_FTYPE]      = {"Typ", KIND_ENUM, F(str.ftype),             0, FILT_COUNT - 1, 1, "", 0, filter_names},
+    [P_STR_FCUT]       = {"Cut", KIND_LOG,  F(str.fcut),              20, 18000, 1.12f, "Hz", 0, 0},
+    [P_STR_FRES]       = {"Res", KIND_LIN,  F(str.fres),              0.5f, 10, 0.1f, "", 1, 0},
 };
 
 void synth_params_default(synth_params_t *p) {
@@ -51,6 +67,7 @@ void synth_params_default(synth_params_t *p) {
     p->resonance = 0.7f;
     p->filter_env_amt = 0;
     p->filter_env = (env_params_t){5, 300, 0.0f, 200, 0, 55, 60, 60};
+    p->str = (str_params_t){STRW_SAW_, 1, 0, FILT_LP, 12, 1.0f, 0.5f, 0.5f, 1500, 2.0f, 0.5f, 6000, 0.7f};
 }
 
 int param_adjust(synth_params_t *p, param_id_t id, int dir) {

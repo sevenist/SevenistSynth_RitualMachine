@@ -10,7 +10,8 @@
  * ======================================================================================================================== */
 const binding_t bindings[] = {
     /* ---- left strip ---- */
-    {CTL_VOLUME,     IN_VALUE, MODS_ANY,   ACT_MASTER_VOLUME,  0},
+    {CTL_VOLUME,     IN_VALUE, MODS_ANY,   ACT_MASTER_VOLUME,  0},       // absolute knob (simulator panel) ...
+    {CTL_VOLUME,     IN_DELTA, MODS_ANY,   ACT_VOLUME_STEP,    +1},       // ... or endless knob (prototype): one step per detent, no jump
     {CTL_ENC_A,      IN_DELTA, MODS_NONE,  ACT_ROW_MOVE,       +1},       // encoder A: rows ...
     {CTL_ENC_A,      IN_DELTA, MODS_SHIFT, ACT_PAGE_MOVE,      +1},       //            ... with Shift: pages
     {CTL_ENC_A_SW,   IN_PRESS, MODS_ANY,   ACT_ROW_TOP,         0},       // push: back to the page selector
@@ -58,7 +59,7 @@ const char *action_name(action_id_t a) {
         [ACT_NONE] = "-", [ACT_ROW_MOVE] = "Row", [ACT_NAV] = "Nav", [ACT_LATCH] = "Latch", [ACT_VALUE_ADJUST] = "Value", [ACT_PAGE_MOVE] = "Page", [ACT_ROW_TOP] = "Top",
         [ACT_SELECT] = "Select", [ACT_MENU] = "Menu", [ACT_BACK] = "Back", [ACT_PLAY] = "Play", [ACT_SHIFT] = "Shift",
         [ACT_NOTE] = "Note", [ACT_OCTAVE] = "Octave", [ACT_PAGE_KNOB] = "Page knob", [ACT_MACRO] = "Macro",
-        [ACT_MACRO_LEARN] = "Learn", [ACT_MASTER_VOLUME] = "Volume",
+        [ACT_MACRO_LEARN] = "Learn", [ACT_MASTER_VOLUME] = "Volume", [ACT_VOLUME_STEP] = "Volume",
     };
     return (a >= 0 && a < ACT_COUNT && n[a]) ? n[a] : "?";
 }

@@ -21,9 +21,24 @@
 #include "board_pins.h"
 #include "platform/esp32/sd_card.h"
 
-// SPI clock of the card in kHz once it is initialised (initialisation itself runs at 400 kHz, as the SD spec requires).
+// SPI clock of the card in kHz once it is initialised (initialisation itself runs at 400 kHz, as the SD spec requires). Above 25 MHz the card
+// must be in high-speed mode (CMD6, specified to 50 MHz); a card that refuses the switch runs at 25 MHz. Measured on the prototype (SL32G):
+// a 4 KB file read takes 4.8 ms at 20 MHz, 3.0 ms at 40 MHz, which is what lets one sampler voice play 8x above its root.
 #ifndef HWV1_SD_FREQ_KHZ
-#define HWV1_SD_FREQ_KHZ 20000
+#define HWV1_SD_FREQ_KHZ 40000
+#endif
+// 1 = run at HWV1_SD_FREQ_KHZ even when the card has no high-speed mode (out of its spec; the data CRC check catches bad blocks).
+#ifndef HWV1_SD_OVERCLOCK
+#define HWV1_SD_OVERCLOCK 0
+#endif
+// Check the CRC16 the card sends behind every data block (a block that fails is read again, up to 3 times). Costs about 13 us per sector.
+#ifndef HWV1_SD_CRC
+#define HWV1_SD_CRC 1
+#endif
+// Bytes clocked per SPI call while waiting for a data token. Every call costs a fixed overhead, so a byte per call (as before) spent more
+// time in calls than on the wire (0.44 ms per sector at 20 MHz against 0.21 ms of wire time). 8 measured best of 1 / 8 / 32.
+#ifndef HWV1_SD_PROBE
+#define HWV1_SD_PROBE 8
 #endif
 
 namespace {
@@ -34,6 +49,9 @@ constexpr uint32_t kSector = 512;
 spi_device_handle_t g_dev = nullptr;
 bool g_bus = false, g_up = false, g_sdhc = false;
 uint32_t g_sectors = 0, g_serial = 0;
+int g_khz = 400;                                    // the clock in use
+uint32_t g_crc_errors = 0;                          // data blocks whose CRC did not match (each was read again)
+uint16_t g_crc_tab[256];
 char g_name[8] = {};
 uint8_t g_pdrv = 0xFF;
 FATFS *g_fs = nullptr;
@@ -44,6 +62,20 @@ alignas(4) uint8_t g_ff[kSector + 4];
 alignas(4) uint8_t g_tx[kSector + 4];                // a block to write: start token, data, 2 CRC bytes
 
 int64_t now_us() { return esp_timer_get_time(); }
+
+// CRC16-CCITT (polynomial 0x1021, start 0): the CRC the card sends behind a data block.
+void crc_table_init() {
+    for (int i = 0; i < 256; i++) {
+        uint16_t c = static_cast<uint16_t>(i << 8);
+        for (int b = 0; b < 8; b++) c = static_cast<uint16_t>(c & 0x8000 ? (c << 1) ^ 0x1021 : c << 1);
+        g_crc_tab[i] = c;
+    }
+}
+uint16_t crc16(const uint8_t *p, size_t n) {
+    uint16_t c = 0;
+    for (size_t i = 0; i < n; i++) c = static_cast<uint16_t>((c << 8) ^ g_crc_tab[(c >> 8) ^ p[i]]);
+    return c;
+}
 
 bool xfer(const uint8_t *tx, uint8_t *rx, size_t n) {
     spi_transaction_t t = {};
@@ -106,46 +138,51 @@ uint8_t app_command(uint8_t idx, uint32_t arg) {    // ACMD = CMD55 + CMD
     return r2;
 }
 
-// Another block of a multi-block read: the card normally sends the next token right behind the previous block, so the token, the data and the
-// CRC are clocked in one transfer (n + 3 bytes). The token can sit anywhere in it (a slow card answers late), so it is looked up; whatever of the
-// block did not fit is fetched with a second transfer. Everything before the token is 0xFF filler, so a transfer that holds no token loses nothing.
-// Returns 1 = done, 0 = failed, -1 = no token yet (try again, or poll).
-int read_next_block(uint8_t *dst, size_t n) {
-    if (!xfer(g_ff, g_rx, n + 3)) return 0;
+// Clocks `probe` bytes (at most n + 3) looking for the data token of an n-byte block. The token can sit anywhere in them (the card answers when
+// it is ready), so it is looked up; the data and CRC bytes that came behind it are kept and the rest of the block is fetched with a second
+// transfer. Everything before the token is 0xFF filler, so a probe that holds no token loses nothing.
+// Returns 1 = done, 0 = failed, -1 = no token yet (try again).
+int read_token_block(uint8_t *dst, size_t n, size_t probe) {
+    if (probe > n + 3) probe = n + 3;
+    if (!xfer(g_ff, g_rx, probe)) return 0;
     size_t k = 0;
-    while (k < n + 3 && g_rx[k] == 0xFF) k++;
-    if (k == n + 3) return -1;
+    while (k < probe && g_rx[k] == 0xFF) k++;
+    if (k == probe) return -1;
     if (g_rx[k] != 0xFE) return 0;
-    const size_t have = n + 2 - k;                   // bytes of data + CRC that came with the token
-    const size_t first = have < n ? have : n;
-    memcpy(dst, g_rx + k + 1, first);
-    if (have < n + 2) {                              // the rest: (n - first) data bytes and the CRC bytes that are still missing
-        const size_t more = n + 2 - have;
+    // the block comes as a stream of n data bytes + 2 CRC bytes: what came with the token, then the rest in a second transfer
+    uint8_t crc[2] = {0, 0};
+    size_t got = 0;
+    auto take = [&](const uint8_t *src, size_t len) {
+        const size_t d = got < n ? (len < n - got ? len : n - got) : 0;
+        memcpy(dst + got, src, d);
+        for (size_t i = d; i < len; i++) crc[got + i - n] = src[i];
+        got += len;
+    };
+    take(g_rx + k + 1, probe - 1 - k);
+    if (got < n + 2) {
+        const size_t more = n + 2 - got;
         if (!xfer(g_ff, g_rx, more)) return 0;
-        if (first < n) memcpy(dst + first, g_rx, n - first);
+        take(g_rx, more);
     }
+    if (HWV1_SD_CRC && crc16(dst, n) != static_cast<uint16_t>((crc[0] << 8) | crc[1])) { g_crc_errors++; return 0; }
     return 1;
 }
 
 // A data block that follows a command: wait for the start token 0xFE (the card may take a while on its first access), then `n` bytes + CRC.
+// Inside a multi-block read the next token normally sits right behind the previous block, so the whole block is tried in one transfer first.
 bool read_block(uint8_t *dst, size_t n, bool first = true) {
     if (!first) {
-        const int r = read_next_block(dst, n);
+        const int r = read_token_block(dst, n, n + 3);
         if (r >= 0) return r == 1;
     }
     const int64_t t0 = now_us();
-    uint8_t token;
     for (;;) {
-        token = xfer_byte();
-        if (token != 0xFF) break;
+        const int r = read_token_block(dst, n, HWV1_SD_PROBE);
+        if (r >= 0) return r == 1;
         const int64_t dt = now_us() - t0;
         if (dt > 400 * 1000) return false;
         if (dt > 1000) vTaskDelay(1);
     }
-    if (token != 0xFE) return false;
-    if (!xfer(g_ff, g_rx, n + 2)) return false;      // data + 2 CRC bytes (not checked)
-    memcpy(dst, g_rx, n);
-    return true;
 }
 
 // 16-byte register (CSD / CID) through CMD9 / CMD10.
@@ -206,7 +243,10 @@ DRESULT ff_read(BYTE, BYTE *buff, LBA_t sector, UINT count) {
     uint32_t done = 0;
     while (done < count) {                           // at most 16 sectors (8 KB) per command: the card keeps the data line busy meanwhile
         const uint32_t n = count - done > 16 ? 16 : count - done;
-        if (!read_sectors(static_cast<uint32_t>(sector) + done, buff + done * kSector, n)) return RES_ERROR;
+        bool ok = false;
+        for (int attempt = 0; attempt < 3 && !ok; attempt++)    // a CRC error (or a lost token) is read again
+            ok = read_sectors(static_cast<uint32_t>(sector) + done, buff + done * kSector, n);
+        if (!ok) return RES_ERROR;
         done += n;
     }
     return RES_OK;
@@ -227,6 +267,19 @@ DRESULT ff_ioctl(BYTE, BYTE cmd, void *buf) {
 }
 
 /* ---------------- card initialisation ---------------- */
+
+// CMD6 (switch function, SD 1.10 and later): access mode (function group 1) to function 1, high speed. The 64-byte status answers with the
+// function now selected in bits 379:376 (byte 16, low nibble). A card without CMD6 answers "illegal command".
+bool switch_high_speed() {
+    uint8_t st[64];
+    cs(true);
+    const bool ok = command(6, 0x80FFFFF1u, 0xFF) == 0x00 && read_block(st, 64);
+    deselect();
+    if (ok && (st[16] & 0x0F) == 1) return true;
+    // bytes 12-13: the group 1 functions the card has (bit 1 = high speed). The prototype's SL32G answers 8001: no high speed.
+    Serial.printf("[SD] no high-speed mode (CMD6 %s, group 1 functions %02X%02X)\n", ok ? "answered" : "failed", ok ? st[12] : 0, ok ? st[13] : 0);
+    return false;
+}
 
 bool init_card() {
     uint8_t reg[16];
@@ -275,10 +328,12 @@ bool init_card() {
         if (r16 != 0x00) return false;
     }
 
-    // the card is ready: now the real clock
+    // the card is ready: now the real clock (above 25 MHz only in high-speed mode)
+    g_khz = HWV1_SD_FREQ_KHZ;
+    if (g_khz > 25000 && !switch_high_speed() && !HWV1_SD_OVERCLOCK) g_khz = 25000;
     spi_bus_remove_device(g_dev);
     g_dev = nullptr;
-    if (!add_device(HWV1_SD_FREQ_KHZ)) return false;
+    if (!add_device(g_khz)) return false;
 
     if (!read_register(9, reg)) return false;        // CSD: capacity
     if ((reg[0] >> 6) == 1) {
@@ -303,6 +358,7 @@ bool sd_card_mount() {
     if (g_up) return true;
     if (!g_bus) {
         memset(g_ff, 0xFF, sizeof g_ff);
+        crc_table_init();
         spi_bus_config_t bus = {};
         bus.mosi_io_num = PIN_SD_MOSI;
         bus.miso_io_num = PIN_SD_MISO;
@@ -339,7 +395,8 @@ bool sd_card_mount() {
     char drv[3] = {static_cast<char>('0' + g_pdrv), ':', 0};
     if (esp_vfs_fat_register(SD_MOUNT_POINT, drv, kMaxOpenFiles, &g_fs) != ESP_OK) { Serial.println("[SD] esp_vfs_fat_register failed"); sd_card_unmount(); return false; }
     if (f_mount(g_fs, drv, 1) != FR_OK) { Serial.println("[SD] no FAT file system on the card"); sd_card_unmount(); return false; }
-    Serial.printf("[SD] mounted: %s, %u MB, SPI %d kHz (own driver, %s)\n", g_name, (unsigned)(g_sectors / 2048), (int)HWV1_SD_FREQ_KHZ, g_sdhc ? "SDHC" : "SDSC");
+    Serial.printf("[SD] mounted: %s, %u MB, SPI %d kHz (own driver, %s, data CRC %s)\n", g_name, (unsigned)(g_sectors / 2048), g_khz, g_sdhc ? "SDHC" : "SDSC",
+                  HWV1_SD_CRC ? "checked" : "off");
     return true;
 }
 
@@ -377,12 +434,13 @@ bool sd_card_alive() {
 }
 
 uint32_t sd_card_id() { return g_up ? g_serial : 0; }
+uint32_t sd_card_crc_errors() { return g_crc_errors; }
 
 // Raw reads below the filesystem, one command each: the cost of a command and of a sector (dev, HWV1_SD_BENCH).
 void sd_card_bench() {
     if (!g_up) return;
     static uint8_t buf[32 * kSector];
-    Serial.printf("[SD] bench card: %s, %u sectors, %s, SPI %d kHz\n", g_name, (unsigned)g_sectors, g_sdhc ? "SDHC" : "SDSC", (int)HWV1_SD_FREQ_KHZ);
+    Serial.printf("[SD] bench card: %s, %u sectors, %s, SPI %d kHz\n", g_name, (unsigned)g_sectors, g_sdhc ? "SDHC" : "SDSC", g_khz);
     for (uint32_t n : {1u, 8u, 16u}) {
         uint32_t total = 0, worst = 0;
         int fails = 0;
@@ -394,6 +452,20 @@ void sd_card_bench() {
             if (us > worst) worst = us;
         }
         Serial.printf("[SD] bench raw %2u sector(s) per command: avg %u us, worst %u us, %d failed of 8\n", (unsigned)n, (unsigned)(total / 8), (unsigned)worst, fails);
+    }
+    // scattered addresses, the pattern of several voices streaming different places (consecutive reads above can profit from the card's read-ahead)
+    for (uint32_t n : {8u, 16u}) {
+        uint32_t total = 0, worst = 0;
+        int fails = 0;
+        for (int i = 0; i < 16; i++) {
+            const uint32_t at = 40000 + static_cast<uint32_t>((i * 7919u) % 16u) * 4096u;    // 16 places 2 MB apart, visited out of order
+            const int64_t t0 = now_us();
+            if (!read_sectors(at, buf, n)) fails++;
+            const uint32_t us = static_cast<uint32_t>(now_us() - t0);
+            total += us;
+            if (us > worst) worst = us;
+        }
+        Serial.printf("[SD] bench scattered %2u sector(s) per command: avg %u us, worst %u us, %d failed of 16\n", (unsigned)n, (unsigned)(total / 16), (unsigned)worst, fails);
     }
 }
 #endif  // ARDUINO_ARCH_ESP32 && HWV1 && !HWV1_SD_IDF

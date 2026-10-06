@@ -7,6 +7,7 @@
 #include "engine/modules/motion_seq.h"
 #include "engine/modules/osc_engines.h"
 #include "engine/modules/sampler_modules.h"
+#include "engine/modules/strings_modules.h"
 #include "engine/modules/synth_modules.h"
 #include "platform/engine/dx7_convert.h"
 #include "platform/engine/fm_patch_gain.h"
@@ -93,6 +94,30 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
         b.cable(RN_NOTE, 0, RN_DX7, Dst::In, 0);
         b.cable(RN_NOTE, 1, RN_DX7, Dst::In, 1);
         b.cable(RN_DX7, 0, RN_VOICE_OUT, Dst::In, 0);
+    } else if (synth_type_is_strings(cfg.type)) {
+        // ---- Strings (ADR-037): one module per voice; its envelope is the AMP ENV page (linear: the curves are not used)
+        const str_params_t &sp = params.str;
+        NodeDesc *s = b.add(RN_STR, T_STRINGS);
+        if (s) {
+            s->param[STR_WAVE] = sp.wave;
+            s->param[STR_OSC] = sp.osc;
+            s->param[STR_DETUNE] = static_cast<int32_t>(std::lround(sp.detune * kSemi / 100.0));
+            s->param[STR_MIX] = q(sp.mix);
+            s->param[STR_PW] = std::max<int32_t>(1638, std::min<int32_t>(31130, q(sp.pw)));
+            s->param[STR_ATTACK] = ms_i(params.amp_env.attack_ms);
+            s->param[STR_DECAY] = ms_i(params.amp_env.decay_ms);
+            s->param[STR_SUSTAIN] = q(params.amp_env.sustain);
+            s->param[STR_RELEASE] = ms_i(params.amp_env.release_ms);
+            s->param[STR_LP_ON] = sp.lp_on;
+            s->param[STR_LP_CUT] = std::max<int32_t>(24 * kSemi, std::min<int32_t>(135 * kSemi, hz_pitch(sp.lp_cut)));
+            s->param[STR_LP_ENV] = static_cast<int32_t>(std::lround(sp.lp_env * 12.0 * kSemi));
+            s->param[STR_LP_KEY] = q(sp.lp_key);
+            s->param[STR_LEVEL] = q(sp.level);
+            b.cable(RN_NOTE, 0, RN_STR, Dst::In, 0);
+            b.cable(RN_NOTE, 1, RN_STR, Dst::In, 1);
+            b.cable(RN_STR, 0, RN_VOICE_OUT, Dst::In, 0);
+            vo->param[VO_TAIL_MS] = ms_i(params.amp_env.release_ms) + 400;
+        }
     } else {
         // ---- audio chain
         int n_sources = 0;
@@ -352,10 +377,32 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
     NodeDesc *bus = b.add(RN_BUS, T_BUS_IN);
     NodeDesc *ma = b.add(RN_MASTER, T_MASTER_OUT);
     if (bus && ma) {
-        ma->param[0] = q(std::min(cfg.volume, 1.0f));                // volume 0..2 = level 0..1 x boost 1..2 (same total gain as before: vol / 2 of the old VoiceOut level x 2)
-        ma->param[1] = cfg.volume > 1.0f ? 1 : 0;
+        // volume 0..2 = the gain: up to 1 the level itself, above 1 half of it doubled by the boost (min(vol, 1) here made every volume above 1 a gain of 2)
+        const bool boost = cfg.volume > 1.0f;
+        ma->param[0] = q(boost ? cfg.volume * 0.5f : cfg.volume);
+        ma->param[1] = boost ? 1 : 0;
         ma->param[2] = cfg.mono;
         int srcl = RN_BUS, srcr = RN_BUS, portl = 0, portr = 1;
+        const str_params_t &sp = params.str;
+        if (synth_type_is_strings(cfg.type) && sp.ftype != FILT_OFF && sp.ftype < FILT_COUNT) {
+            // the Strings type's shared filter, before the effects (one per channel; Off = not built, a change of that is a rebuild)
+            static const int mode[FILT_COUNT] = {FLTM_LP, FLTM_LP, FLTM_BP, FLTM_HP, FLTM_LP, FLTM_NOTCH};
+            const int sections = sp.ftype == FILT_LP24 ? 2 : 1;
+            const double q_last = sections == 2 ? 1.30656 : 0.70711;
+            const double boost = (sp.fres / q_last - 1.0) / 15.0;
+            NodeDesc *fl = b.add(RN_STR_FLT_L, T_FILTER_G), *fr = b.add(RN_STR_FLT_R, T_FILTER_G);
+            if (fl && fr) {
+                for (NodeDesc *f : {fl, fr}) {
+                    f->param[FLT_MODE] = mode[sp.ftype];
+                    f->param[FLT_SECTIONS] = sections;
+                    f->param[FLT_CUTOFF] = hz_pitch(sp.fcut);
+                    f->param[FLT_RES] = q(boost > 0.0 ? boost : 0.0);
+                }
+                b.cable(RN_BUS, 0, RN_STR_FLT_L, Dst::In, 0);
+                b.cable(RN_BUS, 1, RN_STR_FLT_R, Dst::In, 0);
+                srcl = RN_STR_FLT_L; srcr = RN_STR_FLT_R; portl = portr = 0;
+            }
+        }
         for (int k = 0; k < FXR_SLOTS; k++) {
             const fx_slot_t &fs = cfg.fxr.slot[k];
             if (fs.type == FX_NONE) continue;
@@ -434,6 +481,12 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                     n->param[RVB_SIZE] = q(fs.v[2] / 100.0);
                     n->param[RVB_DAMP] = 130 * kSemi - static_cast<int32_t>(std::lround(fs.v[3] / 100.0 * 75.0 * kSemi));
                     n->param[RVB_PREDELAY] = 20;
+                    wire(id);
+                } break;
+                case FX_ENSEMBLE: {
+                    NodeDesc *n = b.add(id, T_ENSEMBLE);
+                    if (!n) break;
+                    n->param[ENS_RATE] = fs.v[0]; n->param[ENS_DEPTH] = q(fs.v[1] / 100.0); n->param[ENS_SHIMMER] = q(fs.v[2] / 100.0); n->param[ENS_MIX] = q(fs.v[3] / 100.0);
                     wire(id);
                 } break;
                 case FX_CAB: {

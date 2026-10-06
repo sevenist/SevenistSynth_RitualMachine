@@ -43,7 +43,7 @@ control -> action and the octave / Shift state.
 | Octave | -5..+4: every MIDI note 0..127 is reachable | Shift + joystick up / down |
 | Column knobs 1..4 | the value of row 1..4 of the current page (jump mode: the value follows the knob as soon as it moves) | mouse |
 | Right knobs R1..R3 | macros: start on the first filter's cutoff / resonance and the first LFO's rate; **Shift + knob** assigns the parameter under the cursor | mouse |
-| Master volume knob | master volume (same value as Vol in the GENERAL tab) | mouse |
+| Master volume knob | master volume (same value as Vol in the GENERAL tab; 0..2 = the gain, ramped over one audio block). On the prototype it is an endless knob: one step of 0.05 per detent from the current value | mouse |
 | Esc, closing a window | quit | |
 
 On an AZERTY keyboard the keys keep their physical position: "Q" is the key labelled A, "W" is Z, "Z" is W, "A" is Q, `[` is `^`, `]` is `$`,
@@ -102,7 +102,7 @@ oled_sim/
    │  ├─ dsp/               q15/q31 math, tables (GENERATED), phase/pitch, oscillators, SVF, FFT/STFT, delay, smoothing, CORDIC
    │  ├─ core/              module API, graph description, plan compiler, engine (voices, command queue), heap
    │  ├─ modules/           builtin, synth (Osc Env Lfo Filter Vca Mix Mult Shaper Const), fx (Delay Spectral Vocoder Chorus
-   │  │                     Reverb), dx7_voice (FM), sampler_modules (Sampler Granular)
+   │  │                     Reverb), dx7_voice (FM), sampler_modules (Sampler Granular), strings_modules (Strings voice, Ensemble)
    │  └─ sampler/           .smp format, storage interface, sample bank, streaming loader
    └─ platform/
       ├─ engine/            shared by desktop and ESP32: rack -> graph mapper, DX7 patch conversion, the C API
@@ -296,6 +296,7 @@ Rack -> engine mapping and the master chain are described in ENGINE_DESIGN.md (A
 | `gen_module_sprites.py` | `src/core/module_sprites.h` (module sprites with 2-letter codes) | `python tools/gen_module_sprites.py` |
 | `gen_dx7.py` | `src/core/dx7_factory.c` and `src/core/dx7_algos.c` (needs `lib/amy`) | `python tools/gen_dx7.py` |
 | `gen_engine_tables.py` | `src/engine/dsp/tables.cpp` (sine, exp2, tan, tanh, FFT twiddles, window, CORDIC) | `python tools/gen_engine_tables.py` |
+| `gen_wavetables.py` | `src/engine/dsp/wavetables.cpp`: band-limited saw / triangle tables, 10 octave bands, for the Strings oscillators (41 KB, flash) | `python tools/gen_wavetables.py` |
 | `make_demo_samples.py` | five synthetic demo samples into `samples/` (the simulator's card folder) | `python tools/make_demo_samples.py` |
 | `smp_convert.cpp` | every `.wav` / `.mp3` of a folder -> `.smp` (new or changed files only; shares `platform/sim/sample_convert.h` with the simulator's importer). build.ps1 builds and runs it on `samples_src/` | `build\smp_convert.exe samples_src samples [--force]` |
 | `wav2smp.py` | one WAV (8..32 bit, mono/stereo, `smpl` loops) -> cooked `.smp` sample, with `--slices` / `--loop` / `--root` options the converter has no way to give | `python tools/wav2smp.py in.wav out.smp --root 60 --slices 0 12000` |
@@ -352,8 +353,9 @@ C:\.platformio\penv\Scripts\python.exe tools\serial_test.py   # measure on COM8 
 | `leds_esp32.cpp` | LED HAL (`hal_leds.h`): frame buffer and key -> LED map; the driver that pushes it is a TODO |
 | `audio_esp32.cpp` | I2S (MSB format, no MCLK) and the audio task on core 1; sizes the fast heap (internal RAM) and the bulk heap (PSRAM); applies `DEV_OUTPUT_GAIN_PCT`; prints the `[AUDIO]` / `[PROF]` / `[SEC]` / `[OSC]` / `[HEAP]` lines |
 | `bench_esp32.*` | boot micro benchmark (`HWV1_BENCH`): cycles per operation, RAM vs PSRAM |
-| `sd_card.*`, `sd_card_spi.cpp`, `storage_sd.*`, `samples_esp32.*` | the TF card: `sd_card.h` is the interface (mount as FAT at `/sdcard`, probe the read time, alive / identity check); `sd_card_spi.cpp` is HWV1's own small SPI-mode driver (reads, and single-block writes for the settings files, each checked with CMD13; registered with FATFS; ESP-IDF's sdspi host spent 40 ms before every command on this board); a new prototype with an SDMMC slot replaces that one file. The card is polled once a second (no card-detect pin): inserted -> a timed read test -> a card slower than 15 ms per sector is not used and the app shows the "SD CARD TOO SLOW" screen (any button dismisses it; the synth runs as if there were no card); removed or swapped -> the catalog is reset, `SdStorage` is the sampler's `StorageDevice`, `samples_esp32` is the I/O task (core 0, priority 5, see "Tasks and priorities"): mount, list `/sdcard/samples/*.smp` into the catalog (the header of each file carries the amplitude overview, so a scan reads one block per file), run the loader, and the settings-file jobs of `hal_storage.h` (`storage_read` / `storage_write` post a job and wait up to 1.5 s; the task runs it between loader reads; a write goes to `<name>.tmp`, then replaces the file). Cook files on the PC (`samples_src/` + build.ps1); there is no .wav / .mp3 import on the board. `SdStorage` reads through an 8 KB internal DMA-capable bounce buffer (a PSRAM destination would make the SD driver issue one command per 512 bytes) |
+| `sd_card.*`, `sd_card_spi.cpp`, `storage_sd.*`, `samples_esp32.*` | the TF card: `sd_card.h` is the interface (mount as FAT at `/sdcard`, probe the read time, alive / identity check); `sd_card_spi.cpp` is HWV1's own small SPI-mode driver (reads with the data CRC16 checked and a bad block read again, `[SD] data CRC errors` in the log; single-block writes for the settings files, each checked with CMD13; the data token is polled `HWV1_SD_PROBE` (8) bytes per SPI call; above 25 MHz only after a CMD6 switch to high-speed mode, which the prototype's SL32G card does not have, so it runs at 25 MHz unless `-DHWV1_SD_OVERCLOCK=1`; `-DHWV1_SD_BENCH` prints raw, scattered and file read times at boot; registered with FATFS; ESP-IDF's sdspi host spent 40 ms before every command on this board); a new prototype with an SDMMC slot replaces that one file. The card is polled once a second (no card-detect pin): inserted -> a timed read test -> a card slower than 15 ms per sector is not used and the app shows the "SD CARD TOO SLOW" screen (any button dismisses it; the synth runs as if there were no card); removed or swapped -> the catalog is reset, `SdStorage` is the sampler's `StorageDevice`, `samples_esp32` is the I/O task (core 0, priority 5, see "Tasks and priorities"): mount, list `/sdcard/samples/*.smp` into the catalog (the header of each file carries the amplitude overview, so a scan reads one block per file), run the loader, and the settings-file jobs of `hal_storage.h` (`storage_read` / `storage_write` post a job and wait up to 1.5 s; the task runs it between loader reads; a write goes to `<name>.tmp`, then replaces the file). Cook files on the PC (`samples_src/` + build.ps1); there is no .wav / .mp3 import on the board. `SdStorage` reads through an 8 KB internal DMA-capable bounce buffer (a PSRAM destination would make the SD driver issue one command per 512 bytes) |
 | `serial_cmd_esp32.*` | dev commands over the serial port (`DEV_SERIAL_CMD`) |
+| `alt_esp32synth.*`, `esp32synth/` | dev (`ALT_ESP32SYNTH`): the third-party ESP32Synth library (MIT, v2.4.7, copied unchanged except the `#ifndef` around its limits in `ESP32Synth_Config.hpp`) as a second engine for comparison: serial `alt on` makes the audio task render it and sends the notes to it, `alt off` frees it and rebuilds ours; `[ALT]` line once a second (cycles per 32 frames, per voice). `esp32synth/` is excluded from the source build (`build_src_filter`) and compiled through `alt_esp32synth.cpp`. Its header defines lower-case note macros (`c0`, `d1`, ...) |
 
 ### Build flags (`platformio.ini`)
 
@@ -361,8 +363,10 @@ C:\.platformio\penv\Scripts\python.exe tools\serial_test.py   # measure on COM8 
 | --- | --- | --- |
 | `HWV1` | selects the pin block and drivers of the first prototype | keep for this board |
 | `DEV_OUTPUT_GAIN_PCT=N` | output level in percent of full scale (the first prototype's output stage is harsh on headphones) | remove or 100 |
+| `DEV_SPEAKER_DEFAULT=N` | the built-in speaker's starting level (0 = off, 20 = 100 %; GENERAL "Spk" still changes it) | remove (full) |
 | `DEV_BOOT_DELAY_MS=3000` | wait after `Serial.begin` so a monitor catches the boot log | remove |
-| `DEV_SERIAL_CMD` | serial commands (`ping`, `on N`, `off N`, `chord K`, `eng a b c d`, `release`, `status`, `samples`, `patch startup`, `patch sampler F L`, `mode mono|poly [glide] [legato]`, `voices N`; the patch ones rebuild the synth like leaving the menu) | remove |
+| `DEV_SERIAL_CMD` | serial commands (`ping`, `on N`, `off N`, `chord K` (up to 48 notes), `eng a b c d`, `release`, `status`, `samples`, `patch startup`, `patch sampler F L`, `mode mono|poly [glide] [legato]`, `voices N`; the patch ones rebuild the synth like leaving the menu) | remove |
+| `ALT_ESP32SYNTH` | ESP32Synth as a second engine (`alt on/off`, `alt wave sine/tri/saw/pulse/noise`, `alt env a d s r`, `alt vol N`, `alt poly N`, `alt vib rate depth`, `alt crush bits`, `alt status`; `chord K` takes up to 48 notes); 8 KB of internal RAM always, ~15 KB more while on | remove |
 | `HWV1_SD_BENCH` | boot-time card benchmark (`[SD] bench ...` lines: raw reads of 1 / 8 / 16 sectors, file reads of 512 B / 4 KB) | remove |
 | `HWV1_SD_FREQ_KHZ=N` | SPI clock of the card once initialised (default 20000) | keep / tune |
 | `HWV1_SD_IO_PRIO=N` | priority of the card I/O task (default 5) | keep |
@@ -373,6 +377,8 @@ C:\.platformio\penv\Scripts\python.exe tools\serial_test.py   # measure on COM8 
 | `ENGINE_REVERB_HALF=1` | reverb tank at half rate (user choice) | decision |
 | `ENGINE_FILTER_EXACT=1` | (not set) filter coefficients exact per sample even for smooth modulation | |
 | `ENGINE_CMD_RING=128` | command ring entries (270 bytes each) | keep |
+| `ENGINE_MAX_VOICES` | (default 32) the engine's voice ceiling; the Strings type uses it all, Modular / FM stop at 8. Costs ~13 KB of static RAM at 32 (instance records); plans are sized by their own voice count | keep |
+| `ENGINE_WT_RAM=1` | (not set) the Strings mipmap tables in internal RAM (41 KB) instead of flash: faster reads, smaller fast heap | measure, then decide |
 | `ENGINE_NO_IRAM` | (not set) keep module code in flash instead of IRAM | |
 
 The framework appends `-Os` after the project's `-O2`, so `build_src_flags` carries `-O2 -fno-stack-protector` for the project sources. Check `compile_commands.json` if the optimization level is ever in doubt.

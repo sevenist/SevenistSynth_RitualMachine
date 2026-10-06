@@ -258,7 +258,7 @@ Err compile_impl(const GraphDesc &g, const Registry &reg, Heap &heap, int nvoice
     Plan *pl = heap.make<Plan>();
     if (!pl) return Err::NoMem;
     pl->heap = &heap;
-    pl->nvoices = nvoices;
+    pl->nvoices = nvoices > 0 ? nvoices : 1;
     pl->n_nodes = n;
     for (int i = 0; i < n; i++) { pl->node_id[i] = g.node[i].id; pl->node_type[i] = g.node[i].type; pl->node_scope[i] = S.scope[i]; }
     for (int k = 0; k < kMaxEdges; k++) { pl->edge_step[k] = S.edge_step[k]; pl->edge_slot[k] = S.edge_slot[k]; }
@@ -272,7 +272,9 @@ Err compile_impl(const GraphDesc &g, const Registry &reg, Heap &heap, int nvoice
     pl->silence = heap.alloc_array<q15>(kBlock);
     pl->fbv = heap.alloc_array<q15>(static_cast<size_t>(S.n_fbv > 0 ? S.n_fbv : 1) * kBlock * static_cast<size_t>(nvoices > 0 ? nvoices : 1));
     pl->fbg = heap.alloc_array<q15>(static_cast<size_t>(S.n_fbg > 0 ? S.n_fbg : 1) * kBlock);
-    if (!pl->steps || !pl->pool || !pl->silence || !pl->fbv || !pl->fbg) { free_plan(pl); return Err::NoMem; }
+    pl->inst_ = heap.alloc_array<Module *>(static_cast<size_t>(n > 0 ? n : 1) * static_cast<size_t>(pl->nvoices));
+    if (pl->inst_) for (int k = 0; k < (n > 0 ? n : 1) * pl->nvoices; k++) pl->inst_[k] = nullptr;
+    if (!pl->steps || !pl->pool || !pl->silence || !pl->fbv || !pl->fbg || !pl->inst_) { free_plan(pl); return Err::NoMem; }
 
     auto ptr = [&](int16_t id) -> q15 * {
         if (id >= kFbGlobal) return pl->fbg + (id - kFbGlobal) * kBlock;
@@ -324,6 +326,7 @@ void free_plan(Plan *p) {
     h->free(p->fbv);
     h->free(p->fbg);
     h->free(p->updates);
+    h->free(p->inst_);
     h->free(p);
 }
 

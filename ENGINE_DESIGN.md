@@ -192,7 +192,7 @@ Bandwidth is 96 KB/s per voice at 48 kHz. Not done: stereo samples, ADPCM (the f
 - `SampleBank::load(name, head_ms)`: keeps the first `head_ms` (default 150), a short head for every slice, and a tail
   head (reverse playback starts at the end) in bulk RAM; `head_ms = 0` makes a sample fully resident (granular).
   Notes and slice triggers therefore start in the very first block whatever the card latency (tested with 40 ms).
-- Every Sampler voice owns a `Stream`: a ring of `ENGINE_RING_BLOCKS` (8) blocks = 32 KB in bulk RAM. Audio thread
+- Every Sampler voice owns a `Stream`: a ring of `ENGINE_RING_BLOCKS` (12, was 8: addendum 2) blocks = 48 KB in bulk RAM. Audio thread
   and loader share only atomics; each ring slot is tagged `(generation, block)` so a block read for an old note can
   never be played for a new one. The loader walks the playback path (loops, ping-pong, reverse) in half-block steps,
   always includes both loop endpoints when the path wraps, and issues reads for the stream whose first missing
@@ -368,6 +368,20 @@ rebuild. Costs: KS 4 KB per voice; aliasing is naive like the shaper (ADR-013); 
 - **`.smp` header:** bytes 100..163 now hold the 64-bucket amplitude overview the sample list draws. Old files have zeros there and are still read (the reader computes the overview: 64 card reads per file at scan time on the board, so re-cook them).
 - **Loader API:** `engine_synth_io_pump()` returns whether reads are still in flight; the I/O task keeps going (up to 8 rounds) instead of sleeping a tick after every pair of reads. `engine_synth_sampler_stats()` exposes the underrun and block-read counters.
 
+### ADR-022 addendum 2: high pitch, starved voices and the 64-bit atomics (Accepted; measured on the board 2026-10-05/06)
+
+- **Symptom:** high sampler notes stuttered the whole synth. The stream speed is proportional to pitch (one voice at 8x its root reads ~700 KB/s at 44.1 kHz), the card
+  (SL32G, SPI) gave ~640 KB/s, and a starved voice cost ~20x its CPU: **182k cycles per block for one voice** (budget 174k).
+- **Cause:** a 64-bit `std::atomic` load is a locked libatomic call on the ESP32-S3. The Sampler's `fetch()` searched the ring tags on every miss, 4 times per sample (Hermite);
+  the loader's `issue_streams()` re-read every slot tag for every wanted block of every stream (thousands per issued read with 6 voices, on the card task's core).
+- **Fixes (all exact; output checksums identical with `SC_SAMPLER_NO_FAST`):** (1) `miss_blk_`: a missing ring block is searched once per `process()` call (C7: 182k -> 27.7k cycles,
+  0 blocks over budget); (2) `issue_streams()` reads each stream's tags once per pass (3 voices at C5..G5: 487 -> 633 KB/s, underruns ~150 -> 0 per 2 s);
+  (3) `starved_block()`: a block whose playhead stays inside a missing ring block outputs the held-value decay directly (6 starved voices: render 1444 -> 966 us, blocks over budget 325 -> 7);
+  (4) `ENGINE_RING_BLOCKS` 8 -> 12 (48 KB of bulk RAM per stream, 7 blocks ahead): at 8x a block lasts 5.3 ms and a slow card read 22 ms, 3 blocks ahead underran.
+- **Rule:** never read a 64-bit atomic in a per-sample or per-candidate loop on the S3; copy it once.
+- **Limit left:** the card. At 25 MHz (in spec: this card has no high-speed mode, CMD6 group 1 = 8001) one voice plays clean to 8x, and the voices' speeds add up to ~600-650 KB/s
+  (e.g. 3 notes at C5..G5 of a C4 sample). A 4 KB read takes 4.0 ms raw, ~6 ms in practice with several voices (the card's own latency spikes, 5-9 ms). Options (user decision, see CONTINUE.md).
+
 ### ADR-030 addendum: .wav / .mp3 are listed at once and converted when assigned
 The library lists `.wav` and `.mp3` next to `.smp` (entry marked with `*`, `pending`, the graph says "converts on assign"). The decode (24-bit / float / any channel
 count -> mono, minimp3) runs when a sampler uses the file: pressing Assign in the SAMPLES tab, or any build / parameter update that references it
@@ -446,6 +460,20 @@ The user wants a modular engine whose budget is knowable (a DSP "point" system l
 | 5 | Modular engine optimization with the measure loop (`esp32-optimize`): per-voice Filter 4.8k, Env 2.3k, oscillator engines, VoiceOut | alongside |
 
 **Risks accepted / known:** a voice-count or mode change rebuilds the voice modules (a short audio stall and a reset of their state, once per change); mono glide runs at block rate (0.7 ms steps, exponential); the paraphonic split makes modulators that feed the shared half global-scope (a per-voice LFO cannot modulate the shared filter: it is a different LFO, not a mix of the voice ones); a captured sound is a snapshot (no later parameter changes).
+
+### ADR-037: "Strings", a third synth type with 32 voices for pads and big chords (Accepted; user choices of 2026-10-06; built and host-tested, not on the board yet)
+
+**Why.** The ESP32Synth library (tried on the board as a second engine, `alt_esp32synth.cpp`) gets its 80 voices from very thin voices: one oscillator x a linear envelope, no filter. The user wants that idea as
+a purpose-built engine of our own for lush pads and many-voice instruments, and the library removed from the project at the end.
+
+**Decisions taken by the user** (options with pros and cons were offered; recorded, not to be re-litigated):
+1. **A per-voice module in our graph**, like FM: `NoteIn -> Strings -> VoiceOut` per voice, the shared chain after the voices. The engine's voice ceiling goes from 8 to 32 (`ENGINE_MAX_VOICES`).
+   (Rejected: one global "bank" module with its own allocator, cheaper but outside the voice manager.)
+2. **Two detuned oscillators per voice** (saw / pulse / triangle, detune, level of the second) and a linear ADSR computed once per block (ESP32Synth's envelope).
+3. **Both oscillator kinds, switchable**, so the user can judge sound against CPU / RAM: a naive phase accumulator (cheapest, aliases) and band-limited mipmap tables (one table per octave band).
+4. **After the voices:** a shared filter (Strings type only, stereo) and a new string **Ensemble** effect (FX rack, any synth type). **Per voice:** a one-pole lowpass that can be switched off, its cutoff following the voice's envelope and the key.
+
+**Risks / known:** 32 voices raise the engine's static RAM by about 13 KB and each live plan by about 6 KB (pointer tables sized by the ceiling): watch `[HEAP]` for a spill of the startup patch; mipmap tables switch band per octave (a small timbre step, no crossfade); the tables are read from flash (a cache miss costs ~120 cycles) unless copied to RAM; the envelope is linear (as the library's).
 
 ## Known limits and ideas for later
 

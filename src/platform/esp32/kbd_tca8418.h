@@ -10,6 +10,9 @@ typedef struct {
     bool    pressed;
 } kbd_event_t;
 
-bool kbd_init(void);                      // false if the TCA8418 does not answer (the rest of the firmware keeps running)
+// false if the TCA8418 does not answer (the rest of the firmware keeps running). Before the key scan starts it checks whether the key at TCA
+// (hold_row, hold_col) is held, for up to hold_ms (setup waits that long only while the key stays down): see kbd_boot_hold().
+bool kbd_init(int hold_row, int hold_col, uint32_t hold_ms);
+bool kbd_boot_hold(void);                 // that key was held for the whole hold_ms at power-on
 int  kbd_read_events(kbd_event_t *out, int max);   // drains the FIFO, returns the number of events; recovers the bus after repeated I2C failures
 #endif

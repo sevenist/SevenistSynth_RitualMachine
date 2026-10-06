@@ -26,6 +26,7 @@ struct RackGraph {
 
 enum RackNode : int {
     RN_NOTE = 1, RN_AMP_ENV, RN_AMP_VCA, RN_VOICE_OUT, RN_BUS, RN_MASTER, RN_DX7,
+    RN_STR, RN_STR_FLT_L, RN_STR_FLT_R,     // the Strings type: its voice module and the shared stereo filter
     RN_FX = 240,             // master effects: RN_FX + 2 * slot (a Drive slot uses a second node for the right channel)
     RN_MODULES = 32          // module nodes: RN_MODULES + 2 * (rack id % 100) (+1 for the helper node of the same module)
 };

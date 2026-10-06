@@ -5,10 +5,15 @@
 #include "hal/hal_audio.h"
 #include "platform/engine/engine_synth.h"
 #include "platform/esp32/serial_cmd_esp32.h"
+#ifdef ALT_ESP32SYNTH
+#include "platform/esp32/alt_esp32synth.h"
+#endif
 
 namespace {
 constexpr int kMaxTest = 8;
 const int kChord[kMaxTest] = {48, 52, 55, 59, 62, 65, 69, 72};     // C E G B D F A C: eight distinct notes, so no voice retriggers another
+constexpr int kMaxChord = 48;                                      // chord 9..48 adds chromatic notes above C5 (73, 74, ...): voice-count tests of the "alt" engine
+int chord_note(int i) { return i < kMaxTest ? kChord[i] : kChord[kMaxTest - 1] + 1 + (i - kMaxTest); }
 bool held[128];                                                    // notes started by these commands
 int chord_held = 0;
 app_t *g_app = nullptr;
@@ -34,9 +39,9 @@ void run(char *line) {
     if (!strcmp(line, "off")) { note_off(v); Serial.printf("[CMD] off %d\n", v); return; }
     if (!strcmp(line, "release")) { release_all(); Serial.println("[CMD] released"); return; }
     if (!strcmp(line, "chord")) {
-        const int k = v < 0 ? 0 : (v > kMaxTest ? kMaxTest : v);
+        const int k = v < 0 ? 0 : (v > kMaxChord ? kMaxChord : v);
         release_all();
-        for (int i = 0; i < k; i++) note_on(kChord[i]);
+        for (int i = 0; i < k; i++) note_on(chord_note(i));
         chord_held = k;
         Serial.printf("[CMD] chord %d\n", k);
         return;
@@ -65,6 +70,7 @@ void run(char *line) {
         sscanf(arg ? arg : "", "%15s %d %d", name, &a, &b);
         if (!strcmp(name, "startup")) rack_init_startup(&g_app->rack);
         else if (!strcmp(name, "sampler")) rack_init_sampler(&g_app->rack, a, b);
+        else if (!strcmp(name, "strings")) g_app->rack.cfg.type = SYNTH_STRINGS;          // the Strings type, current pages and effects (ADR-037)
         else { Serial.printf("[CMD] unknown patch '%s'\n", name); return; }
         use_rack();
         Serial.printf("[CMD] patch %s %d %d\n", name, a, b);
@@ -90,6 +96,14 @@ void run(char *line) {
         Serial.printf("[CMD] voices %d\n", g_app->rack.cfg.voices);
         return;
     }
+#ifdef ALT_ESP32SYNTH
+    if (!strcmp(line, "alt")) {                           // alt on | off: ESP32Synth instead of our engine (off rebuilds ours); other words: alt_command
+        if (arg && !strcmp(arg, "on")) { release_all(); alt_set_active(true); }
+        else if (arg && !strcmp(arg, "off")) { release_all(); alt_set_active(false); if (g_app) use_rack(); }
+        else alt_command(arg);
+        return;
+    }
+#endif
     if (!strcmp(line, "status")) { Serial.printf("[CMD] status chord %d, uptime %lu ms, free heap %u\n", chord_held, (unsigned long)millis(), (unsigned)ESP.getFreeHeap()); return; }
     Serial.printf("[CMD] unknown '%s'\n", line);
 }

@@ -7,6 +7,8 @@
 #include <string.h>
 #include <stdlib.h>
 
+static void draw_keys_notice(app_t *app);
+
 void app_init(app_t *app, u8g2_t *display) {
     memset(&app->in, 0, sizeof app->in);
     app->in.axis_x = app->in.axis_y = INPUT_AXIS_CENTER;
@@ -20,6 +22,7 @@ void app_init(app_t *app, u8g2_t *display) {
     app->status[0] = 0;
     keymap_init();
     keymap_load();                      // the simulator has its card at once; the board's card shows up later (check_sd)
+    app->keys_notice_ms = 0;
     app->display = display;
     synth_params_default(&app->params);
     seq_init(&app->seq);
@@ -27,6 +30,13 @@ void app_init(app_t *app, u8g2_t *display) {
     synth_ui_init(&app->ui, &app->rack);
     audio_build(&app->rack, &app->params);
     synth_ui_draw(&app->ui, &app->params, &app->seq, &app->rack, app->display);
+    if (input_boot_reset()) {           // the reset key was held at power-on (read by the board before its key scan started)
+        keymap_reset();
+        keymap_save();                  // no card yet: saved when it shows up (check_sd)
+        app->keys_notice = true;
+        app->keys_notice_ms = app->boot_ms;
+        draw_keys_notice(app);
+    }
 }
 
 /* ---------------- actions ---------------- */
@@ -114,6 +124,13 @@ static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
         case ACT_MASTER_VOLUME:
             if (synth_ui_set_volume(&app->ui, &app->rack, e.value)) { audio_set_params(&app->rack, &app->params); app->dirty = true; }
             break;
+        case ACT_VOLUME_STEP: {
+            changed = false;
+            for (int k = 0; k < (n < 0 ? -n : n) && k < 40; k++) changed |= synth_config_adjust(&app->rack.cfg, CFGP_VOLUME, n < 0 ? -1 : 1) != CFG_UNCHANGED;
+            if (changed) { audio_set_params(&app->rack, &app->params); app->dirty = true; }
+            snprintf(app->status, sizeof app->status, "Volume %.2f", (double)app->rack.cfg.volume);
+            break;
+        }
         default: break;
     }
 }
@@ -162,6 +179,7 @@ static void key_reset_check(app_t *app, uint32_t now) {
     keymap_reset();
     keymap_save();                      // no card yet: saved when it shows up (check_sd)
     app->keys_notice = true;
+    app->keys_notice_ms = now;
     app->dirty = true;
 }
 
@@ -194,6 +212,8 @@ static void joy_repeat(app_t *app, uint32_t now) {
 }
 
 /* ---------------- notices: the key layout was reset, the TF card is too slow ---------------- */
+
+#define KEYS_NOTICE_MS 3000
 
 static void draw_keys_notice(app_t *app) {
     u8g2_t *g = app->display;
@@ -260,7 +280,10 @@ bool app_step(app_t *app, input_event_t e) {
     const uint32_t now = audio_millis();
 
     check_sd(app);
-    if (app->keys_notice && e.kind == IN_RELEASE) { app->keys_notice = false; app->dirty = true; }     // the reset key is let go
+    if (app->keys_notice && (e.kind == IN_PRESS || e.kind == IN_RELEASE || now - app->keys_notice_ms > KEYS_NOTICE_MS)) {
+        app->keys_notice = false;                                       // a key (the reset key let go) or a few seconds
+        app->dirty = true;
+    }
     if (app->sd_notice && e.kind != IN_NONE) {           // the notice is up: a button press dismisses it, every other input is ignored (nothing edits the screen behind it)
         if (e.kind == IN_PRESS) { app->sd_notice = false; app->dirty = true; }
         e.kind = IN_NONE;

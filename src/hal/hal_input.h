@@ -70,6 +70,10 @@ input_event_t input_poll(void);
 // Whether the board has the key CTL_KEY(row, col): the KEYS menu tab lists only the keys that exist.
 bool input_key_present(int row, int col);
 
+// The top-left function key CTL_KEY(0, 0) was held at power-on (for about 2 s, read before the key scan starts: a key that is already down
+// makes no press event). The application resets the key layout. Platforms without it return false.
+bool input_boot_reset(void);
+
 #ifdef __cplusplus
 }
 #endif

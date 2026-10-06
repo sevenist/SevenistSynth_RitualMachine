@@ -6,6 +6,41 @@ not: state, the latest measurements and what to do next, the user's working styl
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
 `tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
+## Session todo (updated 2026-10-06)
+
+- [ ] Strings on the board (ADR-037): flash, GENERAL Type = Strings (or serial `patch strings`), play pads and big chords; try Osc Naive vs Mip, the VOICE LP, the STR FILTER, an Ensemble in the FX rack; "done" = the user says how it sounds and what to change (from: user)
+- [ ] Strings vs ESP32Synth, measured: `chord 8 / 16 / 32` (`chord` takes up to 48) with Type Strings -> `[PROF]` "Strings" cycles per block (and per voice) for Osc Naive and Mip; the same chords with `alt on` (`alt poly 32`, `alt wave saw`) -> `[ALT]`; `[HEAP]` fast heap used / spilled with the 32-voice ceiling; tables in flash vs `-DENGINE_WT_RAM=1` (from: user)
+- [ ] Remove ESP32Synth once the comparison is recorded: `src/platform/esp32/esp32synth/`, `alt_esp32synth.*`, `ALT_ESP32SYNTH` + `build_src_filter` in platformio.ini, the `alt` serial command, its DEVELOPING.md rows (from: user)
+- [ ] ESP32Synth's vector types: static check done (0 `ee.*` S3 SIMD instructions; GCC splits `v4i32` into scalar ops); a bench of their saw loop vs a plain one only if still interesting before the removal (from: user)
+- [ ] Integration findings: write down what the adapter needed (own voice allocator, mono -> stereo, memory policy, measurement hooks, what of `engine_synth.h` an outside engine cannot use) as input for an engine-independent "audio backend" interface (from: user)
+- [ ] Flash and check the F1 power-on keys reset (`[KBD] key r4 c7 held at power-on`) (from: notes)
+- [ ] ADR-036 stage 1 on the board: Mono heap / CPU drop, last-note priority, legato, glide by ear (from: notes)
+- [ ] Decide the SD options (a)-(d) and listen to the sampler after the loop fix; commit the pending work of the last two sessions (from: notes)
+
+## Strings, the third synth type (ADR-037; 2026-10-06; built and host-tested, NOT flashed / heard / measured)
+
+User decisions in ENGINE_DESIGN.md ADR-037 (do not re-litigate). What exists:
+- `engine/modules/strings_modules.*`: `Strings` (voice scope: two detuned oscillators saw / pulse / tri, naive or mipmap, linear ADSR per block, one-pole LP on / off with
+  key and envelope tracking, velocity, level; one render loop per wave x osc kind x LP, chosen per block) and `Ensemble` (global: three taps on one 11 ms line, slow + fast LFO at 0 / 120 / 240 degrees).
+- `engine/dsp/wavetables.*` (generated, `tools/gen_wavetables.py`): saw and triangle, 10 octave bands, 1024 samples + guard, 41 KB in flash (`ENGINE_WT_RAM=1` for RAM).
+- Type `SYNTH_STRINGS` (GENERAL Type "Strings", `str_voices` 1..32 kept apart from the 8 of Modular / FM); pages STRINGS (Wav Osc Det Mix), STR TONE (PW Lvl), VOICE LP (LP Cut Env Key),
+  STR FILTER (Typ Cut Res; Off = no node), AMP ENV (A D S R; the curves are ignored), SEQ, SEQ SETUP; menu tabs GENERAL, FX RACK, KEYS. Params in `synth_params_t.str` (P_STR_*).
+  FX rack type `FX_ENSEMBLE` ("EN": Rate Dpth Shim Mix) for every synth type. Serial `patch strings`.
+- Engine: `ENGINE_MAX_VOICES` 8 -> 32; the plan's instance table is now sized by the plan's voice count (`Plan::inst(node, voice)`), so plans did not grow (the test graph's module memory went
+  16.6 / 8.8 KB -> 13.0 / 4.8 KB for 8 / 1 voices); the instance records still grow ~13 KB static (firmware RAM 51.5 -> 55.6 %).
+- Host: 151 tests, all six matrix configurations green. C7 saw inharmonic power: naive -12.5 dB, mipmap -40.6 dB; 32 voices are real (rms 8 notes 4211, 32 notes 7208, 32 notes on 8 voices 3301);
+  linear attack / release at half way 0.51 / 0.48. Screens checked with `ui_dump` at 128 x 128.
+- Not done: board CPU / heap numbers, listening, level balance (Lvl 0.5 x VoiceOut 0.5 per voice: 32 voices may clip, Mix 1.0 default), default pad envelope (AMP ENV is shared with Modular).
+
+## ESP32Synth as a second engine (2026-10-06; built, NOT flashed; to be removed after the comparison, user)
+
+The user wants to compare the ESP32Synth library (github.com/danilogcrf2-oss/ESP32Synth, MIT) with our engine inside this project and see what integrating an outside engine
+says about the framework. It is an oscillator bank (one oscillator x linear ADSR x volume per voice, buses with FX callbacks, no filter): its "80+ voices" are bare
+oscillators, so compare it with osc -> Env -> Vca, never with the startup patch. Built with `-DALT_ESP32SYNTH` (on in platformio.ini); details in DEVELOPING.md
+(`alt_esp32synth.*`, build flags). The audio task renders it instead of ours while `alt on` (ours is not rendered: UI edits meanwhile may drop engine commands, `alt off` rebuilds);
+its object (~15 KB at 48 voices) is allocated at `alt on` so our fast heap is not shrunk at boot. Its SD streaming / recording are not wired (they use Arduino `SD`, i.e. the IDF sdspi
+host that cost 40 ms per command here). Firmware build OK (RAM 51.5 %); nothing run on the board.
+
 ## State (end of the ESP32 bring-up and optimization session)
 
 - The application runs on **our own DSP engine** (`src/engine`, C++17, q15) on **both** the desktop simulator and the **first hardware prototype** ("HWV1": ESP32-S3-Pico, SH1107 128 x 128 OLED, TCA8418
@@ -81,8 +116,39 @@ engine: the build made after these numbers adds a **fast path** (steady pitch an
   user accepted: a write bug can damage the card's file system; back the card up before the first test.**
 - Verified: simulator + firmware build; a scratch test (all layouts, User copy, text round trip, save on menu close, card in / out, KEYS-tab key selection, boot reset;
   it found and fixed a wrap-around that fired the reset at once). Not verified: anything on the board (key map orientation of the right half, card writes, keys.cfg on a real card).
-- Board test to do: every note key plays (right half included), F1..F4 = Shift / Menu / Back / Play, KEYS tab edit + menu close -> `[SD] wrote /sdcard/keys.cfg` in the log,
-  reboot keeps the layout, the file reads on a PC, the F1 reset, the samples still stream after a write.
+- Board test (user, 2026-10-05): all keys OK, F1..F4 OK, `[SD] wrote /sdcard/keys.cfg (689 bytes)`, the layout survives a reboot, samples stream after a write. The F1 power-on
+  reset did NOT work: the TCA8418 reports changes only and `kbd_init` drains its FIFO, so a key held from power-on makes no event. Fixed (built, NOT flashed): `kbd_init` reads
+  F1 directly before the key scan starts (column driven low as a GPIO, row read; up to 2 s while held), `input_boot_reset()` in the HAL, the app resets at init;
+  the "KEYS RESET" screen goes at the next key or after 3 s. Boot log: `[KBD] key r4 c7 held at power-on`.
+
+## Sampler at high pitch (measured 2026-10-05, pad_c4 forward loop, `patch sampler 3 2`, which is Mono: one voice)
+
+| note | stream speed | card | Sampler cycles per block | blocks over budget |
+| --- | --- | --- | --- | --- |
+| C4 (root) | 1x | 92 KB/s | 6.0k | 0 |
+| C5 | 2x | 183 KB/s | 7.1k | 0 |
+| C6 | 4x | 369 KB/s | 8.7k | 0 |
+| G6 | ~6x | 546 KB/s, underruns | 10-19k | 21 |
+| C7 | 8x | 640 KB/s (needs ~770), 160 underruns/s | **182k** (budget 174k) | 342 of 581 |
+
+- Two problems: the card bandwidth (~640 KB/s at most) is reached by ONE voice at ~6-8x its root; and a starved voice cost ~20x CPU, because every sample ran 4 `fetch()`
+  misses, each searching the ring by 64-bit atomic tags (a locked libatomic call on the S3). Fix (exact, built, 144 tests x 6 configurations green, NOT flashed / measured):
+  `miss_blk_` in the Sampler, a missing block is searched once per process() call.
+- **Optimization loop of 2026-10-06 (user allowed flashing for this task; all exact, measured on the board, details in ENGINE_DESIGN.md ADR-022 addendum 2):**
+
+| case (25 MHz unless noted) | start of the session | now |
+| --- | --- | --- |
+| 1 voice C7 (8x): Sampler cycles / blocks over budget | 182k / 342 of 581 | ~28k (starved) or ~9k / 0 |
+| 1 voice C7: underruns per 2 s | 320 | ~1 (25 MHz) / 0 (40 MHz) |
+| 3 voices C5 E5 G5 (sum ~7.5x) | ~150 underruns per 2 s | 0-100 (card at its limit) |
+| 6 voices C4..G5 (sum ~10x, needs ~880 KB/s) | render 1444 us, 325 blocks over budget | render 966 us, 2-7 over (card limited: ~500 KB/s) |
+
+  Changes: Sampler `miss_blk_` and `starved_block()`, loader tag snapshot, `ENGINE_RING_BLOCKS` 12, driver token poll 8 bytes per call, data CRC check + retry, CMD6 attempt,
+  `HWV1_SD_OVERCLOCK`, `seek avg` in the `[SD]` line (seeks cost ~100 us: not the problem), scattered-read bench. Test `a_stalling_card...` now stalls 1 s (longer than the ring).
+  Speaker: `DEV_SPEAKER_DEFAULT=0` (user asked for the speaker off while testing).
+- **Open, user decides:** (a) 40 MHz overclock: out of this card's spec, 0 CRC errors in 100 s of streaming, 4 KB file read 5.0 -> 3.7 ms; (b) 8 KB reads per command
+  (2 ring blocks): ~15 % more bandwidth, loader + storage change; (c) pre-decimated copies of samples for high notes (converter; bandwidth stops growing with pitch,
+  less aliasing, ~2x card space); (d) a faster card / the SDMMC 4-bit slot of the next prototype. **Not yet listened to** after these changes.
 
 ## Next performance steps (in the order I would take them)
 

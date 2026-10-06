@@ -42,6 +42,7 @@ void audio_note_off(int n) { (void)n; }
 uint32_t audio_millis(void) { static uint32_t t; return t += 10; }
 void audio_update(void) {}
 bool input_key_present(int row, int col) { return row > 0 || col < 4; }      // the first prototype: 4 function keys, 4 x 8 note keys
+bool input_boot_reset(void) { return false; }
 int  storage_read(const char *name, char *buf, int cap) { (void)name; (void)buf; (void)cap; return -1; }   // no card: the dump starts from the built-in layout
 bool storage_write(const char *name, const char *data, int len) { (void)name; (void)data; (void)len; return false; }
 

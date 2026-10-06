@@ -41,6 +41,7 @@ static const fxd_t defs[FX_TYPE_COUNT] = {
     [FX_DELAY]   = {"Delay",      "DL", 4, {{"Time", PK_MS, 20, 1000, 10, 350, 0}, {"Fb", PK_PCT, 0, 95, 5, 40, 0}, {"Mix", PK_PCT, 0, 100, 5, 0, 0}, {"Pong", PK_ENUM, 0, 1, 1, 0, off_on}}},
     [FX_REVERB]  = {"Reverb",     "RV", 4, {{"Mix", PK_PCT, 0, 100, 5, 0, 0}, {"Dec", PK_PCT, 0, 98, 2, 60, 0}, {"Size", PK_PCT, 0, 100, 5, 60, 0}, {"Damp", PK_PCT, 0, 100, 5, 50, 0}}},
     [FX_CAB]     = {"Cab / Body", "CB", 4, {{"IR", PK_ENUM, 0, 7, 1, 0, cab_names}, {"Len", PK_TAPS, 64, 512, 32, 256, 0}, {"Mix", PK_PCT, 0, 100, 5, 100, 0}, {"Lvl", PK_PCT, 0, 100, 5, 50, 0}}},
+    [FX_ENSEMBLE] = {"Ensemble",  "EN", 4, {{"Rate", PK_RATE, 5, 500, 1, 60, 0}, {"Dpth", PK_PCT, 0, 100, 5, 70, 0}, {"Shim", PK_PCT, 0, 100, 5, 35, 0}, {"Mix", PK_PCT, 0, 100, 5, 70, 0}}},
 };
 
 static const fxp_t *param(int type, int i) { return &defs[type].p[i]; }

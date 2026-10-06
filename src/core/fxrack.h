@@ -15,6 +15,7 @@ extern "C" {
 
 typedef enum {
     FX_NONE, FX_DRIVE, FX_CHORUS, FX_PHASER, FX_FLANGER, FX_TREMOLO, FX_COMP, FX_EQ, FX_SHIFT, FX_DELAY, FX_REVERB, FX_CAB,
+    FX_ENSEMBLE,                  // string ensemble (Solina style, ADR-037)
     FX_TYPE_COUNT
 } fx_type_t;
 

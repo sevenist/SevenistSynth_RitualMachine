@@ -29,8 +29,10 @@
 #define ENGINE_REVERB_HALF 0
 #endif
 
+// The voice ceiling: 32 for the Strings type (ADR-037). The engine's pointer tables are sized by it (about 13 KB of static RAM and 6 KB per
+// live plan at 32 on the ESP32-S3); a patch only builds the voices it asks for.
 #ifndef ENGINE_MAX_VOICES
-#define ENGINE_MAX_VOICES 8
+#define ENGINE_MAX_VOICES 32
 #endif
 
 // Entries of the control -> audio command ring (a power of two). Each entry is about 270 bytes (it can carry a 256 byte blob), so the

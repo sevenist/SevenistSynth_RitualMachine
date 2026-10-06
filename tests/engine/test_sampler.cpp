@@ -214,7 +214,10 @@ TEST(long_sample_streams_over_a_slow_card_without_underruns) {
 }
 
 TEST(a_stalling_card_causes_a_counted_fade_not_a_click) {
-    SamplerRig rig(card(5000, 4000000, 40, 400000));                           // every 40th read stalls for 400 ms (a card that garbage-collects)
+    // A read every ~3 s of playback stalls for 1 s (a card that garbage-collects): longer than the ring's read-ahead at every rate
+    // (7 blocks of 2048 frames are 0.45 s at 32 kHz), so the stall reaches the playhead.
+    const uint32_t every = static_cast<uint32_t>(3 * kSampleRate / static_cast<int>(kSmpBlockFrames));
+    SamplerRig rig(card(5000, 4000000, every, 1000000));
     int id = rig.add_and_load("long", sine_smp(8 * kSampleRate, 440.0, 16000.0));
     GraphDesc g;
     sampler_graph(rig, g, [&](NodeDesc *s) { s->param[SMPR_SAMPLE] = id; });
@@ -224,9 +227,12 @@ TEST(a_stalling_card_causes_a_counted_fade_not_a_click) {
     rig.run(SamplerRig::blocks_for(7.5), &y);
     double nominal = 2 * kPi * 440.0 / kSampleRate * 16000.0, worst = 0;
     for (size_t i = 1; i < y.size(); i++) worst = std::fmax(worst, std::fabs(y[i] - y[i - 1]));
-    std::printf("    stalls: %u underruns, largest sample step %.0f (plain sine %.0f)\n", rig.bank.stats.underruns.load(), worst, nominal);
+    uint64_t sum = 1469598103934665603ull;                                              // FNV-1a of the render: must not change with SC_SAMPLER_NO_FAST
+    for (double v : y) { sum ^= static_cast<uint64_t>(static_cast<int64_t>(v)); sum *= 1099511628211ull; }
+    std::printf("    stalls: %u underruns, largest sample step %.0f (plain sine %.0f), checksum %llu\n", rig.bank.stats.underruns.load(), worst, nominal,
+                static_cast<unsigned long long>(sum));
     CHECK(rig.bank.stats.underruns.load() >= 1);
-    CHECK(worst < 1600.0);                                                             // a click would be amplitude sized (16000); the crossfades keep steps near the signal's own slope
+    CHECK(worst < 2.0 * nominal + 600.0);                                              // a click would be amplitude sized (16000); the crossfades keep steps near the signal's own slope
     // the timeline kept running, so whenever the data is there the waveform is exactly the right one: most of the
     // recording matches the source, and the parts that do not are the stalls
     int windows = 0, matched = 0;

@@ -4,8 +4,8 @@
 # (tracked with -MMD), changed; compiles run in parallel. C files are built with gcc, the C++ engine with g++ -std=c++17.
 #
 # Samples: every .wav / .mp3 you put in samples_src/ is converted to samples/<name>.smp (the format the engine streams; only new or changed files,
-# by tools/smp_convert.cpp). The simulator reads samples/; copy the .smp files to the TF card's samples/ folder, or let -Sd do it:
-#   .\build.ps1 -Sd E:          also copies the converted samples to E:\samples (the card's drive letter)
+# by tools/smp_convert.cpp), then copied to the simulator's card sdcard/system/samples (the folders of the card layout are made too):
+#   .\build.ps1 -Sd E:          also sets up the real card E: (the card's drive letter): its folders + E:\system\samples
 #   .\build.ps1 -NoSamples      skip the conversion
 param([string]$Platform = "sim", [switch]$Clean, [string]$Display = "", [string]$Defs = "", [switch]$NoSamples, [string]$Sd = "")   # selects src/platform/<Platform>; -Display 128x128 builds for another screen size, -Defs "-DENGINE_SR=44100" passes engine flags (both with -Clean)
 $ErrorActionPreference = "Stop"
@@ -26,19 +26,22 @@ if (-not $NoSamples -and (Test-Path samples_src)) {
     & $conv samples_src samples
     if ($LASTEXITCODE -ne 0) { Write-Host "Some samples could not be converted (see above)" -ForegroundColor Yellow }
 }
+# The card layout (hal/hal_storage.h, STORAGE_FOLDERS) and the samples in system\samples: on the simulator's card sdcard\ always, on a real card with -Sd.
+function Sync-Card([string]$root) {
+    foreach ($d in @("system", "system\samples", "system\config", "import", "presets")) { New-Item -ItemType Directory -Force (Join-Path $root $d) | Out-Null }
+    $dest = Join-Path $root "system\samples"
+    $n = 0
+    foreach ($f in Get-ChildItem samples -Filter *.smp -ErrorAction SilentlyContinue) {
+        $t = Join-Path $dest $f.Name
+        if (-not (Test-Path $t) -or (Get-Item $t).Length -ne $f.Length -or (Get-Item $t).LastWriteTime -lt $f.LastWriteTime) { Copy-Item $f.FullName $t -Force; $n++ }
+    }
+    if ($n) { Write-Host ("samples: {0} file(s) copied to {1}" -f $n, $dest) }
+}
+if (-not $NoSamples) { Sync-Card "sdcard" }
 if ($Sd) {
     $drive = ($Sd.TrimEnd([char]92, [char]58)) + ":" + [char]92
     if (-not (Test-Path $drive)) { Write-Host "No drive ${Sd}: samples not copied" -ForegroundColor Yellow }
-    else {
-        $dest = $drive + "samples"
-        New-Item -ItemType Directory -Force $dest | Out-Null
-        $n = 0
-        foreach ($f in Get-ChildItem samples -Filter *.smp -ErrorAction SilentlyContinue) {
-            $t = Join-Path $dest $f.Name
-            if (-not (Test-Path $t) -or (Get-Item $t).Length -ne $f.Length -or (Get-Item $t).LastWriteTime -lt $f.LastWriteTime) { Copy-Item $f.FullName $t -Force; $n++ }
-        }
-        Write-Host ("samples: {0} file(s) copied to {1}" -f $n, $dest)
-    }
+    else { Sync-Card $drive }
 }
 
 $cSrc   = @(Get-ChildItem src/core/*.c) + @(Get-ChildItem src/platform/$Platform/*.c) +

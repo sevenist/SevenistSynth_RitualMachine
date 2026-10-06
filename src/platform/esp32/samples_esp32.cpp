@@ -1,7 +1,8 @@
 // Sample library of the ESP32 build: the .smp files in SD_SAMPLE_DIR of the TF card (cook them on the PC with tools/wav2smp.py; there is no
 // .wav / .mp3 import on the board). One task on core 0 at low priority does everything that touches the card: mount, scan, and the loader
 // (engine_synth_io_pump, ADR-022), so the audio task never waits for it. It also watches the card: inserted, too slow (then it is left alone and
-// the synth runs as if there were none), removed or swapped. Like the desktop's samples/ folder, new files are appended to the
+// the synth runs as if there were none), removed or swapped, and queues those as card events for the UI (hal_storage.h) with the result of
+// its two checks: the read speed and the folders of STORAGE_FOLDERS (made on request, storage_make_folders). Like the desktop's samples/ folder, new files are appended to the
 // catalog after the known ones, so the index a rack stores stays valid. The settings files of hal_storage.h (keys.cfg) are read and
 // written here too, as jobs the UI posts: the card driver has no locks, so nothing else may touch the card.
 #if defined(ARDUINO_ARCH_ESP32)
@@ -9,8 +10,10 @@
 #include <ctype.h>
 #include <dirent.h>
 #include <esp_timer.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #include "engine/sampler/smp_format.h"
 #include "hal/hal_storage.h"
@@ -149,12 +152,68 @@ volatile sd_state_t g_state = SD_NONE;
 volatile uint32_t g_slow_us = 0, g_gen = 0;
 uint32_t g_catalog_card = 0;                      // serial number of the card the catalog was read from (0 = none)
 
+// ---- card events (hal_storage.h): written by this task, read by the UI loop. One writer, one reader: the indexes are enough. ----
+constexpr uint32_t kEvents = 8;
+storage_event_t g_ev[kEvents];
+volatile uint32_t g_ev_w = 0, g_ev_r = 0;
+volatile bool g_mkdirs = false;                   // storage_make_folders() asked for the folders
+
+void push_event(const storage_event_t &e) {
+    if (g_ev_w - g_ev_r >= kEvents) return;       // the UI has not looked for a while: drop the newest
+    g_ev[g_ev_w % kEvents] = e;
+    __sync_synchronize();
+    g_ev_w = g_ev_w + 1;
+}
+
+bool is_dir(const char *path) { struct stat st; return stat(path, &st) == 0 && S_ISDIR(st.st_mode); }
+bool is_file(const char *path) { struct stat st; return stat(path, &st) == 0 && S_ISREG(st.st_mode); }
+
+// Bit i set = folder i of STORAGE_FOLDERS is not on the card.
+uint8_t missing_folders() {
+    static const char *const dirs[STORAGE_FOLDER_COUNT] = STORAGE_FOLDERS;
+    uint8_t m = 0;
+    char p[64];
+    for (int i = 0; i < STORAGE_FOLDER_COUNT; i++) {
+        snprintf(p, sizeof p, SD_MOUNT_POINT "/%s", dirs[i]);
+        if (!is_dir(p)) m |= static_cast<uint8_t>(1u << i);
+    }
+    return m;
+}
+
+// The folders the user agreed to (an ASK popup): the old layout's /samples folder and /keys.cfg move into /system first (a rename moves a
+// whole folder at once on FAT), then the missing folders are made. A card without them stays usable for reading what it has.
+void make_folders() {
+    g_mkdirs = false;
+    storage_event_t e = {};
+    e.kind = STORAGE_EV_FOLDERS_DONE;
+    if (!sd_card_mounted()) { push_event(e); return; }
+    ::mkdir(SD_MOUNT_POINT "/system", 0777);
+    if (is_dir(SD_MOUNT_POINT "/samples") && !is_dir(SD_SAMPLE_DIR)) e.moved = ::rename(SD_MOUNT_POINT "/samples", SD_SAMPLE_DIR) == 0 || e.moved;
+    ::mkdir(SD_MOUNT_POINT "/" STORAGE_DIR_CONFIG, 0777);
+    if (is_file(SD_MOUNT_POINT "/keys.cfg") && !is_file(SD_MOUNT_POINT "/" STORAGE_DIR_CONFIG "/keys.cfg"))
+        e.moved = ::rename(SD_MOUNT_POINT "/keys.cfg", SD_MOUNT_POINT "/" STORAGE_DIR_CONFIG "/keys.cfg") == 0 || e.moved;
+    static const char *const dirs[STORAGE_FOLDER_COUNT] = STORAGE_FOLDERS;
+    char p[64];
+    for (int i = 0; i < STORAGE_FOLDER_COUNT; i++) {
+        snprintf(p, sizeof p, SD_MOUNT_POINT "/%s", dirs[i]);
+        if (!is_dir(p) && ::mkdir(p, 0777) != 0) Serial.printf("[SD] could not make %s (errno %d)\n", p, errno);
+    }
+    e.ok = missing_folders() == 0;
+    Serial.printf("[SD] folders %s%s\n", e.ok ? "ready" : "NOT all made", e.moved ? ", old layout moved into /system" : "");
+    push_event(e);
+    if (g_state == SD_OK) scan();                 // the library folder may hold files now
+    g_gen = g_gen + 1;                            // the application reads keys.cfg again and looks its samples up
+}
+
 void card_gone() {
     g_storage.close_all();
     sd_card_unmount();
     g_state = SD_NONE;
     g_gen = g_gen + 1;
     Serial.println("[SD] card removed");
+    storage_event_t e = {};
+    e.kind = STORAGE_EV_REMOVED;
+    push_event(e);
 }
 
 void card_in() {
@@ -174,6 +233,14 @@ void card_in() {
         g_n = 0;
         g_catalog_card = 0;
     }
+    storage_event_t e = {};                       // the two checks of a new card: its read speed and its folders
+    e.kind = STORAGE_EV_INSERTED;
+    e.read_us = us;
+    e.read_limit_us = kSlowReadUs;
+    e.slow = us > kSlowReadUs;
+    e.missing = missing_folders();
+    if (e.missing) Serial.printf("[SD] folders missing (mask 0x%02x)\n", (unsigned)e.missing);
+    push_event(e);
     if (us > kSlowReadUs) {
         g_slow_us = us;
         g_state = SD_SLOW;                        // stays mounted so its removal is seen, but nothing reads it: the synth runs as if there were no card
@@ -296,6 +363,7 @@ void io_task(void *) {
         if (first || now - t_poll >= (g_state == SD_SLOW ? kPollSlowMs : kPollMs)) { first = false; t_poll = now; poll_card(); }
         if (ulTaskNotifyTake(pdTRUE, 0) && g_state == SD_OK) scan();      // the Scan row of the sample list
         if (g_job.state == 1) run_file_job();      // a settings file (keys.cfg ...), also on a card too slow for samples
+        if (g_mkdirs) make_folders();
         if (g_state == SD_OK) {
             const bool more = engine_synth_io_pump();   // reads still in flight: go on at once, a stream may be about to run dry
             if (more && ++burst < kBurst) continue;
@@ -341,6 +409,16 @@ extern "C" bool storage_write(const char *name, const char *data, int len) {
     g_job.state = 0;
     return ok;
 }
+
+extern "C" bool storage_poll_event(storage_event_t *e) {
+    if (g_ev_r == g_ev_w) return false;
+    *e = g_ev[g_ev_r % kEvents];
+    __sync_synchronize();
+    g_ev_r = g_ev_r + 1;
+    return true;
+}
+
+extern "C" void storage_make_folders(void) { g_mkdirs = true; }
 
 bool samples_esp32_ready(int index) { return index >= 0 && index < g_n && !g_cat[index].pending; }
 sd_state_t samples_esp32_sd_state() { return g_state; }

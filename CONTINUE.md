@@ -16,8 +16,13 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
 - [ ] Popup widget (`core/popup.c`): INFO / ERROR / ASK built, host-checked with `ui_dump` (128 x 64: wrap, Yes / No focus, queue ERROR behind ASK, Latch closes), firmware builds, NOT flashed.
   Board test: Shift + knobs; serial `popup ask` then joystick left / right + push (prints `[CMD] popup answer`), `popup error`. Not yet used by the SD code (next todo items) (from: user)
 - [ ] Persist the UI settings together with the key bindings (one settings file on the TF card, or `keys.cfg` extended): Knob mode, jump slots, Shift-knob targets; done = they survive a reboot (from: user)
-- [ ] Create the TF card's directory structure at startup (missing folders made on mount; layout to agree on: samples, settings, racks / patches ...) (from: user)
-- [ ] Use the popups for the card: "SD card inserted" (INFO), "unformatted, format?" (ASK; needs a decision on format support: FATFS mkfs on the card), read / write errors (ERROR) (from: user)
+- [ ] Card events + folder layout (built, host-tested, firmware builds, NOT flashed). User decisions 2026-10-06: layout **all under /system** (`system/samples`, `system/config` with keys.cfg,
+  `import`, `presets`; `STORAGE_FOLDERS` in hal_storage.h), missing folders -> **ASK popup** (No focused; Yes = make them, moving the old `/samples` and `/keys.cfg` into `/system`).
+  `storage_poll_event()`: INSERTED (read time, slow, missing mask), REMOVED, FOLDERS_DONE; the app shows them as popups (the full-screen "too slow" notice is gone).
+  Simulator: the card is `sdcard/` (build.ps1 makes the folders and copies samples there), F12 = out / in. Host checks: ui_dump `UI_DUMP_CARD=new|part|slow`, a scratch test of storage_sim.c (migration, toggle).
+  **Board test: the user's card still has the old layout: expect "Card inserted" + the ASK; Yes must move /samples and keys.cfg (back the card up first: FAT renames + mkdir through our write driver).**
+  `build.ps1 -Sd E:` now copies to `E:\system\samples` (from: user)
+- [ ] Unformatted card: a mount that fails for lack of a file system is still "no card"; an ASK "format?" needs FATFS mkfs on the card and a decision (from: user)
 - [x] Jump keys and Shift + jump save: work on the board, no parameter reset (done 2026-10-06, checked by the user)
 - [x] Catch fixes (`knob_measure` restores the value) flashed; no reset reported (done 2026-10-06, checked by the user)
 
@@ -70,7 +75,7 @@ The user wanted the confusion about the joystick gone and a safer knob. Order ta
 
 - Driver `leds_esp32.cpp`: FastLED 3.10.6 pinned (it gives the first RMT channel DMA on the S3 by itself; SynthBox's `patch_fastled_dma.py` targets 3.10.3's file layout and is not
   needed), `-DFASTLED_RMT_MAX_CHANNELS=1`, SK6812 order **RGB** (SynthBox's BGR swapped red and blue here), chain map in physical columns (the HWV1_FLIP_COLS flip mirrored every row),
-  **brightness capped at 20 % (51/255, `HW_LED_MAX_BRIGHTNESS`): the user's limit, full white on 36 LEDs ~2 A browns out the board / USB**. A transfer only when the frame changed.
+  **brightness capped by `HW_LED_MAX_BRIGHTNESS` (0..255, set in platformio.ini; was 51 = 20 %, the user raised it to 80 on 2026-10-06): full white on 36 LEDs ~2 A browns out the board / USB**. A transfer only when the frame changed.
 - What they show (user choice "play feedback"): `core/key_leds.c` from the key layout: notes in piano colours (C teal, naturals dim white, sharps dim blue), held = orange;
   Shift yellow (bright while on), Menu blue (bright while open), Back red, Play green (bright while the sequencer runs), Octave violet (bright when shifted that way), navigation dim white.
   Jump keys (`Jump 1..8`): dim teal while the slot is empty, bright teal once saved.

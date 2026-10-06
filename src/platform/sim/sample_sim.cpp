@@ -1,6 +1,6 @@
 #ifdef PLATFORM_SIM
-// Desktop sample library: the folder samples/ (found next to the working directory, or one or two levels up) plays the role of
-// the TF card. Every *.smp in it joins the library; *.wav and *.mp3 are imported first: decoded, mixed to mono, cooked into a
+// Desktop sample library: the folder system/samples of the simulated card (sdcard/, see storage_sim.c; build.ps1 copies samples/*.smp
+// into it) plays the role of the TF card's library. Every *.smp in it joins the library; *.wav and *.mp3 are imported first: decoded, mixed to mono, cooked into a
 // .smp next to the source (so the next start skips the conversion) and then treated like any other file. The files live in
 // a SimStorage, which models the latency, bandwidth and stalls of a slow card, so the streaming behaves like on the target.
 // (wav and mp3 files are listed at once and converted when a sampler uses them.)
@@ -18,6 +18,8 @@
 #include <string>
 #include <thread>
 #include <vector>
+#include "hal/hal_storage.h"
+#include "platform/sim/sim_card.h"
 #include "platform/sim/sim_storage.h"
 #include "platform/sim/sample_convert.h"
 #include "platform/engine/engine_synth.h"
@@ -37,12 +39,14 @@ std::string g_dir;
 audio_sample_info_t g_cat[AUDIO_SAMPLES_MAX];
 int g_n = 0;
 
+// The library folder of the simulated card (sdcard/system/samples, see storage_sim.c); found again by a rescan once it was made.
 bool find_dir() {
-    for (const char *c : {"samples", "../samples", "../../samples"}) {
-        std::error_code ec;
-        if (fs::is_directory(c, ec)) { g_dir = c; return true; }
-    }
-    return false;
+    char p[256];
+    sim_card_path(STORAGE_DIR_SAMPLES, p, sizeof p);
+    std::error_code ec;
+    if (!fs::is_directory(p, ec)) return false;
+    g_dir = p;
+    return true;
 }
 
 /* ---------------- catalog ---------------- */

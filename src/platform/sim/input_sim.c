@@ -1,6 +1,7 @@
 #ifdef PLATFORM_SIM
 #include "hal/hal_input.h"
 #include "platform/sim/panel_sim.h"
+#include "platform/sim/sim_card.h"
 #include "SDL.h"
 
 // The simulator's input: the keyboard and the mouse (on the panel window, see panel_sim.c) both act as the prototype's physical
@@ -79,6 +80,7 @@ static void emit_quit(void) {
 static void key_event(const SDL_KeyboardEvent *k) {
     const bool down = k->type == SDL_KEYDOWN;
     if (down && k->keysym.scancode == SDL_SCANCODE_ESCAPE) { emit_quit(); return; }
+    if (down && !k->repeat && k->keysym.scancode == SDL_SCANCODE_F12) { sim_card_toggle(); return; }   // pull the simulated TF card out / put it back
     for (int i = 0; i < KEYMAP_COUNT; i++) {
         const keymap_t *m = &keymap[i];
         if (m->sc != k->keysym.scancode) continue;

@@ -43,8 +43,12 @@
 
 // LED chain: 36 x SK6812, FastLED colour order RGB (checked on the board 2026-10-06: SynthBox used BGR, red and blue came out swapped)
 #define HW_NUM_LEDS       36
-#define HW_LED_BRIGHTNESS 50
+#ifndef HW_LED_MAX_BRIGHTNESS      // set in platformio.ini
 #define HW_LED_MAX_BRIGHTNESS 51   // 20 % of 255: the user's limit (power: full white on 36 LEDs ~2 A browns out the board / USB). The driver never exceeds it
+#endif
+#ifndef HW_LED_BRIGHTNESS
+#define HW_LED_BRIGHTNESS HW_LED_MAX_BRIGHTNESS   // at boot: the cap (leds_set_brightness may lower it; nothing calls it yet)
+#endif
 
 // Soft power-off
 #define PIN_PWR_ON_EN 6

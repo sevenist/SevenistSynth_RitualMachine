@@ -5,6 +5,7 @@
 #include "core/sprites.h"
 #include "hal/hal_audio.h"
 #include "hal/hal_display.h"
+#include "hal/hal_storage.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -17,7 +18,6 @@ void app_init(app_t *app, u8g2_t *display) {
     app->dirty = false;
     app->redraw_owed = false;
     app->sd_gen = audio_sd_generation();
-    app->sd_notice = false;
     app->keys_notice = false;
     app->menu_open = false;
     app->boot_ms = audio_millis();
@@ -273,7 +273,7 @@ static void joy_repeat(app_t *app, uint32_t now) {
     app->in.joy_next_ms = now + JOY_REPEAT_MS;
 }
 
-/* ---------------- notices: the key layout was reset, the TF card is too slow ---------------- */
+/* ---------------- notices: the key layout was reset ---------------- */
 
 #define KEYS_NOTICE_MS 3000
 
@@ -294,37 +294,10 @@ static void draw_keys_notice(app_t *app) {
 }
 
 
-// Shown when a card is in but too slow to stream from. The synth runs as if there were no card; any button press goes to the normal screen.
-static void draw_sd_notice(app_t *app) {
-    u8g2_t *g = app->display;
-    char l[32];
-    u8g2_ClearBuffer(g);
-    u8g2_SetFont(g, u8g2_font_5x7_tr);
-    u8g2_DrawFrame(g, 0, 0, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
-    u8g2_DrawBox(g, 0, 0, u8g2_GetDisplayWidth(g), 10);
-    u8g2_SetDrawColor(g, 0);
-    u8g2_DrawStr(g, 4, 8, "SD CARD TOO SLOW");
-    u8g2_SetDrawColor(g, 1);
-    snprintf(l, sizeof l, "A read takes %u ms", (unsigned)((audio_sd_read_us() + 500) / 1000));
-    u8g2_DrawStr(g, 4, 21, l);
-    u8g2_DrawStr(g, 4, 30, "(should be under 15)");
-    u8g2_DrawStr(g, 4, 42, "Samples are off: the");
-    u8g2_DrawStr(g, 4, 50, "synth runs as if no");
-    u8g2_DrawStr(g, 4, 58, "card was inserted.");
-    if (u8g2_GetDisplayHeight(g) > 64) {
-        u8g2_DrawStr(g, 4, 72, "Use a newer card (SDHC,");
-        u8g2_DrawStr(g, 4, 80, "class 10, FAT32). It is");
-        u8g2_DrawStr(g, 4, 88, "checked again when you");
-        u8g2_DrawStr(g, 4, 96, "insert a card.");
-        u8g2_DrawStr(g, 4, 118, "Press any key");
-    }
-}
-
 // One frame: the full-screen notice or the UI, the popup on top, then the buffer goes to the display.
 static void draw_frame(app_t *app) {
     u8g2_t *g = app->display;
     if (app->keys_notice) draw_keys_notice(app);
-    else if (app->sd_notice) draw_sd_notice(app);
     else synth_ui_draw(&app->ui, &app->params, &app->seq, &app->rack, g);
     gui_style_t st;
     gui_style_init(&st, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
@@ -332,16 +305,63 @@ static void draw_frame(app_t *app) {
     display_send(g);
 }
 
-// The card changed (inserted, removed, or its files were listed): the sampler modules look their file up again, and a slow card raises the notice.
+// The card changed (inserted, removed, or its files were listed): the sampler modules look their file up again.
 // The key layout follows the card: a card that shows up gives its keys.cfg, unless the keys were changed meanwhile (then they are written to it).
 static void check_sd(app_t *app) {
     const uint32_t gen = audio_sd_generation();
     if (gen == app->sd_gen) return;
     app->sd_gen = gen;
-    app->sd_notice = audio_sd_state() == SD_SLOW;
     if (audio_sd_state() != SD_NONE) { if (keymap_dirty()) keymap_save(); else keymap_load(); }
     audio_build(&app->rack, &app->params);
     app->dirty = true;
+}
+
+/* ---------------- card events (hal_storage.h): what the platform found, told with popups ---------------- */
+
+#define CARD_INFO_MS 2000
+
+static void answer_folders(void *ctx, bool yes) {
+    (void)ctx;
+    if (yes) storage_make_folders();                    // STORAGE_EV_FOLDERS_DONE follows
+}
+
+static void card_events(app_t *app) {
+    storage_event_t ev;
+    char t[POPUP_TEXT_LEN];
+    while (storage_poll_event(&ev)) {
+        app->dirty = true;
+        switch (ev.kind) {
+        case STORAGE_EV_INSERTED:
+            if (ev.slow) {
+                snprintf(t, sizeof t, "A read takes %u ms (max %u). Samples are off for this card.",
+                         (unsigned)((ev.read_us + 500) / 1000), (unsigned)(ev.read_limit_us / 1000));
+                popup_error(&app->popup, "SD CARD TOO SLOW", t, NULL, NULL);
+            } else {
+                popup_info(&app->popup, "SD CARD", "Card inserted", 0, audio_millis(), CARD_INFO_MS);
+            }
+            if (ev.missing) {                           // the card is not set up (or only partly): ask before writing to it
+                static const char *const dirs[STORAGE_FOLDER_COUNT] = STORAGE_FOLDERS;
+                int n = 0, all = (1 << STORAGE_FOLDER_COUNT) - 1;
+                if ((ev.missing & all) == all) n = snprintf(t, sizeof t, "No SynthCore folders on this card. Create them?");
+                else {
+                    n = snprintf(t, sizeof t, "Missing:");
+                    for (int i = 0; i < STORAGE_FOLDER_COUNT && n < (int)sizeof t; i++)
+                        if (ev.missing & (1 << i)) n += snprintf(t + n, sizeof t - (size_t)n, " %s", dirs[i]);
+                    if (n < (int)sizeof t) snprintf(t + n, sizeof t - (size_t)n, ". Create?");
+                }
+                popup_ask(&app->popup, "SD CARD", t, false, answer_folders, app);
+            }
+            break;
+        case STORAGE_EV_REMOVED:
+            popup_info(&app->popup, "SD CARD", "Card removed", 0, audio_millis(), CARD_INFO_MS);
+            break;
+        case STORAGE_EV_FOLDERS_DONE:
+            if (ev.ok) popup_info(&app->popup, "SD CARD", ev.moved ? "Folders created, old files moved to /system" : "Folders created", 0, audio_millis(), CARD_INFO_MS);
+            else popup_error(&app->popup, NULL, "The folders could not be created on the card.", NULL, NULL);
+            break;
+        default: break;
+        }
+    }
 }
 
 /* ---------------- the step ---------------- */
@@ -352,13 +372,10 @@ bool app_step(app_t *app, input_event_t e) {
     const uint32_t now = audio_millis();
 
     check_sd(app);
+    card_events(app);
     if (app->keys_notice && (e.kind == IN_PRESS || e.kind == IN_RELEASE || now - app->keys_notice_ms > KEYS_NOTICE_MS)) {
         app->keys_notice = false;                                       // a key (the reset key let go) or a few seconds
         app->dirty = true;
-    }
-    if (app->sd_notice && e.kind != IN_NONE) {           // the notice is up: a button press dismisses it, every other input is ignored (nothing edits the screen behind it)
-        if (e.kind == IN_PRESS) { app->sd_notice = false; app->dirty = true; }
-        e.kind = IN_NONE;
     }
 
     if (e.kind != IN_NONE) {

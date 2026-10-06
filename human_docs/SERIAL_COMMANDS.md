@@ -73,6 +73,14 @@ C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --cmd "chord 3" --ra
 | `leds off` | stops every transfer to the LED chain and blanks it (to measure the LEDs' effect on the audio) |
 | `leds on` | resumes the transfers (the keys show the play feedback again) |
 
+### Popups (UI test)
+
+| Command | Does |
+| --- | --- |
+| `popup info` | a short note ("SD CARD / Card inserted") that goes after 2 s |
+| `popup error` | an ERROR popup with OK; closing it prints `[CMD] popup answer yes` |
+| `popup ask` | a Yes / No question (No focused); joystick left / right, push answers: `[CMD] popup answer yes` or `no` |
+
 ## What the board prints by itself
 
 | Line | When | Says |

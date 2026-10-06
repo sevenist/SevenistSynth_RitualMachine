@@ -15,6 +15,7 @@
 #include "hal/hal_audio.h"
 #include "hal/hal_display.h"
 #include "hal/hal_leds.h"
+#include "hal/hal_storage.h"
 
 // no audio in this tool
 void audio_init(void) {}
@@ -47,6 +48,21 @@ bool input_key_present(int row, int col) { return row > 0 || col < 4; }      // 
 bool input_boot_reset(void) { return false; }
 int  storage_read(const char *name, char *buf, int cap) { (void)name; (void)buf; (void)cap; return -1; }   // no card: the dump starts from the built-in layout
 bool storage_write(const char *name, const char *data, int len) { (void)name; (void)data; (void)len; return false; }
+// UI_DUMP_CARD=new|slow|part in the environment: one card event at the start (a card without folders, a slow one, one missing presets/)
+bool storage_poll_event(storage_event_t *e) {
+    static bool sent;
+    const char *c = getenv("UI_DUMP_CARD");
+    if (sent || !c) return false;
+    sent = true;
+    memset(e, 0, sizeof *e);
+    e->kind = STORAGE_EV_INSERTED;
+    e->read_limit_us = 15000;
+    e->read_us = !strcmp(c, "slow") ? 81000 : 900;
+    e->slow = !strcmp(c, "slow");
+    e->missing = !strcmp(c, "part") ? 1u << 4 : !strcmp(c, "new") ? 0x1f : 0;
+    return true;
+}
+void storage_make_folders(void) { printf("(storage_make_folders)\n"); }
 void display_send(u8g2_t *g) { (void)g; }
 bool input_pending(void) { return false; }
 void leds_set(control_id_t ctl, led_color_t color) { (void)ctl; (void)color; }

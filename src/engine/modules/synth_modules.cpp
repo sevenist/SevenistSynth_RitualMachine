@@ -319,7 +319,7 @@ public:
         return i;
     }
     bool init(Memory &) override { a4_ = inc_a4(); update_k(); return true; }
-    void reset() override { for (auto &s : st_) s = SvfStateF{}; cut_s_ = cutoff_; }
+    void reset() override { for (auto &s : st_) s = SvfStateF{}; cut_s_ = cutoff_; cut_q_ = cutoff_ << 8; }
     void set_param(int idx, int32_t v) override {
         switch (idx) {
             case FLT_MODE: mode_ = v; break;
@@ -331,8 +331,12 @@ public:
     }
     SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         const q15 *mc = p.mod[FLT_CUTOFF];
-        cut_s_ += (cutoff_ - cut_s_) / 4;                        // control-rate smoothing of knob moves
-        if (cut_s_ != cutoff_ && (cutoff_ - cut_s_) < 4 && (cut_s_ - cutoff_) < 4) cut_s_ = cutoff_;
+        // Knob moves: a one-pole glide of about 20 ms at any block size (a knob turns in detents; at 6 ms the steps were audible), with 8 fraction
+        // bits so a slow approach does not stall. The coefficients follow it across the block (prev -> cut_s_), not in one step per block.
+        const int32_t prev = cut_s_;
+        cut_q_ += ((cutoff_ << 8) - cut_q_) / kCutGlideDiv;
+        cut_s_ = cut_q_ >> 8;
+        if (cut_s_ - cutoff_ < 2 && cutoff_ - cut_s_ < 2) { cut_s_ = cutoff_; cut_q_ = cutoff_ << 8; }
         SvfCoefF c[4], dc[4];
         const int frames = ctx.frames;
         // Cutoff modulation. The coefficients cost about 150 cycles per section set, five times the filter itself, so they are not recomputed per
@@ -340,16 +344,17 @@ public:
         // interpolated linearly in between, which moves smoothly (no stepping). Anything that is not close to a straight line over the block
         // (audio-rate FM of the cutoff, sample & hold) is detected and keeps the exact per-sample computation.
         bool glide = false;
-        if (!mc) {
+        const bool moving = mc || prev != cut_s_;
+        if (!moving) {
             coefs(c, pitch_to_inc(cut_s_, a4_));
         } else {
 #if !ENGINE_FILTER_EXACT
-            const int32_t p0 = cut_s_ + scaled(mc[0], cmod_), pe = cut_s_ + scaled(mc[frames - 1], cmod_);
+            const int32_t p0 = prev + (mc ? scaled(mc[0], cmod_) : 0), pe = cut_s_ + (mc ? scaled(mc[frames - 1], cmod_) : 0);
             glide = frames >= 8;
-            for (int q = 1; q < 4 && glide; q++) {
+            for (int q = 1; q < 4 && glide && mc; q++) {
                 const int j = frames * q / 4;
                 const int32_t want = p0 + (pe - p0) * j / (frames - 1);
-                const int32_t diff = cut_s_ + scaled(mc[j], cmod_) - want;
+                const int32_t diff = prev + (cut_s_ - prev) * j / (frames - 1) + scaled(mc[j], cmod_) - want;
                 if (diff > 6 || diff < -6) glide = false;              // more than 6/256 semitone off the straight line
             }
             if (glide) {
@@ -366,7 +371,7 @@ public:
 #endif
         }
         for (int i = 0; i < frames; i++) {
-            if (mc && !glide) coefs(c, pitch_to_inc(cut_s_ + scaled(mc[i], cmod_), a4_));
+            if (moving && !glide) coefs(c, pitch_to_inc(cut_s_ + (mc ? scaled(mc[i], cmod_) : 0), a4_));
             float x = static_cast<float>(p.in[0][i]) * (1.0f / 32768.0f);
             for (int s = 0; s < n_; s++) {
                 float lp, bp, hp;
@@ -397,7 +402,8 @@ private:
             kf_[s] = 1.0f / qs;                                     // 1/Q
         }
     }
-    int32_t mode_ = FLTM_LP, n_ = 2, cutoff_ = 96 * kSemi, cut_s_ = 96 * kSemi, cmod_ = 60 * kSemi, res_ = 0;
+    static constexpr int kCutGlideDiv = kControlRate / 50 > 1 ? kControlRate / 50 : 1;     // blocks in 20 ms: the knob glide's time constant
+    int32_t mode_ = FLTM_LP, n_ = 2, cutoff_ = 96 * kSemi, cut_s_ = 96 * kSemi, cut_q_ = 96 * kSemi << 8, cmod_ = 60 * kSemi, res_ = 0;
     float kf_[4] = {};
     SvfStateF st_[4];
     uint32_t a4_ = 0;

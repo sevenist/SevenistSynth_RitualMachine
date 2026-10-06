@@ -24,6 +24,10 @@ TaskHandle_t task;
 
 void display_task(void *) {
     u8x8_t *u8x8 = u8g2_GetU8x8(oled.getU8g2());
+    // This panel's columns start at an offset (96): u8g2 sends column 96 + 8 x tile, which only works for a whole row (the panel's column
+    // counter wraps from 127 to 0). A run starting at tile tx is sent as "tile 0" with the offset moved to (96 + 8 tx) mod 128, so it wraps
+    // the same way (sending at tile tx directly gave columns past 127: garbage on the screen).
+    const uint8_t base = u8x8->x_offset;
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);                  // pdTRUE: several frames sent meanwhile = one wake-up, the newest frame
         xSemaphoreTake(mtx, portMAX_DELAY);
@@ -37,10 +41,12 @@ void display_task(void *) {
                 int end = tx + 1;                                     // a run of changed tiles; a single unchanged tile inside it is sent too
                 while (end < kTilesX && (memcmp(row + end * 8, old + end * 8, 8) ||          // (one more tile costs less than a new command)
                                          (end + 1 < kTilesX && memcmp(row + (end + 1) * 8, old + (end + 1) * 8, 8)))) end++;
-                u8x8_DrawTile(u8x8, (uint8_t)tx, (uint8_t)ty, (uint8_t)(end - tx), const_cast<uint8_t *>(row + tx * 8));
+                u8x8->x_offset = (uint8_t)((base + tx * 8) & 127);
+                u8x8_DrawTile(u8x8, 0, (uint8_t)ty, (uint8_t)(end - tx), const_cast<uint8_t *>(row + tx * 8));
                 tx = end;
             }
         }
+        u8x8->x_offset = base;
         memcpy(sent, work, kBytes);
     }
 }

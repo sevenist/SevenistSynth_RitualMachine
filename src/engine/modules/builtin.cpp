@@ -35,13 +35,13 @@ public:
         int32_t pan = pan_;
         q15 gl = pan > 0 ? mul15(level_, static_cast<q15>(32767 - pan)) : level_;
         q15 gr = pan < 0 ? mul15(level_, static_cast<q15>(32767 + pan)) : level_;
-        if (gl == gr) {                                              // centred (the usual case): one product for both sides, same result as two block_mac
-            q15 *bl = ctx.bus_l, *br = ctx.bus_r;
-            const q15 *x = p.in[0];
-            for (int i = 0; i < ctx.frames; i++) { const q15 m = mul15(x[i], gl); bl[i] = add15(bl[i], m); br[i] = add15(br[i], m); }
+        // The bus is 32 bits: the voices add without clipping, BusIn saturates the sum once (a q15 bus clipped after every voice).
+        int32_t *bl = ctx.bus_l, *br = ctx.bus_r;
+        const q15 *x = p.in[0];
+        if (gl == gr) {                                              // centred (the usual case): one product for both sides
+            for (int i = 0; i < ctx.frames; i++) { const int32_t m = mul15(x[i], gl); bl[i] += m; br[i] += m; }
         } else {
-            block_mac(ctx.bus_l, p.in[0], gl, ctx.frames);
-            block_mac(ctx.bus_r, p.in[0], gr, ctx.frames);
+            for (int i = 0; i < ctx.frames; i++) { bl[i] += mul15(x[i], gl); br[i] += mul15(x[i], gr); }
         }
 
         VoiceState *v = ctx.voice;
@@ -61,8 +61,7 @@ public:
         return i;
     }
     SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
-        block_copy(p.out[0], ctx.bus_l, ctx.frames);
-        block_copy(p.out[1], ctx.bus_r, ctx.frames);
+        for (int i = 0; i < ctx.frames; i++) { p.out[0][i] = sat16(ctx.bus_l[i]); p.out[1][i] = sat16(ctx.bus_r[i]); }
     }
 };
 

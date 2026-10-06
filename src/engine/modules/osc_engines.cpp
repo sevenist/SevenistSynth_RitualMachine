@@ -75,7 +75,8 @@ public:
         std::memset(ph_, 0, sizeof ph_);
         std::memset(mx_, 0, sizeof mx_);
         std::memset(my_, 0, sizeof my_);
-        if (ks_) std::memset(ks_, 0, sizeof(int16_t) * kKsLen);
+        // (the Karplus string buffer is not cleared here: trigger() clears it when the string is struck, and no other engine reads it; clearing
+        // 4 KB of PSRAM per oscillator at every voice start cost about 1.5 ms of the audio block on the board)
         lp_ = 0; w_ = 0; gate_ = false; fm_ph_ = 0;
         for (auto &s : sv_) s = SvfStateF{};
         ds_ = SvfStateF{};

@@ -92,7 +92,7 @@ private:
     std::atomic<uint32_t> swap_seq_{0};                 // odd while the audio thread switches plans (seqlock for gc)
     CommandRing<ENGINE_CMD_RING> cmd_;
     std::atomic<Plan *> retired_{nullptr};              // lock-free stack: pushed by the audio thread, taken whole by gc()
-    alignas(16) q15 bus_l_[kBlock] = {}, bus_r_[kBlock] = {};
+    alignas(16) int32_t bus_l_[kBlock] = {}, bus_r_[kBlock] = {};     // the voice sum, 32 bits: saturated once when read (BusIn)
     std::atomic<uint64_t> time_{0};
 #ifdef ENGINE_PROFILE
     ProfEntry prof_[kProfMax] = {};

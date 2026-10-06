@@ -1,5 +1,6 @@
 #ifdef PLATFORM_SIM
 #include "platform/sim/panel_sim.h"
+#include "platform/sim/leds_sim.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -163,6 +164,12 @@ static void draw_button(const widget_t *w) {
     SDL_Rect r = {w->x, w->y, w->w, w->h};
     color(pressed ? 255 : 48, pressed ? 190 : 52, pressed ? 60 : 60); SDL_RenderFillRect(rend, &r);
     color(150, 156, 168); SDL_RenderDrawRect(rend, &r);
+    if (w->ctl >= CTL_KEY_FIRST && w->ctl <= CTL_KEY_LAST) {         // the key's LED (key_leds.c): a strip along the top edge
+        const led_color_t c = leds_sim_get(w->ctl);
+        SDL_Rect led = {w->x + 4, w->y + 3, w->w - 8, 5};
+        if (c.r | c.g | c.b) { color(c.r, c.g, c.b); SDL_RenderFillRect(rend, &led); }
+        else { color(70, 74, 82); SDL_RenderDrawRect(rend, &led); }
+    }
     color(pressed ? 30 : 200, pressed ? 30 : 205, pressed ? 30 : 215);
     if (w->label[0]) text_centered(w->x + w->w / 2, w->key[0] ? w->y + 5 : w->y + w->h / 2 - 7, 2, w->label);
     if (w->key[0] && !w->label[0]) text_centered(w->x + w->w / 2, w->y + w->h / 2 - 7, 2, w->key);

@@ -57,7 +57,7 @@ struct ProcessCtx {
     int frames;                 // always kBlock for now
     uint64_t time;              // blocks rendered so far
     VoiceState *voice;          // voice-scope modules only, else nullptr
-    q15 *bus_l, *bus_r;         // summed voice output (VoiceOut accumulates here)
+    int32_t *bus_l, *bus_r;     // summed voice output in 32 bits (VoiceOut accumulates without clipping; BusIn saturates once)
     q15 *out_l, *out_r;         // final output (MasterOut writes here)
     // Every voice, for global modules that follow the keyboard as a whole (GateIn, paraphonic mode, ADR-036 stage 2). Filled before the
     // pre-voice section: `started` is still set for the voices that began in this block.

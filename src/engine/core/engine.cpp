@@ -397,8 +397,7 @@ void Engine::render(q15 *l, q15 *r) {
 
     block_clear(l);
     block_clear(r);
-    block_clear(bus_l_);
-    block_clear(bus_r_);
+    for (int i = 0; i < kBlock; i++) { bus_l_[i] = 0; bus_r_[i] = 0; }
     const uint64_t t = time_.fetch_add(1, std::memory_order_relaxed) + 1;
 #ifdef ENGINE_PROFILE
     prof_blocks_++;
@@ -436,7 +435,7 @@ void Engine::render(q15 *l, q15 *r) {
     }
     ctx.voice = nullptr;
     run(pl, pl->n_pre + pl->n_voice, pl->n_post, -1, ctx);
-    if (!pl->has_master) { block_copy(l, bus_l_); block_copy(r, bus_r_); }
+    if (!pl->has_master) for (int i = 0; i < kBlock; i++) { l[i] = sat16(bus_l_[i]); r[i] = sat16(bus_r_[i]); }
 }
 
 }  // namespace sc

@@ -1,8 +1,10 @@
 #include "core/app.h"
 #include "core/gui.h"
+#include "core/key_leds.h"
 #include "core/keymap.h"
 #include "core/sprites.h"
 #include "hal/hal_audio.h"
+#include "hal/hal_display.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -13,6 +15,7 @@ void app_init(app_t *app, u8g2_t *display) {
     memset(&app->in, 0, sizeof app->in);
     app->in.axis_x = app->in.axis_y = INPUT_AXIS_CENTER;
     app->dirty = false;
+    app->redraw_owed = false;
     app->sd_gen = audio_sd_generation();
     app->sd_notice = false;
     app->keys_notice = false;
@@ -229,7 +232,7 @@ static void draw_keys_notice(app_t *app) {
     snprintf(l, sizeof l, "the layout %s.", keymap_layout_name(0));
     u8g2_DrawStr(g, 4, 30, l);
     u8g2_DrawStr(g, 4, 42, "Release the key.");
-    u8g2_SendBuffer(g);
+    display_send(g);
 }
 
 
@@ -257,7 +260,7 @@ static void draw_sd_notice(app_t *app) {
         u8g2_DrawStr(g, 4, 96, "insert a card.");
         u8g2_DrawStr(g, 4, 118, "Press any key");
     }
-    u8g2_SendBuffer(g);
+    display_send(g);
 }
 
 // The card changed (inserted, removed, or its files were listed): the sampler modules look their file up again, and a slow card raises the notice.
@@ -329,13 +332,17 @@ bool app_step(app_t *app, input_event_t e) {
     for (int i = 0; i < se.n_off; i++) audio_note_off(se.off[i]);
     if (se.on)  audio_note_on(se.on);
 
-    // Redraw only when something visible changed: a full-frame flush over I2C is slow and must not starve the audio loop.
-    // Notes and the modifier do not change the screen.
-    if (app->keys_notice) {
-        if (app->dirty) draw_keys_notice(app);
-    } else if (app->sd_notice) {
-        if (app->dirty) draw_sd_notice(app);
-    } else if (app->dirty || ((stepped || animated) && synth_ui_shows_playhead(&app->ui, &app->rack)))
-        synth_ui_draw(&app->ui, &app->params, &app->seq, &app->rack, app->display);
+    // Redraw only when something visible changed. Notes and the modifier do not change the screen. While more input is queued the redraw
+    // is owed, not done: every pending note and knob turn is handled first and the screen is drawn once after them.
+    const bool want = app->dirty || app->redraw_owed || ((stepped || animated) && synth_ui_shows_playhead(&app->ui, &app->rack));
+    if (want && input_pending()) {
+        app->redraw_owed = true;
+    } else if (want) {
+        app->redraw_owed = false;
+        if (app->keys_notice) draw_keys_notice(app);
+        else if (app->sd_notice) draw_sd_notice(app);
+        else synth_ui_draw(&app->ui, &app->params, &app->seq, &app->rack, app->display);
+    }
+    key_leds_update(app, e.kind != IN_NONE, now);
     return true;
 }

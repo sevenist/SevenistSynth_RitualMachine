@@ -6,21 +6,42 @@ not: state, the latest measurements and what to do next, the user's working styl
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
 `tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
-## Session todo (updated 2026-10-06)
+## Session todo (updated 2026-10-06, second session)
 
-- [ ] Listen to Mod Para on the board (ADR-036 stage 2): `patch para 8 4` / `patch para 4 8` (Strng oscillators, one filter) or GENERAL Type = Mod Para; PEnv Legato / Retrig / Voice; "done" = the user says how it plays and what to change (from: user)
-- [ ] Listen to Strings and to the rack oscillator's Q (Blep / Mip / Naive) and the Strng engine; the user heard "aliasing" on `chord 16` but the board's own output measures clean (see below): check a single note dry, then decide levels / defaults (from: user)
-- [ ] Mix4 chain cost in the voice part: about 2k cycles per voice with 8 oscillators (one Mix4 per added source); a single N-input mixer would cut it; VoiceOut / NoteIn overhead (~1.2k per voice) likewise (from: measurements)
-- [ ] Integration findings: write down what the adapter needed (own voice allocator, mono -> stereo, memory policy, measurement hooks, what of `engine_synth.h` an outside engine cannot use) as input for an engine-independent "audio backend" interface (from: user)
-- [ ] Flash and check the F1 power-on keys reset (`[KBD] key r4 c7 held at power-on`); ADR-036 stage 1 Mono by ear (from: notes)
+- [x] Mixer polish: sources are cables into one plan MIX step (no Mix4 chain), VoiceOut one product when centred; measured on the board (done 2026-10-06, see below)
+- [ ] Optional, user decides: voice bus in 32 bits with one saturation at BusIn (VoiceOut ~790 cycles per voice per 64 frames is near the floor of the q15 saturating version; clipping would happen once on the sum instead of per voice add) (from: measurements)
+- [x] RGB key LEDs: FastLED driver + play feedback (`core/key_leds.c`), colour order and layout checked by the user on the board (done 2026-10-06, see below)
+- [ ] Audio blocks over budget while keys are PLAYED (0.4-0.5 % of blocks, worst ~2.3 ms render; LEDs on 92 / off 63 of 17250): serial notes never do it, so the key path (TCA8418 interrupt / I2C on the audio core?, UI work) - find where (from: measurements)
+- [ ] Listen to Strings and the rack oscillator's Q (Blep / Mip / Naive); confirm the `chord 16` "aliasing" is cluster beating; then levels / defaults (from: user)
+- [ ] Integration findings for an engine-independent "audio backend" interface (own voice allocator, mono -> stereo, memory policy, measurement hooks) (from: user)
+- [ ] Check the F1 power-on keys reset (`[KBD] key r4 c7 held at power-on`) (from: notes)
 - [ ] Decide the SD options (a)-(d) and listen to the sampler after the loop fix (from: notes)
-- [x] ESP32Synth removed from the project (user) (done 2026-10-06)
-- [ ] Flash the build without ESP32Synth (built OK, RAM 48.4 %): the upload failed because COM8 was busy (a serial monitor open); the board still runs the build with `alt`
-- [x] Strings type built (ADR-037), measured on the board: 16 voices 87k cycles per block with the startup FX (Strings 1.6k, VoiceOut 0.87k, NoteIn 0.32k per voice); ESP32Synth 506 per voice (one oscillator, no filter) (done 2026-10-06)
-- [x] Fast heap back in internal RAM (it fell to PSRAM: largest internal block 90 KB - 40 KB margin < 64 KB); margin 16 KB, now 73.7 KB internal, 55 KB internal left after boot. Startup patch (Mod Mono): 67.5 KB used, 65.9 KB of module data spilled to PSRAM (likely part of the reverb tank), 1 key 63.5k cycles (36 %) (done 2026-10-06)
-- [ ] Internal RAM for the startup patch: decide what should stay internal when the fast heap is 74 KB (reverb tank, delay, filters) or free more internal RAM (IRAM code 124 KB) (from: measurements)
+- [ ] Internal RAM for the startup patch: what stays internal with a 74 KB fast heap (reverb tank, delay, filters) or free internal RAM (IRAM code 124 KB) (from: measurements)
+- [x] Mod Para and Para listened to: no issues; legato and glide OK (user) (done 2026-10-06)
+- [x] Build without ESP32Synth flashed and tested; pending work committed (0542d79) (done 2026-10-06)
 
-## Mod Para, the rack oscillator's quality and the Strng engine (2026-10-06; host-tested, flashed and measured, NOT listened to)
+## Key LEDs (2026-10-06; flashed, checked by the user: every key lights its own LED, colours right)
+
+- Driver `leds_esp32.cpp`: FastLED 3.10.6 pinned (it gives the first RMT channel DMA on the S3 by itself; SynthBox's `patch_fastled_dma.py` targets 3.10.3's file layout and is not
+  needed), `-DFASTLED_RMT_MAX_CHANNELS=1`, SK6812 order **RGB** (SynthBox's BGR swapped red and blue here), chain map in physical columns (the HWV1_FLIP_COLS flip mirrored every row),
+  **brightness capped at 20 % (51/255, `HW_LED_MAX_BRIGHTNESS`): the user's limit, full white on 36 LEDs ~2 A browns out the board / USB**. A transfer only when the frame changed.
+- What they show (user choice "play feedback"): `core/key_leds.c` from the key layout: notes in piano colours (C teal, naturals dim white, sharps dim blue), held = orange;
+  Shift yellow (bright while on), Menu blue (bright while open), Back red, Play green (bright while the sequencer runs), Octave violet (bright when shifted that way), navigation dim white.
+  Repainted at most every 20 ms, at once on input. The simulator's LED HAL is a no-op (the panel window does not draw them yet).
+- Serial (dev): `leds N`, `leds all`, `leds off` / `leds on`. Audio while playing keys: see the todo (the overruns happen with the LEDs off too).
+
+## Mixer polish (2026-10-06; host-tested in the 6 configurations, flashed and measured, NOT listened to)
+
+- Mapper (`rack_graph.cpp`): the running signal is a list of sources (`RunSrc`); the next module gets one cable per source and the plan's MIX step sums them
+  (32-bit, one saturation). A modulating oscillator joins through a cable whose depth is `Lvl` x 1/sqrt n (`qd()`, never unity: live `SetDepth`), Mute = depth 0
+  (skipped by the MIX step). More than 8 sources: the first eight fold into one pass-through Mix4. `Engine::set_edge_depth` now checks the pending plan first
+  (a depth edit right after a load no longer forces a rebuild). VoiceOut: one product for both buses when centred (exact; saved only ~75 cycles per voice).
+- Tests `test_rack_mix.cpp`: no Mix4 nodes for 8 sources, the fold at 9, the mix equals the sum of the sources alone (<= 8 LSB), level / mute edits stay live.
+  The sound changes only by rounding (the old Mix4 multiplied by 32767/32768 per stage and saturated per stage): no listening round needed unless a mix clipped before.
+- Board (44.1 kHz, 64 frames, budget 174149): Para 8 osc x 4 voices, 4 keys 82.6k -> 66.1k cycles (Mix4 was 16.7k); Para 4 osc x 8 voices, 8 keys 100.5k -> 71.5k;
+  startup patch (Mono) 1 key 63.5k -> 61.5k. Biggest remaining voice cost: the oscillators (Strng ~1.5k per oscillator per voice), then VoiceOut ~790, NoteIn ~310 per voice.
+
+## Mod Para, the rack oscillator's quality and the Strng engine (2026-10-06; flashed and measured; Mod Para listened to by the user: OK, legato and glide OK)
 
 Decisions in ENGINE_DESIGN.md (ADR-036 stage 2 "as built", ADR-037 decision 5). The user flashed-and-test permission covers this task (COM8).
 - Mod Para: GENERAL Type "Mod Para", Voices 1..8, PEnv Legato / Retrig / Voice. The rack splits at its first filter; `GateIn`, `ParaGate`, `EnvG` (T_ENV_G) are the new engine
@@ -63,7 +84,7 @@ an outside engine needs its own voice allocator, mono -> stereo and its own meas
   serial debugging, the boot-time benchmark, the serial command channel. The default patch is now `rack_init_startup`: **four oscillators on four different engines (Karplus, Modal, Supersaw, Additive) into one filter, delay 1000 ms / 40 %,
   reverb 40 %**. `rack_init` (osc, filter, saturator, LFO) is the older demo rack that the tests build on.
 - **Not verified on the board**: the speaker amplifier (SPK_SD is left floating on purpose, the headphones/DAC path is what was heard; `HWV1_SPK_SD_MODE=1` drives it high), audio glitches while the screen draws (mitigated by IRAM code, never checked
-  by ear), "the MCU stalls when no serial port is connected" (a fix was applied: non-blocking serial and `delay(1)` in the idle loop; maybe power related), the LED driver (stub only), the TF card (none), the new prototype's controls.
+  by ear), "the MCU stalls when no serial port is connected" (a fix was applied: non-blocking serial and `delay(1)` in the idle loop; maybe power related), the TF card (none), the new prototype's controls.
 - **Not listened to by the user yet** (all of these changed the sound slightly and were only verified by tests): the interpolated filter coefficients, the 5-saw supersaw, modal as phasors, the additive recurrence, the half-rate reverb, mono delay / reverb,
   the vowel / dust filters in float, the dust level compensation.
 - The user's earlier plans: save / load of racks and FM patches "after some fixes"; the engine / UI work of the previous sessions (ADR-028..034) was never listened to either (levels untuned; they asked to skip that step).
@@ -173,7 +194,7 @@ engine: the build made after these numbers adds a **fast path** (steady pitch an
 4. Fixed cost: reverb 20.5k (the tank halves ~5k each at half rate; trimming one of the four input allpasses or the second decay diffuser saves 2-3k and changes the character; a cheaper diffusion structure was proposed, not tried),
    delay 8.4k (PSRAM Hermite read + write per sample, 5.2k).
 5. Before a release remove the dev flags (list in DEVELOPING.md) and decide `DEV_OUTPUT_GAIN_PCT` (currently 1 %, set by the user while testing at night), `ENGINE_FX_MONO`, `ENGINE_REVERB_HALF`.
-6. Open hardware items: LED driver (FastLED push in `leds_esp32.cpp`), speaker amplifier check, display / audio separation check by ear, the TF card.
+6. Open hardware items: speaker amplifier check, display / audio separation check by ear, the TF card.
 
 ## Decisions that went against my recommendation (recorded with their risks in ENGINE_DESIGN.md)
 

@@ -181,6 +181,8 @@ void input_esp32_init(void) {
 extern "C" bool input_key_present(int row, int col) { return row >= 0 && row < KEY_ROWS && col >= 0 && col < KEY_COLS && HWV1_KEY_PRESENT(row, col); }
 extern "C" bool input_boot_reset(void) { return kbd_boot_hold(); }
 
+extern "C" bool input_pending(void) { return head != tail; }   // a racy read is fine: a hint for the redraw
+
 extern "C" input_event_t input_poll(void) {
     input_event_t e{CTL_NONE, IN_NONE, 0, false};
     portENTER_CRITICAL(&lock);
@@ -192,6 +194,7 @@ extern "C" input_event_t input_poll(void) {
 #else  // another hardware revision: no driver yet
 void input_esp32_init(void) {}
 extern "C" input_event_t input_poll(void) { return input_event_t{CTL_NONE, IN_NONE, 0, false}; }
+extern "C" bool input_pending(void) { return false; }
 extern "C" bool input_key_present(int, int) { return false; }
 extern "C" bool input_boot_reset(void) { return false; }
 #endif // HWV1

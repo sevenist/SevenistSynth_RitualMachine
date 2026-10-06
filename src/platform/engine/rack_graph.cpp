@@ -129,8 +129,24 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
 
         Target tgt[RACK_MAX];                                        // where a modulator aimed at slot i lands
         for (auto &t : tgt) t = Target{0, 0, false};
-        NodeDesc *chain_gain[RACK_MAX] = {}; int chain_in[RACK_MAX] = {};                       // targeted oscillators: their gain into the chain (0 when muted)
-        int run = 0;                                                 // node id of the running signal, 0 = none yet
+        bool mod_osc[RACK_MAX] = {};                                 // oscillators that modulate a target (and join the chain through a cable's gain)
+        // The running signal: the sum of these nodes' output 0, each through a cable of the given depth (none yet = empty). The next module
+        // gets one cable per entry; the plan sums them in one MIX step (one pass, one saturation) instead of a chain of mixer nodes.
+        struct RunSrc { int node; q15 depth; };
+        RunSrc run[kMaxFanIn]; int n_run = 0;
+        auto feed = [&](int dst, int port) { for (int k = 0; k < n_run; k++) b.cable(run[k].node, 0, dst, Dst::In, port, run[k].depth); };
+        auto set_run = [&](int node) { run[0] = RunSrc{node, kUnity}; n_run = 1; };
+        auto add_source = [&](int node, q15 depth, int spare) -> bool {
+            if (n_run == kMaxFanIn) {                                // more sources than cables into one input: fold the sum so far into a pass-through mixer
+                NodeDesc *m = b.add(spare, T_MIX4_V);
+                if (!m) return false;
+                m->param[0] = kUnity; m->param[1] = 0; m->param[2] = 0; m->param[3] = 0;
+                feed(spare, 0);
+                set_run(spare);
+            }
+            run[n_run++] = RunSrc{node, depth};
+            return true;
+        };
 
         // Mod Para (ADR-036 stage 2): the sources and everything before the first filter run per voice; that filter and what follows run once,
         // on the voices' sum, as global modules. Sources placed after the filter join the voice part (they are mixed before the shared filter).
@@ -163,19 +179,19 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                 amp_env_params(ae);
                 av->param[VCA_LEVEL] = 0;
                 b.cable(RN_NOTE, 1, RN_AMP_ENV, Dst::In, 0);
-                if (run != 0) b.cable(run, 0, RN_AMP_VCA, Dst::In, 0);
+                feed(RN_AMP_VCA, 0);
                 b.cable(RN_AMP_ENV, 0, RN_AMP_VCA, Dst::Param, VCA_LEVEL);
                 tail = RN_AMP_VCA;
             } else {
                 if (!b.add(RN_PARA_GATE, T_PARA_GATE)) return;
-                if (run != 0) b.cable(run, 0, RN_PARA_GATE, Dst::In, 0);
+                feed(RN_PARA_GATE, 0);
                 tail = RN_PARA_GATE;
             }
             b.cable(tail, 0, RN_VOICE_OUT, Dst::In, 0);
             vo->param[VO_TAIL_MS] = ms_i(params.amp_env.release_ms) + 400;    // the last chord sounds through the shared release
             b.add(RN_BUS, T_BUS_IN);
             b.add(RN_GATE_IN, T_GATE_IN);
-            run = RN_BUS;                                            // its output 0 (left; the voices are centred, left = right)
+            set_run(RN_BUS);                                         // its output 0 (left; the voices are centred, left = right)
             global = true;
         };
 
@@ -214,28 +230,14 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                 const bool modulating = s.tgt_id != 0 && rack_find(&rack, s.tgt_id) != RACK_NONE;
                 if (!modulating) {
                     o->param[lvl_idx] = q(s.v[MP_OC_LEVEL] * lvl_scale);
-                    if (run == 0) run = id;
-                    else {
-                        NodeDesc *m = b.add(aux, T_MIX4_V);
-                        if (!m) break;
-                        m->param[0] = kUnity; m->param[1] = kUnity; m->param[2] = 0; m->param[3] = 0;
-                        b.cable(run, 0, aux, Dst::In, 0);
-                        b.cable(id, 0, aux, Dst::In, 1);
-                        run = aux;
-                    }
+                    if (!add_source(id, kUnity, aux)) break;
                 } else {
                     // the oscillator runs at full level so the modulation signal does not depend on Lvl or Mute;
-                    // a mixer applies Lvl (and Mute) on its way into the chain
+                    // its cable into the chain applies Lvl (and Mute: depth 0). Never exactly unity, so a level change stays a live gain write.
                     o->param[lvl_idx] = kUnity;
-                    NodeDesc *m = b.add(aux, T_MIX4_V);
-                    if (!m) break;
-                    const int in = run == 0 ? 0 : 1;
-                    m->param[0] = kUnity; m->param[1] = kUnity; m->param[2] = 0; m->param[3] = 0;
-                    m->param[in] = q(s.v[MP_OC_LEVEL] * lvl_scale);
-                    if (run != 0) b.cable(run, 0, aux, Dst::In, 0);
-                    b.cable(id, 0, aux, Dst::In, in);
-                    chain_gain[i] = m; chain_in[i] = in;
-                    run = aux;
+                    const q15 g = s.v[MP_OC_MUTE] > 0.5f ? 0 : qd(s.v[MP_OC_LEVEL] * lvl_scale);
+                    if (!add_source(id, g, aux)) break;
+                    mod_osc[i] = true;
                 }
             } else if (s.type == MOD_SAMPLER) {
                 // a sample player: a source like an oscillator. No file (or a file the bank could not take) = not in the chain.
@@ -257,18 +259,10 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                 sp->param[SMPR_TRACK] = s.v[MP_SM_TRACK] > 0.5f ? 0 : 1;
                 b.cable(RN_NOTE, 0, id, Dst::In, 0);
                 tgt[i] = Target{id, SMPR_TUNE, true};
-                if (run == 0) run = id;
-                else {
-                    NodeDesc *m = b.add(aux, T_MIX4_V);
-                    if (!m) break;
-                    m->param[0] = kUnity; m->param[1] = kUnity; m->param[2] = 0; m->param[3] = 0;
-                    b.cable(run, 0, aux, Dst::In, 0);
-                    b.cable(id, 0, aux, Dst::In, 1);
-                    run = aux;
-                }
+                if (!add_source(id, kUnity, aux)) break;
             } else if (s.type == MOD_FILTER) {
                 const int type = static_cast<int>(s.v[MP_FL_TYPE]);
-                if (run == 0 || type == FILT_OFF) continue;           // a filter with nothing to its left (or switched off) does nothing
+                if (n_run == 0 || type == FILT_OFF) continue;           // a filter with nothing to its left (or switched off) does nothing
                 NodeDesc *f = b.add(id, global ? T_FILTER_G : T_FILTER_V);
                 tgt_global[i] = global;
                 if (!f) break;
@@ -281,7 +275,7 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                 const double boost = (s.v[MP_FL_RES] / q_last - 1.0) / 15.0;       // Q of the last section = Butterworth Q x (1 + 15 res)
                 f->param[FLT_RES] = q(boost > 0.0 ? boost : 0.0);
                 f->param[FLT_CUT_MOD] = 96 * kSemi;                   // full-scale modulation = 8 octaves
-                b.cable(run, 0, id, Dst::In, 0);
+                feed(id, 0);
                 tgt[i] = Target{id, FLT_CUTOFF, true};
                 // the filter's own envelope (an ENV module aimed at the cutoff replaces it, see below)
                 bool replaced = false;
@@ -298,9 +292,9 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                     if (global) b.cable(RN_GATE_IN, gate_port, aux, Dst::In, 0); else b.cable(RN_NOTE, 1, aux, Dst::In, 0);
                     b.cable(aux, 0, id, Dst::Param, FLT_CUTOFF, qd(std::fmax(0.0, s.v[MP_FL_ENVAMT]) / 8.0));
                 }
-                run = id;
+                set_run(id);
             } else if (s.type == MOD_COMB) {
-                if (run == 0 || global) continue;                        // nothing to its left; or past the paraphonic split (it follows the key: per voice only)
+                if (n_run == 0 || global) continue;                        // nothing to its left; or past the paraphonic split (it follows the key: per voice only)
                 NodeDesc *c = b.add(id, T_COMB);
                 if (!c) break;
                 c->param[CMB_TUNE] = 60 * kSemi + static_cast<int32_t>(std::lround(s.v[MP_RS_TUNE] * kSemi));
@@ -308,11 +302,11 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                 c->param[CMB_DAMP] = hz_pitch(s.v[MP_RS_DAMP]);
                 c->param[CMB_INTERVAL] = static_cast<int32_t>(s.v[MP_RS_INT]);
                 c->param[CMB_MIX] = q(s.v[MP_RS_MIX]);
-                b.cable(run, 0, id, Dst::In, 0);
+                feed(id, 0);
                 b.cable(RN_NOTE, 0, id, Dst::In, 1);                     // the pitch CV: the resonator follows the key
-                run = id;
+                set_run(id);
             } else if (s.type == MOD_SAT) {
-                if (run == 0) continue;
+                if (n_run == 0) continue;
                 NodeDesc *sh = b.add(id, global ? T_SHAPER_G : T_SHAPER_V);
                 tgt_global[i] = global;
                 if (!sh) break;
@@ -321,9 +315,9 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                 sh->param[SHP_MIX] = q(s.v[MP_SA_MIX]);
                 sh->param[SHP_BITS] = 4;
                 sh->param[SHP_DRIVE_MOD] = 4 * 256;                      // cable depth = octaves / 4
-                b.cable(run, 0, id, Dst::In, 0);
+                feed(id, 0);
                 tgt[i] = Target{id, SHP_DRIVE, true};
-                run = id;
+                set_run(id);
             }
         }
 
@@ -333,7 +327,7 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
         for (int i = 0; i < rack.count; i++) {
             const rack_slot_t &s = rack.slot[i];
             if (!rack_slot_is_mod(&rack, i) || !s.tgt_id) continue;
-            if (s.type == MOD_OSC && !chain_gain[i]) continue;       // (its target is gone)
+            if (s.type == MOD_OSC && !mod_osc[i]) continue;       // (its target is gone)
             const int ti = rack_find(&rack, s.tgt_id);
             if (ti == RACK_NONE || ti == i) continue;
             const rack_slot_t &t = rack.slot[ti];
@@ -353,7 +347,6 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
             } else if (s.type == MOD_OSC) {
                 if (to_global) continue;                             // a voice oscillator cannot reach the shared chain
                 dpth = s.v[MP_OC_DEPTH];                             // the node already exists: it is the chain's oscillator
-                if (s.v[MP_OC_MUTE] > 0.5f) chain_gain[i]->param[chain_in[i]] = 0;
             } else if (s.type == MOD_ENV) {
                 NodeDesc *e = b.add(id, to_global ? T_ENV_G : T_ENV);
                 if (!e) break;
@@ -420,14 +413,14 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
         // ---- amplitude: the global AMP ENV page shapes every note (Mod Para: one shared amp envelope, unless every voice has its own)
         if (para) {
             if (cfg.para_env == PARA_ENV_VOICE) {
-                para_out = run;
+                para_out = run[0].node;                              // past the split: one node (BusIn or the last shared module)
             } else {
                 NodeDesc *ge = b.add(RN_PARA_AMP_ENV, T_ENV_G), *gv = b.add(RN_PARA_AMP_VCA, T_VCA_G);
                 if (ge && gv) {
                     amp_env_params(ge);
                     gv->param[VCA_LEVEL] = 0;
                     b.cable(RN_GATE_IN, gate_port, RN_PARA_AMP_ENV, Dst::In, 0);
-                    b.cable(run, 0, RN_PARA_AMP_VCA, Dst::In, 0);
+                    feed(RN_PARA_AMP_VCA, 0);
                     b.cable(RN_PARA_AMP_ENV, 0, RN_PARA_AMP_VCA, Dst::Param, VCA_LEVEL);
                     para_out = RN_PARA_AMP_VCA;
                 }
@@ -442,7 +435,7 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
             ae->param[ENV_A_CURVE] = q(params.amp_env.a_curve / 100.0); ae->param[ENV_D_CURVE] = q(params.amp_env.d_curve / 100.0); ae->param[ENV_R_CURVE] = q(params.amp_env.r_curve / 100.0);
             av->param[VCA_LEVEL] = 0;
             b.cable(RN_NOTE, 1, RN_AMP_ENV, Dst::In, 0);
-            if (run != 0) b.cable(run, 0, RN_AMP_VCA, Dst::In, 0);
+            feed(RN_AMP_VCA, 0);
             b.cable(RN_AMP_ENV, 0, RN_AMP_VCA, Dst::Param, VCA_LEVEL);
             b.cable(RN_AMP_VCA, 0, RN_VOICE_OUT, Dst::In, 0);
             vo->param[VO_TAIL_MS] = ms_i(params.amp_env.release_ms) + 400;

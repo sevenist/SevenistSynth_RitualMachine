@@ -20,6 +20,10 @@ extern "C" {
 // Creates/initialises the display and returns it. Never returns NULL.
 u8g2_t *display_init(void);
 
+// Shows the frame buffer the application has drawn (in place of u8g2_SendBuffer). The platform may copy it and send it later from its own
+// task (the prototype: only the changed tiles, so a slow bus never holds up notes and knobs); the caller may draw the next frame at once.
+void display_send(u8g2_t *g);
+
 #ifdef __cplusplus
 }
 #endif

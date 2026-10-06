@@ -41,9 +41,10 @@
 #define HW_KBD_COLS       8
 #define HW_KBD_I2C_HZ     400000
 
-// LED chain: 36 x SK6812, FastLED colour order BGR (see SynthBox Leds.cpp)
+// LED chain: 36 x SK6812, FastLED colour order RGB (checked on the board 2026-10-06: SynthBox used BGR, red and blue came out swapped)
 #define HW_NUM_LEDS       36
 #define HW_LED_BRIGHTNESS 50
+#define HW_LED_MAX_BRIGHTNESS 51   // 20 % of 255: the user's limit (power: full white on 36 LEDs ~2 A browns out the board / USB). The driver never exceeds it
 
 // Soft power-off
 #define PIN_PWR_ON_EN 6

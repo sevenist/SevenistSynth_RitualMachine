@@ -35,8 +35,14 @@ public:
         int32_t pan = pan_;
         q15 gl = pan > 0 ? mul15(level_, static_cast<q15>(32767 - pan)) : level_;
         q15 gr = pan < 0 ? mul15(level_, static_cast<q15>(32767 + pan)) : level_;
-        block_mac(ctx.bus_l, p.in[0], gl, ctx.frames);
-        block_mac(ctx.bus_r, p.in[0], gr, ctx.frames);
+        if (gl == gr) {                                              // centred (the usual case): one product for both sides, same result as two block_mac
+            q15 *bl = ctx.bus_l, *br = ctx.bus_r;
+            const q15 *x = p.in[0];
+            for (int i = 0; i < ctx.frames; i++) { const q15 m = mul15(x[i], gl); bl[i] = add15(bl[i], m); br[i] = add15(br[i], m); }
+        } else {
+            block_mac(ctx.bus_l, p.in[0], gl, ctx.frames);
+            block_mac(ctx.bus_r, p.in[0], gr, ctx.frames);
+        }
 
         VoiceState *v = ctx.voice;
         if (!v || v->gate) { silent_ = 0; return; }

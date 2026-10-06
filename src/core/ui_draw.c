@@ -1,5 +1,6 @@
 // The screens: the header, the parameter lists, the hand-drawn screens (sequencer, rack, effects, FM editor...) and synth_ui_draw().
 #include "core/ui_screen.h"
+#include "hal/hal_display.h"
 #include "core/sprites.h"
 #include "core/module_sprites.h"
 #include "core/dx7_algos.h"
@@ -255,29 +256,29 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
     if (ui->in_rack) {                           // every tab of the menu is a declarative screen (ui_screen.h)
         const ui_ctx_t ctx = {(synth_ui_t *)ui, (rack_t *)rack, 0};         // drawing only reads
         screen_draw(screen_for_tab(tab_kind(rack, ui->menu_tab)), g, st, &ctx, screen);
-        u8g2_SendBuffer(g);
+        display_send(g);
         return;
     }
     if (pg.graph == GRAPH_SEQ) {
         draw_seq(g, st, screen, ui, seq);
-        u8g2_SendBuffer(g);
+        display_send(g);
         return;
     }
     if (pg.graph == GRAPH_MS_STEPS) {
         draw_ms_steps(g, st, screen, ui, seq, rack, pg.slot);
-        u8g2_SendBuffer(g);
+        display_send(g);
         return;
     }
     if (pg.graph == GRAPH_EG) {
         gui_rect_t l3 = gui_take_left(&screen, st->list_w);
         draw_eg_page(g, st, l3, gui_rect(st->graph.x, st->graph.y, st->graph.w, st->graph.h), ui, &rack->slot[pg.slot]);
-        u8g2_SendBuffer(g);
+        display_send(g);
         return;
     }
     if (pg.graph == GRAPH_MS_LANE) {
         gui_rect_t l2 = gui_take_left(&screen, st->list_w);
         draw_ms_lane(g, st, l2, gui_rect(st->graph.x, st->graph.y, st->graph.w, st->graph.h), ui, seq, rack, pg.slot);
-        u8g2_SendBuffer(g);
+        display_send(g);
         return;
     }
 
@@ -357,5 +358,5 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
         case GRAPH_FM:      draw_synth_info(g, st, box, rack); break;
         default: break;
     }
-    u8g2_SendBuffer(g);
+    display_send(g);
 }

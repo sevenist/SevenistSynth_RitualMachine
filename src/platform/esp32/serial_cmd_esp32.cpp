@@ -5,6 +5,9 @@
 #include "hal/hal_audio.h"
 #include "platform/engine/engine_synth.h"
 #include "platform/esp32/serial_cmd_esp32.h"
+#ifdef HWV1
+#include "platform/esp32/leds_esp32.h"
+#endif
 
 extern "C" void audio_dev_dump(int n);
 
@@ -130,6 +133,15 @@ void run(char *line) {
         Serial.printf("[CMD] str %s %g\n", f, (double)x);
         return;
     }
+#ifdef HWV1
+    if (!strcmp(line, "leds")) {                          // leds N: only chain LED N lit (red) for 5 s, leds all: every LED white; to check the chain order
+        if (arg && (!strcmp(arg, "off") || !strcmp(arg, "on"))) { leds_esp32_enable(!strcmp(arg, "on")); Serial.printf("[CMD] leds %s\n", arg); return; }
+        const bool all = arg && !strcmp(arg, "all");
+        leds_esp32_test(all ? -1 : v, 5000);
+        Serial.printf("[CMD] leds %s\n", all ? "all" : arg ? arg : "0");
+        return;
+    }
+#endif
     if (!strcmp(line, "dump")) { audio_dev_dump(v); return; }       // dump N: the next N output samples as "[DUMP]" lines (audio_esp32.cpp)
     if (!strcmp(line, "status")) { Serial.printf("[CMD] status chord %d, uptime %lu ms, free heap %u\n", chord_held, (unsigned long)millis(), (unsigned)ESP.getFreeHeap()); return; }
     Serial.printf("[CMD] unknown '%s'\n", line);

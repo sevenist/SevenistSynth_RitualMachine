@@ -176,7 +176,9 @@ bool Engine::set_param(int node_id, int idx, int32_t value) {
     return cmd_.push(c);
 }
 bool Engine::set_edge_depth(int edge, q15 depth) {
-    const Plan *pl = active_.load(std::memory_order_acquire);
+    // the newest plan: a loaded one the audio thread has not switched to yet is the one the command will reach (commands run after the swap)
+    const Plan *pl = pending_.load(std::memory_order_acquire);
+    if (!pl) pl = active_.load(std::memory_order_acquire);
     if (!pl || edge < 0 || edge >= kMaxEdges || pl->edge_step[edge] == 255 || depth == kUnity) return false;
     Command c;
     c.type = Cmd::SetDepth; c.node = static_cast<uint8_t>(edge); c.value = depth;
@@ -355,6 +357,7 @@ void Engine::run(const Plan *pl, int first, int count, int voice, ProcessCtx &ct
             q15 *dst = move ? const_cast<q15 *>(rel(s.dst)) : s.dst;
             int32_t acc[kBlock] = {};
             for (int k = 0; k < s.n; k++) {
+                if (s.gain[k] == 0) continue;                                    // a muted source (a modulating oscillator with Mute on)
                 const q15 *src = move ? rel(s.src[k]) : s.src[k];
                 if (s.gain[k] == kUnity) for (int j = 0; j < kBlock; j++) acc[j] += src[j];
                 else for (int j = 0; j < kBlock; j++) acc[j] += (src[j] * s.gain[k] + (1 << 14)) >> 15;

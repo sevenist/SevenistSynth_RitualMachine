@@ -95,6 +95,8 @@ static uint8_t sim_display(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *arg
     return 1;
 }
 
+void display_send(u8g2_t *g) { u8g2_SendBuffer(g); }
+
 u8g2_t *display_init(void) {
     static uint8_t buf[DISPLAY_WIDTH * (DISPLAY_HEIGHT / 8)];       // full frame buffer: the whole screen is sent at once
     u8x8_t *u8x8 = u8g2_GetU8x8(&u8g2);

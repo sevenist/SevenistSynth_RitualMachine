@@ -243,7 +243,7 @@ velocity sensitivity (as before); the envelope runs at block rate (coarse at blo
 
 ### ADR-026: Rack -> graph mapper, always-on master effects (Accepted, `platform/engine/rack_graph.*`)
 `rack_graph_build()` turns `rack_t` + the amp envelope + general settings into a `GraphDesc` with the previous semantics:
-audio modules in slot order, a source (OC) adds to the running signal (a Mix4 per extra oscillator, levels x 1/sqrt n), a
+audio modules in slot order, a source (OC) adds to the running signal (levels x 1/sqrt n; since 2026-10-06 every source is a cable into the next module's input and the plan's MIX step sums them in one pass with one saturation, no Mix4 chain; more than `kMaxFanIn` sources fold the first eight into one pass-through Mix4), a
 processor (FL, SA) acts on everything to its left, a processor with nothing before it is dropped, an ENV aimed at a cutoff
 replaces the filter's own envelope, modulators are cables whose depth is the effect per unit of module depth divided by the
 target's full-scale range. Node ids come from the rack module ids, so editing the rack keeps the state of untouched
@@ -263,9 +263,9 @@ rest C; `-Clean` forces a full rebuild.
 The old "OC with a target" was a separate control-rate oscillator with its own `Rate` in Hz, out of the audio chain. Now an
 OC is always a source in the chain; giving it a target additionally routes its own output (wave, Crs / Fine, note pitch, PW)
 into that parameter with the cable depth `0.5 x Dpth / range` (full-scale pitch cable = +-12 semitones, so Dpth 2 is the
-maximum). The oscillator then runs at full level and a one-node Mix4 applies `Lvl` (and the 1/sqrt n source scaling) on its
+maximum). The oscillator then runs at full level and the depth of its cable into the chain applies `Lvl` (and the 1/sqrt n source scaling; `qd()`, never exactly unity, so a level edit stays a live `SetDepth`) on its
 way into the chain, so the modulation signal does not depend on `Lvl`; the `Out` switch on the OSC MOD page (`On` / `Mute`)
-sets that gain to 0 while the cable stays untouched. Mute only counts while the target exists in the rack.
+sets that cable's depth to 0 (the MIX step skips zero gains) while the modulation cable stays untouched. Mute only counts while the target exists in the rack.
 Consequence: `MP_OC_RATE` is gone (the slot value index became `MP_OC_MUTE`); an OC that used to be silent in the chain
 because it had a target is now audible until it is muted.
 
@@ -465,7 +465,7 @@ are held; the keys of the last chord keep sounding through the shared release) o
 Shared, after `BusIn` (left: the voices are centred): the filter (`Filter_G`) with its envelope (`EnvG` gated by `GateIn`), the processors after it (`Shaper_G`), the
 shared amp (`EnvG` + `Vca_G`, unless PEnv = Voice), then the FX rack. No filter in the rack: only the amp is shared. Limits: a Resonator (Comb) after the split is
 dropped (it follows the key); an EG or an oscillator aimed at a shared module is not realised (no global EG yet; a voice cannot feed the shared chain); the shared
-chain is mono until the FX rack; cost per voice of the voice part's Mix4 chain grows with the oscillator count (about 2k cycles per voice with 8 oscillators).
+chain is mono until the FX rack. The voice part's Mix4 chain (about 2k cycles per voice at 8 oscillators, 32 frames) was replaced on 2026-10-06 by cables into one MIX step (ADR-026): on the board, 44.1 kHz / 64 frames, Para 8 osc x 4 voices, 4 keys 82.6k -> 66.4k cycles; 4 osc x 8 voices, 8 keys 100.5k -> 72.0k.
 
 **Risks accepted / known:** a voice-count or mode change rebuilds the voice modules (a short audio stall and a reset of their state, once per change); mono glide runs at block rate (0.7 ms steps, exponential); the paraphonic split makes modulators that feed the shared half global-scope (a per-voice LFO cannot modulate the shared filter: it is a different LFO, not a mix of the voice ones); a captured sound is a snapshot (no later parameter changes).
 

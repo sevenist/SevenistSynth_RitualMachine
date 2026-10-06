@@ -66,6 +66,7 @@ typedef struct {
 
 // Non-blocking poll. Returns an event with kind == IN_NONE (and quit == false) when nothing happened.
 input_event_t input_poll(void);
+bool input_pending(void);                           // more events are queued: the app handles them before it redraws
 
 // Whether the board has the key CTL_KEY(row, col): the KEYS menu tab lists only the keys that exist.
 bool input_key_present(int row, int col);

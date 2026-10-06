@@ -5,7 +5,7 @@
 //
 // Orientation (measured on the board with the key log): TCA row 4 is the function-key row at the top, TCA row 0 the bottom note row,
 // and the columns run right to left: the leftmost key of every row is TCA column 7. HWV1_FLIP_COLS therefore defaults to 1; it applies
-// to every table here and in leds_esp32.cpp (the LED chain order is NOT verified against the board).
+// to every table here; leds_esp32.cpp works in physical columns already and does not apply it.
 #if defined(HWV1)
 #include "hal/hal_input.h"
 

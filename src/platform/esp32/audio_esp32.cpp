@@ -241,7 +241,21 @@ extern "C" void audio_shutdown(void) {
     engine_synth_shutdown();
 }
 
-extern "C" void audio_set_params(const rack_t *r, const synth_params_t *p) { apply_speaker(r); engine_synth_set_params(r, p); }
+#ifdef HWV1_DEBUG_UI
+uint32_t g_ui_params_n = 0, g_ui_params_max_us = 0;     // dev only: audio_set_params calls and the slowest, printed by main_esp32.cpp
+#endif
+extern "C" void audio_set_params(const rack_t *r, const synth_params_t *p) {
+#ifdef HWV1_DEBUG_UI
+    const uint32_t t0 = micros();
+#endif
+    apply_speaker(r);
+    engine_synth_set_params(r, p);
+#ifdef HWV1_DEBUG_UI
+    const uint32_t dt = micros() - t0;
+    g_ui_params_n++;
+    if (dt > g_ui_params_max_us) g_ui_params_max_us = dt;
+#endif
+}
 extern "C" void audio_build(const rack_t *r, const synth_params_t *p)      { apply_speaker(r); engine_synth_build(r, p); }
 extern "C" int audio_sample_count(void)                                     { return engine_synth_sample_count(); }   // filled by the TF card scan (samples_esp32.cpp)
 extern "C" bool audio_sample_info(int i, audio_sample_info_t *out)         { return engine_synth_sample_info(i, out); }

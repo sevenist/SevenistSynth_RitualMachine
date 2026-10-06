@@ -110,6 +110,46 @@ TEST(filter_lowpass_response_matches_butterworth) {
     CHECK(b.gain_db(4000.0) < -40.0);                                  // 8 poles: steep skirt
 }
 
+// The light low-passes (FLT_ALGO): LP6 one-pole, the ladder, the Chamberlin SVF. Responses against their theory, resonance, stability.
+TEST(light_filters_lp6_ladder_and_chamberlin) {
+    FilterBench b;
+    const double fc = 1000.0;
+    auto use = [&](int algo, int res) { b.rig.eng.set_param(2, FLT_ALGO, algo); b.filter(FLTM_LP, 1, fc, res); };
+    use(FLTA_LP6, 0);
+    const double l_lo = b.gain_db(125.0), l_fc = b.gain_db(fc), l_hi = b.gain_db(8000.0);
+    std::printf("    LP6 1 kHz: 125 Hz %.1f, 1 kHz %.1f, 8 kHz %.1f dB (one pole: -0.07 / -3.0 / -18.1)\n", l_lo, l_fc, l_hi);
+    CHECK_NEAR(l_lo, -0.07, 0.5);
+    CHECK_NEAR(l_fc, -3.01, 0.6);
+    CHECK_NEAR(l_hi, -18.1, 2.0);
+    use(FLTA_LADDER, 0);
+    const double d_lo = b.gain_db(250.0), d_hi = b.gain_db(4000.0);
+    use(FLTA_LADDER, 29490);                                           // res 0.9
+    const double d_res = b.gain_db(fc);
+    use(FLTA_LADDER, 0);
+    const double d_fc0 = b.gain_db(fc);
+    std::printf("    Ladder 1 kHz: 250 Hz %.1f, 4 kHz %.1f dB; at the cutoff res 0 %.1f, res 0.9 %.1f dB\n", d_lo, d_hi, d_fc0, d_res);
+    CHECK(d_lo > -2.5);
+    CHECK(d_hi < -35.0);                                               // four poles
+    CHECK(d_res > d_fc0 + 6.0);                                        // the resonance peak
+    const int q707 = static_cast<int>((0.70711 - 0.5) / 9.5 * 32767.0);
+    use(FLTA_CHAM, q707);
+    const double c_lo = b.gain_db(250.0), c_fc = b.gain_db(fc), c_hi = b.gain_db(4000.0);
+    use(FLTA_CHAM, 32767);                                             // Q 10
+    const double c_res = b.gain_db(fc);
+    std::printf("    Chamberlin 1 kHz Q 0.71: 250 Hz %.1f, 1 kHz %.1f, 4 kHz %.1f dB; Q 10 at the cutoff %.1f dB\n", c_lo, c_fc, c_hi, c_res);
+    CHECK(c_lo > -1.0);
+    CHECK_NEAR(c_fc, -3.0, 1.5);
+    CHECK(c_hi < -20.0);
+    CHECK(c_res > 14.0);
+    // a cutoff far above fs / 6 is clamped and stays stable; full resonance on a loud input stays bounded (no blow-up, no silence)
+    for (int algo : {FLTA_LADDER, FLTA_CHAM}) {
+        b.rig.eng.set_param(2, FLT_ALGO, algo);
+        b.filter(FLTM_LP, 1, 0.45 * kSampleRate, 32767);
+        const double g = b.gain_db(300.0, 16384.0 / 1.41421356);
+        CHECK(std::isfinite(g) && g > -30.0 && g < 30.0);
+    }
+}
+
 TEST(filter_highpass_bandpass_notch) {
     FilterBench b;
     const double fc = 2000.0;

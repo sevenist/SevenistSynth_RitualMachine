@@ -9,7 +9,8 @@ extern "C" {
 #endif
 
 typedef enum { WAVE_SINE, WAVE_PULSE, WAVE_SAW_DOWN, WAVE_SAW_UP, WAVE_TRIANGLE, WAVE_NOISE, WAVE_COUNT } wave_t;
-typedef enum { FILT_OFF, FILT_LP, FILT_BP, FILT_HP, FILT_LP24, FILT_NOTCH, FILT_COUNT } filter_type_t;
+// LP6 / Ladr / ChLP: the lighter low-passes (engine Filter FLT_ALGO), appended so saved values keep their meaning
+typedef enum { FILT_OFF, FILT_LP, FILT_BP, FILT_HP, FILT_LP24, FILT_NOTCH, FILT_LP6, FILT_LADDER, FILT_CHAM, FILT_COUNT } filter_type_t;
 
 typedef struct {
     float attack_ms;

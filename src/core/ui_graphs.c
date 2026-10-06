@@ -128,6 +128,15 @@ float filter_gain(int type, float f, float fc, float q) {
         case FILT_BP:    return (r / q) * lp;
         case FILT_HP:    return r * r * lp;
         case FILT_NOTCH: return fabsf(1 - r * r) * lp;
+        case FILT_CHAM:  return lp;
+        case FILT_LP6:   return 1.0f / sqrtf(1 + r * r);
+        case FILT_LADDER: {                                          // four one-poles in a loop with gain k (resonance from q, like the engine)
+            const float k = 3.9f * fminf(fmaxf((q - 0.5f) / 9.5f, 0.0f), 1.0f);
+            const float g2 = 1.0f / (1 + r * r);                      // |one pole|^2; the pole's phase is -atan(r)
+            const float a = g2 * g2, ph = -4.0f * atanf(r);           // four poles: magnitude^2 and phase
+            const float mag = sqrtf(a), re = 1 + k * mag * cosf(ph), im = k * mag * sinf(ph);
+            return mag / sqrtf(re * re + im * im) * (1.0f + 0.5f * k);
+        }
         default:         return 1.0f;
     }
 }

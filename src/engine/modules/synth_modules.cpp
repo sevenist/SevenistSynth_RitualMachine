@@ -315,11 +315,16 @@ public:
     const ModuleInfo &info() const override {
         static const ModuleInfo i = {"Filter", S, 1, 1, FLT_N, false, {"in"}, {"out"},
             {{"mode", FLTM_LP, 0, 3}, {"sections", 2, 1, 4}, {"cutoff", 96 * kSemi, 0, 135 * kSemi}, {"res", 0, 0, kUnity},
-             {"cut_mod", 60 * kSemi, 0, 120 * kSemi}}};
+             {"cut_mod", 60 * kSemi, 0, 120 * kSemi}, {"algo", FLTA_SVF, FLTA_SVF, FLTA_CHAM}}};
         return i;
     }
     bool init(Memory &) override { a4_ = inc_a4(); update_k(); return true; }
-    void reset() override { for (auto &s : st_) s = SvfStateF{}; cut_s_ = cutoff_; cut_q_ = cutoff_ << 8; }
+    void reset() override {
+        for (auto &s : st_) s = SvfStateF{};
+        for (auto &s : lad_) s = 0.0f;
+        lp6_ = ch_lp_ = ch_bp_ = 0.0f;
+        cut_s_ = cutoff_; cut_q_ = cutoff_ << 8;
+    }
     void set_param(int idx, int32_t v) override {
         switch (idx) {
             case FLT_MODE: mode_ = v; break;
@@ -327,6 +332,7 @@ public:
             case FLT_CUTOFF: cutoff_ = v; break;
             case FLT_RES: res_ = v; update_k(); break;
             case FLT_CUT_MOD: cmod_ = v; break;
+            case FLT_ALGO: algo_ = clamp_i32(v, FLTA_SVF, FLTA_CHAM); break;
         }
     }
     SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
@@ -337,6 +343,7 @@ public:
         cut_q_ += ((cutoff_ << 8) - cut_q_) / kCutGlideDiv;
         cut_s_ = cut_q_ >> 8;
         if (cut_s_ - cutoff_ < 2 && cutoff_ - cut_s_ < 2) { cut_s_ = cutoff_; cut_q_ = cutoff_ << 8; }
+        if (algo_ != FLTA_SVF) { process_lite(ctx, p, prev); return; }
         SvfCoefF c[4], dc[4];
         const int frames = ctx.frames;
         // Cutoff modulation. The coefficients cost about 150 cycles per section set, five times the filter itself, so they are not recomputed per
@@ -388,6 +395,51 @@ public:
         }
     }
 private:
+    // The light low-passes (FLT_ALGO). Float, one coefficient per block end, interpolated.
+    static float lite_coef(int algo, uint32_t inc) {
+        const float x = static_cast<float>(inc) * 2.3283064e-10f;                 // cycles per sample
+        if (algo == FLTA_CHAM) { const float f = 2.0f * std::sin(3.14159265f * x); return f < 1.0f ? f : 1.0f; }   // f <= 1: cutoff <= fs / 6
+        const float g = 1.0f - std::exp(-6.2831853f * x);                       // one-pole: exact pole at the cutoff
+        return algo == FLTA_LADDER && g > 0.95f ? 0.95f : g;
+    }
+    SC_HOT void process_lite(const ProcessCtx &ctx, const Ports &p, int32_t prev) {
+        const q15 *mc = p.mod[FLT_CUTOFF];
+        const int frames = ctx.frames;
+        const int32_t p0 = prev + (mc ? scaled(mc[0], cmod_) : 0), pe = cut_s_ + (mc ? scaled(mc[frames - 1], cmod_) : 0);
+        float c = lite_coef(algo_, pitch_to_inc(p0, a4_));
+        const float dc = frames > 1 && p0 != pe ? (lite_coef(algo_, pitch_to_inc(pe, a4_)) - c) / static_cast<float>(frames - 1) : 0.0f;
+        const float r = static_cast<float>(res_) * (1.0f / 32768.0f);
+        const q15 *in = p.in[0];
+        q15 *out = p.out[0];
+        if (algo_ == FLTA_LP6) {
+            float y = lp6_;
+            for (int i = 0; i < frames; i++) { y += c * (static_cast<float>(in[i]) * (1.0f / 32768.0f) - y); out[i] = svf_out_f(y); c += dc; }
+            lp6_ = y;
+        } else if (algo_ == FLTA_LADDER) {
+            const float k = 3.9f * r, comp = 1.0f + 0.5f * k;                     // feedback near self-oscillation at full resonance; level partly restored
+            float s0 = lad_[0], s1 = lad_[1], s2 = lad_[2], s3 = lad_[3];
+            for (int i = 0; i < frames; i++) {
+                float u = static_cast<float>(in[i]) * (1.0f / 32768.0f) - k * s3;
+                u = u > 1.5f ? 1.5f : (u < -1.5f ? -1.5f : u);
+                u = u - 0.14814815f * u * u * u;                                  // cubic soft clip: 1.0 at 1.5, bounds the resonance
+                s0 += c * (u - s0); s1 += c * (s0 - s1); s2 += c * (s1 - s2); s3 += c * (s2 - s3);
+                out[i] = svf_out_f(s3 * comp);
+                c += dc;
+            }
+            lad_[0] = s0; lad_[1] = s1; lad_[2] = s2; lad_[3] = s3;
+        } else {
+            const float q = 1.0f / (0.5f + 9.5f * r);                             // res 0..1 = Q 0.5..10, like the rack's Res
+            float lp = ch_lp_, bp = ch_bp_;
+            for (int i = 0; i < frames; i++) {
+                lp += c * bp;
+                const float hp = static_cast<float>(in[i]) * (1.0f / 32768.0f) - lp - q * bp;
+                bp += c * hp;
+                out[i] = svf_out_f(lp);
+                c += dc;
+            }
+            ch_lp_ = lp; ch_bp_ = bp;
+        }
+    }
     // Coefficients are computed in integer (table + reciprocal) and converted; the per-sample filter itself runs in single-precision float,
     // which the ESP32-S3's FPU does in about 25 cycles against 200 for the saturating fixed-point version.
     void coefs(SvfCoefF *c, uint32_t inc) const {
@@ -406,6 +458,8 @@ private:
     int32_t mode_ = FLTM_LP, n_ = 2, cutoff_ = 96 * kSemi, cut_s_ = 96 * kSemi, cut_q_ = 96 * kSemi << 8, cmod_ = 60 * kSemi, res_ = 0;
     float kf_[4] = {};
     SvfStateF st_[4];
+    int32_t algo_ = FLTA_SVF;
+    float lad_[4] = {}, lp6_ = 0.0f, ch_lp_ = 0.0f, ch_bp_ = 0.0f;
     uint32_t a4_ = 0;
 };
 

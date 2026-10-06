@@ -23,6 +23,25 @@ q15 q(double x) { return static_cast<q15>(std::lround(std::fmax(-1.0, std::fmin(
 // depth knob onto or off the maximum would need a full graph rebuild (an audible stall) instead of a live gain change.
 q15 qd(double x) { const q15 v = q(x); return v == kUnity ? static_cast<q15>(kUnity - 1) : v; }
 int32_t hz_pitch(double hz) { return static_cast<int32_t>(std::lround(69.0 * kSemi + 12.0 * kSemi * std::log2(hz / 440.0))); }
+
+// A rack filter type (FILT_*) as Filter parameters: the SVF types set mode / slope / a Q boost; the light ones (LP6, Ladr, ChLP) set the
+// algorithm and pass the rack's Res (Q 0.5..10) as 0..1. Every type is a parameter change of the same node (switching type never rebuilds).
+void filter_params(NodeDesc *f, int type, double cut_hz, double res_q) {
+    static const int mode[FILT_COUNT] = {FLTM_LP, FLTM_LP, FLTM_BP, FLTM_HP, FLTM_LP, FLTM_NOTCH, FLTM_LP, FLTM_LP, FLTM_LP};
+    static const int algo[FILT_COUNT] = {FLTA_SVF, FLTA_SVF, FLTA_SVF, FLTA_SVF, FLTA_SVF, FLTA_SVF, FLTA_LP6, FLTA_LADDER, FLTA_CHAM};
+    const int sections = type == FILT_LP24 ? 2 : 1;
+    f->param[FLT_MODE] = mode[type];
+    f->param[FLT_SECTIONS] = sections;
+    f->param[FLT_ALGO] = algo[type];
+    f->param[FLT_CUTOFF] = hz_pitch(cut_hz);
+    if (algo[type] != FLTA_SVF) {
+        f->param[FLT_RES] = q((res_q - 0.5) / 9.5);
+    } else {
+        const double q_last = sections == 2 ? 1.30656 : 0.70711;
+        const double boost = (res_q / q_last - 1.0) / 15.0;           // Q of the last section = Butterworth Q x (1 + 15 res)
+        f->param[FLT_RES] = q(boost > 0.0 ? boost : 0.0);
+    }
+}
 int32_t ms_i(double ms) { return static_cast<int32_t>(std::lround(ms < 1 ? 1 : ms)); }
 
 struct B {
@@ -266,14 +285,7 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                 NodeDesc *f = b.add(id, global ? T_FILTER_G : T_FILTER_V);
                 tgt_global[i] = global;
                 if (!f) break;
-                static const int mode[6] = {FLTM_LP, FLTM_LP, FLTM_BP, FLTM_HP, FLTM_LP, FLTM_NOTCH};
-                const int sections = type == FILT_LP24 ? 2 : 1;
-                f->param[FLT_MODE] = mode[type];
-                f->param[FLT_SECTIONS] = sections;
-                f->param[FLT_CUTOFF] = hz_pitch(s.v[MP_FL_CUT]);
-                const double q_last = sections == 2 ? 1.30656 : 0.70711;
-                const double boost = (s.v[MP_FL_RES] / q_last - 1.0) / 15.0;       // Q of the last section = Butterworth Q x (1 + 15 res)
-                f->param[FLT_RES] = q(boost > 0.0 ? boost : 0.0);
+                filter_params(f, type < FILT_COUNT ? type : FILT_LP, s.v[MP_FL_CUT], s.v[MP_FL_RES]);
                 f->param[FLT_CUT_MOD] = 96 * kSemi;                   // full-scale modulation = 8 octaves
                 feed(id, 0);
                 tgt[i] = Target{id, FLT_CUTOFF, true};
@@ -455,18 +467,9 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
         const str_params_t &sp = params.str;
         if (synth_type_is_strings(cfg.type) && sp.ftype != FILT_OFF && sp.ftype < FILT_COUNT) {
             // the Strings type's shared filter, before the effects (one per channel; Off = not built, a change of that is a rebuild)
-            static const int mode[FILT_COUNT] = {FLTM_LP, FLTM_LP, FLTM_BP, FLTM_HP, FLTM_LP, FLTM_NOTCH};
-            const int sections = sp.ftype == FILT_LP24 ? 2 : 1;
-            const double q_last = sections == 2 ? 1.30656 : 0.70711;
-            const double boost = (sp.fres / q_last - 1.0) / 15.0;
             NodeDesc *fl = b.add(RN_STR_FLT_L, T_FILTER_G), *fr = b.add(RN_STR_FLT_R, T_FILTER_G);
             if (fl && fr) {
-                for (NodeDesc *f : {fl, fr}) {
-                    f->param[FLT_MODE] = mode[sp.ftype];
-                    f->param[FLT_SECTIONS] = sections;
-                    f->param[FLT_CUTOFF] = hz_pitch(sp.fcut);
-                    f->param[FLT_RES] = q(boost > 0.0 ? boost : 0.0);
-                }
+                for (NodeDesc *f : {fl, fr}) filter_params(f, sp.ftype, sp.fcut, sp.fres);
                 b.cable(RN_BUS, 0, RN_STR_FLT_L, Dst::In, 0);
                 b.cable(RN_BUS, 1, RN_STR_FLT_R, Dst::In, 0);
                 srcl = RN_STR_FLT_L; srcr = RN_STR_FLT_R; portl = portr = 0;

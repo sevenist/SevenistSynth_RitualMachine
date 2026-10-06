@@ -16,7 +16,7 @@ typedef struct {                // descriptor of one module parameter
 
 static const char *const wave_names[]   = {"Sine", "Pulse", "SawDn", "SawUp", "Tri", "Noise", "Karp", "Modal", "FM2", "Fold", "SSaw", "Vowel", "Add", "Dust", "Strng"};
 static const char *const qual_names[]   = {"Blep", "Mip", "Naive"};
-static const char *const filter_names[] = {"Off", "LP", "BP", "HP", "LP24", "Notch"};
+static const char *const filter_names[] = {"Off", "LP", "BP", "HP", "LP24", "Notch", "LP6", "Ladr", "ChLP"};
 static const char *const sat_names[]    = {"Tanh", "Clip", "Fold", "Crush", "Tube", "Tape", "Diode", "Cheb", "Rect", "Decim"};
 static const char *const loop_names[]   = {"File", "Off", "Fwd", "Ping"};
 static const char *const dir_names[]    = {"Fwd", "Rev"};
@@ -38,7 +38,7 @@ static const mp_t osc_mp[] = {
     [MP_OC_QUAL]   = {"Q",    K_ENUM, 0, 2, 1, 0, "", 0, qual_names},     // Saw / Pulse / Tri and Strng: PolyBLEP, mipmap table, naive
 };
 static const mp_t flt_mp[] = {
-    [MP_FL_TYPE]   = {"Typ", K_ENUM, 0, 5, 1, 1, "", 0, filter_names},
+    [MP_FL_TYPE]   = {"Typ", K_ENUM, 0, FILT_COUNT - 1, 1, 1, "", 0, filter_names},
     [MP_FL_CUT]    = {"Cut", K_LOG, 20, 18000, 1.12f, 4000, "Hz", 0, 0},
     [MP_FL_RES]    = {"Res", K_LIN, 0.5f, 10, 0.1f, 0.7f, "", 1, 0},
     [MP_FL_ENVAMT] = {"Env", K_LIN, 0, 8, 0.25f, 0, "", 2, 0},

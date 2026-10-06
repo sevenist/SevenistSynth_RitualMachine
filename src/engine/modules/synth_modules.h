@@ -36,8 +36,14 @@ enum { LFO_SHAPE, LFO_RATE, LFO_LEVEL, LFO_UNIPOLAR, LFO_RATE_MOD, LFO_N };
 enum { LFOS_SINE, LFOS_TRI, LFOS_SAW_DOWN, LFOS_SAW_UP, LFOS_SQUARE, LFOS_SH };
 
 // Filter: in 0, out 0.   sections 1..4 = 12..48 dB/oct.   res: q15 0..1 (Q boost on the last section)   mod: cutoff
-enum { FLT_MODE, FLT_SECTIONS, FLT_CUTOFF, FLT_RES, FLT_CUT_MOD, FLT_N };
+// algo: the TPT SVF (mode, sections), or one of the lighter low-passes (mode / sections ignored; res 0..1 is their own resonance):
+//   LP6     one-pole, 6 dB/oct, no resonance                 ~10 cycles per sample on the S3
+//   LADDER  4 one-poles + resonance feedback + soft clip     24 dB/oct, Moog-like (not zero-delay: tuning approximate up high)
+//   CHAM    Chamberlin state-variable LP, 12 dB/oct          the cutoff stops at about fs / 6 (stability)
+// The light ones compute their coefficient at both ends of the block and interpolate (no exact per-sample path for audio-rate cutoff FM).
+enum { FLT_MODE, FLT_SECTIONS, FLT_CUTOFF, FLT_RES, FLT_CUT_MOD, FLT_ALGO, FLT_N };
 enum { FLTM_LP, FLTM_BP, FLTM_HP, FLTM_NOTCH };
+enum { FLTA_SVF, FLTA_LP6, FLTA_LADDER, FLTA_CHAM };
 
 // Shaper (naive, no anti-aliasing: ADR-013): in 0, out 0.   drive in 1/256 octave of gain.   mod: drive
 enum { SHP_MODE, SHP_DRIVE, SHP_MIX, SHP_BITS, SHP_DRIVE_MOD, SHP_N };   // drive_mod: octaves of gain at full-scale modulation

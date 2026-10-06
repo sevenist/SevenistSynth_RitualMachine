@@ -1,5 +1,5 @@
-// ESP32 display driver. HWV1: SH1107 128x128 OLED on I2C (Wire0, pins in board_pins.h), same panel and setup as
-// github.com/clement-chupin/SynthBox (src/oled.cpp).
+// ESP32 display driver. HWV1: SH1107 128x128 OLED on I2C (Wire0, pins in board_pins.h), same panel setup as the SynthBox firmware
+// (github.com/clement-chupin/SynthBox, src/oled.cpp; see board_pins.h).
 //
 // A full frame takes about 120 ms on this bus (measured, 400 kHz), and the UI loop used to wait for it: a key or a knob turn arriving meanwhile
 // was handled up to 120 ms late (late notes, steppy cutoff sweeps). Now display_send() only copies the frame (2 KB) and wakes the display task,

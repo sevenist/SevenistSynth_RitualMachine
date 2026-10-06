@@ -15,7 +15,7 @@ typedef struct {
 } desc_t;
 
 static const char *const wave_names[]   = {"Sine", "Pulse", "SawDn", "SawUp", "Tri", "Noise"};
-static const char *const filter_names[] = {"Off", "LP", "BP", "HP", "LP24", "Notch"};
+static const char *const filter_names[] = {"Off", "LP", "BP", "HP", "LP24", "Notch", "LP6", "Ladr", "ChLP"};
 static const char *const str_wave_names[] = {"Saw", "Pulse", "Tri"};
 static const char *const str_osc_names[]  = {"Naive", "Mip"};
 static const char *const off_on_names[]   = {"Off", "On"};

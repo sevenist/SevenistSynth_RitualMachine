@@ -31,9 +31,9 @@
 #ifndef PLAITS_DSP_OSCILLATOR_SUPERSQUARE_OSCILLATOR_H_
 #define PLAITS_DSP_OSCILLATOR_SUPERSQUARE_OSCILLATOR_H_
 
-#include "stmlib/dsp/dsp.h"
-#include "stmlib/dsp/parameter_interpolator.h"
-#include "stmlib/dsp/polyblep.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp.h"
 
 #include <algorithm>
 
@@ -72,9 +72,9 @@ class SuperSquareOscillator {
       frequency = kMaxFrequency;
     }
     
-    stmlib::ParameterInterpolator master_fm(
+    sc::fdsp::ParameterInterpolator master_fm(
         &master_frequency_, master_frequency, size);
-    stmlib::ParameterInterpolator fm(&slave_frequency_, frequency, size);
+    sc::fdsp::ParameterInterpolator fm(&slave_frequency_, frequency, size);
 
     float next_sample = next_sample_;
     
@@ -105,8 +105,8 @@ class SuperSquareOscillator {
           transition_during_reset = true;
         }
         float value = slave_phase_at_reset < 0.5f ? 0.0f : 1.0f;
-        this_sample -= value * stmlib::ThisBlepSample(reset_time);
-        next_sample -= value * stmlib::NextBlepSample(reset_time);
+        this_sample -= value * sc::fdsp::ThisBlepSample(reset_time);
+        next_sample -= value * sc::fdsp::NextBlepSample(reset_time);
       }
       
       slave_phase_ += slave_frequency;
@@ -116,8 +116,8 @@ class SuperSquareOscillator {
             break;
           }
           float t = (slave_phase_ - 0.5f) / slave_frequency;
-          this_sample += stmlib::ThisBlepSample(t);
-          next_sample += stmlib::NextBlepSample(t);
+          this_sample += sc::fdsp::ThisBlepSample(t);
+          next_sample += sc::fdsp::NextBlepSample(t);
           high_ = true;
         }
       
@@ -127,8 +127,8 @@ class SuperSquareOscillator {
           }
           slave_phase_ -= 1.0f;
           float t = slave_phase_ / slave_frequency;
-          this_sample -= stmlib::ThisBlepSample(t);
-          next_sample -= stmlib::NextBlepSample(t);
+          this_sample -= sc::fdsp::ThisBlepSample(t);
+          next_sample -= sc::fdsp::NextBlepSample(t);
           high_ = false;
         }
       }

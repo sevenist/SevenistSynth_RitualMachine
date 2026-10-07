@@ -393,7 +393,11 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
                 static const int lfo_wave[4] = {WAVE_SINE, WAVE_TRIANGLE, WAVE_SAW_DOWN, WAVE_PULSE};
                 draw_wave(g, box, lfo_wave[(int)ms->v[MP_LF_SHAPE]], 0.5f, st->wave_cycles);
             } else {
-                if (ms->v[MP_OC_WAVE] >= OC_FIRST_ENGINE) draw_engine_preview(g, box, (int)ms->v[MP_OC_WAVE] - OC_FIRST_ENGINE, ms->v[MP_OC_PW], ms->v[MP_OC_MORPH], st->wave_cycles);
+                if (ms->v[MP_OC_WAVE] >= OC_FIRST_MI) {
+                    char nm[16];
+                    rack_mparam_format(ms, MP_OC_WAVE, nm, sizeof nm);
+                    draw_mi_preview(g, box, (int)ms->v[MP_OC_WAVE] - OC_FIRST_MI, ms->v[MP_OC_PW], ms->v[MP_OC_MORPH], ms->v[MP_OC_HARM], st->wave_cycles, nm);
+                } else if (ms->v[MP_OC_WAVE] >= OC_FIRST_ENGINE) draw_engine_preview(g, box, (int)ms->v[MP_OC_WAVE] - OC_FIRST_ENGINE, ms->v[MP_OC_PW], ms->v[MP_OC_MORPH], st->wave_cycles);
                 else draw_wave(g, box, (int)ms->v[MP_OC_WAVE], ms->v[MP_OC_PW], st->wave_cycles);
             }
             break;

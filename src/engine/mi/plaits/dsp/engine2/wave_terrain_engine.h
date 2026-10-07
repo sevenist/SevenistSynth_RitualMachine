@@ -36,8 +36,8 @@
 #ifndef PLAITS_DSP_ENGINE_WAVE_TERRAIN_ENGINE_H_
 #define PLAITS_DSP_ENGINE_WAVE_TERRAIN_ENGINE_H_
 
-#include "plaits/dsp/engine/engine.h"
-#include "plaits/dsp/oscillator/sine_oscillator.h"
+#include "engine/mi/plaits/dsp/engine/engine.h"
+#include "engine/mi/plaits/dsp/oscillator/sine_oscillator.h"
 
 namespace plaits {
   
@@ -46,7 +46,7 @@ class WaveTerrainEngine : public Engine {
   WaveTerrainEngine() { }
   ~WaveTerrainEngine() { }
   
-  virtual void Init(stmlib::BufferAllocator* allocator);
+  virtual void Init(sc::fdsp::BufferAllocator* allocator);
   virtual void Reset();
   virtual void LoadUserData(const uint8_t* user_data) {
     user_terrain_ = (const int8_t*)(user_data);

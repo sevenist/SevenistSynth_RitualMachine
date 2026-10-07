@@ -28,8 +28,9 @@ enum FxType : int { T_DELAY = 48, T_SPECTRAL, T_VOCODER, /* 51 = global oscillat
 enum { DLY_TIME, DLY_FEEDBACK, DLY_DAMP, DLY_MIX, DLY_PINGPONG, DLY_TIME_MOD, DLY_N };
 
 // SpectralFx (mono): in 0, out 0.  STFT 512, 75 % overlap: 512 samples of latency (the dry path in the mix is delayed
-// to match). One phase-vocoder core serves freeze and pitch shift.
-enum { SPX_MODE, SPX_AMOUNT, SPX_LO, SPX_HI, SPX_SHIFT, SPX_FREEZE, SPX_MIX, SPX_N };
+// to match). One phase-vocoder core serves freeze and pitch shift. `stereo` = 1 (the FX rack): ins L, R and outs L, R; the
+// STFT runs on (L + R) / 2 and each output mixes its own delayed dry channel with the shared wet signal.
+enum { SPX_MODE, SPX_AMOUNT, SPX_LO, SPX_HI, SPX_SHIFT, SPX_FREEZE, SPX_MIX, SPX_STEREO, SPX_N };
 enum { SPXM_THRU, SPXM_FREEZE, SPXM_GATE, SPXM_ROBOT, SPXM_WHISPER, SPXM_PITCH };
 //   THRU     untouched (reconstruction test, latency compensation)
 //   FREEZE   holds the spectrum with its phase advance when `freeze` = 1; `shift` still applies

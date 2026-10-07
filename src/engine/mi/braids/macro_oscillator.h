@@ -29,14 +29,14 @@
 #ifndef BRAIDS_MACRO_OSCILLATOR_H_
 #define BRAIDS_MACRO_OSCILLATOR_H_
 
-#include "stmlib/stmlib.h"
+#include "engine/dsp/fdsp.h"
 
 #include <cstring>
 
-#include "braids/analog_oscillator.h"
-#include "braids/digital_oscillator.h"
-#include "braids/resources.h"
-#include "braids/settings.h"
+#include "engine/mi/braids/analog_oscillator.h"
+#include "engine/mi/braids/digital_oscillator.h"
+#include "engine/mi/braids/resources.h"
+#include "engine/mi/braids/settings.h"
 
 namespace braids {
   

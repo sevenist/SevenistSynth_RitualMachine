@@ -31,12 +31,12 @@
 
 #include <algorithm>
 
-#include "stmlib/dsp/dsp.h"
-#include "plaits/dsp/oscillator/wavetable_oscillator.h"
-#include "stmlib/dsp/parameter_interpolator.h"
-#include "stmlib/dsp/polyblep.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/mi/plaits/dsp/oscillator/wavetable_oscillator.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp.h"
 
-#include "plaits/resources.h"
+#include "engine/mi/plaits/resources.h"
 
 namespace plaits {
 
@@ -67,7 +67,7 @@ class NESTriangleOscillator {
     
     frequency = std::min(frequency, 0.25f);
     
-    stmlib::ParameterInterpolator fm(&frequency_, frequency, size);
+    sc::fdsp::ParameterInterpolator fm(&frequency_, frequency, size);
     
     float next_sample = next_sample_;
     while (size--) {
@@ -90,8 +90,8 @@ class NESTriangleOscillator {
         float discontinuity = 4.0f * frequency * tri_gain;
         if (discontinuity) {
           float t = (phase_ - 0.5f) / frequency;
-          this_sample -= stmlib::ThisIntegratedBlepSample(t) * discontinuity;
-          next_sample -= stmlib::NextIntegratedBlepSample(t) * discontinuity;
+          this_sample -= sc::fdsp::ThisIntegratedBlepSample(t) * discontinuity;
+          next_sample -= sc::fdsp::NextIntegratedBlepSample(t) * discontinuity;
         }
         ascending_ = false;
       }
@@ -119,8 +119,8 @@ class NESTriangleOscillator {
         if (discontinuity) {
           float frac = (phase_ * num_steps_f - static_cast<float>(next_step));
           float t = frac / (frequency * num_steps_f);
-          this_sample += stmlib::ThisBlepSample(t) * discontinuity;
-          next_sample += stmlib::NextBlepSample(t) * discontinuity;
+          this_sample += sc::fdsp::ThisBlepSample(t) * discontinuity;
+          next_sample += sc::fdsp::NextBlepSample(t) * discontinuity;
         }
         
         // Handle the discontinuity at the bottom of the naive triangle.
@@ -128,8 +128,8 @@ class NESTriangleOscillator {
           float discontinuity = 4.0f * frequency * tri_gain;
           if (discontinuity) {
             float t = phase_ / frequency;
-            this_sample += stmlib::ThisIntegratedBlepSample(t) * discontinuity;
-            next_sample += stmlib::NextIntegratedBlepSample(t) * discontinuity;
+            this_sample += sc::fdsp::ThisIntegratedBlepSample(t) * discontinuity;
+            next_sample += sc::fdsp::NextIntegratedBlepSample(t) * discontinuity;
           }
           ascending_ = true;
         }

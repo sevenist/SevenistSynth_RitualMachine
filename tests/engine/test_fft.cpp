@@ -3,6 +3,7 @@
 #include "engine/dsp/cordic.h"
 #include "engine/dsp/delay.h"
 #include "engine/dsp/fft.h"
+#include "engine/dsp/fft_ref.h"
 #include "engine/dsp/phase.h"
 #include "engine/dsp/stft.h"
 
@@ -117,6 +118,38 @@ TEST(fft_matches_the_double_dft) {
     double snr = (snr_db(er, sr) + snr_db(ei, si)) / 2;
     std::printf("    FFT vs double DFT: exponent %d, SNR %.1f dB\n", e, snr);
     CHECK(snr > 60.0);
+}
+
+TEST(fft_is_bit_identical_to_the_reference) {
+    Lcg r;
+    int cases = 0, bad = 0;
+    for (int amp : {0, 1, 3, 20, 300, 4000, 13500, 13501, 20000, 32767}) {
+        for (int kind = 0; kind < 5; kind++) {
+            int16_t re[N], im[N], rr[N], ri[N];
+            for (int i = 0; i < N; i++) {
+                int a = 0, b = 0;
+                switch (kind) {
+                case 0: a = r.next(amp); b = r.next(amp); break;                                  // complex noise
+                case 1: a = r.next(amp); break;                                                    // real noise (the mono STFT)
+                case 2: a = (i & 16) ? amp : -amp - 1; b = -amp - 1; break;                        // full-scale square, -32768 included
+                case 3: a = i == 5 ? -amp - 1 : 0; break;                                          // impulse
+                default: a = static_cast<int>(std::lround(amp * std::sin(2 * kPi * 37.3 * i / N))); b = r.next(amp / 2 + 1); break;
+                }
+                re[i] = rr[i] = static_cast<int16_t>(a < -32768 ? -32768 : a);
+                im[i] = ri[i] = static_cast<int16_t>(b < -32768 ? -32768 : b);
+            }
+            for (int inv = 0; inv < 2; inv++) {
+                const int e = inv ? ifft_q15(re, im) : fft_q15(re, im);
+                const int er = inv ? ifft_q15_ref(rr, ri) : fft_q15_ref(rr, ri);
+                bool same = e == er;
+                for (int i = 0; i < N; i++) same = same && re[i] == rr[i] && im[i] == ri[i];
+                cases++;
+                if (!same) { bad++; std::printf("    differs: amplitude %d kind %d inverse %d\n", amp, kind, inv); }
+            }
+        }
+    }
+    std::printf("    %d FFT / IFFT cases, %d differ from the reference\n", cases, bad);
+    CHECK_EQ(bad, 0);
 }
 
 TEST(fft_block_floating_point_keeps_precision_on_quiet_signals) {

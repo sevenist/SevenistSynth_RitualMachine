@@ -26,13 +26,13 @@
 //
 // Chords: wavetable and divide-down organ/string machine.
 
-#include "plaits/dsp/chords/chord_bank.h"
+#include "engine/mi/plaits/dsp/chords/chord_bank.h"
 
-#include "stmlib/dsp/units.h"
+#include "engine/dsp/fdsp_units.h"
 
 namespace plaits {
 
-using namespace stmlib;
+using namespace sc::fdsp;
 
 #ifdef JON_CHORDS
 

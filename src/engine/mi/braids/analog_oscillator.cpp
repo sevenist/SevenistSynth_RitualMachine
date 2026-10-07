@@ -26,16 +26,16 @@
 //
 // Oscillator - analog style waveforms.
 
-#include "braids/analog_oscillator.h"
+#include "engine/mi/braids/analog_oscillator.h"
 
-#include "stmlib/utils/dsp.h"
+#include "engine/dsp/fdsp.h"
 
-#include "braids/resources.h"
-#include "braids/parameter_interpolation.h"
+#include "engine/mi/braids/resources.h"
+#include "engine/mi/braids/parameter_interpolation.h"
 
 namespace braids {
 
-using namespace stmlib;
+using namespace sc::fdsp;
 
 static const size_t kNumZones = 15;
 

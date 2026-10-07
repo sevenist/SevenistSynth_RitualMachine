@@ -189,6 +189,42 @@ TEST(spectral_thru_reconstructs_with_512_samples_of_latency) {
     CHECK(snr > 45.0);
 }
 
+// The FX rack's stereo mode: at mix 0 each channel is its own dry signal, delayed by the latency; at mix 1 (THRU) both channels carry
+// the mono sum (L + R) / 2, delayed by the same latency.
+TEST(spectral_stereo_keeps_each_dry_channel_and_shares_the_wet) {
+    auto render = [](bool fx, int mix, std::vector<double> *l, std::vector<double> *r) {
+        DspRig rig;
+        GraphDesc g;
+        osc_g(rig, g, 1, WAVE_SAW_, 330.0, 16000);
+        osc_g(rig, g, 4, WAVE_SINE_, 1234.0, 16000);
+        rig.add(g, 3, T_MASTER_OUT);
+        if (fx) {
+            NodeDesc *s = rig.add(g, 2, T_SPECTRAL);
+            s->param[SPX_MODE] = SPXM_THRU; s->param[SPX_MIX] = mix; s->param[SPX_STEREO] = 1;
+            g.connect(1, 0, 2, Dst::In, 0); g.connect(4, 0, 2, Dst::In, 1);
+            g.connect(2, 0, 3, Dst::In, 0); g.connect(2, 1, 3, Dst::In, 1);
+        } else {
+            g.connect(1, 0, 3, Dst::In, 0); g.connect(4, 0, 3, Dst::In, 1);
+        }
+        CHECK(rig.eng.load(g) == Err::Ok);
+        rig.run2(DspRig::blocks_for(0.5), l, r);
+    };
+    std::vector<double> rl, rr, dl, dr, wl, wr;
+    render(false, 0, &rl, &rr);
+    render(true, 0, &dl, &dr);
+    render(true, kUnity, &wl, &wr);
+    const int lat = Stft::latency();
+    std::vector<double> a, b, c, d, sum, e, f;
+    for (size_t i = 4000; i < 16000; i++) {
+        a.push_back(rl[i - lat]); b.push_back(dl[i]); c.push_back(rr[i - lat]); d.push_back(dr[i]);
+        sum.push_back((rl[i - lat] + rr[i - lat]) / 2); e.push_back(wl[i]); f.push_back(wr[i]);
+    }
+    const double s_l = snr_db(a, b), s_r = snr_db(c, d), s_wl = snr_db(sum, e), s_wr = snr_db(sum, f);
+    std::printf("    stereo SpectralFx: dry L %.1f dB, dry R %.1f dB, wet L %.1f dB, wet R %.1f dB vs the delayed inputs / mono sum\n", s_l, s_r, s_wl, s_wr);
+    CHECK(s_l > 80.0 && s_r > 80.0);                                         // the dry path is an exact delay
+    CHECK(s_wl > 45.0 && s_wr > 45.0);
+}
+
 TEST(spectral_freeze_sustains_the_tone_after_the_input_stops) {
     if (kSampleRate > 48000) { std::printf("    skipped: N=%d bins are too wide for the phase vocoder at this rate\n", kFftN); return; }
     DspRig rig;

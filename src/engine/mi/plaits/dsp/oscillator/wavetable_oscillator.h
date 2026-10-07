@@ -31,10 +31,10 @@
 
 #include <algorithm>
 
-#include "stmlib/dsp/dsp.h"
-#include "stmlib/dsp/parameter_interpolator.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp.h"
 
-#include "plaits/dsp/oscillator/oscillator.h"
+#include "engine/mi/plaits/dsp/oscillator/oscillator.h"
 
 namespace plaits {
 
@@ -124,15 +124,15 @@ class WavetableOscillator {
       amplitude *= 1.0f / (frequency * 131072.0f);
     }
 
-    stmlib::ParameterInterpolator frequency_modulation(
+    sc::fdsp::ParameterInterpolator frequency_modulation(
         &frequency_,
         frequency,
         size);
-    stmlib::ParameterInterpolator amplitude_modulation(
+    sc::fdsp::ParameterInterpolator amplitude_modulation(
         &amplitude_,
         amplitude,
         size);
-    stmlib::ParameterInterpolator waveform_modulation(
+    sc::fdsp::ParameterInterpolator waveform_modulation(
         &waveform_,
         waveform * float(num_waves - 1.0001f),
         size);

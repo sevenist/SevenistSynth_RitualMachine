@@ -68,7 +68,7 @@ rev = [int(format(i, "0%db" % bits)[::-1], 2) for i in range(FFT_N)]
 lines += ["};", "", "SC_TABLE const uint16_t kFftRev[%d] = {" % FFT_N]
 for i in range(0, len(rev), 16):
     lines.append("    " + ", ".join(str(v) for v in rev[i:i + 16]) + ",")
-lines += ["};", "", "SC_TABLE const int16_t kStftWin[%d] = {" % FFT_N]
+lines += ["};", "", "alignas(16) SC_TABLE const int16_t kStftWin[%d] = {   // 16-byte aligned: the S3 PIE window kernel reads it 128 bits at a time" % FFT_N]
 vals = [min(32767, round(math.sin(math.pi * (n + 0.5) / FFT_N) * 32768.0)) for n in range(FFT_N)]
 for i in range(0, len(vals), 12):
     lines.append("    " + ", ".join(str(v) for v in vals[i:i + 12]) + ",")

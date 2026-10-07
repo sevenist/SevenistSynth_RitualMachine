@@ -29,13 +29,13 @@
 #ifndef PLAITS_DSP_OSCILLATOR_VARIABLE_SAW_OSCILLATOR_H_
 #define PLAITS_DSP_OSCILLATOR_VARIABLE_SAW_OSCILLATOR_H_
 
-#include "stmlib/dsp/dsp.h"
-#include "stmlib/dsp/parameter_interpolator.h"
-#include "stmlib/dsp/polyblep.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp.h"
 
 #include <algorithm>
 
-#include "plaits/dsp/oscillator/oscillator.h"
+#include "engine/mi/plaits/dsp/oscillator/oscillator.h"
 
 namespace plaits {
 
@@ -73,9 +73,9 @@ class VariableSawOscillator {
       CONSTRAIN(pw, frequency * 2.0f, 1.0f - 2.0f * frequency);
     }
 
-    stmlib::ParameterInterpolator fm(&frequency_, frequency, size);
-    stmlib::ParameterInterpolator pwm(&pw_, pw, size);
-    stmlib::ParameterInterpolator waveshape_modulation(
+    sc::fdsp::ParameterInterpolator fm(&frequency_, frequency, size);
+    sc::fdsp::ParameterInterpolator pwm(&pw_, pw, size);
+    sc::fdsp::ParameterInterpolator waveshape_modulation(
         &waveshape_, waveshape, size);
 
     float next_sample = next_sample_;
@@ -98,20 +98,20 @@ class VariableSawOscillator {
         const float triangle_step = (slope_up + slope_down) * frequency * triangle_amount;
         const float notch = (kVariableSawNotchDepth + 1.0f - pw) * notch_amount;
         const float t = (phase_ - pw) / (previous_pw_ - pw + frequency);
-        this_sample += notch * stmlib::ThisBlepSample(t);
-        next_sample += notch * stmlib::NextBlepSample(t);
-        this_sample -= triangle_step * stmlib::ThisIntegratedBlepSample(t);
-        next_sample -= triangle_step * stmlib::NextIntegratedBlepSample(t);
+        this_sample += notch * sc::fdsp::ThisBlepSample(t);
+        next_sample += notch * sc::fdsp::NextBlepSample(t);
+        this_sample -= triangle_step * sc::fdsp::ThisIntegratedBlepSample(t);
+        next_sample -= triangle_step * sc::fdsp::NextIntegratedBlepSample(t);
         high_ = true;
       } else if (phase_ >= 1.0f) {
         phase_ -= 1.0f;
         const float triangle_step = (slope_up + slope_down) * frequency * triangle_amount;
         const float notch = (kVariableSawNotchDepth + 1.0f) * notch_amount;
         const float t = phase_ / frequency;
-        this_sample -= notch * stmlib::ThisBlepSample(t);
-        next_sample -= notch * stmlib::NextBlepSample(t);
-        this_sample += triangle_step * stmlib::ThisIntegratedBlepSample(t);
-        next_sample += triangle_step * stmlib::NextIntegratedBlepSample(t);
+        this_sample -= notch * sc::fdsp::ThisBlepSample(t);
+        next_sample -= notch * sc::fdsp::NextBlepSample(t);
+        this_sample += triangle_step * sc::fdsp::ThisIntegratedBlepSample(t);
+        next_sample += triangle_step * sc::fdsp::NextIntegratedBlepSample(t);
         high_ = false;
       }
     

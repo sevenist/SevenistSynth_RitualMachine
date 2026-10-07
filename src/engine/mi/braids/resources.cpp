@@ -30,7 +30,7 @@
 // make resources
 
 
-#include "braids/resources.h"
+#include "engine/mi/braids/resources.h"
 
 namespace braids {
 

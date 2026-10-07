@@ -29,11 +29,11 @@
 #ifndef PLAITS_DSP_ENGINE_CHIPTUNE_ENGINE_H_
 #define PLAITS_DSP_ENGINE_CHIPTUNE_ENGINE_H_
 
-#include "plaits/dsp/chords/chord_bank.h"
-#include "plaits/dsp/engine/engine.h"
-#include "plaits/dsp/engine2/arpeggiator.h"
-#include "plaits/dsp/oscillator/nes_triangle_oscillator.h"
-#include "plaits/dsp/oscillator/super_square_oscillator.h"
+#include "engine/mi/plaits/dsp/chords/chord_bank.h"
+#include "engine/mi/plaits/dsp/engine/engine.h"
+#include "engine/mi/plaits/dsp/engine2/arpeggiator.h"
+#include "engine/mi/plaits/dsp/oscillator/nes_triangle_oscillator.h"
+#include "engine/mi/plaits/dsp/oscillator/super_square_oscillator.h"
 
 namespace plaits {
 
@@ -46,7 +46,7 @@ class ChiptuneEngine : public Engine {
     NO_ENVELOPE = 2
   };
   
-  virtual void Init(stmlib::BufferAllocator* allocator);
+  virtual void Init(sc::fdsp::BufferAllocator* allocator);
   virtual void Reset();
   virtual void LoadUserData(const uint8_t* user_data) { }
   virtual void Render(const EngineParameters& parameters,
@@ -65,7 +65,7 @@ class ChiptuneEngine : public Engine {
   
   ChordBank chords_;
   Arpeggiator arpeggiator_;
-  stmlib::HysteresisQuantizer2 arpeggiator_pattern_selector_;
+  sc::fdsp::HysteresisQuantizer2 arpeggiator_pattern_selector_;
   
   float envelope_shape_;
   float envelope_state_;

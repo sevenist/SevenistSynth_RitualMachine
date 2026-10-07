@@ -29,12 +29,12 @@
 #ifndef PLAITS_DSP_ENGINE_GRAIN_ENGINE_H_
 #define PLAITS_DSP_ENGINE_GRAIN_ENGINE_H_
 
-#include "stmlib/dsp/filter.h"
+#include "engine/dsp/fdsp_filter.h"
 
-#include "plaits/dsp/engine/engine.h"
-#include "plaits/dsp/oscillator/grainlet_oscillator.h"
-#include "plaits/dsp/oscillator/vosim_oscillator.h"
-#include "plaits/dsp/oscillator/z_oscillator.h"
+#include "engine/mi/plaits/dsp/engine/engine.h"
+#include "engine/mi/plaits/dsp/oscillator/grainlet_oscillator.h"
+#include "engine/mi/plaits/dsp/oscillator/vosim_oscillator.h"
+#include "engine/mi/plaits/dsp/oscillator/z_oscillator.h"
 
 namespace plaits {
   
@@ -43,7 +43,7 @@ class GrainEngine : public Engine {
   GrainEngine() { }
   ~GrainEngine() { }
   
-  virtual void Init(stmlib::BufferAllocator* allocator);
+  virtual void Init(sc::fdsp::BufferAllocator* allocator);
   virtual void Reset();
   virtual void LoadUserData(const uint8_t* user_data) { }
   virtual void Render(const EngineParameters& parameters,
@@ -56,7 +56,7 @@ class GrainEngine : public Engine {
   GrainletOscillator grainlet_[2];
   // VOSIMOscillator vosim_oscillator_;
   ZOscillator z_oscillator_;
-  stmlib::OnePole dc_blocker_[2];
+  sc::fdsp::OnePole dc_blocker_[2];
   
   float grain_balance_;
   

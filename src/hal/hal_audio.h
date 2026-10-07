@@ -44,6 +44,12 @@ typedef struct {
 #define AUDIO_SAMPLES_MAX 32
 int  audio_sample_count(void);
 bool audio_sample_info(int index, audio_sample_info_t *out);
+// Renders an oscillator model for the UI's preview (the Mutable Instruments models, rack Wav >= OC_FIRST_MI; model = Wav - OC_FIRST_MI):
+// `n` samples of the model at a pitch whose period is `period` samples (after its start-up; a struck model: its first 4n samples from the strike,
+// the peak of every 4); timbre,
+// morph, harm 0..1. Returns 1 for a periodic model, 2 for a struck one (its decay was rendered), 0 when the platform has no engine (the UI then
+// shows the model's name).
+int  audio_osc_preview(int model, float timbre, float morph, float harm, int period, int16_t *out, int n);
 bool audio_sample_prepare(int index);    // converts a pending .wav / .mp3 now (called when it is assigned); true when the file is ready to play
 int  audio_samples_rescan(void);     // looks for new files (.smp, and .wav / .mp3 which are imported); returns the count
 

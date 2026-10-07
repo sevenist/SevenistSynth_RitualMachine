@@ -26,14 +26,14 @@
 //
 // Chiptune waveforms with arpeggiator.
 
-#include "plaits/dsp/engine2/chiptune_engine.h"
+#include "engine/mi/plaits/dsp/engine2/chiptune_engine.h"
 
 #include <algorithm>
 
 namespace plaits {
 
 using namespace std;
-using namespace stmlib;
+using namespace sc::fdsp;
 
 void ChiptuneEngine::Init(BufferAllocator* allocator) {
   bass_.Init();

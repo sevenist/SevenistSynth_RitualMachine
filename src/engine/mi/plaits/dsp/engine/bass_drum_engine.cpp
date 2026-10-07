@@ -26,14 +26,14 @@
 //
 // 808 and synthetic bass drum generators.
 
-#include "plaits/dsp/engine/bass_drum_engine.h"
+#include "engine/mi/plaits/dsp/engine/bass_drum_engine.h"
 
 #include <algorithm>
 
 namespace plaits {
 
 using namespace std;
-using namespace stmlib;
+using namespace sc::fdsp;
 
 void BassDrumEngine::Init(BufferAllocator* allocator) {
   analog_bass_drum_.Init();
@@ -60,37 +60,41 @@ void BassDrumEngine::Render(
   
   const bool sustain = parameters.trigger & TRIGGER_UNPATCHED;
   
-  analog_bass_drum_.Render(
-      sustain,
-      parameters.trigger & TRIGGER_RISING_EDGE,
-      parameters.accent,
-      f0,
-      parameters.timbre,
-      parameters.morph,
-      attack_fm_amount,
-      self_fm_amount,
-      out,
-      size);
+  if (out) {   // SevenSynth: only the variant in use is rendered (VENDOR.md)
+    analog_bass_drum_.Render(
+        sustain,
+        parameters.trigger & TRIGGER_RISING_EDGE,
+        parameters.accent,
+        f0,
+        parameters.timbre,
+        parameters.morph,
+        attack_fm_amount,
+        self_fm_amount,
+        out,
+        size);
+  
+    overdrive_.Process(
+        0.5f + 0.5f * drive,
+        out,
+        size);
+  }
 
-  overdrive_.Process(
-      0.5f + 0.5f * drive,
-      out,
-      size);
-
-  synthetic_bass_drum_.Render(
-      sustain,
-      parameters.trigger & TRIGGER_RISING_EDGE,
-      parameters.accent,
-      f0,
-      parameters.timbre,
-      parameters.morph,
-      sustain
-          ? parameters.harmonics
-          : 0.4f - 0.25f * parameters.morph * parameters.morph,
-      min(parameters.harmonics * 2.0f, 1.0f),
-      max(parameters.harmonics * 2.0f - 1.0f, 0.0f),
-      aux,
-      size);
+  if (aux) {   // SevenSynth: only the variant in use is rendered (VENDOR.md)
+    synthetic_bass_drum_.Render(
+        sustain,
+        parameters.trigger & TRIGGER_RISING_EDGE,
+        parameters.accent,
+        f0,
+        parameters.timbre,
+        parameters.morph,
+        sustain
+            ? parameters.harmonics
+            : 0.4f - 0.25f * parameters.morph * parameters.morph,
+        min(parameters.harmonics * 2.0f, 1.0f),
+        max(parameters.harmonics * 2.0f - 1.0f, 0.0f),
+        aux,
+        size);
+  }
 }
 
 }  // namespace plaits

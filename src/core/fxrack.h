@@ -11,11 +11,13 @@ extern "C" {
 #endif
 
 #define FXR_SLOTS 4
-#define FXR_PARAMS 4
+#define FXR_PARAMS 8              // values per slot; the FX RACK tab shows FXR_ROWS of them, the rest behind its cog
+#define FXR_ROWS 4
 
 typedef enum {
     FX_NONE, FX_DRIVE, FX_CHORUS, FX_PHASER, FX_FLANGER, FX_TREMOLO, FX_COMP, FX_EQ, FX_SHIFT, FX_DELAY, FX_REVERB, FX_CAB,
     FX_ENSEMBLE,                  // string ensemble (Solina style, ADR-037)
+    FX_SPECTRAL,                  // SpectralFx (STFT: freeze, gate, robot, whisper, pitch) on the mono sum, dry kept stereo
     FX_TYPE_COUNT
 } fx_type_t;
 

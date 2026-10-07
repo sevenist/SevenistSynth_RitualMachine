@@ -134,6 +134,25 @@ tables are tied together by `tools/gen_engine_tables.py` (FFT_N).
 (second input packed into the imaginary part). Latency is exactly N = 512 samples (measured), 10.7 ms at 48 kHz.
 **Limit:** at 96 kHz the 187 Hz bins are too wide for the phase-vocoder effects (freeze, pitch shift); use N = 1024
 there (requires regenerating the tables). The tests skip those two checks above 48 kHz.
+**Addendum (2026-10-07, measured on the S3; the user chose "own PIE block-float kernel" over ESP-DSP int16 / float).**
+The first board measurement showed the C FFT at 205k cycles per transform (fastest run; 300-450k as boot averages
+with preemption), so an STFT hop (2 transforms) needed more than a core: SpectralFx / Vocoder could never have run on
+the board. Measured candidates (one 512 complex transform, SNR loud / quiet / very quiet noise vs a float DFT):
+C BFP 173k (after an exact rewrite: the per-stage scan folded into the butterflies, bit-identical, test
+`fft_is_bit_identical_to_the_reference`) 67 / 60 / 37 dB; ESP-DSP int16 PIE 26k 53 / 46 / 47 dB (fixed 1/2 per stage);
+ESP-DSP float radix-2 63k 84 / 76 / 53 dB; ESP-DSP float radix-4 needs a power of 4 (512 is not).
+**As built:** `dsp/fft_s3.S` = PIE stages after ESP-DSP's structure (credited in THIRD_PARTY_NOTICES.md) with our
+block floating point: `SAR = 14 + shift`, q14 twiddles in bit-reversed order (sign -1: +1 mirrors the spectrum), per-lane
+vmax / vmin of each stage's outputs choose the next shift; PIE pack (min / max, scale, interleave) and a scalar
+bit-reversal unpack. The input is first scaled up to the safe level (exponent may go negative) because the PIE shifts
+truncate: without it a quiet frame lost 9 dB. **16.0k cycles per transform (10.9x), 63 / 64 / 63 dB, exponent exact,
+round trip 59.6 dB; Stft identity on the board 71.6 dB (host C: 71.4).** `fft_q15` uses it when `SC_FFT_PIE`
+(ESP32-S3); every other target keeps the C version (`fft_q15_c`). Frames must be 16-byte aligned for the PIE pack
+(the engine heap is; otherwise a scalar pack runs). The Stft overlap-add lost its 64-bit multiply / shift (exact,
+checksum-identical). Stft mono with an identity frame: **517 cycles per sample** (9.5 % of a core at 44.1 kHz;
+a frame 62.7k = 32k FFTs + 31k window / mirror / overlap-add). Remaining: the window and overlap-add loops and the
+bit-reversal unpack (4.7k per transform) are scalar. Risk: PIE assembly is S3-only and checked by the boot bench, not
+by the host tests (the host runs the C path).
 CORDIC (`dsp/cordic.h`, 16 iterations): phase error 0.0017 deg, magnitude within output rounding.
 
 ### ADR-017: Two memory classes (Accepted, `Memory{fast, bulk}` in `core/module.h`)
@@ -154,8 +173,10 @@ state from `fast`. Both pointers may alias on the desktop. Sample caches (stage 
   signal aligned to the 512-sample latency.
 - **Vocoder** (dual STFT): the modulator's band energy (bands of 2..32 bins) scales the carrier's spectrum; both
   inputs go through one FFT. A 1 kHz modulator on white noise puts 58 dB more energy near 1 kHz than at 3 to 8 kHz.
-- Budget: a mono SpectralFx in phase-vocoder mode is about 80k cycles per 128-sample hop, around 640
-  cycles/sample (13 % of an S3 core); to be measured on hardware.
+- Budget: the estimate here (80k per hop) was 10x low: the C FFT alone was 2 x 173k per hop. Measured on the S3 with
+  the PIE FFT (ADR-016 addendum): the STFT frame engine costs 517 cycles per sample (62.7k per hop); SpectralFx's own
+  frame work (CORDIC, phase vocoder) comes on top and is not measured yet. SpectralFx and Vocoder are not in the FX
+  rack, so no patch on the board uses them.
 
 ### ADR-019: Chorus = fixed Juno-like modes (Accepted; user choice over my multi-voice recommendation)
 `Chorus` (stereo): modes OFF, I (0.513 Hz), II (0.863 Hz), I+II (9.75 Hz, shallow). One Hermite-read line per
@@ -509,6 +530,29 @@ Ladr -49 dB two octaves up, ChLP Q 10 = +20 dB), bounded at full resonance with 
 **Found on the way (exact fixes, measured):** a voice start cleared every OscEngines' 4 KB Karplus buffer in PSRAM whatever the engine (about 1.5 ms of the block per note-on:
 an audio dropout on every played note); now only the strike clears it. The UI loop waited ~120 ms for each full-frame I2C redraw, so notes, LEDs and knob moves arrived late
 (DEVELOPING.md, `display_esp32.cpp`).
+
+### ADR-039: Mutable Instruments oscillator models (Braids, Plaits) as a module (Accepted; user choices of 2026-10-07; host-tested, NOT on the board, NOT listened to)
+User decisions: take the Braids and Plaits models (reference: poetaster's Arduino ports; code from the original MIT sources, credits in `THIRD_PARTY_NOTICES.md`),
+**the cheapest in CPU and RAM first** (tiers 1 and 2 of the list made with the user); the models **close to our engines are set aside** to be compared later (Braids
+VOWEL, VOWEL_FOF, FM, SAW_SWARM, PARTICLE; Plaits FM, Waveshaping, Particle); **no stmlib dependency**: its helpers are ported into the framework
+(`src/engine/dsp/fdsp*`, namespace `sc::fdsp`, bit-identical), our own helpers replace them only under an A/B test; sound accepted only after the user's
+listening loop (serial `mi`).
+- **Module** `MiOsc` (`modules/mi_osc.*`, type 96, voice scope): pitch / timbre / morph / harm / level, in 0 pitch CV, in 1 gate. One object per voice, built
+  in place (688 B for Braids, <= 336 B for a Plaits engine, + 400 B of Plaits scratch): ~1.1 KB per voice per oscillator, no allocation. Calls the model in
+  chunks of 16 samples. Rack: OSC `Wav` 15..61 (`OC_FIRST_MI`, 47 models: 34 Braids, 13 Plaits with the drums split), Timb = PW row, Mrph, **Harm behind the OSC
+  cog** (my choice: say if it should be a row / a modulation target); the mapper builds `T_MIOSC` (`rack_graph.cpp`).
+- **Sample rate**: ours. Plaits uses `kSampleRate` throughout; Braids' rate-dependent tables are regenerated per supported rate (`tools/gen_mi_tables.py`,
+  equal to the originals at 96 kHz). Not fixed: Braids' per-sample time constants outside tables (96 kHz: they run ~2.2x slower at 44.1 kHz). Braids CYMBAL is
+  continuous (our envelope shapes it), the six drum models are struck by the gate.
+- **Changes for cost**: Braids' 16 KB delay-line union became a buffer pointer (the waveguide models of tier 3 need one later); each Plaits drum engine renders
+  only the model whose output is used (PBass/PBassS, PSnare/PSnrS, PHat/PHat2). Host cost per sample (whole test graph, ns): Braids 5-19 (Cymbal 33), Plaits
+  18-38, ours 5-16 (Karp, SSaw, Add). The Plaits analog bass drum / snare spent 8x more on x86 denormals (271 -> 33 ns with flush-to-zero): the simulator's audio
+  thread now flushes denormals; **the board behaviour is unknown** (to measure; if slow, a small guard in those decays).
+- **UI**: the OSC page preview renders the model itself (`audio_osc_preview` -> `mi_render_preview`, cached until a value changes; a struck model shows its decay);
+  placeholder icons `24/osc_<name>`. **Not done**: the models' own icons (the user draws them), IRAM placement of the models' code (after the board measurements),
+  loudness calibration between models (Braids is near full scale, Plaits about -6 dB; to set with the listening loop).
+- Tests (`test_mi_osc.cpp`, all six configurations): every model sounds, finite, below full scale; 11 pitched models periodic at the note (3 notes); the struck
+  ones decay; the rack's Wav names follow the model order; host cost table.
 
 ## Known limits and ideas for later
 

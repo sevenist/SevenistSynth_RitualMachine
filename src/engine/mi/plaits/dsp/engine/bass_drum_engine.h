@@ -29,11 +29,11 @@
 #ifndef PLAITS_DSP_ENGINE_BASS_DRUM_ENGINE_H_
 #define PLAITS_DSP_ENGINE_BASS_DRUM_ENGINE_H_
 
-#include "plaits/dsp/drums/analog_bass_drum.h"
-#include "plaits/dsp/drums/synthetic_bass_drum.h"
-#include "plaits/dsp/engine/engine.h"
-#include "plaits/dsp/fx/overdrive.h"
-#include "plaits/dsp/fx/sample_rate_reducer.h"
+#include "engine/mi/plaits/dsp/drums/analog_bass_drum.h"
+#include "engine/mi/plaits/dsp/drums/synthetic_bass_drum.h"
+#include "engine/mi/plaits/dsp/engine/engine.h"
+#include "engine/mi/plaits/dsp/fx/overdrive.h"
+#include "engine/mi/plaits/dsp/fx/sample_rate_reducer.h"
 
 namespace plaits {
   
@@ -42,7 +42,7 @@ class BassDrumEngine : public Engine {
   BassDrumEngine() { }
   ~BassDrumEngine() { }
   
-  virtual void Init(stmlib::BufferAllocator* allocator);
+  virtual void Init(sc::fdsp::BufferAllocator* allocator);
   virtual void Reset();
   virtual void LoadUserData(const uint8_t* user_data) { }
   virtual void Render(const EngineParameters& parameters,

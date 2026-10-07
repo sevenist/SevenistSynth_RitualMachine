@@ -32,11 +32,11 @@
 #ifndef PLAITS_DSP_OSCILLATOR_SINE_OSCILLATOR_H_
 #define PLAITS_DSP_OSCILLATOR_SINE_OSCILLATOR_H_
 
-#include "stmlib/dsp/dsp.h"
-#include "stmlib/dsp/parameter_interpolator.h"
-#include "stmlib/dsp/rsqrt.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp.h"
 
-#include "plaits/resources.h"
+#include "engine/mi/plaits/resources.h"
 
 namespace plaits {
   
@@ -46,12 +46,12 @@ const size_t kSineLUTBits = 9;
 
 // Safe for phase >= 0.0f, will wrap.
 inline float Sine(float phase) {
-  return stmlib::InterpolateWrap(lut_sine, phase, kSineLUTSize);
+  return sc::fdsp::InterpolateWrap(lut_sine, phase, kSineLUTSize);
 }
 
 // Potentially unsafe, if phase >= 1.25.
 inline float SineNoWrap(float phase) {
-  return stmlib::Interpolate(lut_sine, phase, kSineLUTSize);
+  return sc::fdsp::Interpolate(lut_sine, phase, kSineLUTSize);
 }
 
 // With positive of negative phase modulation up to an index of 32.
@@ -128,8 +128,8 @@ class SineOscillator {
     if (frequency >= 0.5f) {
       frequency = 0.5f;
     }
-    stmlib::ParameterInterpolator fm(&frequency_, frequency, size);
-    stmlib::ParameterInterpolator am(&amplitude_, amplitude, size);
+    sc::fdsp::ParameterInterpolator fm(&frequency_, frequency, size);
+    sc::fdsp::ParameterInterpolator am(&amplitude_, amplitude, size);
 
     while (size--) {
       phase_ += fm.Next();
@@ -208,14 +208,14 @@ class FastSineOscillator {
       amplitude *= 1.0f - frequency * 4.0f;
     }
     
-    stmlib::ParameterInterpolator epsilon(&epsilon_, Fast2Sin(frequency), size);
-    stmlib::ParameterInterpolator am(&amplitude_, amplitude, size);
+    sc::fdsp::ParameterInterpolator epsilon(&epsilon_, Fast2Sin(frequency), size);
+    sc::fdsp::ParameterInterpolator am(&amplitude_, amplitude, size);
     float x = x_;
     float y = y_;
     
     const float norm = x * x + y * y;
     if (norm <= 0.5f || norm >= 2.0f) {
-      const float scale = stmlib::fast_rsqrt_carmack(norm);
+      const float scale = sc::fdsp::fast_rsqrt_carmack(norm);
       x *= scale;
       y *= scale;
     }

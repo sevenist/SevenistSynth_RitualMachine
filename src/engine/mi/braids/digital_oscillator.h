@@ -29,10 +29,10 @@
 #ifndef BRAIDS_DIGITAL_OSCILLATOR_H_
 #define BRAIDS_DIGITAL_OSCILLATOR_H_
 
-#include "stmlib/stmlib.h"
+#include "engine/dsp/fdsp.h"
 
-#include "braids/excitation.h"
-#include "braids/svf.h"
+#include "engine/mi/braids/excitation.h"
+#include "engine/mi/braids/svf.h"
 
 #include <cstring>
 

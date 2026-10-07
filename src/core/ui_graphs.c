@@ -1,6 +1,7 @@
 // The pictures that fill the graph box: each one only needs the display, a rectangle and the values to show.
 #include "core/ui_internal.h"
 #include "core/dx7_algos.h"
+#include "hal/hal_audio.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -20,6 +21,41 @@ void draw_wave(u8g2_t *g, gui_rect_t box, int wave, float pulse_width, float cyc
             default:            noise = noise * 1664525u + 1013904223u; v = ((noise >> 16) & 0xFF) / 127.5f - 1.0f; break;
         }
         int x = box.x + 1 + i, y = cy - (int)(v * amp);
+        if (i > 0) u8g2_DrawLine(g, px, py, x, y);
+        px = x; py = y;
+    }
+}
+
+// The Mutable Instruments models (rack Wav >= OC_FIRST_MI): the model itself, rendered by the engine (audio_osc_preview) and kept until one of
+// its values changes. A periodic model shows `cycles` periods; a struck one its decay (the peak of each pixel column's slice of 4096 samples rendered,
+// ~90 ms at 44.1 kHz).
+// Without an engine (ui_dump, the UI tests) the model's name.
+void draw_mi_preview(u8g2_t *g, gui_rect_t box, int model, float timbre, float morph, float harm, float cycles, const char *name) {
+    enum { P = 64, N = 1024 };                                                    // period of the rendered pitch (689 Hz at 44.1 kHz), samples (2 KB)
+    static int16_t buf[N];
+    static int kind = -1, c_model = -1;
+    static float c_t, c_m, c_h;
+    if (model != c_model || timbre != c_t || morph != c_m || harm != c_h) {
+        kind = audio_osc_preview(model, timbre, morph, harm, P, buf, N);
+        c_model = model; c_t = timbre; c_m = morph; c_h = harm;
+    }
+    if (kind <= 0) { gui_draw_text_centered(g, box, name); return; }
+    const int cy = box.y + box.h / 2, amp = box.h / 2 - 3, w = box.w - 2;
+    if (kind == 2) {
+        for (int x = 0; x < w; x++) {
+            int pk = 0;
+            for (int i = x * N / w; i < (x + 1) * N / w; i++) { const int a = buf[i] < 0 ? -buf[i] : buf[i]; if (a > pk) pk = a; }
+            const int h = pk * amp / 32768;
+            u8g2_DrawVLine(g, box.x + 1 + x, cy - h, 2 * h + 1);
+        }
+        return;
+    }
+    int span = (int)(cycles * P);
+    if (span < 2) span = 2;
+    if (span > N) span = N;
+    int px = 0, py = 0;
+    for (int i = 0; i < w; i++) {
+        const int x = box.x + 1 + i, y = cy - buf[N - span + i * span / w] * amp / 32768;
         if (i > 0) u8g2_DrawLine(g, px, py, x, y);
         px = x; py = y;
     }

@@ -9,6 +9,8 @@
 #include "engine/modules/fx_modules.h"
 #include "engine/modules/fx2_modules.h"
 #include "engine/modules/motion_seq.h"
+#include <cmath>
+#include "engine/modules/mi_osc.h"
 #include "engine/modules/osc_engines.h"
 #include "engine/modules/sampler_modules.h"
 #include "engine/modules/para_modules.h"
@@ -136,6 +138,7 @@ int engine_synth_init(void *fast, size_t fast_bytes, void *bulk, size_t bulk_byt
     register_dx7_module(s.eng.registry());
     register_motion_module(s.eng.registry());
     register_osc_engines(s.eng.registry());
+    register_mi_osc(s.eng.registry());
     s.have_last = false;
     s.bpos = kBlock;
     s_ready = true;
@@ -263,6 +266,16 @@ void engine_synth_render(int16_t *stereo, int frames) {
 }
 
 int engine_synth_sample_count(void) { return s_ready ? s_synth.cat_n : 0; }
+
+int engine_synth_osc_preview(int model, float timbre, float morph, float harm, int period, int16_t *out, int n) {
+    if (model < 0 || model >= MI_MODELS || period < 2 || n <= 0) return 0;
+    auto q = [](float v) { return static_cast<q15>(std::lround(std::fmax(0.0f, std::fmin(1.0f, v)) * 32767.0f)); };
+    const double hz = static_cast<double>(kSampleRate) / period;
+    const int32_t pitch = static_cast<int32_t>(std::lround((69.0 + 12.0 * std::log2(hz / 440.0)) * 256.0));
+    const bool struck = mi_model_percussive(model);
+    mi_render_preview(model, q(timbre), q(morph), q(harm), pitch, 8 * period, struck ? 4 : 1, out, n);   // a decay: 4x longer, peaks kept
+    return struck ? 2 : 1;
+}
 
 bool engine_synth_sample_info(int index, audio_sample_info_t *out) {
     if (!s_ready) return false;

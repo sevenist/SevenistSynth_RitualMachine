@@ -40,6 +40,13 @@ GLYPHS = {
     "T": ["#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."],
     "W": ["#...#", "#...#", "#...#", "#.#.#", "#.#.#", "##.##", "#...#"],
     "2": [".###.", "#...#", "....#", "...#.", "..#..", ".#...", "#####"],
+    "3": ["####.", "....#", "....#", ".###.", "....#", "....#", "####."],
+    "Q": [".###.", "#...#", "#...#", "#...#", "#.#.#", "#..#.", ".##.#"],
+    "B": ["####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."],
+    "H": ["#...#", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"],
+    "I": [".###.", "..#..", "..#..", "..#..", "..#..", "..#..", ".###."],
+    "U": ["#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."],
+    "Z": ["#####", "....#", "...#.", "..#..", ".#...", "#....", "#####"],
 }
 
 CLEAR, OFF, LIT = (0, 0), (0, 255), (255, 255)   # (luminance, alpha) per pixel
@@ -54,6 +61,13 @@ MODULES = {
 OSC_WAVES = ["sine", "pulse", "sawdn", "sawup", "tri", "noise"]
 OSC_ENGINES = {"karp": "KRP", "modal": "MOD", "fm2": "FM2", "fold": "FLD", "ssaw": "SSW", "vowel": "VOW", "add": "ADD",
                "dust": "DST", "strng": "STR"}
+# the Mutable Instruments models (rack Wav >= OC_FIRST_MI; the icon name is the Wav name in lower case, see ui_module_sprite)
+MI_MODELS = {"csaw": "CSW", "morph": "MRF", "sawsq": "SSQ", "sintri": "STR", "buzz": "BUZ", "sqsub": "SQB", "sawsub": "SWB", "sqsync": "SQY",
+             "swsync": "SWY", "toy": "TOY", "zlp": "ZLP", "zpk": "ZPK", "zbp": "ZBP", "zhp": "ZHP", "vosim": "VOS", "fbfm": "FBF", "chaos": "CHS",
+             "kick": "KIK", "fnoise": "FNS", "twin": "TWN", "clock": "CLK", "digmod": "DGM", "morse": "MRS", "3saw": "3SW", "3sq": "3SQ",
+             "3tri": "3TR", "3sine": "3SN", "3ring": "3RG", "wtbl": "WTB", "wmap": "WMP", "wline": "WLN", "cloud": "CLD", "cymbal": "CYM",
+             "bsnare": "BSN", "pnoise": "PNS", "chip": "CHP", "phdist": "PHD", "va": "VA", "vavcf": "VCF", "grain": "GRN", "terrn": "TRN",
+             "pbass": "PBD", "pbasss": "PBS", "psnare": "PSD", "psnrs": "PSS", "phat": "PHH", "phat2": "PH2"}
 TABS = {
     "rack": "RK", "general": "GN", "algorithm": "AL", "operator": "OP", "envelope": "EV", "fx": "FX", "samples": "SM",
     "keys": "KY", "modifiers": "MD", "macros": "MC", "curves": "CV", "leds": "LD", "joy": "JY",
@@ -191,6 +205,7 @@ def main():
     jobs += [("24/slot_empty", slot_empty()), ("24/slot_out", slot_out())]
     jobs += [("24/osc_%s" % n, osc_wave(n)) for n in OSC_WAVES]
     jobs += [("24/osc_%s" % n, osc_engine(c)) for n, c in OSC_ENGINES.items()]
+    jobs += [("24/osc_%s" % n, osc_engine(c)) for n, c in MI_MODELS.items()]
     jobs += [("16/tab_%s" % n, tab_icon(c)) for n, c in TABS.items()]
     jobs += [("8/ui_cog", from_art(COG))]
     wrote = kept = 0

@@ -26,18 +26,18 @@
 //
 // Virtual analog with VCF.
 
-#include "plaits/dsp/engine2/virtual_analog_vcf_engine.h"
+#include "engine/mi/plaits/dsp/engine2/virtual_analog_vcf_engine.h"
 
 #include <algorithm>
 
-#include "stmlib/dsp/parameter_interpolator.h"
+#include "engine/dsp/fdsp.h"
 
 using namespace std;
 
 namespace plaits {
 
 using namespace std;
-using namespace stmlib;
+using namespace sc::fdsp;
 
 void VirtualAnalogVCFEngine::Init(BufferAllocator* allocator) {
   oscillator_.Init();

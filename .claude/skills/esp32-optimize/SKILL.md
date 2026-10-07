@@ -142,6 +142,9 @@ After they say flashed: rerun section 2, compare with a before/now table, say if
 - **Never bare `python` (or `py`)**: on this machine it is MSYS2 3.12.9 without pyserial (`py` is 3.13). Always `C:\.platformio\penv\Scripts\python.exe` (3.11.7, pyserial), and never bare `pio` either (see the skill `board-session`, section 2).
 
 - **Scripted edits through this harness lose one level of backslashes**: `\\n` written in a Python heredoc reaches the C file as a real newline (the printf then does not compile). Use the Edit tool for any line with `\n`, or build the character with `chr(92)` outside the quoted block. After a scripted printf edit, grep that the format string is one line.
+- A flag passed by `PLATFORMIO_BUILD_FLAGS` survives only builds you run: when the **user** uploads, `pio run -t upload` rebuilds without it (the bench
+  build was lost this way once). For a build the user flashes, put the flag in `platformio.ini` for that flash and comment it out after.
+- The boot bench is preempted by other tasks: time the fastest of several runs, not the average (outliers of 1M cycles were seen).
 - PowerShell does not expand `*.c` for gcc (compile ui_dump from bash); `Select-Object -First N` on a pipeline closes it and kills the upstream process (an upload!).
 
 - Bash heredocs and Python literals: `\n` inside a C string in a script becomes a real newline, and heredocs with quotes break. Edit with the Edit tool or write a script file with the Write tool, then run it. After any scripted edit of a `printf`, grep that the string is still on one line.

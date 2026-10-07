@@ -29,12 +29,12 @@
 #ifndef BRAIDS_ANALOG_OSCILLATOR_H_
 #define BRAIDS_ANALOG_OSCILLATOR_H_
 
-#include "stmlib/stmlib.h"
+#include "engine/dsp/fdsp.h"
 
 #include <cstring>
 #include <cstdio>
 
-#include "braids/resources.h"
+#include "engine/mi/braids/resources.h"
 
 namespace braids {
 

@@ -26,18 +26,18 @@
 //
 // Macro-oscillator.
 
-#include "braids/macro_oscillator.h"
+#include "engine/mi/braids/macro_oscillator.h"
 
 #include <algorithm>
 
-#include "stmlib/utils/dsp.h"
+#include "engine/dsp/fdsp.h"
 
-#include "braids/parameter_interpolation.h"
-#include "braids/resources.h"
+#include "engine/mi/braids/parameter_interpolation.h"
+#include "engine/mi/braids/resources.h"
 
 namespace braids {
   
-using namespace stmlib;
+using namespace sc::fdsp;
 
 void MacroOscillator::Render(
     const uint8_t* sync,

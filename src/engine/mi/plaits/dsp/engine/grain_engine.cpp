@@ -28,12 +28,12 @@
 
 #include <algorithm>
 
-#include "plaits/dsp/engine/grain_engine.h"
+#include "engine/mi/plaits/dsp/engine/grain_engine.h"
 
 namespace plaits {
 
 using namespace std;
-using namespace stmlib;
+using namespace sc::fdsp;
 
 void GrainEngine::Init(BufferAllocator* allocator) {
   grainlet_[0].Init();

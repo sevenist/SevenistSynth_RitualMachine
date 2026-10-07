@@ -6,10 +6,14 @@ not: state, the latest measurements and what to do next, the user's working styl
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
 `tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
-## Session todo (updated 2026-10-07, fourth session)
+## Session todo (updated 2026-10-07, fourth session, ended)
 
-This session: commit the sprite pipeline, then the 8 x 8 grid layout. Confirmed by the user on the board (2026-10-07): joystick XY, fine steps, role-based
-LED colours (preview by role, GRB order, default colours). Still to tune on the board: the HWV1 knob hysteresis.
+Next session starts here. NOT committed since 848fbf8 (the user's mid-work snapshot, which still has the deleted src/engine/mi/stmlib): this
+session's work (grid step 1, module pages + cog, AP filter, MI oscillators) and another session's FFT / spectral work share the tree; ask before
+committing, and commit this session's files apart from the FFT ones. Verified at the end: 168 engine tests (6 configurations earlier, 44.1/64 last),
+59 UI tests, sim + firmware build. Open questions to the user: commit; turn on ENGINE_PROFILE + HWV1_DEBUG_AUDIO for the MI performance test
+(1 / 3 / 6 voices Mod Para + filter + delay + reverb, `patch para N V` + `mi <model>`). Another session may be flashing COM8: one pio build at a
+time, message it before building (memory feedback-shared-tree-builds). Confirmed by the user on the board: joystick XY, fine steps, LED roles.
 
 - [ ] **8 x 8 grid layout** (user, 2026-10-07): every placement on an 8 px grid, the top bar 16 px high (one row); rack cells 32 px (24 icon + 8),
   four across; then the links drawn to the fixed connectors. Touches every screen (from: user).
@@ -42,6 +46,12 @@ LED colours (preview by role, GRB order, default colours). Still to tune on the 
   Latch details (user, 2026-10-07; toggle per note, not a sustain pedal; Shift only, Mod + note plays normally): app.c `ACT_NOTE`, `input_state_t.latched[]`;
   test `modifiers_shift_note_latches_until_pressed_again`. The next press of the key (with or without Shift) releases it; only when the key's Shift entry is
   Default. Shift + Back: popup "LATCH / Released N". Limits: a latched key whose function is changed in KEYS keeps its note until a panic / restart
+- [ ] **Mutable Instruments oscillators (ADR-039)** (user, 2026-10-07): tiers 1 + 2 BUILT (47 models: Wav 15..61; 168 engine tests x 6
+  configurations, 59 UI tests, sim build; firmware: see below; NOT flashed, NOT listened to). No stmlib (`src/engine/dsp/fdsp*`); vendored code
+  `src/engine/mi` (`VENDOR.md`: commit, local changes). User's next step: test them all in a heavy patch (1, 3, then 6 voices in Mod Para + filter + delay
+  + reverb) for sound and performance: `patch para N V`, then `mi <name|next|prev|list> [timbre morph harm]`; `serial_test.py` with ENGINE_PROFILE +
+  HWV1_DEBUG_AUDIO prints `[MI]` cycles per model. To decide after: loudness per model, denormals on the board (Plaits analog drums), IRAM for the models,
+  Harm placement (now behind the OSC cog), the set-aside models vs ours, tier 3 (from: user)
 - [ ] **All-pass filter type "AP"** (user, 2026-10-07): BUILT (161 engine tests green incl. `filter_allpass_is_flat`: worst 0.03 dB, 59 UI
   tests, sim + firmware build, NOT flashed, NOT listened to). `FILT_AP` appended (saved values keep their meaning), engine `FLTM_AP` = the SVF's
   x - 2k bp (one multiply-add over an LP section), 1 section, Res = Q (how fast the phase turns); also in STR FILTER; serial `flt 9`. The preview
@@ -56,6 +66,21 @@ LED colours (preview by role, GRB order, default colours). Still to tune on the 
 - [x] Fine steps: tried by the user on the board, work (done 2026-10-07)
 - [x] Role-based key LED colours: LEDS tab, preview by role, GRB order, default colours: checked by the user on the board (done 2026-10-07)
 - Set aside (user, 2026-10-07): unformatted card "format?" ASK (a mount without a file system is still "no card"; needs FATFS mkfs)
+
+## FFT on the ESP32-S3: own PIE kernel (2026-10-07; flashed and measured with the boot bench, NOT listened to: no patch can use the spectral effects yet)
+
+- The C FFT measured 173-205k cycles per 512 transform on the board: an STFT hop needed more than a core, so SpectralFx / Vocoder could never have run there.
+  User choice (asked with options; I recommended ESP-DSP float + a real-FFT trick): **own PIE block-float kernel**. Details and all measured candidates: ENGINE_DESIGN.md ADR-016 addendum.
+- Built: `dsp/fft_s3.S` (PIE stages, pack, min / max) + the driver in `fft.cpp` (`SC_FFT_PIE` on the S3; `fft_q15_c` = the portable C version elsewhere);
+  the C version got an exact speed-up too (bit-identical, test `fft_is_bit_identical_to_the_reference`, reference copy `fft_ref.h`); Stft overlap-add without
+  64-bit maths (checksum-identical). Credit: THIRD_PARTY_NOTICES.md (ESP-DSP structure).
+- Board (`HWV1_BENCH`, `[BENCH] FFT` / `[BENCH] Stft` lines): FFT 16.0k cycles (was 173k), SNR 63 / 64 / 63 dB loud / quiet / very quiet (C: 67 / 60 / 37);
+  Stft mono identity frame **517 cycles per sample** (9.5 % of a core; was ~3050 estimated), identity SNR 71.6 dB.
+- Next (to decide with the user): put SpectralFx / Vocoder (or new spectral effects) in the FX rack to measure and listen to them; remaining scalar parts:
+  window + overlap-add (~31k per frame), bit-reversal unpack (4.7k per transform); a real-FFT trick would roughly halve the mono case.
+- Trap found: a build flag passed by `PLATFORMIO_BUILD_FLAGS` is lost when the user uploads (`pio run -t upload` rebuilds without it). When the user flashes
+  a measurement build, put the flag in `platformio.ini` for that flash and comment it out after.
+- The bench times the fastest of several runs: at boot the bench task is preempted (outliers of 1M cycles); averages were 1.5-3x too high.
 
 ## Fine steps, continuous knobs (2026-10-07; fine steps tried by the user: work; knob hysteresis not tuned yet)
 
@@ -349,6 +374,8 @@ engine: the build made after these numbers adds a **fast path** (steady pitch an
 The user decides and I record the reasoning and move on, without re-litigating:
 - **All signals are q15 audio-rate blocks** (ADR-010): simpler, costs CPU for slow modulators.
 - **Naive saturation** (ADR-013), **q15 block-floating-point FFT, N = 512** (ADR-016), **Dattorro plate reverb** and **fixed Juno-like chorus modes** (ADR-019 / 020), **AMY replaced outright** (ADR-027).
+- **Own PIE block-float FFT kernel** (2026-10-07; I recommended ESP-DSP float + a real-FFT trick): risk = S3-only assembly checked by the boot bench, not by the
+  host tests (the host runs the C path); built and measured: 16k cycles, 63-64 dB.
 - **MODIFIERS tab covers the keys too** (2026-10-07; I recommended knobs + encoders + joystick): risk = a larger tab list (~60 controls on the board) and file;
   mitigated: Default entries keep the old behaviour, modifier keys and Menu-less lock-outs cannot happen through a layer (Shift / Mod keys are never remapped by it).
 - On the hardware (ADR-035): a **float exception** for the filters; **mono delay / reverb** and the **half-rate reverb tank** as build flags; the **5-saw supersaw**; the sample rate is **never below 44100 Hz**; modal as phasors and the additive recurrence were done before asking

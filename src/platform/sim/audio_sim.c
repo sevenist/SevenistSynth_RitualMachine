@@ -19,8 +19,17 @@ int sim_samples_prepare(int index);
 static SDL_AudioDeviceID dev;
 static void *fast_mem, *bulk_mem;
 
+#if defined(__SSE__) || defined(__x86_64__)
+#include <xmmintrin.h>
+#endif
+
 static void audio_callback(void *userdata, Uint8 *stream, int len) {
     (void)userdata;
+#if defined(__SSE__) || defined(__x86_64__)
+    // Flush denormal floats to zero on the audio thread: a decaying float state (filters, the Plaits drums' pulses) reaches denormals in a few
+    // ms, and each operation on one costs ~100 cycles on x86 (the Plaits analog bass drum ran 8x slower). Inaudible (below -700 dB).
+    _mm_setcsr(_mm_getcsr() | 0x8040);
+#endif
     engine_synth_render((int16_t *)stream, len / 4);       // 2 channels x 16 bit
 }
 
@@ -57,6 +66,7 @@ void audio_set_params(const rack_t *r, const synth_params_t *p) { engine_synth_s
 void audio_build(const rack_t *r, const synth_params_t *p)      { engine_synth_build(r, p); }
 int audio_sample_count(void)                                     { return engine_synth_sample_count(); }
 bool audio_sample_info(int i, audio_sample_info_t *out)         { return engine_synth_sample_info(i, out); }
+int audio_osc_preview(int m, float t, float mo, float h, int period, int16_t *out, int n) { return engine_synth_osc_preview(m, t, mo, h, period, out, n); }
 int audio_samples_rescan(void)                                  { return sim_samples_rescan(); }
 sd_state_t audio_sd_state(void)                                 { return sim_card_present() ? SD_OK : SD_NONE; }   // the sdcard/ folder (F12: out / in)
 uint32_t audio_sd_read_us(void)                                 { return 0; }

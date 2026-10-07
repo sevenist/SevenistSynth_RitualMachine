@@ -31,13 +31,13 @@
 
 #include <algorithm>
 
-#include "stmlib/dsp/dsp.h"
-#include "stmlib/dsp/filter.h"
-#include "stmlib/dsp/parameter_interpolator.h"
-#include "stmlib/dsp/units.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp_filter.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp_units.h"
 
-#include "plaits/dsp/dsp.h"
-#include "plaits/dsp/oscillator/sine_oscillator.h"
+#include "engine/mi/plaits/dsp/dsp.h"
+#include "engine/mi/plaits/dsp/oscillator/sine_oscillator.h"
 
 namespace plaits {
 
@@ -89,9 +89,9 @@ class AnalogBassDrum {
     const float kRetrigPulseDuration = 0.05f * kSampleRate;
     
     const float scale = 0.001f / f0;
-    const float q = 1500.0f * stmlib::SemitonesToRatio(decay * 80.0f);
+    const float q = 1500.0f * sc::fdsp::SemitonesToRatio(decay * 80.0f);
     const float tone_f = std::min(
-        4.0f * f0 * stmlib::SemitonesToRatio(tone * 108.0f),
+        4.0f * f0 * sc::fdsp::SemitonesToRatio(tone * 108.0f),
         1.0f);
     const float exciter_leak = 0.08f * (tone + 0.25f);
       
@@ -103,7 +103,7 @@ class AnalogBassDrum {
       lp_out_ = 0.0f;
     }
     
-    stmlib::ParameterInterpolator sustain_gain(
+    sc::fdsp::ParameterInterpolator sustain_gain(
         &sustain_gain_,
         accent * decay,
         size);
@@ -156,9 +156,9 @@ class AnalogBassDrum {
       if (sustain) {
         oscillator_.Next(f, sustain_gain.Next(), &resonator_out, &lp_out_);
       } else {
-        resonator_.set_f_q<stmlib::FREQUENCY_DIRTY>(f, 1.0f + q * f);
-        resonator_.Process<stmlib::FILTER_MODE_BAND_PASS,
-                           stmlib::FILTER_MODE_LOW_PASS>(
+        resonator_.set_f_q<sc::fdsp::FREQUENCY_DIRTY>(f, 1.0f + q * f);
+        resonator_.Process<sc::fdsp::FILTER_MODE_BAND_PASS,
+                           sc::fdsp::FILTER_MODE_LOW_PASS>(
             (pulse - retrig_pulse_ * 0.2f) * scale,
             &resonator_out,
             &lp_out_);
@@ -182,7 +182,7 @@ class AnalogBassDrum {
   float tone_lp_;
   float sustain_gain_;
   
-  stmlib::Svf resonator_;
+  sc::fdsp::Svf resonator_;
   
   // Replace the resonator in "free running" (sustain) mode.
   SineOscillator oscillator_;

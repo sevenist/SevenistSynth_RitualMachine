@@ -30,12 +30,12 @@
 #ifndef PLAITS_DSP_DRUMS_SYNTHETIC_BASS_DRUM_H_
 #define PLAITS_DSP_DRUMS_SYNTHETIC_BASS_DRUM_H_
 
-#include "stmlib/dsp/dsp.h"
-#include "stmlib/dsp/units.h"
-#include "stmlib/utils/random.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp_units.h"
+#include "engine/dsp/fdsp_random.h"
 
-#include "plaits/dsp/dsp.h"
-#include "plaits/dsp/oscillator/sine_oscillator.h"
+#include "engine/mi/plaits/dsp/dsp.h"
+#include "engine/mi/plaits/dsp/oscillator/sine_oscillator.h"
 
 namespace plaits {
 
@@ -48,19 +48,19 @@ class SyntheticBassDrumClick {
     lp_ = 0.0f;
     hp_ = 0.0f;
     filter_.Init();
-    filter_.set_f_q<stmlib::FREQUENCY_FAST>(5000.0f / kSampleRate, 2.0f);
+    filter_.set_f_q<sc::fdsp::FREQUENCY_FAST>(5000.0f / kSampleRate, 2.0f);
   }
   
   float Process(float in) {
     SLOPE(lp_, in, 0.5f, 0.1f);
     ONE_POLE(hp_, lp_, 0.04f);
-    return filter_.Process<stmlib::FILTER_MODE_LOW_PASS>(lp_ - hp_);
+    return filter_.Process<sc::fdsp::FILTER_MODE_LOW_PASS>(lp_ - hp_);
   }
   
  private:
   float lp_;
   float hp_;
-  stmlib::Svf filter_;
+  sc::fdsp::Svf filter_;
   
   DISALLOW_COPY_AND_ASSIGN(SyntheticBassDrumClick);
 };
@@ -76,7 +76,7 @@ class SyntheticBassDrumAttackNoise {
   }
   
   float Render() {
-    float sample = stmlib::Random::GetFloat();
+    float sample = sc::fdsp::Random::GetFloat();
     ONE_POLE(lp_, sample, 0.05f);
     ONE_POLE(hp_, lp_, 0.005f);
     return lp_ - hp_;
@@ -141,7 +141,7 @@ class SyntheticBassDrum {
     decay *= decay;
     fm_envelope_decay *= fm_envelope_decay;
     
-    stmlib::ParameterInterpolator f0_mod(&f0_, f0, size);
+    sc::fdsp::ParameterInterpolator f0_mod(&f0_, f0, size);
     
     dirtiness *= std::max(1.0f - 8.0f * f0, 0.0f);
     
@@ -149,10 +149,10 @@ class SyntheticBassDrum {
         1.0f / (0.008f * (1.0f + fm_envelope_decay * 4.0f) * kSampleRate);
 
     const float body_env_decay = 1.0f - 1.0f / (0.02f * kSampleRate) * \
-        stmlib::SemitonesToRatio(-decay * 60.0f);
+        sc::fdsp::SemitonesToRatio(-decay * 60.0f);
     const float transient_env_decay = 1.0f - 1.0f / (0.005f * kSampleRate);
     const float tone_f = std::min(
-        4.0f * f0 * stmlib::SemitonesToRatio(tone * 108.0f),
+        4.0f * f0 * sc::fdsp::SemitonesToRatio(tone * 108.0f),
         1.0f);
     const float transient_level = tone;
     
@@ -163,13 +163,13 @@ class SyntheticBassDrum {
       fm_pulse_width_ = kSampleRate * 0.0013f;
     }
     
-    stmlib::ParameterInterpolator sustain_gain(
+    sc::fdsp::ParameterInterpolator sustain_gain(
         &sustain_gain_,
         accent * decay,
         size);
     
     while (size--) {
-      ONE_POLE(phase_noise_, stmlib::Random::GetFloat() - 0.5f, 0.002f);
+      ONE_POLE(phase_noise_, sc::fdsp::Random::GetFloat() - 0.5f, 0.002f);
       
       float mix = 0.0f;
 

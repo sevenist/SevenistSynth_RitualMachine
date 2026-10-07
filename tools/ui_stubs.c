@@ -15,6 +15,10 @@ void audio_shutdown(void) {}
 void audio_build(const rack_t *r, const synth_params_t *p) { (void)r; (void)p; }
 void audio_set_params(const rack_t *r, const synth_params_t *p) { (void)r; (void)p; }
 int audio_sample_count(void) { return 3; }
+int audio_osc_preview(int m, float t, float mo, float h, int period, int16_t *out, int n) {   // no engine here: the UI shows the model name
+    (void)m; (void)t; (void)mo; (void)h; (void)period; (void)out; (void)n;
+    return 0;
+}
 bool audio_sample_info(int i, audio_sample_info_t *o) {
     if (i < 0 || i > 2) return false;
     memset(o, 0, sizeof *o);

@@ -31,11 +31,11 @@
 
 #include <algorithm>
 
-#include "stmlib/dsp/dsp.h"
-#include "stmlib/dsp/parameter_interpolator.h"
-#include "stmlib/dsp/polyblep.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp.h"
 
-#include "plaits/dsp/oscillator/sine_oscillator.h"
+#include "engine/mi/plaits/dsp/oscillator/sine_oscillator.h"
 
 namespace plaits {
 
@@ -70,19 +70,19 @@ class ZOscillator {
       formant_frequency = kMaxFrequency;
     }
     
-    stmlib::ParameterInterpolator carrier_frequency_modulation(
+    sc::fdsp::ParameterInterpolator carrier_frequency_modulation(
         &carrier_frequency_,
         carrier_frequency,
         size);
-    stmlib::ParameterInterpolator formant_frequency_modulation(
+    sc::fdsp::ParameterInterpolator formant_frequency_modulation(
         &formant_frequency_,
         formant_frequency,
         size);
-    stmlib::ParameterInterpolator carrier_shape_modulation(
+    sc::fdsp::ParameterInterpolator carrier_shape_modulation(
         &carrier_shape_,
         carrier_shape,
         size);
-    stmlib::ParameterInterpolator mode_modulation(
+    sc::fdsp::ParameterInterpolator mode_modulation(
         &mode_,
         mode,
         size);
@@ -124,8 +124,8 @@ class ZOscillator {
             mode_modulation.subsample(1.0f));
 
         float discontinuity = after - before;
-        this_sample += discontinuity * stmlib::ThisBlepSample(reset_time);
-        next_sample += discontinuity * stmlib::NextBlepSample(reset_time);
+        this_sample += discontinuity * sc::fdsp::ThisBlepSample(reset_time);
+        next_sample += discontinuity * sc::fdsp::NextBlepSample(reset_time);
         formant_phase_ = reset_time * f1;
         
         if (carrier_phase_ > 1.0f) {

@@ -29,7 +29,7 @@
 #ifndef PLAITS_DSP_ENGINE_ARPEGGIATOR_H_
 #define PLAITS_DSP_ENGINE_ARPEGGIATOR_H_
 
-#include "stmlib/utils/random.h"
+#include "engine/dsp/fdsp_random.h"
 
 namespace plaits {
 
@@ -76,7 +76,7 @@ class Arpeggiator{
     
     if (mode_ == ARPEGGIATOR_MODE_RANDOM) {
       while (true) {
-        uint32_t w = stmlib::Random::GetWord();
+        uint32_t w = sc::fdsp::Random::GetWord();
         int octave = (w >> 4) % range_;
         int note = (w >> 20) % num_notes;
         if (octave != octave_ || note != note_) {

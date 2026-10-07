@@ -29,11 +29,11 @@
 #ifndef PLAITS_DSP_ENGINE_VIRTUAL_ANALOG_VCF_ENGINE_H_
 #define PLAITS_DSP_ENGINE_VIRTUAL_ANALOG_VCF_ENGINE_H_
 
-#include "stmlib/dsp/filter.h"
+#include "engine/dsp/fdsp_filter.h"
 
-#include "plaits/dsp/engine/engine.h"
-#include "plaits/dsp/oscillator/variable_saw_oscillator.h"
-#include "plaits/dsp/oscillator/variable_shape_oscillator.h"
+#include "engine/mi/plaits/dsp/engine/engine.h"
+#include "engine/mi/plaits/dsp/oscillator/variable_saw_oscillator.h"
+#include "engine/mi/plaits/dsp/oscillator/variable_shape_oscillator.h"
 
 namespace plaits {
   
@@ -42,7 +42,7 @@ class VirtualAnalogVCFEngine : public Engine {
   VirtualAnalogVCFEngine() { }
   ~VirtualAnalogVCFEngine() { }
   
-  virtual void Init(stmlib::BufferAllocator* allocator);
+  virtual void Init(sc::fdsp::BufferAllocator* allocator);
   virtual void Reset();
   virtual void LoadUserData(const uint8_t* user_data) { }
   virtual void Render(const EngineParameters& parameters,
@@ -52,7 +52,7 @@ class VirtualAnalogVCFEngine : public Engine {
       bool* already_enveloped);
   
  private:
-  stmlib::Svf svf_[2];
+  sc::fdsp::Svf svf_[2];
   VariableShapeOscillator oscillator_;
   VariableShapeOscillator sub_oscillator_;
   

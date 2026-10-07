@@ -123,9 +123,9 @@ private:
 class SpectralFx : public Module {
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"SpectralFx", Scope::Global, 1, 1, SPX_N, false, {"in"}, {"out"},
+        static const ModuleInfo i = {"SpectralFx", Scope::Global, 2, 2, SPX_N, false, {"in", "inR"}, {"out", "outR"},
             {{"mode", SPXM_THRU, 0, 5}, {"amount", 4096, 0, kUnity}, {"lo", 20 * kSemi, 0, 135 * kSemi}, {"hi", 135 * kSemi, 0, 135 * kSemi},
-             {"shift", 0, -24 * kSemi, 24 * kSemi}, {"freeze", 0, 0, 1}, {"mix", kUnity, 0, kUnity}}};
+             {"shift", 0, -24 * kSemi, 24 * kSemi}, {"freeze", 0, 0, 1}, {"mix", kUnity, 0, kUnity}, {"stereo", 0, 0, 1}}};
         return i;
     }
     bool init(Memory &m) override {
@@ -139,11 +139,11 @@ public:
         synth_ = reinterpret_cast<uint32_t *>(p); p += NB * 4;
         hmag_ = reinterpret_cast<uint32_t *>(p); p += NB * 4;
         hadv_ = reinterpret_cast<int64_t *>(p);
-        return stft_.init(*m.fast, false) && dry_.init(*m.fast, Stft::latency());
+        return stft_.init(*m.fast, false) && dry_.init(*m.fast, Stft::latency()) && dry_r_.init(*m.fast, Stft::latency());
     }
     ~SpectralFx() override { if (heap_) heap_->free(arrays_); }
     void reset() override {
-        stft_.reset(); dry_.clear();
+        stft_.reset(); dry_.clear(); dry_r_.clear();
         for (int k = 0; k < NB; k++) { mag_[k] = 0; adv_[k] = 0; prev_[k] = 0; synth_[k] = 0; hmag_[k] = 0; hadv_[k] = 0; }
         have_hold_ = false;
         synced_ = false;
@@ -157,15 +157,30 @@ public:
             case SPX_SHIFT: ratio_ = static_cast<int64_t>(std::lround(65536.0 * std::exp2(v / (12.0 * kSemi)))); synced_ = false; break;
             case SPX_FREEZE: freeze_ = v != 0; break;
             case SPX_MIX: mix_ = static_cast<q15>(v); break;
+            case SPX_STEREO: stereo_ = v != 0; break;
         }
     }
     void process(const ProcessCtx &ctx, const Ports &p) override {
         q15 wet[kBlock];
+        auto mix = [this](q15 dry, q15 w) { return mix_ == kUnity ? w : sat16(dry + (((static_cast<int32_t>(w) - dry) * mix_) >> 15)); };
+        if (stereo_ && p.in[1] && p.out[1]) {
+            q15 mono[kBlock];
+            for (int i = 0; i < ctx.frames; i++) mono[i] = static_cast<q15>((static_cast<int32_t>(p.in[0][i]) + p.in[1][i]) >> 1);
+            stft_.process(mono, nullptr, wet, ctx.frames, [this](StftFrame &f) { on_frame(f); });
+            for (int i = 0; i < ctx.frames; i++) {
+                const q15 dl = dry_.read(Stft::latency()), dr = dry_r_.read(Stft::latency());
+                dry_.write(p.in[0][i]);
+                dry_r_.write(p.in[1][i]);
+                p.out[0][i] = mix(dl, wet[i]);
+                p.out[1][i] = mix(dr, wet[i]);
+            }
+            return;
+        }
         stft_.process(p.in[0], nullptr, wet, ctx.frames, [this](StftFrame &f) { on_frame(f); });
         for (int i = 0; i < ctx.frames; i++) {
             const q15 dry = dry_.read(Stft::latency());
             dry_.write(p.in[0][i]);
-            p.out[0][i] = mix_ == kUnity ? wet[i] : sat16(dry + (((static_cast<int32_t>(wet[i]) - dry) * mix_) >> 15));
+            p.out[0][i] = mix(dry, wet[i]);
         }
     }
 private:
@@ -262,13 +277,13 @@ private:
     uint32_t *mag_ = nullptr, *prev_ = nullptr, *synth_ = nullptr, *hmag_ = nullptr;
     int64_t *adv_ = nullptr, *hadv_ = nullptr;
     Stft stft_;
-    DelayLine dry_;
+    DelayLine dry_, dry_r_;                                 // dry_r_: the right channel in stereo mode
     Noise rng_{0x5EEDu};
     int32_t mode_ = SPXM_THRU;
     q15 amount_ = 4096, mix_ = kUnity;
     int lo_bin_ = 0, hi_bin_ = kFftN / 2, hexp_ = 0;
     int64_t ratio_ = 65536;
-    bool freeze_ = false, have_hold_ = false, synced_ = false;
+    bool freeze_ = false, have_hold_ = false, synced_ = false, stereo_ = false;
 };
 
 /* ------------------------------------------------------------------ Vocoder */

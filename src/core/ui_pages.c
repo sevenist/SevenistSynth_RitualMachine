@@ -64,7 +64,7 @@ static const struct { const mpage_def_t *defs; int n; } mod_pages[MOD_TYPE_COUNT
 // The hidden settings of a module: rarely used rows, shown in place of its first page's rows while its cog is open (ui->cog_page).
 // A module without any has no cog.
 static const struct { int n; int p[4]; } mod_hidden[MOD_TYPE_COUNT] = {
-    [MOD_OSC] = {2, {MP_OC_QUAL, MP_OC_MUTE}},
+    [MOD_OSC] = {3, {MP_OC_QUAL, MP_OC_MUTE, MP_OC_HARM}},   // Harm: the MI models' third control
 };
 
 int module_hidden_count(int type) { return type >= 0 && type < MOD_TYPE_COUNT ? mod_hidden[type].n : 0; }

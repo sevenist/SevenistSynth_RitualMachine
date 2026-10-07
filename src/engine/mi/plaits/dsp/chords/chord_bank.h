@@ -29,9 +29,9 @@
 #ifndef PLAITS_DSP_CHORDS_CHORD_BANK_H_
 #define PLAITS_DSP_CHORDS_CHORD_BANK_H_
 
-#include "stmlib/dsp/hysteresis_quantizer.h"
+#include "engine/dsp/fdsp.h"
 
-#include "stmlib/utils/buffer_allocator.h"
+#include "engine/dsp/fdsp.h"
 
 #include <algorithm>
 
@@ -53,7 +53,7 @@ class ChordBank {
   ChordBank() { }
   ~ChordBank() { }
   
-  void Init(stmlib::BufferAllocator* allocator);
+  void Init(sc::fdsp::BufferAllocator* allocator);
   void Reset();
   
   int ComputeChordInversion(
@@ -95,7 +95,7 @@ class ChordBank {
   }
 
  private:
-  stmlib::HysteresisQuantizer2 chord_index_quantizer_;
+  sc::fdsp::HysteresisQuantizer2 chord_index_quantizer_;
   
   float* ratios_;
   float* sorted_ratios_;

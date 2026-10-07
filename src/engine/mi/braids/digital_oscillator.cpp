@@ -26,20 +26,20 @@
 //
 // Oscillator - digital style waveforms.
 
-#include "braids/digital_oscillator.h"
+#include "engine/mi/braids/digital_oscillator.h"
 
 #include <algorithm>
 #include <cstdio>
 
-#include "stmlib/utils/dsp.h"
-#include "stmlib/utils/random.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp_random.h"
 
-#include "braids/parameter_interpolation.h"
-#include "braids/resources.h"
+#include "engine/mi/braids/parameter_interpolation.h"
+#include "engine/mi/braids/resources.h"
 
 namespace braids {
   
-using namespace stmlib;
+using namespace sc::fdsp;
 
 static const uint16_t kHighestNote = 140 * 128;
 static const uint16_t kPitchTableStart = 128 * 128;

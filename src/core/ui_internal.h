@@ -82,6 +82,7 @@ int sampler_slot(const rack_t *r, int k);           // slot of the k-th sampler 
 
 /* ---- ui_graphs.c: pictures for the graph box ---- */
 void draw_wave(u8g2_t *g, gui_rect_t box, int wave, float pulse_width, float cycles);                 // cycles: gui_style_t.wave_cycles
+void draw_mi_preview(u8g2_t *g, gui_rect_t box, int model, float timbre, float morph, float harm, float cycles, const char *name);
 void draw_engine_preview(u8g2_t *g, gui_rect_t box, int engine, float timbre, float morph, float cycles);
 float curve_shape(float pct, float p);
 void draw_curve_seg(u8g2_t *g, int x0, int y0, int x1, int y1, float pct);

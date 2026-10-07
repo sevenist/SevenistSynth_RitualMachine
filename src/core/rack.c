@@ -17,7 +17,11 @@ typedef struct {                // descriptor of one module parameter
     const char *const *names;       // K_ENUM
 } mp_t;
 
-static const char *const wave_names[]   = {"Sine", "Pulse", "SawDn", "SawUp", "Tri", "Noise", "Karp", "Modal", "FM2", "Fold", "SSaw", "Vowel", "Add", "Dust", "Strng"};
+static const char *const wave_names[]   = {"Sine", "Pulse", "SawDn", "SawUp", "Tri", "Noise", "Karp", "Modal", "FM2", "Fold", "SSaw", "Vowel", "Add", "Dust", "Strng",
+    // the Mutable Instruments models (OC_FIRST_MI..): the order of MiModel in engine/modules/mi_osc.h (a UI test compares them)
+    "CSaw", "Morph", "SawSq", "SinTri", "Buzz", "SqSub", "SawSub", "SqSync", "SwSync", "Toy", "ZLP", "ZPk", "ZBP", "ZHP", "Vosim", "FbFM",
+    "Chaos", "Kick", "FNoise", "Twin", "Clock", "DigMod", "Morse", "3Saw", "3Sq", "3Tri", "3Sine", "3Ring", "WTbl", "WMap", "WLine", "Cloud",
+    "Cymbal", "BSnare", "PNoise", "Chip", "PhDist", "VA", "VAVcf", "Grain", "Terrn", "PBass", "PBassS", "PSnare", "PSnrS", "PHat", "PHat2"};
 static const char *const qual_names[]   = {"Blep", "Mip", "Naive"};
 static const char *const filter_names[] = {"Off", "LP", "BP", "HP", "LP24", "Notch", "LP6", "Ladr", "ChLP", "AP"};
 static const char *const sat_names[]    = {"Tanh", "Clip", "Fold", "Crush", "Tube", "Tape", "Diode", "Cheb", "Rect", "Decim"};
@@ -30,7 +34,7 @@ static const char *const out_names[]    = {"On", "Mute"};
 static const char *const lfo_names[]    = {"Sine", "Tri", "SawDn", "Pulse"};
 
 static const mp_t osc_mp[] = {
-    [MP_OC_WAVE]   = {"Wav",  K_ENUM, 0, 14, 1, 2, "", 0, wave_names},
+    [MP_OC_WAVE]   = {"Wav",  K_ENUM, 0, OC_WAVE_COUNT - 1, 1, 2, "", 0, wave_names},
     [MP_OC_PW]     = {"PW",   K_LIN, 0.05f, 0.95f, 0.05f, 0.5f, "", 2, 0},
     [MP_OC_LEVEL]  = {"Lvl",  K_LIN, 0, 1, 0.05f, 1, "", 2, 0},
     [MP_OC_COARSE] = {"Crs",  K_LIN, -24, 24, 1, 0, "st", 0, 0},
@@ -39,7 +43,9 @@ static const mp_t osc_mp[] = {
     [MP_OC_DEPTH]  = {"Dpth", K_LIN, 0, 2, 0.05f, 1, "", 2, 0},            // with a target: modulation depth (in the target's unit, see rack_depth_*)
     [MP_OC_MORPH]  = {"Mrph", K_LIN, 0, 1, 0.05f, 0.5f, "", 2, 0},         // engines only
     [MP_OC_QUAL]   = {"Q",    K_ENUM, 0, 2, 1, 0, "", 0, qual_names},     // Saw / Pulse / Tri and Strng: PolyBLEP, mipmap table, naive
+    [MP_OC_HARM]   = {"Harm", K_LIN, 0, 1, 0.05f, 0.5f, "", 2, 0},         // MI models: Plaits' harmonics (Braids ignores it)
 };
+_Static_assert(sizeof wave_names / sizeof wave_names[0] == OC_WAVE_COUNT, "wave_names: one name per Wav value (rack.h OC_WAVE_COUNT)");
 static const mp_t flt_mp[] = {
     [MP_FL_TYPE]   = {"Typ", K_ENUM, 0, FILT_COUNT - 1, 1, 1, "", 0, filter_names},
     [MP_FL_CUT]    = {"Cut", K_LOG, 20, 18000, 1.12f, 4000, "Hz", 0, 0},
@@ -116,7 +122,7 @@ typedef struct {
 } type_info_t;
 
 static const type_info_t info[MOD_TYPE_COUNT] = {
-    [MOD_OSC]    = {"OC", "Oscillator", true,  false, 4, {"Pit", "Lvl", "PW", "Mrph"},   {"Pitch", "Level", "Pulse width", "Morph"}, osc_mp, 8},
+    [MOD_OSC]    = {"OC", "Oscillator", true,  false, 4, {"Pit", "Lvl", "PW", "Mrph"},   {"Pitch", "Level", "Pulse width", "Morph"}, osc_mp, (int)(sizeof osc_mp / sizeof osc_mp[0])},
     [MOD_FILTER] = {"FL", "Filter",     true,  false, 2, {"Cut", "Res"},         {"Cutoff", "Resonance"}, flt_mp, 11},
     [MOD_SAT]    = {"SA", "Saturation", true,  false, 2, {"Drv", "Mix"},         {"Drive", "Mix"}, sat_mp, 3},
     [MOD_LFO]    = {"LF", "LFO",        false, true,  2, {"Rate", "Dpth"},       {"Rate", "Depth"}, lfo_mp, 3},

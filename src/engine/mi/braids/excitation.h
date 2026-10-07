@@ -29,7 +29,7 @@
 #ifndef BRAIDS_EXCITATION_H_
 #define BRAIDS_EXCITATION_H_
 
-#include "stmlib/stmlib.h"
+#include "engine/dsp/fdsp.h"
 
 namespace braids {
 

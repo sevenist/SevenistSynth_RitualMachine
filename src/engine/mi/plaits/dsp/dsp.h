@@ -29,7 +29,7 @@
 #ifndef PLAITS_DSP_DSP_H_
 #define PLAITS_DSP_DSP_H_
 
-#include "stmlib/stmlib.h"
+#include "engine/dsp/fdsp.h"
 #include "engine/dsp/config.h"   // SevenSynth: ENGINE_SR
 
 namespace plaits {

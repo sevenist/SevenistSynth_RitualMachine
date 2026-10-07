@@ -31,7 +31,7 @@
 
 // SevenSynth: trimmed to the oscillator shapes (the module's settings, UI and flash storage are not used; VENDOR.md)
 
-#include "stmlib/stmlib.h"
+#include "engine/dsp/fdsp.h"
 
 namespace braids {
 

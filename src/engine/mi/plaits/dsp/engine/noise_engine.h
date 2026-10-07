@@ -29,10 +29,10 @@
 #ifndef PLAITS_DSP_ENGINE_NOISE_ENGINE_H_
 #define PLAITS_DSP_ENGINE_NOISE_ENGINE_H_
 
-#include "stmlib/dsp/filter.h"
+#include "engine/dsp/fdsp_filter.h"
 
-#include "plaits/dsp/engine/engine.h"
-#include "plaits/dsp/noise/clocked_noise.h"
+#include "engine/mi/plaits/dsp/engine/engine.h"
+#include "engine/mi/plaits/dsp/noise/clocked_noise.h"
 
 namespace plaits {
 
@@ -41,7 +41,7 @@ class NoiseEngine : public Engine {
   NoiseEngine() { }
   ~NoiseEngine() { }
   
-  virtual void Init(stmlib::BufferAllocator* allocator);
+  virtual void Init(sc::fdsp::BufferAllocator* allocator);
   virtual void Reset();
   virtual void LoadUserData(const uint8_t* user_data) { }
   virtual void Render(const EngineParameters& parameters,
@@ -52,8 +52,8 @@ class NoiseEngine : public Engine {
   
  private:
   ClockedNoise clocked_noise_[2];
-  stmlib::Svf lp_hp_filter_;
-  stmlib::Svf bp_filter_[2];
+  sc::fdsp::Svf lp_hp_filter_;
+  sc::fdsp::Svf bp_filter_[2];
   
   float previous_f0_;
   float previous_f1_;

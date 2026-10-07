@@ -26,16 +26,16 @@
 //
 // 2 variable shape oscillators with sync, FM and crossfading.
 
-#include "plaits/dsp/engine/virtual_analog_engine.h"
+#include "engine/mi/plaits/dsp/engine/virtual_analog_engine.h"
 
 #include <algorithm>
 
-#include "stmlib/dsp/parameter_interpolator.h"
+#include "engine/dsp/fdsp.h"
 
 namespace plaits {
 
 using namespace std;
-using namespace stmlib;
+using namespace sc::fdsp;
 
 void VirtualAnalogEngine::Init(BufferAllocator* allocator) {
   primary_.Init();

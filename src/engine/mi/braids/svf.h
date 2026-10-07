@@ -29,10 +29,10 @@
 #ifndef BRAIDS_SVF_H_
 #define BRAIDS_SVF_H_
 
-#include "stmlib/stmlib.h"
+#include "engine/dsp/fdsp.h"
 
-#include "braids/resources.h"
-#include "stmlib/utils/dsp.h"
+#include "engine/mi/braids/resources.h"
+#include "engine/dsp/fdsp.h"
 
 namespace braids {
 
@@ -77,8 +77,8 @@ class Svf {
 
   inline int32_t Process(int32_t in) {
     if (dirty_) {
-      f_ = stmlib::Interpolate824(lut_svf_cutoff, frequency_ << 17);
-      damp_ = stmlib::Interpolate824(lut_svf_damp, resonance_ << 17);
+      f_ = sc::fdsp::Interpolate824(lut_svf_cutoff, frequency_ << 17);
+      damp_ = sc::fdsp::Interpolate824(lut_svf_damp, resonance_ << 17);
       dirty_ = false;
     }
     int32_t f = f_;

@@ -54,6 +54,7 @@ C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --cmd "chord 3" --ra
 | `flt T` | type of every FL module in the rack: 0 Off, 1 LP, 2 BP, 3 HP, 4 LP24, 5 Notch, 6 LP6, 7 Ladr, 8 ChLP |
 | `eng a b c d` | engines of the first 1..4 oscillators that already use an engine (Wav set to an engine): 0 Karplus, 1 Modal, 2 FM2, 3 Fold, 4 Supersaw, 5 Vowel, 6 Additive, 7 Dust, 8 Strng. Plain-wave oscillators are skipped |
 | `str F V` | Strings settings (rebuilds): `wave` 0 Saw / 1 Pulse / 2 Tri, `osc` 0 Naive / 1 Mip, `det` cents, `mix` 0..1, `lvl` 0..1, `lp` 0 / 1 (voice low-pass), `ftype` 0..8 (shared filter, same numbers as `flt`), `fx 0` = every FX rack slot None |
+| `fx K T [v0 .. v7]` | FX rack slot K (1..4) becomes type T with its values in screen units (missing ones = the type's defaults; rebuilds). T: 0 None, 1 Drive, 2 Chorus, 3 Phaser, 4 Flanger, 5 Trem, 6 Comp, 7 EQ, 8 Ring / Shift, 9 Delay, 10 Reverb, 11 Cab, 12 Ensemble, 13 Spectral. Spectral values: Mode (0 Thru, 1 Freeze, 2 Gate, 3 Robot, 4 Whisper, 5 Pitch), Shift (semitones), Amt (%), Mix (%), Hold (0 / 1), Lo, Hi (MIDI notes). Example: `fx 4 13 5 7` = slot 4 pitches up a fifth |
 
 ### Information and measurement
 

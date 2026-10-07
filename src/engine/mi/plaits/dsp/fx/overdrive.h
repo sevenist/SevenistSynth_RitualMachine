@@ -31,8 +31,8 @@
 
 #include <algorithm>
 
-#include "stmlib/dsp/dsp.h"
-#include "stmlib/dsp/parameter_interpolator.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp.h"
 
 namespace plaits {
   
@@ -52,22 +52,22 @@ class Overdrive {
     const float pre_gain_b = drive_2 * drive_2 * drive * 24.0f;
     const float pre_gain = pre_gain_a + (pre_gain_b - pre_gain_a) * drive_2;
     const float drive_squashed = drive * (2.0f - drive);
-    const float post_gain = 1.0f / stmlib::SoftClip(
+    const float post_gain = 1.0f / sc::fdsp::SoftClip(
           0.33f + drive_squashed * (pre_gain - 0.33f));
     
-    stmlib::ParameterInterpolator pre_gain_modulation(
+    sc::fdsp::ParameterInterpolator pre_gain_modulation(
         &pre_gain_,
         pre_gain,
         size);
     
-    stmlib::ParameterInterpolator post_gain_modulation(
+    sc::fdsp::ParameterInterpolator post_gain_modulation(
         &post_gain_,
         post_gain,
         size);
     
     while (size--) {
       float pre = pre_gain_modulation.Next() * *in_out;
-      *in_out++ = stmlib::SoftClip(pre) * post_gain_modulation.Next();
+      *in_out++ = sc::fdsp::SoftClip(pre) * post_gain_modulation.Next();
     }
   }
   

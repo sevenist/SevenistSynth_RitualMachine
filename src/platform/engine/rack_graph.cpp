@@ -5,6 +5,7 @@
 #include "engine/modules/fx_modules.h"
 #include "engine/modules/fx2_modules.h"
 #include "engine/modules/motion_seq.h"
+#include "engine/modules/mi_osc.h"
 #include "engine/modules/osc_engines.h"
 #include "engine/modules/para_modules.h"
 #include "engine/modules/sampler_modules.h"
@@ -77,6 +78,11 @@ bool depth_target(const rack_slot_t &t, int param, bool supported, DepthTarget &
     if (!supported) return false;
     switch (t.type) {
         case MOD_OSC:
+            if (t.v[MP_OC_WAVE] >= OC_FIRST_MI) {                  // a Mutable Instruments model: the same four
+                static const int dst[4] = {MI_PITCH, MI_LEVEL, MI_TIMBRE, MI_MORPH_P};
+                out = DepthTarget{dst[param & 3], param == 0 ? 96.0 : 100.0};
+                return param < 4;
+            }
             if (t.v[MP_OC_WAVE] >= OC_FIRST_ENGINE) {              // an engine: pitch, level, timbre, morph
                 static const int dst[4] = {OSCX_PITCH, OSCX_LEVEL, OSCX_TIMBRE, OSCX_MORPH};
                 out = DepthTarget{dst[param & 3], param == 0 ? 96.0 : 100.0};
@@ -222,12 +228,21 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
             const int id = node_of(s.id), aux = id + 1;
             if (s.type == MOD_OSC) {
                 const int wave = static_cast<int>(s.v[MP_OC_WAVE]);
-                const bool eng = wave >= OC_FIRST_ENGINE;
-                NodeDesc *o = b.add(id, eng ? T_OSCX : T_OSC);
+                const bool mi = wave >= OC_FIRST_MI, eng = !mi && wave >= OC_FIRST_ENGINE;
+                NodeDesc *o = b.add(id, mi ? T_MIOSC : (eng ? T_OSCX : T_OSC));
                 if (!o) break;
                 const int32_t tune = 60 * kSemi + static_cast<int32_t>(std::lround((s.v[MP_OC_COARSE] + s.v[MP_OC_FINE] / 100.0) * kSemi));
                 int lvl_idx;
-                if (eng) {
+                if (mi) {
+                    o->param[MI_MODEL] = wave - OC_FIRST_MI;
+                    o->param[MI_PITCH] = tune;
+                    o->param[MI_TIMBRE] = q(s.v[MP_OC_PW]);
+                    o->param[MI_MORPH_P] = q(s.v[MP_OC_MORPH]);
+                    o->param[MI_HARM] = q(s.v[MP_OC_HARM]);
+                    o->param[MI_PITCH_MOD] = 96 * kSemi;
+                    lvl_idx = MI_LEVEL;
+                    b.cable(RN_NOTE, 1, id, Dst::In, 1);                 // the gate strikes the percussive models
+                } else if (eng) {
                     o->param[OSCX_ENGINE] = wave - OC_FIRST_ENGINE;
                     o->param[OSCX_PITCH] = tune;
                     o->param[OSCX_TIMBRE] = q(s.v[MP_OC_PW]);
@@ -245,7 +260,7 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                     lvl_idx = OSC_LEVEL;
                 }
                 b.cable(RN_NOTE, 0, id, Dst::In, 0);
-                tgt[i] = Target{id, eng ? static_cast<int>(OSCX_PITCH) : static_cast<int>(OSC_PITCH), true};
+                tgt[i] = Target{id, mi ? static_cast<int>(MI_PITCH) : (eng ? static_cast<int>(OSCX_PITCH) : static_cast<int>(OSC_PITCH)), true};
                 const bool modulating = s.tgt_id != 0 && rack_find(&rack, s.tgt_id) != RACK_NONE;
                 if (!modulating) {
                     o->param[lvl_idx] = q(s.v[MP_OC_LEVEL] * lvl_scale);
@@ -559,6 +574,14 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                     NodeDesc *n = b.add(id, T_ENSEMBLE);
                     if (!n) break;
                     n->param[ENS_RATE] = fs.v[0]; n->param[ENS_DEPTH] = q(fs.v[1] / 100.0); n->param[ENS_SHIMMER] = q(fs.v[2] / 100.0); n->param[ENS_MIX] = q(fs.v[3] / 100.0);
+                    wire(id);
+                } break;
+                case FX_SPECTRAL: {                                                 // mono STFT on (L + R) / 2, each channel keeps its dry
+                    NodeDesc *n = b.add(id, T_SPECTRAL);
+                    if (!n) break;
+                    n->param[SPX_MODE] = fs.v[0]; n->param[SPX_SHIFT] = fs.v[1] * kSemi; n->param[SPX_AMOUNT] = q(fs.v[2] / 100.0);
+                    n->param[SPX_MIX] = q(fs.v[3] / 100.0); n->param[SPX_FREEZE] = fs.v[4];
+                    n->param[SPX_LO] = fs.v[5] * kSemi; n->param[SPX_HI] = fs.v[6] * kSemi; n->param[SPX_STEREO] = 1;
                     wire(id);
                 } break;
                 case FX_CAB: {

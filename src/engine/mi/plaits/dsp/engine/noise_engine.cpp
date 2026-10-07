@@ -26,14 +26,14 @@
 //
 // Clocked noise processed by a multimode filter.
 
-#include "plaits/dsp/engine/noise_engine.h"
+#include "engine/mi/plaits/dsp/engine/noise_engine.h"
 
-#include "stmlib/dsp/parameter_interpolator.h"
+#include "engine/dsp/fdsp.h"
 
 namespace plaits {
 
 using namespace std;
-using namespace stmlib;
+using namespace sc::fdsp;
 
 void NoiseEngine::Init(BufferAllocator* allocator) {
   clocked_noise_[0].Init();

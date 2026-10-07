@@ -31,7 +31,7 @@
 
 #include <algorithm>
 
-#include "stmlib/dsp/polyblep.h"
+#include "engine/dsp/fdsp.h"
 
 namespace plaits {
   
@@ -86,8 +86,8 @@ class SampleRateReducer {
         float new_sample = \
             previous_sample + (*in_out - previous_sample) * (1.0f - t);
         float discontinuity = new_sample - sample;
-        this_sample += discontinuity * stmlib::ThisBlepSample(t);
-        next_sample += discontinuity * stmlib::NextBlepSample(t);
+        this_sample += discontinuity * sc::fdsp::ThisBlepSample(t);
+        next_sample += discontinuity * sc::fdsp::NextBlepSample(t);
         sample = new_sample;
       }
       next_sample += sample;

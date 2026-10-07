@@ -55,14 +55,14 @@ static const gui_sprite_t *module_sprite(int type) {
     return art ? art : t[type];
 }
 
-// The icon of a module on its first page: an oscillator shows its wave's, 24/osc_<wave>.png, when that image exists; else the module's.
+// The icon of a module on its pages: an oscillator shows its wave's, 24/osc_<wave name in lower case>.png ("osc_karp", "osc_3saw"), when that
+// image exists; else the module's.
 const gui_sprite_t *ui_module_sprite(const rack_slot_t *s) {
-    static const char *const wave[] = {"sine", "pulse", "sawdn", "sawup", "tri", "noise", "karp", "modal", "fm2", "fold", "ssaw", "vowel",
-                                       "add", "dust", "strng"};
-    const int w = (int)s->v[MP_OC_WAVE];
-    if (s->type == MOD_OSC && w >= 0 && w < (int)(sizeof wave / sizeof wave[0])) {
-        char name[24];
-        snprintf(name, sizeof name, "24/osc_%s", wave[w]);
+    if (s->type == MOD_OSC) {
+        char wave[16], name[24];
+        rack_mparam_format(s, MP_OC_WAVE, wave, sizeof wave);
+        for (char *c = wave; *c; c++) if (*c >= 'A' && *c <= 'Z') *c = (char)(*c - 'A' + 'a');
+        snprintf(name, sizeof name, "24/osc_%s", wave);
         const gui_sprite_t *art = ui_sprite(name);
         if (art) return art;
     }

@@ -31,14 +31,14 @@
 
 #include <algorithm>
 
-#include "stmlib/dsp/dsp.h"
-#include "stmlib/dsp/filter.h"
-#include "stmlib/dsp/parameter_interpolator.h"
-#include "stmlib/dsp/units.h"
-#include "stmlib/utils/random.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp_filter.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp_units.h"
+#include "engine/dsp/fdsp_random.h"
 
-#include "plaits/dsp/dsp.h"
-#include "plaits/dsp/oscillator/sine_oscillator.h"
+#include "engine/mi/plaits/dsp/dsp.h"
+#include "engine/mi/plaits/dsp/oscillator/sine_oscillator.h"
 
 namespace plaits {
 
@@ -77,9 +77,9 @@ class AnalogSnareDrum {
     const float decay_xt = decay * (1.0f + decay * (decay - 1.0f));
     const int kTriggerPulseDuration = 1.0e-3f * kSampleRate;
     const float kPulseDecayTime = 0.1e-3f * kSampleRate;
-    const float q = 2000.0f * stmlib::SemitonesToRatio(decay_xt * 84.0f);
+    const float q = 2000.0f * sc::fdsp::SemitonesToRatio(decay_xt * 84.0f);
     const float noise_envelope_decay = 1.0f - 0.0017f * \
-        stmlib::SemitonesToRatio(-decay * (50.0f + snappy * 10.0f));
+        sc::fdsp::SemitonesToRatio(-decay * (50.0f + snappy * 10.0f));
     const float exciter_leak = snappy * (2.0f - snappy) * 0.1f;
     
     snappy = snappy * 1.1f - 0.05f;
@@ -103,7 +103,7 @@ class AnalogSnareDrum {
     
     for (int i = 0; i < kNumModes; ++i) {
       f[i] = std::min(f0 * kModeFrequencies[i], 0.499f);
-      resonator_[i].set_f_q<stmlib::FREQUENCY_FAST>(
+      resonator_[i].set_f_q<sc::fdsp::FREQUENCY_FAST>(
           f[i],
           1.0f + f[i] * (i == 0 ? q : q * 0.25f));
     }
@@ -127,11 +127,11 @@ class AnalogSnareDrum {
 
     float f_noise = f0 * 16.0f;
     CONSTRAIN(f_noise, 0.0f, 0.499f);
-    noise_filter_.set_f_q<stmlib::FREQUENCY_FAST>(
+    noise_filter_.set_f_q<sc::fdsp::FREQUENCY_FAST>(
         f_noise, 1.0f + f_noise * 1.5f);
         
     
-    stmlib::ParameterInterpolator sustain_gain(
+    sc::fdsp::ParameterInterpolator sustain_gain(
         &sustain_gain_,
         accent * decay,
         size);
@@ -160,19 +160,19 @@ class AnalogSnareDrum {
             : 0.026f * pulse;
         shell += gain[i] * (sustain
             ? oscillator_[i].Next(f[i]) * sustain_gain_value * 0.25f
-            : resonator_[i].Process<stmlib::FILTER_MODE_BAND_PASS>(
+            : resonator_[i].Process<sc::fdsp::FILTER_MODE_BAND_PASS>(
                   excitation) + excitation * exciter_leak);
       }
-      shell = stmlib::SoftClip(shell);
+      shell = sc::fdsp::SoftClip(shell);
       
       // C56 / R194 / Q48 / C54 / R188 / D54
-      float noise = 2.0f * stmlib::Random::GetFloat() - 1.0f;
+      float noise = 2.0f * sc::fdsp::Random::GetFloat() - 1.0f;
       if (noise < 0.0f) noise = 0.0f;
       noise_envelope_ *= noise_envelope_decay;
       noise *= (sustain ? sustain_gain_value : noise_envelope_) * snappy * 2.0f;
 
       // C66 / R201 / C67 / R202 / R203 / Q49
-      noise = noise_filter_.Process<stmlib::FILTER_MODE_BAND_PASS>(noise);
+      noise = noise_filter_.Process<sc::fdsp::FILTER_MODE_BAND_PASS>(noise);
       
       // IC13
       *out++ = noise + shell * (1.0f - snappy);
@@ -187,8 +187,8 @@ class AnalogSnareDrum {
   float noise_envelope_;
   float sustain_gain_;
   
-  stmlib::Svf resonator_[kNumModes];
-  stmlib::Svf noise_filter_;
+  sc::fdsp::Svf resonator_[kNumModes];
+  sc::fdsp::Svf noise_filter_;
 
   // Replace the resonators in "free running" (sustain) mode.
   SineOscillator oscillator_[kNumModes];

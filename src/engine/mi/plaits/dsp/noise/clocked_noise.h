@@ -29,10 +29,10 @@
 #ifndef PLAITS_DSP_NOISE_CLOCKED_NOISE_H_
 #define PLAITS_DSP_NOISE_CLOCKED_NOISE_H_
 
-#include "stmlib/dsp/dsp.h"
-#include "stmlib/dsp/parameter_interpolator.h"
-#include "stmlib/dsp/polyblep.h"
-#include "stmlib/utils/random.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp_random.h"
 
 namespace plaits {
 
@@ -51,7 +51,7 @@ class ClockedNoise {
   void Render(bool sync, float frequency, float* out, size_t size) {
     CONSTRAIN(frequency, 0.0f, 1.0f);
     
-    stmlib::ParameterInterpolator fm(&frequency_, frequency, size);
+    sc::fdsp::ParameterInterpolator fm(&frequency_, frequency, size);
 
     float next_sample = next_sample_;
     float sample = sample_;
@@ -65,7 +65,7 @@ class ClockedNoise {
       next_sample = 0.0f;
 
       const float frequency = fm.Next();
-      const float raw_sample = stmlib::Random::GetFloat() * 2.0f - 1.0f;
+      const float raw_sample = sc::fdsp::Random::GetFloat() * 2.0f - 1.0f;
       float raw_amount = 4.0f * (frequency - 0.25f);
       CONSTRAIN(raw_amount, 0.0f, 1.0f);
       
@@ -76,8 +76,8 @@ class ClockedNoise {
         float t = phase_ / frequency;
         float new_sample = raw_sample;
         float discontinuity = new_sample - sample;
-        this_sample += discontinuity * stmlib::ThisBlepSample(t);
-        next_sample += discontinuity * stmlib::NextBlepSample(t);
+        this_sample += discontinuity * sc::fdsp::ThisBlepSample(t);
+        next_sample += discontinuity * sc::fdsp::NextBlepSample(t);
         sample = new_sample;
       }
       next_sample += sample;

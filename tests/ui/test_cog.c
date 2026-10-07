@@ -15,10 +15,11 @@ TEST(cog_opens_and_closes_the_hidden_settings) {
     ev_tap(CTL_JOY_SW);
     CHECK_EQ(ui->cog_page, p);
     get_page(ui, &ui_app.rack, p, &pg);
-    CHECK_EQ(pg.count, 2);
+    CHECK_EQ(pg.count, 3);
     CHECK_EQ(pg.params[0], MP_OC_QUAL);
     CHECK_EQ(pg.params[1], MP_OC_MUTE);
-    CHECK_EQ(ui->row, 3);                                      // the focus stays on the cog
+    CHECK_EQ(pg.params[2], MP_OC_HARM);         // the MI models' third control
+    CHECK_EQ(ui->row, 4);                                      // the focus stays on the cog
     char title[32];
     ui_page_title(title, sizeof title);
     CHECK_STR(title, "OSC 1 SET");

@@ -34,11 +34,11 @@
 #ifndef PLAITS_DSP_OSCILLATOR_VARIABLE_SHAPE_OSCILLATOR_H_
 #define PLAITS_DSP_OSCILLATOR_VARIABLE_SHAPE_OSCILLATOR_H_
 
-#include "stmlib/dsp/dsp.h"
-#include "stmlib/dsp/parameter_interpolator.h"
-#include "stmlib/dsp/polyblep.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp.h"
 
-#include "plaits/dsp/oscillator/oscillator.h"
+#include "engine/mi/plaits/dsp/oscillator/oscillator.h"
 
 #include <algorithm>
 
@@ -110,13 +110,13 @@ class VariableShapeOscillator {
       CONSTRAIN(pw, frequency * 2.0f, 1.0f - 2.0f * frequency);
     }
     
-    stmlib::ParameterInterpolator master_fm(
+    sc::fdsp::ParameterInterpolator master_fm(
         &master_frequency_, master_frequency, size);
-    stmlib::ParameterInterpolator fm(&slave_frequency_, frequency, size);
-    stmlib::ParameterInterpolator pwm(&pw_, pw, size);
-    stmlib::ParameterInterpolator waveshape_modulation(
+    sc::fdsp::ParameterInterpolator fm(&slave_frequency_, frequency, size);
+    sc::fdsp::ParameterInterpolator pwm(&pw_, pw, size);
+    sc::fdsp::ParameterInterpolator waveshape_modulation(
         &waveshape_, waveshape, size);
-    stmlib::ParameterInterpolator phase_modulation(
+    sc::fdsp::ParameterInterpolator phase_modulation(
         &phase_modulation_, phase_modulation_amount, size);
 
     float next_sample = next_sample_;
@@ -163,8 +163,8 @@ class VariableShapeOscillator {
               slope_down,
               triangle_amount,
               square_amount);
-          this_sample -= value * stmlib::ThisBlepSample(reset_time);
-          next_sample -= value * stmlib::NextBlepSample(reset_time);
+          this_sample -= value * sc::fdsp::ThisBlepSample(reset_time);
+          next_sample -= value * sc::fdsp::NextBlepSample(reset_time);
         }
       } else if (output_phase) {
         master_phase_ += master_frequency;
@@ -183,10 +183,10 @@ class VariableShapeOscillator {
           float triangle_step = (slope_up + slope_down) * slave_frequency;
           triangle_step *= triangle_amount;
           
-          this_sample += square_amount * stmlib::ThisBlepSample(t);
-          next_sample += square_amount * stmlib::NextBlepSample(t);
-          this_sample -= triangle_step * stmlib::ThisIntegratedBlepSample(t);
-          next_sample -= triangle_step * stmlib::NextIntegratedBlepSample(t);
+          this_sample += square_amount * sc::fdsp::ThisBlepSample(t);
+          next_sample += square_amount * sc::fdsp::NextBlepSample(t);
+          this_sample -= triangle_step * sc::fdsp::ThisIntegratedBlepSample(t);
+          next_sample -= triangle_step * sc::fdsp::NextIntegratedBlepSample(t);
           high_ = true;
         }
       
@@ -199,10 +199,10 @@ class VariableShapeOscillator {
           float triangle_step = (slope_up + slope_down) * slave_frequency;
           triangle_step *= triangle_amount;
 
-          this_sample -= (1.0f - triangle_amount) * stmlib::ThisBlepSample(t);
-          next_sample -= (1.0f - triangle_amount) * stmlib::NextBlepSample(t);
-          this_sample += triangle_step * stmlib::ThisIntegratedBlepSample(t);
-          next_sample += triangle_step * stmlib::NextIntegratedBlepSample(t);
+          this_sample -= (1.0f - triangle_amount) * sc::fdsp::ThisBlepSample(t);
+          next_sample -= (1.0f - triangle_amount) * sc::fdsp::NextBlepSample(t);
+          this_sample += triangle_step * sc::fdsp::ThisIntegratedBlepSample(t);
+          next_sample += triangle_step * sc::fdsp::NextIntegratedBlepSample(t);
           high_ = false;
         }
       }

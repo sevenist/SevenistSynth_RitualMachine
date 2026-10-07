@@ -88,6 +88,7 @@ typedef struct {
     int  ms_lane;          // motion sequencer pages: selected lane 0..3 and step
     int  ms_step;
     int  fx_slot;          // FX RACK tab: selected slot 0..3
+    bool fx_cog;           // FX RACK tab: the slot's cog is open (its parameters FXR_ROWS.. shown in place of the first ones)
     int  eg_pt;            // EG page: selected point 0..3
     int  smp_cur;          // SAMPLES tab: highlighted file (catalog index) and the target (0 = a new sampler, k = the k-th sampler of the rack)
     int  smp_tgt;

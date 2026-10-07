@@ -29,9 +29,9 @@
 #ifndef PLAITS_DSP_ENGINE_VIRTUAL_ANALOG_ENGINE_H_
 #define PLAITS_DSP_ENGINE_VIRTUAL_ANALOG_ENGINE_H_
 
-#include "plaits/dsp/engine/engine.h"
-#include "plaits/dsp/oscillator/variable_saw_oscillator.h"
-#include "plaits/dsp/oscillator/variable_shape_oscillator.h"
+#include "engine/mi/plaits/dsp/engine/engine.h"
+#include "engine/mi/plaits/dsp/oscillator/variable_saw_oscillator.h"
+#include "engine/mi/plaits/dsp/oscillator/variable_shape_oscillator.h"
 
 #define VA_VARIANT 2
 
@@ -42,7 +42,7 @@ class VirtualAnalogEngine : public Engine {
   VirtualAnalogEngine() { }
   ~VirtualAnalogEngine() { }
   
-  virtual void Init(stmlib::BufferAllocator* allocator);
+  virtual void Init(sc::fdsp::BufferAllocator* allocator);
   virtual void Reset();
   virtual void LoadUserData(const uint8_t* user_data) { }
   virtual void Render(const EngineParameters& parameters,

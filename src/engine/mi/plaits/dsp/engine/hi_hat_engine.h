@@ -30,8 +30,8 @@
 #ifndef PLAITS_DSP_ENGINE_HI_HAT_ENGINE_H_
 #define PLAITS_DSP_ENGINE_HI_HAT_ENGINE_H_
 
-#include "plaits/dsp/drums/hi_hat.h"
-#include "plaits/dsp/engine/engine.h"
+#include "engine/mi/plaits/dsp/drums/hi_hat.h"
+#include "engine/mi/plaits/dsp/engine/engine.h"
 
 namespace plaits {
   
@@ -40,7 +40,7 @@ class HiHatEngine : public Engine {
   HiHatEngine() { }
   ~HiHatEngine() { }
   
-  virtual void Init(stmlib::BufferAllocator* allocator);
+  virtual void Init(sc::fdsp::BufferAllocator* allocator);
   virtual void Reset();
   virtual void LoadUserData(const uint8_t* user_data) { }
   virtual void Render(const EngineParameters& parameters,

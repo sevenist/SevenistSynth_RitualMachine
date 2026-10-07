@@ -29,12 +29,12 @@
 #ifndef PLAITS_DSP_OSCILLATOR_VOSIM_OSCILLATOR_H_
 #define PLAITS_DSP_OSCILLATOR_VOSIM_OSCILLATOR_H_
 
-#include "stmlib/dsp/dsp.h"
-#include "stmlib/dsp/parameter_interpolator.h"
+#include "engine/dsp/fdsp.h"
+#include "engine/dsp/fdsp.h"
 
-#include "plaits/dsp/oscillator/oscillator.h"
-#include "plaits/dsp/oscillator/sine_oscillator.h"
-#include "plaits/resources.h"
+#include "engine/mi/plaits/dsp/oscillator/oscillator.h"
+#include "engine/mi/plaits/dsp/oscillator/sine_oscillator.h"
+#include "engine/mi/plaits/resources.h"
 
 namespace plaits {
 
@@ -71,19 +71,19 @@ class VOSIMOscillator {
       formant_frequency_2 = kMaxFrequency;
     }
 
-    stmlib::ParameterInterpolator f0_modulation(
+    sc::fdsp::ParameterInterpolator f0_modulation(
         &carrier_frequency_,
         carrier_frequency,
         size);
-    stmlib::ParameterInterpolator f1_modulation(
+    sc::fdsp::ParameterInterpolator f1_modulation(
         &formant_1_frequency_,
         formant_frequency_1,
         size);
-    stmlib::ParameterInterpolator f2_modulation(
+    sc::fdsp::ParameterInterpolator f2_modulation(
         &formant_2_frequency_,
         formant_frequency_2,
         size);
-    stmlib::ParameterInterpolator carrier_shape_modulation(
+    sc::fdsp::ParameterInterpolator carrier_shape_modulation(
         &carrier_shape_,
         carrier_shape,
         size);

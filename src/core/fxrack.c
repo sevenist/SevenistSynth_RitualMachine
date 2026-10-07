@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-typedef enum { PK_PCT, PK_SPCT, PK_MS, PK_DB, PK_ENUM, PK_RATE, PK_NOTE, PK_OCT4, PK_TAPS } fxp_kind_t;
+typedef enum { PK_PCT, PK_SPCT, PK_MS, PK_DB, PK_ENUM, PK_RATE, PK_NOTE, PK_OCT4, PK_TAPS, PK_SEMI } fxp_kind_t;
 
 typedef struct {
     const char *label;
@@ -26,6 +26,7 @@ static const char *const trem_modes[]   = {"Trem", "Pan"};
 static const char *const shift_modes[]  = {"Ring", "Up", "Down"};
 static const char *const off_on[]       = {"Off", "On"};
 static const char *const cab_names[]    = {"1x12", "4x12", "Bright", "Dark", "Acoust", "Violin", "Drum", "Phone"};
+static const char *const spec_modes[]   = {"Thru", "Freeze", "Gate", "Robot", "Whisp", "Pitch"};
 
 // PK_RATE: hundredths of Hz (5 = 0.05 Hz, 2000 = 20 Hz; for the shifter up to 5000 Hz); PK_NOTE: a MIDI note shown as a frequency;
 // PK_OCT4: quarter octaves of gain (16 = 4 octaves); PK_TAPS: convolution length.
@@ -43,6 +44,10 @@ static const fxd_t defs[FX_TYPE_COUNT] = {
     [FX_REVERB]  = {"Reverb",     "RV", 4, {{"Mix", PK_PCT, 0, 100, 5, 0, 0}, {"Dec", PK_PCT, 0, 98, 2, 60, 0}, {"Size", PK_PCT, 0, 100, 5, 60, 0}, {"Damp", PK_PCT, 0, 100, 5, 50, 0}}},
     [FX_CAB]     = {"Cab / Body", "CB", 4, {{"IR", PK_ENUM, 0, 7, 1, 0, cab_names}, {"Len", PK_TAPS, 64, 512, 32, 256, 0}, {"Mix", PK_PCT, 0, 100, 5, 100, 0}, {"Lvl", PK_PCT, 0, 100, 5, 50, 0}}},
     [FX_ENSEMBLE] = {"Ensemble",  "EN", 4, {{"Rate", PK_RATE, 5, 500, 1, 60, 0}, {"Dpth", PK_PCT, 0, 100, 5, 70, 0}, {"Shim", PK_PCT, 0, 100, 5, 35, 0}, {"Mix", PK_PCT, 0, 100, 5, 70, 0}}},
+    // Spectral: Shft = pitch (Pitch, Freeze), Amt = the Gate threshold (% of the frame peak); behind the cog: Hold (Freeze holds), the Gate band Lo / Hi
+    [FX_SPECTRAL] = {"Spectral",  "SP", 7, {{"Mode", PK_ENUM, 0, 5, 1, 0, spec_modes}, {"Shft", PK_SEMI, -24, 24, 1, 0, 0}, {"Amt", PK_PCT, 0, 100, 1, 12, 0},
+                                             {"Mix", PK_PCT, 0, 100, 5, 100, 0}, {"Hold", PK_ENUM, 0, 1, 1, 0, off_on}, {"Lo", PK_NOTE, 0, 135, 1, 20, 0},
+                                             {"Hi", PK_NOTE, 0, 135, 1, 135, 0}}},
 };
 
 static const fxp_t *param(int type, int i) { return &defs[type].p[i]; }
@@ -104,5 +109,6 @@ void fxr_format(const fx_slot_t *s, int i, char *out, size_t n) {
         }
         case PK_OCT4: snprintf(out, n, "%.2foct", v / 4.0); break;
         case PK_TAPS: snprintf(out, n, "%d", v); break;
+        case PK_SEMI: snprintf(out, n, "%+dst", v); break;
     }
 }

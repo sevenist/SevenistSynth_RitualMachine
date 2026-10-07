@@ -14,6 +14,13 @@
 #include "engine/dsp/fft.h"
 #include "engine/dsp/q.h"
 #include "engine/dsp/tables.h"
+#include <cstring>
+#if SC_FFT_PIE && defined(HWV1_BENCH)
+#include <esp_cpu.h>
+#define STFT_T(i) do { const uint32_t t_ = esp_cpu_get_cycle_count(); g_stft_prof[i] += t_ - t_last; t_last = t_; } while (0)
+#else
+#define STFT_T(i) do {} while (0)
+#endif
 
 namespace sc {
 
@@ -83,25 +90,70 @@ private:
 
     template <typename Fn>
     void frame(Fn &fn) {
+#if SC_FFT_PIE && defined(HWV1_BENCH)
+        uint32_t t_last = esp_cpu_get_cycle_count();
+#endif
+#if SC_FFT_PIE
+        // ipos_ is a multiple of H here: the ring's two runs are whole 16-byte vectors (the heap and kStftWin are aligned)
+        const int run = N - ipos_;
+        pie_vmul_s16(in_ + ipos_, kStftWin, re_, run, 15);
+        if (ipos_) pie_vmul_s16(in_, kStftWin + run, re_ + run, ipos_, 15);
+        if (in2_) {
+            pie_vmul_s16(in2_ + ipos_, kStftWin, im_, run, 15);
+            if (ipos_) pie_vmul_s16(in2_, kStftWin + run, im_ + run, ipos_, 15);
+        } else {
+            std::memset(im_, 0, sizeof(int16_t) * N);
+        }
+#else
         for (int n = 0; n < N; n++) {
             const int idx = (ipos_ + n) & (N - 1);
             re_[n] = mul15(kStftWin[n], in_[idx]);
             im_[n] = in2_ ? mul15(kStftWin[n], in2_[idx]) : 0;
         }
+#endif
+        STFT_T(0);
         StftFrame f{re_, im_, fft_q15(re_, im_)};
+        STFT_T(1);
         fn(f);
+        STFT_T(2);
         if (!in2_) {                                              // mono: enforce a Hermitian spectrum
             im_[0] = 0;
             im_[N / 2] = 0;
             for (int k = 1; k < N / 2; k++) { re_[N - k] = re_[k]; im_[N - k] = sat16(-static_cast<int32_t>(im_[k])); }
         }
+        STFT_T(3);
         const int ei = ifft_q15(re_, im_);
+        STFT_T(4);
         const int s = f.exp + ei - kFftLog2N - 1;                 // 1/N of the inverse, 1/2 of the window overlap
-        for (int n = 0; n < N; n++) {
-            int64_t v = (static_cast<int64_t>(re_[n]) * kStftWin[n] + (1 << 14)) >> 15;
-            v = s >= 0 ? (v << s) : ((v + (1LL << (-s - 1))) >> -s);
-            acc_[(opos_ + n) & (N - 1)] = sat32(static_cast<int64_t>(acc_[(opos_ + n) & (N - 1)]) + v);
+        // The windowed sample fits int32 (|re * win| < 2^30), and so does its shift for -30 <= s <= 16: the common frames run
+        // without 64-bit multiplies or shifts (2x cheaper on the S3); only the accumulation stays 64-bit, for the saturation.
+        auto add = [this](int n, int64_t v) { int32_t &a = acc_[(opos_ + n) & (N - 1)]; a = sat32(static_cast<int64_t>(a) + v); };
+#if SC_FFT_PIE
+        if (s >= -30 && s <= 16) {                                 // the same arithmetic in PIE, over the ring's two runs (opos_ is a multiple of H)
+            const int run = N - opos_;
+            if (s >= 0) {
+                pie_ola_shl(re_, kStftWin, acc_ + opos_, run, s);
+                if (opos_) pie_ola_shl(re_ + run, kStftWin + run, acc_, opos_, s);
+            } else {
+                pie_ola_shr(re_, kStftWin, acc_ + opos_, run, -s);
+                if (opos_) pie_ola_shr(re_ + run, kStftWin + run, acc_, opos_, -s);
+            }
+        } else
+#endif
+        if (s >= 0 && s <= 16) {
+            for (int n = 0; n < N; n++) add(n, ((static_cast<int32_t>(re_[n]) * kStftWin[n] + (1 << 14)) >> 15) << s);
+        } else if (s < 0 && s >= -30) {
+            const int r = -s;
+            const int32_t rnd = 1 << (r - 1);
+            for (int n = 0; n < N; n++) add(n, (((static_cast<int32_t>(re_[n]) * kStftWin[n] + (1 << 14)) >> 15) + rnd) >> r);
+        } else {
+            for (int n = 0; n < N; n++) {
+                int64_t v = (static_cast<int64_t>(re_[n]) * kStftWin[n] + (1 << 14)) >> 15;
+                v = s >= 0 ? (v << s) : ((v + (1LL << (-s - 1))) >> -s);
+                add(n, v);
+            }
         }
+        STFT_T(5);
         for (int j = 0; j < H; j++) {                              // the oldest H samples are complete
             const int idx = (opos_ + j) & (N - 1);
             fifo_[wr_] = sat16(acc_[idx]);
@@ -110,6 +162,7 @@ private:
         }
         count_ += H;
         opos_ = (opos_ + H) & (N - 1);
+        STFT_T(6);
     }
 
     Heap *heap_ = nullptr;

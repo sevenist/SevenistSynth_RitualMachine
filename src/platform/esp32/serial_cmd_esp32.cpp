@@ -5,6 +5,7 @@
 #include <string.h>
 #include "hal/hal_audio.h"
 #include "platform/engine/engine_synth.h"
+#include "engine/modules/mi_osc.h"
 #include "core/ui_settings.h"
 #include "platform/esp32/serial_cmd_esp32.h"
 #ifdef HWV1
@@ -128,6 +129,37 @@ void run(char *line) {
         Serial.printf("[CMD] popup %s\n", k[0] ? k : "info");
         return;
     }
+    if (!strcmp(line, "mi") && g_app) {                   // mi <name|number|next|prev|list> [timbre morph harm]: every rack OSC plays that MI model (ADR-039)
+        char what[16] = {};
+        float t = -1, m = -1, h = -1;
+        sscanf(arg ? arg : "", "%15s %f %f %f", what, &t, &m, &h);
+        if (!strcmp(what, "list")) {
+            for (int i = 0; i < sc::MI_MODELS; i++) Serial.printf("[CMD] mi %d %s\n", i, sc::mi_model_name(i));
+            return;
+        }
+        int cur = -1;
+        for (int i = 0; i < g_app->rack.count && cur < 0; i++)
+            if (g_app->rack.slot[i].type == MOD_OSC && g_app->rack.slot[i].v[MP_OC_WAVE] >= OC_FIRST_MI) cur = (int)g_app->rack.slot[i].v[MP_OC_WAVE] - OC_FIRST_MI;
+        int model = -1;
+        if (!strcmp(what, "next")) model = (cur + 1) % sc::MI_MODELS;
+        else if (!strcmp(what, "prev")) model = cur <= 0 ? sc::MI_MODELS - 1 : cur - 1;
+        else if (what[0] >= '0' && what[0] <= '9') model = atoi(what);
+        else for (int i = 0; i < sc::MI_MODELS; i++) if (!strcasecmp(what, sc::mi_model_name(i))) model = i;
+        if (model < 0 || model >= sc::MI_MODELS) { Serial.printf("[CMD] mi: unknown model '%s' (mi list)\n", what); return; }
+        int n = 0;
+        for (int i = 0; i < g_app->rack.count; i++) {
+            rack_slot_t &s = g_app->rack.slot[i];
+            if (s.type != MOD_OSC) continue;
+            s.v[MP_OC_WAVE] = (float)(OC_FIRST_MI + model);
+            if (t >= 0) s.v[MP_OC_PW] = t < 0.05f ? 0.05f : (t > 0.95f ? 0.95f : t);        // Timb shares PW's range
+            if (m >= 0) s.v[MP_OC_MORPH] = m > 1 ? 1 : m;
+            if (h >= 0) s.v[MP_OC_HARM] = h > 1 ? 1 : h;
+            n++;
+        }
+        use_rack();
+        Serial.printf("[CMD] mi %d %s on %d oscillators\n", model, sc::mi_model_name(model), n);
+        return;
+    }
     if (!strcmp(line, "flt") && g_app) {                  // flt T: the type of every FL module (0 Off 1 LP 2 BP 3 HP 4 LP24 5 Notch 6 LP6 7 Ladr 8 ChLP 9 AP), a live change
         for (int i = 0; i < g_app->rack.count; i++)
             if (g_app->rack.slot[i].type == MOD_FILTER) g_app->rack.slot[i].v[MP_FL_TYPE] = (float)(v < 0 ? 0 : (v >= FILT_COUNT ? FILT_COUNT - 1 : v));
@@ -151,6 +183,21 @@ void run(char *line) {
         else { Serial.println("[CMD] str wave|osc|det|mix|lvl|lp|ftype|fx <value>"); return; }
         audio_build(&g_app->rack, &g_app->params);
         Serial.printf("[CMD] str %s %g\n", f, (double)x);
+        return;
+    }
+    if (!strcmp(line, "fx") && g_app) {                   // fx <slot 1-4> <type> [v0 .. v7]: an FX rack slot (type = fx_type_t number; values in screen units, missing = default)
+        int k = 0, t = 0, n = 0, used = 0;
+        const char *s = arg ? arg : "";
+        if (sscanf(s, "%d %d%n", &k, &t, &used) < 2 || k < 1 || k > FXR_SLOTS || t < 0 || t >= FX_TYPE_COUNT) {
+            Serial.println("[CMD] fx <slot 1-4> <type 0-13> [values...]");
+            return;
+        }
+        fx_slot_t &fs = g_app->rack.cfg.fxr.slot[k - 1];
+        fxr_set_type(&fs, t);
+        s += used;
+        for (int i = 0, x = 0; i < FXR_PARAMS && sscanf(s, "%d%n", &x, &n) == 1; i++, s += n) fs.v[i] = (int16_t)x;
+        audio_build(&g_app->rack, &g_app->params);
+        Serial.printf("[CMD] fx %d %s %d %d %d %d %d %d %d\n", k, fxr_type_name(t), fs.v[0], fs.v[1], fs.v[2], fs.v[3], fs.v[4], fs.v[5], fs.v[6]);
         return;
     }
 #ifdef HWV1

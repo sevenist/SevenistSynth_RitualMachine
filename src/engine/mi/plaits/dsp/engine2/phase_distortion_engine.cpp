@@ -27,19 +27,19 @@
 // Phase distortion and phase modulation with an asymmetric triangle as the
 // modulator.
 
-#include "plaits/dsp/engine2/phase_distortion_engine.h"
+#include "engine/mi/plaits/dsp/engine2/phase_distortion_engine.h"
 
 #include <algorithm>
 
-#include "stmlib/dsp/parameter_interpolator.h"
+#include "engine/dsp/fdsp.h"
 
-#include "plaits/dsp/oscillator/sine_oscillator.h"
-#include "plaits/resources.h"
+#include "engine/mi/plaits/dsp/oscillator/sine_oscillator.h"
+#include "engine/mi/plaits/resources.h"
 
 namespace plaits {
 
 using namespace std;
-using namespace stmlib;
+using namespace sc::fdsp;
 
 void PhaseDistortionEngine::Init(BufferAllocator* allocator) {
   modulator_.Init();

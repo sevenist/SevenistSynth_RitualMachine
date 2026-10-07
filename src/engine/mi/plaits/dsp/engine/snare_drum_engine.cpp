@@ -26,14 +26,14 @@
 //
 // 808 and synthetic snare drum generators.
 
-#include "plaits/dsp/engine/snare_drum_engine.h"
+#include "engine/mi/plaits/dsp/engine/snare_drum_engine.h"
 
 #include <algorithm>
 
 namespace plaits {
 
 using namespace std;
-using namespace stmlib;
+using namespace sc::fdsp;
 
 void SnareDrumEngine::Init(BufferAllocator* allocator) {
   analog_snare_drum_.Init();
@@ -52,27 +52,31 @@ void SnareDrumEngine::Render(
     bool* already_enveloped) {
   const float f0 = NoteToFrequency(parameters.note);
   
-  analog_snare_drum_.Render(
-      parameters.trigger & TRIGGER_UNPATCHED,
-      parameters.trigger & TRIGGER_RISING_EDGE,
-      parameters.accent,
-      f0,
-      parameters.timbre,
-      parameters.morph,
-      parameters.harmonics,
-      out,
-      size);
+  if (out) {   // SevenSynth: only the variant in use is rendered (VENDOR.md)
+    analog_snare_drum_.Render(
+        parameters.trigger & TRIGGER_UNPATCHED,
+        parameters.trigger & TRIGGER_RISING_EDGE,
+        parameters.accent,
+        f0,
+        parameters.timbre,
+        parameters.morph,
+        parameters.harmonics,
+        out,
+        size);
+  }
   
-  synthetic_snare_drum_.Render(
-      parameters.trigger & TRIGGER_UNPATCHED,
-      parameters.trigger & TRIGGER_RISING_EDGE,
-      parameters.accent,
-      f0,
-      parameters.timbre,
-      parameters.morph,
-      parameters.harmonics,
-      aux,
-      size);
+  if (aux) {   // SevenSynth: only the variant in use is rendered (VENDOR.md)
+    synthetic_snare_drum_.Render(
+        parameters.trigger & TRIGGER_UNPATCHED,
+        parameters.trigger & TRIGGER_RISING_EDGE,
+        parameters.accent,
+        f0,
+        parameters.timbre,
+        parameters.morph,
+        parameters.harmonics,
+        aux,
+        size);
+  }
 }
 
 }  // namespace plaits

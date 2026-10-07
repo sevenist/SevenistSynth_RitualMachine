@@ -7,6 +7,7 @@
 #include "engine/modules/fx_modules.h"
 #include "engine/modules/fx2_modules.h"
 #include "engine/modules/motion_seq.h"
+#include "engine/modules/mi_osc.h"
 #include "engine/modules/osc_engines.h"
 #include "engine/modules/para_modules.h"
 #include "engine/modules/strings_modules.h"
@@ -32,6 +33,7 @@ struct DspRig {
         register_dx7_module(eng.registry());
         register_motion_module(eng.registry());
         register_osc_engines(eng.registry());
+        register_mi_osc(eng.registry());
         register_strings_modules(eng.registry());
         register_para_modules(eng.registry());
     }

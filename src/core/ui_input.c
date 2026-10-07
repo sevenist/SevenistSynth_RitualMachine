@@ -676,6 +676,7 @@ bool synth_ui_handle(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t 
         }
         if (!synth_ui_jump_ready(ui, rack, slot)) return false;  // cleared (its module was deleted) or not shown in this synth type: stay
         ui->latched = false;
+        ui->cog_page = -1;
         ui->in_rack = j->in_rack;
         if (j->in_rack) ui->menu_tab = tab_index_of(rack, (tab_t)j->tab);
         else            ui->page = j->at;
@@ -713,6 +714,7 @@ bool synth_ui_handle(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t 
     // and regenerates the pages from the new rack.
     if (e == UI_MENU) {
         ui->latched = false;
+        ui->cog_page = -1;
         if (!ui->in_rack) { ui->in_rack = true; ui->row = 1; if (ui->menu_tab >= tab_count(rack)) ui->menu_tab = 0; }
         else {
             ui->in_rack = false; ui->row = 0;
@@ -728,14 +730,26 @@ bool synth_ui_handle(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t 
 
     page_t pg;
     get_page(ui, rack, ui->page, &pg);
-    int n = pg.count;
+    const bool cog = page_has_cog(rack, &pg);
+    int n = pg.count + (cog ? 1 : 0);                              // a module's first page: its cog is the row after the last one
+    if (e == UI_BACK && ui->cog_page == ui->page) {               // Back closes the hidden settings, the focus back on the cog
+        ui->cog_page = -1;
+        get_page(ui, rack, ui->page, &pg);
+        ui->row = pg.count + 1;
+        return false;
+    }
     switch (e) {
         case UI_DOWN: ui->row = (ui->row + 1) % (n + 1); break;
         case UI_UP:   ui->row = (ui->row + n) % (n + 1); break;
         case UI_LEFT:
         case UI_RIGHT: {
             int dir = e == UI_RIGHT ? 1 : -1;
-            if (ui->row == 0) ui->page = (ui->page + dir + ui->page_count) % ui->page_count;
+            if (ui->row == 0) { ui->page = (ui->page + dir + ui->page_count) % ui->page_count; ui->cog_page = -1; }
+            else if (cog && ui->row == pg.count + 1) {               // the cog (a push, left or right): open / close the hidden settings
+                ui->cog_page = ui->cog_page == ui->page ? -1 : ui->page;
+                get_page(ui, rack, ui->page, &pg);
+                ui->row = pg.count + 1;                              // the focus stays on the cog
+            }
             else return page_row_step(ui, params, seq, rack, &pg, ui->row, dir);
             break;
         }

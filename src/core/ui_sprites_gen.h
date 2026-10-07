@@ -6,7 +6,47 @@
 extern "C" {
 #endif
 
+extern const gui_sprite_t spr8_ui_cog;
 extern const gui_sprite_t spr8_ui_xy;
+extern const gui_sprite_t spr16_tab_algorithm;
+extern const gui_sprite_t spr16_tab_curves;
+extern const gui_sprite_t spr16_tab_envelope;
+extern const gui_sprite_t spr16_tab_fx;
+extern const gui_sprite_t spr16_tab_general;
+extern const gui_sprite_t spr16_tab_joy;
+extern const gui_sprite_t spr16_tab_keys;
+extern const gui_sprite_t spr16_tab_leds;
+extern const gui_sprite_t spr16_tab_macros;
+extern const gui_sprite_t spr16_tab_modifiers;
+extern const gui_sprite_t spr16_tab_operator;
+extern const gui_sprite_t spr16_tab_rack;
+extern const gui_sprite_t spr16_tab_samples;
+extern const gui_sprite_t spr24_mod_comb;
+extern const gui_sprite_t spr24_mod_eg;
+extern const gui_sprite_t spr24_mod_env;
+extern const gui_sprite_t spr24_mod_filter;
+extern const gui_sprite_t spr24_mod_lfo;
+extern const gui_sprite_t spr24_mod_mseq;
+extern const gui_sprite_t spr24_mod_osc;
+extern const gui_sprite_t spr24_mod_sampler;
+extern const gui_sprite_t spr24_mod_sat;
+extern const gui_sprite_t spr24_osc_add;
+extern const gui_sprite_t spr24_osc_dust;
+extern const gui_sprite_t spr24_osc_fm2;
+extern const gui_sprite_t spr24_osc_fold;
+extern const gui_sprite_t spr24_osc_karp;
+extern const gui_sprite_t spr24_osc_modal;
+extern const gui_sprite_t spr24_osc_noise;
+extern const gui_sprite_t spr24_osc_pulse;
+extern const gui_sprite_t spr24_osc_sawdn;
+extern const gui_sprite_t spr24_osc_sawup;
+extern const gui_sprite_t spr24_osc_sine;
+extern const gui_sprite_t spr24_osc_ssaw;
+extern const gui_sprite_t spr24_osc_strng;
+extern const gui_sprite_t spr24_osc_tri;
+extern const gui_sprite_t spr24_osc_vowel;
+extern const gui_sprite_t spr24_slot_empty;
+extern const gui_sprite_t spr24_slot_out;
 
 // The sprite of an image by its path without .png and frame number ("24/mod_osc"); NULL when there is no such image (the caller then
 // draws its own fallback, so the art can arrive one file at a time).

@@ -217,8 +217,9 @@ Edits that change the structure (module insert / delete, target, type, voices, t
 [Delete              ]                          buttons Insert / Delete; Back (button 2) also deletes
 ```
 
-The strip shows `RACK_VIS` cells (derived from `DISPLAY_WIDTH`) and scrolls over the 10 slots plus OUT; arrows at its ends show that more cells are hidden. `RACK_PITCH` in
-`ui_internal.h` is the sprite width + 4 and a `_Static_assert` in `scr_rack.c` checks it against `MODULE_SPRITE_W`; the sprite size itself is set in `tools/gen_module_sprites.py`.
+The strip shows `RACK_VIS` cells (derived from `DISPLAY_WIDTH`: four 32 px cells on 128 px) and scrolls over the 10 slots plus OUT; arrows at its ends show that more cells are hidden. `RACK_PITCH` in
+`ui_internal.h` is the sprite width + one 8 px grid cell and a `_Static_assert` in `scr_rack.c` checks it against `MODULE_SPRITE_W`; the sprite size itself is set in `tools/gen_module_sprites.py`.
+The screen sits on the 8 px grid (rows in `scr_rack.c`: frame room, icons, the audio and mod lanes, description, four 16 px field rows); links join the icons' fixed connectors (assets/UI_Sprites/README.md).
 
 ### Adding or converting a screen
 

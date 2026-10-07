@@ -84,6 +84,7 @@ typedef struct {
     int rack_type;  // module type that Insert will add
     int  fm_op;            // FM editor: selected operator 0..5
     int  fm_pt;            // FM editor: selected envelope point 0..3
+    int  cog_page;         // the page whose cog is open (its module's hidden settings shown in place of its rows), -1 = none
     int  ms_lane;          // motion sequencer pages: selected lane 0..3 and step
     int  ms_step;
     int  fx_slot;          // FX RACK tab: selected slot 0..3

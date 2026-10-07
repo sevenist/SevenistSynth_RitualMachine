@@ -102,6 +102,27 @@ def write_png(path, rows):
                 chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
 
 
+PALETTE = [(255, 0, 255), (0, 0, 0), (255, 255, 255)]   # index 0 transparent (magenta, so it stands out if alpha is ignored), 1 black, 2 white
+
+
+def write_png_indexed(path, rows):
+    """The editing format of the sprites: an indexed PNG, 2 bits per pixel, 3 palette entries (transparent, black, white); rows of
+    (lum, alpha) are reduced like the converter reads them (alpha < 50 % -> transparent, else lum >= 50 % -> white, else black)."""
+    h, w = len(rows), len(rows[0])
+    def index(p): return 0 if p[1] < 128 else 2 if p[0] >= 128 else 1
+    raw = b""
+    for row in rows:
+        line = bytearray((w + 3) // 4)
+        for x, p in enumerate(row):
+            line[x // 4] |= index(p) << (6 - 2 * (x % 4))
+        raw += b"\0" + bytes(line)
+    def chunk(k, b): return struct.pack(">I", len(b)) + k + b + struct.pack(">I", zlib.crc32(k + b) & 0xFFFFFFFF)
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 2, 3, 0, 0, 0)) +
+                chunk(b"PLTE", bytes(v for c in PALETTE for v in c)) + chunk(b"tRNS", bytes([0, 255, 255])) +
+                chunk(b"IDAT", zlib.compress(raw)) + chunk(b"IEND", b""))
+
+
 # ---------------- conversion ----------------
 
 def bits(px, w, h, test):
@@ -201,6 +222,10 @@ def selftest():
     lit = bits(px, 8, 8, lambda q: q[1] >= 128 and q[0] >= 128)
     drawn = bits(px, 8, 8, lambda q: q[1] >= 128)
     assert lit[0] == 0x92 and drawn[0] == 0xF0 | 0x92, (hex(lit[0]), hex(drawn[0]))
+    write_png_indexed(p, rows)                                # the 3-colour editing format reads back to the same pixels
+    w, h, px2 = read_png(p)
+    assert (w, h) == (8, 8) and [[(q[0] >= 128, q[1] >= 128) for q in r] for r in px2] == \
+        [[(q[0] >= 128, q[1] >= 128) for q in r] for r in rows], "indexed round trip"
     print("selftest ok")
 
 

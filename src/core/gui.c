@@ -7,9 +7,10 @@ const gui_style_t gui_default_style = {
     .padding = 1,
     .gap = 1,
     .list_w = 64, .list_top = 2,
-    .graph = {66, 14, 61, 49},
+    .graph = {66, GUI_BAR_H, 61, 47},
+    .wave_cycles = 1.5f,
     .roll_pitch_px = 1, .roll_bar_h = 2, .roll_pad = 1, .roll_beat = 4, .strip_h = 2,
-    .rack_pitch = 28, .rack_lane_gap = 3,   // pitch = module sprite + 4 (RACK_PITCH in ui_internal.h)
+    .rack_pitch = 32, .rack_lane_gap = 3,   // pitch = module sprite + 8: four 32 px cells across (RACK_PITCH in ui_internal.h)
 };
 
 // The default style is the 128 x 64 layout; other sizes keep its fonts and spacings and stretch what depends on the screen:

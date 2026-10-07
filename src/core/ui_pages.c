@@ -13,8 +13,8 @@ typedef struct { const char *fmt; graph_t graph; int count; int p[6]; bool needs
 
 static const mpage_def_t oc_pages[] = {
     {"OSC %d",      GRAPH_WAVE,   4, {MP_OC_WAVE, MP_OC_PW, MP_OC_MORPH, MP_OC_LEVEL}},
-    {"OSC %d TUNE", GRAPH_WAVE,   3, {MP_OC_COARSE, MP_OC_FINE, MP_OC_QUAL}},
-    {"OSC %d DEST", GRAPH_WAVE,   4, {PRM_TGT, PRM_TPRM, MP_OC_DEPTH, MP_OC_MUTE}},   // Tgt "--" = a plain oscillator
+    {"OSC %d TUNE", GRAPH_WAVE,   2, {MP_OC_COARSE, MP_OC_FINE}},
+    {"OSC %d DEST", GRAPH_WAVE,   3, {PRM_TGT, PRM_TPRM, MP_OC_DEPTH}},   // Tgt "--" = a plain oscillator
 };
 static const mpage_def_t fl_pages[] = {
     {"FILTER %d",   GRAPH_FILTER, 4, {MP_FL_TYPE, MP_FL_CUT, MP_FL_RES, MP_FL_ENVAMT}},
@@ -61,6 +61,18 @@ static const struct { const mpage_def_t *defs; int n; } mod_pages[MOD_TYPE_COUNT
     [MOD_SAMPLER] = {sm_pages, 3},
 };
 
+// The hidden settings of a module: rarely used rows, shown in place of its first page's rows while its cog is open (ui->cog_page).
+// A module without any has no cog.
+static const struct { int n; int p[4]; } mod_hidden[MOD_TYPE_COUNT] = {
+    [MOD_OSC] = {2, {MP_OC_QUAL, MP_OC_MUTE}},
+};
+
+int module_hidden_count(int type) { return type >= 0 && type < MOD_TYPE_COUNT ? mod_hidden[type].n : 0; }
+
+bool page_has_cog(const rack_t *rack, const page_t *pg) {
+    return pg->slot != GLOBAL_PAGE && pg->def == 0 && module_hidden_count(rack->slot[pg->slot].type) > 0;
+}
+
 typedef struct { const char *title; graph_t graph; int count; int params[4]; } gpage_def_t;
 enum { GP_AMP_ENV, GP_SEQ, GP_SEQ_CFG, GP_FM, GP_AMP_CRV, GP_STR_OSC, GP_STR_TONE, GP_STR_LP, GP_STR_FILTER };
 static const gpage_def_t global_pages[] = {
@@ -103,6 +115,7 @@ void synth_ui_rebuild_pages(synth_ui_t *ui, const rack_t *rack) {
         }
     }
     ui->page_count = n;
+    ui->cog_page = -1;
     if (ui->page >= n) ui->page = n - 1;
     if (ui->page < 0) ui->page = 0;
     synth_ui_jump_resolve(ui, rack);
@@ -175,12 +188,20 @@ void get_page(const synth_ui_t *ui, const rack_t *rack, int idx, page_t *out) {
         snprintf(out->title, sizeof out->title, m->fmt, rack_instance(rack, slot));
         out->graph = m->graph; out->count = m->count;
         for (int i = 0; i < 6; i++) out->params[i] = m->p[i];
+        const int type = rack->slot[slot].type;
+        if (def == 0 && idx == ui->cog_page && module_hidden_count(type)) {                  // its cog is open: the hidden settings instead
+            out->count = mod_hidden[type].n;
+            snprintf(out->title, sizeof out->title, m->fmt, rack_instance(rack, slot));
+            strncat(out->title, " SET", sizeof out->title - strlen(out->title) - 1);
+            for (int i = 0; i < 6; i++) out->params[i] = i < 4 ? mod_hidden[type].p[i] : 0;
+        }
     }
 }
 
 void synth_ui_init(synth_ui_t *ui, const rack_t *rack) {
     ui->page = 0; ui->row = 0; ui->cursor = 0; ui->rack_cur = 0; ui->rack_scroll = 0; ui->rack_type = MOD_OSC;
     ui->rack_dirty = false; ui->rebuild = false; ui->in_rack = false; ui->menu_tab = 0; ui->fm_op = 0; ui->fm_pt = 0;
+    ui->cog_page = -1;
     ui->run_anim = GUI_ANIM_INVALID; ui->ms_lane = 0; ui->ms_step = 0; ui->smp_cur = 0; ui->smp_tgt = 0; ui->key_cur = KEY_COLS; ui->eg_pt = 0; ui->fx_slot = 0;
     ui->mods_layer = 0; ui->mods_ctl = CTL_COL_KNOB_0; ui->learn_req = false; ui->learn_wait = false; ui->knob_away = 0;
     ui->learn_macro = -1; ui->macro_cur = 0; ui->macro_dest = 0; ui->curve_cur = 0; ui->curve_pt = 0; ui->led_role = 0;
@@ -223,6 +244,12 @@ tab_t tab_kind(const rack_t *r, int idx) {
 
 const char *tab_name(tab_t t) {
     static const char *const n[] = {"RACK", "GENERAL", "ALGORITHM", "OPERATOR", "ENVELOPE", "FX RACK", "SAMPLES", "KEYS", "MODIFIERS", "MACROS", "CURVES", "LEDS", "JOY"};
+    return n[t];
+}
+
+const char *tab_icon(tab_t t) {
+    static const char *const n[] = {"16/tab_rack", "16/tab_general", "16/tab_algorithm", "16/tab_operator", "16/tab_envelope", "16/tab_fx",
+                                    "16/tab_samples", "16/tab_keys", "16/tab_modifiers", "16/tab_macros", "16/tab_curves", "16/tab_leds", "16/tab_joy"};
     return n[t];
 }
 

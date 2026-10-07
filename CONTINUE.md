@@ -12,11 +12,28 @@ This session: commit the sprite pipeline, then the 8 x 8 grid layout. Confirmed 
 LED colours (preview by role, GRB order, default colours). Still to tune on the board: the HWV1 knob hysteresis.
 
 - [ ] **8 x 8 grid layout** (user, 2026-10-07): every placement on an 8 px grid, the top bar 16 px high (one row); rack cells 32 px (24 icon + 8),
-  four across; then the links drawn to the fixed connectors. Touches every screen (from: user)
+  four across; then the links drawn to the fixed connectors. Touches every screen (from: user).
+  **Step 1 BUILT 2026-10-07** (option A, 56 UI tests green, sim + firmware build, NOT flashed, NOT seen by the user): `GUI_GRID` / `GUI_BAR_H` (gui.h);
+  the top bar is 16 px (rule = its row 15; every screen now starts at y 16, `graph.y` 16) with a menu tab's `16/tab_<name>` icon at the left;
+  RACK tab: `RACK_PITCH` 32, 4 cells, icons centred, the selection arrow removed (the frame shows it). Connectors (user, 2026-10-07):
+  mix in (0, 6), mod in (0, 18), one output (23, 18) = mix out or mod out (user confirmed the shared point); mix links via the gap (neighbours)
+  or the audio lane, mod links via the mod lane up into the mod in (row 0 above the icons is now only frame room); description row at y 56,
+  fields in 16 px rows from y 64. Placeholders: `tools/make_placeholder_sprites.py` wrote 39 PNGs (9 modules, 2 slots, 15 osc waves / engines `osc_*` (not wired:
+  asked where to show them), 13 tabs), indexed 3-colour PNGs (transparent / black / white, user request; `--convert` rewrites any PNG), for the user to paint over. Next: the other screens (list rows of 9 px are not on the grid; the parameter pages lost 5 px to the bar)
+- [ ] **Module first page + cog** (user, 2026-10-07; asked with options: rows left / icon right, infos name + tuning + quality, the cog opens
+  hidden settings, every module's first page): BUILT (59 UI tests green incl. `tests/ui/test_cog.c`, sim + firmware build, NOT flashed, NOT seen
+  by the user). A module's first page: 8 px rows at x 0..63 / y 16..63, the right half: icon (`ui_module_sprite`: OSC = `24/osc_<wave>`) at
+  (72, 16), 3 info lines at y 40 / 48 / 56 (OSC: wave, "+Nst +Nct", "Q <q>"; others: the module's name only), the cog `8/ui_cog` at (120, 16);
+  the preview (graph) at x 0..127 / y 64..127. The cog is the row after the last one (encoder A / joystick to it); a push (or left / right)
+  swaps the rows for the hidden settings (title "<page> SET"), a second push or Back closes; leaving the page closes it (`ui->cog_page`).
+  Hidden settings (`mod_hidden`, ui_pages.c): OSC = Q (left OSC TUNE) + Mute (left OSC DEST); other modules: none yet, so no cog (to ask).
+  EG and MOTION first pages are drawn by hand: old layout. User 2026-10-07: the same layout on every module page (TUNE, DEST, ENV ...: the
+  cog only on the first page) and one cycle in the wave / engine previews (`draw_wave`, `draw_engine_preview`; LFO and Strings use draw_wave too).
+  Hidden settings of the other modules: the user decides later (from: user)
 - [ ] **UI sprites build**: pipeline BUILT 2026-10-07 (56 UI tests green incl. `tests/ui/test_sprites.c`, sim + firmware build). Format decided with the
   user, written in `assets/UI_Sprites/README.md`: folders by size (8 / 16 / 24 / 64), PNG white = lit, black = off (drawn), alpha < 50 % = transparent
-  (a mask plane, `gui_sprite_t.mask`), frames `_00 _01 ...`, module connectors by a fixed convention (in left-middle, out right-middle, mod out
-  bottom-middle, mod in top-middle), modules 24x24 (the generated fallback too; RACK_PITCH 29 -> 28). Converter `tools/gen_ui_sprites.py` (plain
+  (a mask plane, `gui_sprite_t.mask`), frames `_00 _01 ...`, module connectors by a fixed convention (changed 2026-10-07: mix in (0, 6), mod in (0, 18), output (23, 18);
+  see the grid item), modules 24x24 (the generated fallback too; RACK_PITCH 29 -> 28). Converter `tools/gen_ui_sprites.py` (plain
   Python + zlib, no Pillow), run by build.ps1 and `extra_scripts = pre:tools/pio_gen_sprites.py`; lookup `ui_sprite("24/mod_osc")`, NULL = fallback.
   Wired so far: modules + slot cells (scr_rack.c), the XY mark (`8/ui_xy`, a placeholder I drew: redraw it). The user draws the art. NOT flashed (from: user)
 - [ ] **Knob hysteresis on the board**: continuous knobs are in (fine steps confirmed); tune `HWV1_ABS_START` / `_STEP` / `_IDLE_MS` (hwv1_layout.h):
@@ -25,6 +42,11 @@ LED colours (preview by role, GRB order, default colours). Still to tune on the 
   Latch details (user, 2026-10-07; toggle per note, not a sustain pedal; Shift only, Mod + note plays normally): app.c `ACT_NOTE`, `input_state_t.latched[]`;
   test `modifiers_shift_note_latches_until_pressed_again`. The next press of the key (with or without Shift) releases it; only when the key's Shift entry is
   Default. Shift + Back: popup "LATCH / Released N". Limits: a latched key whose function is changed in KEYS keeps its note until a panic / restart
+- [ ] **All-pass filter type "AP"** (user, 2026-10-07): BUILT (161 engine tests green incl. `filter_allpass_is_flat`: worst 0.03 dB, 59 UI
+  tests, sim + firmware build, NOT flashed, NOT listened to). `FILT_AP` appended (saved values keep their meaning), engine `FLTM_AP` = the SVF's
+  x - 2k bp (one multiply-add over an LP section), 1 section, Res = Q (how fast the phase turns); also in STR FILTER; serial `flt 9`. The preview
+  shows the phase (0 top, -180 at the cutoff, -360 bottom). Alone it only shifts phase (inaudible on a static sound): a phaser needs it mixed
+  with the dry signal (no mix on the filter: to ask the user) (from: user)
 - [ ] Then "D" = engine / board items: decide the SD options (a)-(d); internal RAM for the startup patch (what stays internal with a 74 KB fast heap: reverb tank, delay, filters; or free internal RAM, IRAM code 124 KB) (from: user + measurements)
 - [ ] Quick macro UI: a button next to a mappable element, so a macro is assigned without Shift + knob (from: user)
 - [ ] Board test later (user): ui.cfg (Knob Direct + two jump slots survive a reboot) and jump slots by identity on the board; catch refresh after manual changes (from: user)

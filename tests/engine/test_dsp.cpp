@@ -152,6 +152,20 @@ TEST(light_filters_lp6_ladder_and_chamberlin) {
     }
 }
 
+// The all-pass (FLTM_AP, x - 2k bp of the SVF): the level stays flat at every frequency, with or without resonance, for 1 and 2 sections.
+TEST(filter_allpass_is_flat) {
+    FilterBench b;
+    const double fc = 1000.0;
+    double worst = 0;
+    for (int sections : {1, 2})
+        for (int res : {0, 16384}) {
+            b.filter(FLTM_AP, sections, fc, res);
+            for (double f : {100.0, 500.0, 1000.0, 2000.0, 8000.0}) worst = std::fmax(worst, std::fabs(b.gain_db(f)));
+        }
+    std::printf("    all-pass 1 kHz: worst level change %.2f dB (100 Hz..8 kHz, 1 / 2 sections, res 0 / 0.5)\n", worst);
+    CHECK(worst < 0.3);
+}
+
 TEST(filter_highpass_bandpass_notch) {
     FilterBench b;
     const double fc = 2000.0;

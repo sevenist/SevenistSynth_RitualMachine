@@ -21,10 +21,11 @@
 
 #define PI_F 3.14159265f
 
-// Rack strip: the module sprite is MODULE_SPRITE_W wide (module_sprites.h, generated); RACK_PITCH = sprite + 4 px so the selection frame fits between cells.
-// RACK_VIS cells are visible at once (the screen width minus room for the scroll arrows); the strip scrolls over the RACK_MAX + 1 cells (slots and OUT).
-#define RACK_PITCH 28
-#define RACK_VIS   ((DISPLAY_WIDTH - 8) / RACK_PITCH)
+// Rack strip: the module sprite is MODULE_SPRITE_W (24) wide (module_sprites.h, generated); a cell is RACK_PITCH = 32 px (4 grid cells: the icon centred,
+// 4 px each side for the selection frame and the links). RACK_VIS cells are visible at once (four on 128 px; the scroll arrows sit in the 4 px
+// margins at the screen edges); the strip scrolls over the RACK_MAX + 1 cells (slots and OUT).
+#define RACK_PITCH 32
+#define RACK_VIS   (DISPLAY_WIDTH / RACK_PITCH)
 
 static inline int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
@@ -62,9 +63,15 @@ static inline bool graph_is_fm(graph_t g) { return g == GRAPH_FM || g == GRAPH_F
 
 /* ---- ui_pages.c ---- */
 void get_page(const synth_ui_t *ui, const rack_t *rack, int idx, page_t *out);
+int  module_hidden_count(int type);   // how many hidden settings a module type has behind its cog (0: no cog)
+// A module's pages: rows on the left, the icon / infos on the right, the preview at the bottom (ui_draw.c); the first page also has the cog, the
+// row after the last one. The motion sequencer and the EG draw their first page by hand and have no cog.
+bool page_has_cog(const rack_t *rack, const page_t *pg);
+const gui_sprite_t *ui_module_sprite(const rack_slot_t *s);   // the module's 24 px icon (an oscillator: its wave's, osc_<wave>, when drawn)
 int tab_count(const rack_t *r);
 tab_t tab_kind(const rack_t *r, int idx);
 const char *tab_name(tab_t t);
+const char *tab_icon(tab_t t);   // the sprite name of the tab's top-bar icon ("16/tab_rack"; ui_sprite() gives NULL until the image exists)
 int tab_rows(tab_t t);
 int tab_index_of(const rack_t *r, tab_t t);       // index of the tab of that kind in the current synth type, -1 = the type has none
 
@@ -74,8 +81,8 @@ int sampler_count(const rack_t *r);                 // samplers in the rack
 int sampler_slot(const rack_t *r, int k);           // slot of the k-th sampler (k from 1)
 
 /* ---- ui_graphs.c: pictures for the graph box ---- */
-void draw_wave(u8g2_t *g, gui_rect_t box, int wave, float pulse_width);
-void draw_engine_preview(u8g2_t *g, gui_rect_t box, int engine, float timbre, float morph);
+void draw_wave(u8g2_t *g, gui_rect_t box, int wave, float pulse_width, float cycles);                 // cycles: gui_style_t.wave_cycles
+void draw_engine_preview(u8g2_t *g, gui_rect_t box, int engine, float timbre, float morph, float cycles);
 float curve_shape(float pct, float p);
 void draw_curve_seg(u8g2_t *g, int x0, int y0, int x1, int y1, float pct);
 void draw_env(u8g2_t *g, gui_rect_t box, const env_params_t *e);

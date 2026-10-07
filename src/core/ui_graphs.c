@@ -4,13 +4,13 @@
 #include <math.h>
 #include <stdio.h>
 
-// Two cycles of the selected waveform.
-void draw_wave(u8g2_t *g, gui_rect_t box, int wave, float pulse_width) {
+// `cycles` periods of the selected waveform (the style's wave_cycles).
+void draw_wave(u8g2_t *g, gui_rect_t box, int wave, float pulse_width, float cycles) {
     const int cy = box.y + box.h / 2, amp = box.h / 2 - 3;
     uint32_t noise = 12345;
     int px = 0, py = 0;
     for (int i = 0; i < box.w - 2; i++) {
-        float ph = fmodf(i * 2.0f / (box.w - 2), 1.0f), v;
+        float ph = fmodf((float)i * cycles / (float)(box.w - 2), 1.0f), v;
         switch (wave) {
             case WAVE_SINE:     v = sinf(2 * PI_F * ph); break;
             case WAVE_PULSE:    v = ph < pulse_width ? 1.0f : -1.0f; break;
@@ -26,11 +26,11 @@ void draw_wave(u8g2_t *g, gui_rect_t box, int wave, float pulse_width) {
 }
 
 // A sketch of what an oscillator engine does with its two controls (timbre and morph in 0..1): not the real signal, but it moves the same way.
-void draw_engine_preview(u8g2_t *g, gui_rect_t box, int engine, float timbre, float morph) {
+void draw_engine_preview(u8g2_t *g, gui_rect_t box, int engine, float timbre, float morph, float cycles) {
     const int cy = box.y + box.h / 2, amp = box.h / 2 - 3, w = box.w - 2;
     int px = 0, py = 0;
     for (int i = 0; i < w; i++) {
-        const float t = (float)i / (float)w, ph = 2.0f * PI_F * 3.0f * t;           // three cycles
+        const float t = (float)i / (float)w, ph = 2.0f * PI_F * cycles * t;         // `cycles` periods
         float v = 0;
         switch (engine) {
             case 0: {                                                                // string: a saw-like pluck decaying slower with morph
@@ -52,7 +52,7 @@ void draw_engine_preview(u8g2_t *g, gui_rect_t box, int engine, float timbre, fl
                 v = s / 3.0f * (0.6f + 0.4f * morph);
             } break;
             case 5: {                                                                // a damped formant ring after every glottal pulse
-                const float u = fmodf(t * 3.0f, 1.0f);
+                const float u = fmodf(t * cycles, 1.0f);
                 v = sinf(u * (6.0f + 18.0f * (1.0f - timbre)) * 2 * PI_F) * expf(-u * (6.0f - 4.5f * morph));
             } break;
             case 6: for (int k = 1; k <= 8; k++) v += sinf((float)k * ph) * powf((float)k, -(2.0f - 1.8f * timbre)) * ((k & 1) ? 1.0f : 1.0f - morph); v *= 0.8f; break;
@@ -129,6 +129,7 @@ float filter_gain(int type, float f, float fc, float q) {
         case FILT_HP:    return r * r * lp;
         case FILT_NOTCH: return fabsf(1 - r * r) * lp;
         case FILT_CHAM:  return lp;
+        case FILT_AP:    return 1.0f;                                // all-pass: flat (draw_filter shows its phase)
         case FILT_LP6:   return 1.0f / sqrtf(1 + r * r);
         case FILT_LADDER: {                                          // four one-poles in a loop with gain k (resonance from q, like the engine)
             const float k = 3.9f * fminf(fmaxf((q - 0.5f) / 9.5f, 0.0f), 1.0f);
@@ -141,10 +142,26 @@ float filter_gain(int type, float f, float fc, float q) {
     }
 }
 
-// Frequency response, 20 Hz..20 kHz (log) by -36..+18 dB, with 0 dB and cutoff markers.
+// Frequency response, 20 Hz..20 kHz (log) by -36..+18 dB, with 0 dB and cutoff markers. The all-pass, whose level is flat, shows its phase
+// instead: 0 degrees at the top, -360 at the bottom (the dotted line is -180, reached at the cutoff).
 void draw_filter(u8g2_t *g, gui_rect_t box, int type, float cutoff_hz, float resonance) {
     const float db_min = -36.0f, db_max = 18.0f;
     const int bottom = box.y + box.h - 2, span = box.h - 4, w = box.w - 2;
+    if (type == FILT_AP) {
+        const int top = box.y + 2, mid = top + (bottom - top) / 2;
+        for (int x = box.x + 1; x < box.x + box.w - 1; x += 3) u8g2_DrawPixel(g, x, mid);
+        int px = 0, py = 0;
+        for (int i = 0; i < w; i++) {
+            const float r = 20.0f * powf(1000.0f, i / (float)(w - 1)) / cutoff_hz;
+            const float ph = 2.0f * atan2f(r / resonance, 1.0f - r * r);      // 0..2 pi
+            const int x = box.x + 1 + i, y = top + (int)(ph / (2.0f * PI_F) * (float)(bottom - top));
+            if (i > 0) u8g2_DrawLine(g, px, py, x, y);
+            px = x; py = y;
+        }
+        const int cx = box.x + 1 + (int)(logf(cutoff_hz / 20.0f) / logf(1000.0f) * (w - 1));
+        for (int y = box.y + 2; y < bottom; y += 3) u8g2_DrawPixel(g, cx, y);
+        return;
+    }
     int y0 = bottom - (int)((0 - db_min) / (db_max - db_min) * span);
     for (int x = box.x + 1; x < box.x + box.w - 1; x += 3) u8g2_DrawPixel(g, x, y0);
     int px = 0, py = 0;

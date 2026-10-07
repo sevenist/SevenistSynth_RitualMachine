@@ -27,8 +27,8 @@ int32_t hz_pitch(double hz) { return static_cast<int32_t>(std::lround(69.0 * kSe
 // A rack filter type (FILT_*) as Filter parameters: the SVF types set mode / slope / a Q boost; the light ones (LP6, Ladr, ChLP) set the
 // algorithm and pass the rack's Res (Q 0.5..10) as 0..1. Every type is a parameter change of the same node (switching type never rebuilds).
 void filter_params(NodeDesc *f, int type, double cut_hz, double res_q) {
-    static const int mode[FILT_COUNT] = {FLTM_LP, FLTM_LP, FLTM_BP, FLTM_HP, FLTM_LP, FLTM_NOTCH, FLTM_LP, FLTM_LP, FLTM_LP};
-    static const int algo[FILT_COUNT] = {FLTA_SVF, FLTA_SVF, FLTA_SVF, FLTA_SVF, FLTA_SVF, FLTA_SVF, FLTA_LP6, FLTA_LADDER, FLTA_CHAM};
+    static const int mode[FILT_COUNT] = {FLTM_LP, FLTM_LP, FLTM_BP, FLTM_HP, FLTM_LP, FLTM_NOTCH, FLTM_LP, FLTM_LP, FLTM_LP, FLTM_AP};
+    static const int algo[FILT_COUNT] = {FLTA_SVF, FLTA_SVF, FLTA_SVF, FLTA_SVF, FLTA_SVF, FLTA_SVF, FLTA_LP6, FLTA_LADDER, FLTA_CHAM, FLTA_SVF};
     const int sections = type == FILT_LP24 ? 2 : 1;
     f->param[FLT_MODE] = mode[type];
     f->param[FLT_SECTIONS] = sections;

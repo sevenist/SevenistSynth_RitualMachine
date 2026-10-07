@@ -42,7 +42,7 @@ enum { LFOS_SINE, LFOS_TRI, LFOS_SAW_DOWN, LFOS_SAW_UP, LFOS_SQUARE, LFOS_SH };
 //   CHAM    Chamberlin state-variable LP, 12 dB/oct          the cutoff stops at about fs / 6 (stability)
 // The light ones compute their coefficient at both ends of the block and interpolate (no exact per-sample path for audio-rate cutoff FM).
 enum { FLT_MODE, FLT_SECTIONS, FLT_CUTOFF, FLT_RES, FLT_CUT_MOD, FLT_ALGO, FLT_N };
-enum { FLTM_LP, FLTM_BP, FLTM_HP, FLTM_NOTCH };
+enum { FLTM_LP, FLTM_BP, FLTM_HP, FLTM_NOTCH, FLTM_AP };      // AP: all-pass, x - 2k bp (flat level, phase 0..-360 degrees per section)
 enum { FLTA_SVF, FLTA_LP6, FLTA_LADDER, FLTA_CHAM };
 
 // Shaper (naive, no anti-aliasing: ADR-013): in 0, out 0.   drive in 1/256 octave of gain.   mod: drive

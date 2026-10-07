@@ -19,7 +19,7 @@ typedef struct {                // descriptor of one module parameter
 
 static const char *const wave_names[]   = {"Sine", "Pulse", "SawDn", "SawUp", "Tri", "Noise", "Karp", "Modal", "FM2", "Fold", "SSaw", "Vowel", "Add", "Dust", "Strng"};
 static const char *const qual_names[]   = {"Blep", "Mip", "Naive"};
-static const char *const filter_names[] = {"Off", "LP", "BP", "HP", "LP24", "Notch", "LP6", "Ladr", "ChLP"};
+static const char *const filter_names[] = {"Off", "LP", "BP", "HP", "LP24", "Notch", "LP6", "Ladr", "ChLP", "AP"};
 static const char *const sat_names[]    = {"Tanh", "Clip", "Fold", "Crush", "Tube", "Tape", "Diode", "Cheb", "Rect", "Decim"};
 static const char *const loop_names[]   = {"File", "Off", "Fwd", "Ping"};
 static const char *const dir_names[]    = {"Fwd", "Rev"};

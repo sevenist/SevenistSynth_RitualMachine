@@ -224,6 +224,36 @@ static env_params_t module_env(const rack_slot_t *s) {
     return (env_params_t){s->v[MP_EN_A], s->v[MP_EN_D], s->v[MP_EN_S], s->v[MP_EN_R], s->v[MP_EN_HOLD], s->v[MP_EN_ACV], s->v[MP_EN_DCV], s->v[MP_EN_RCV]};
 }
 
+// A module's page, the right half under the bar (8 px grid): the module's 24 px icon, three info lines under it and, on the first page of a module
+// with hidden settings, the cog in the top-right grid cell (focused: inverted; its row is the one after the last parameter row).
+static void draw_module_head(u8g2_t *g, const gui_style_t *st, const synth_ui_t *ui, const rack_t *rack, const page_t *pg, gui_rect_t r) {
+    const rack_slot_t *ms = &rack->slot[pg->slot];
+    gui_draw_sprite(g, ui_module_sprite(ms), r.x + GUI_GRID, r.y);
+    char line[3][24] = {"", "", ""};
+    if (ms->type == MOD_OSC) {                                     // the wave / engine, the tuning, the quality
+        rack_mparam_format(ms, MP_OC_WAVE, line[0], sizeof line[0]);
+        snprintf(line[1], sizeof line[1], "%+dst %+dct", (int)ms->v[MP_OC_COARSE], (int)ms->v[MP_OC_FINE]);
+        char q[12];
+        rack_mparam_format(ms, MP_OC_QUAL, q, sizeof q);
+        snprintf(line[2], sizeof line[2], "Q %s", q);
+    } else {
+        snprintf(line[0], sizeof line[0], "%s", rack_type_name((module_type_t)ms->type));
+    }
+    for (int i = 0; i < 3; i++) gui_draw_text_left(g, st, gui_rect(r.x, r.y + (3 + i) * GUI_GRID, r.w, GUI_GRID), line[i]);
+    if (!page_has_cog(rack, pg)) return;
+    const int cx = r.x + r.w - GUI_GRID, cy = r.y;
+    const bool focus = ui->row == pg->count + 1;
+    const gui_sprite_t *cog = ui_sprite("8/ui_cog");
+    if (cog && focus) gui_draw_sprite_selected(g, cog, cx, cy);
+    else if (cog) gui_draw_sprite(g, cog, cx, cy);
+    else {                                                         // no image yet: a small square with a dot
+        if (focus) u8g2_DrawBox(g, cx, cy, GUI_GRID, GUI_GRID); else u8g2_DrawFrame(g, cx + 1, cy + 1, GUI_GRID - 2, GUI_GRID - 2);
+        u8g2_SetDrawColor(g, focus ? 0 : 1);
+        u8g2_DrawBox(g, cx + 3, cy + 3, 2, 2);
+        u8g2_SetDrawColor(g, 1);
+    }
+}
+
 void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *seq, const rack_t *rack, u8g2_t *g) {
     gui_style_t style;
     gui_style_init(&style, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
@@ -236,26 +266,29 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
 
     gui_rect_t screen = gui_inset(gui_screen(g), st->margin);
     int row_h = gui_row_h(g, st);
-    gui_rect_t header = gui_take_top(&screen, row_h);
+    gui_rect_t bar = gui_take_top(&screen, GUI_BAR_H);                     // the top bar: one 16 px grid row, its last pixel row is the rule
+    const gui_rect_t header = gui_rect(bar.x, bar.y, bar.w, bar.h - 1);
 
-    // header (row 0): page selector with arrows, or the rack title while the rack editor is open
+    // header (row 0): page selector with arrows, or the menu tab while the menu is open (with its 16/tab_<name>.png icon at the left)
+    const gui_sprite_t *icon = NULL;
     if (ui->in_rack) {
-        snprintf(buf, sizeof buf, "< %s >", tab_name(tab_kind(rack, ui->menu_tab)));
-        if (ui->row == 0) { u8g2_DrawBox(g, header.x, header.y, header.w, header.h); u8g2_SetDrawColor(g, 0); }
+        const tab_t tk = tab_kind(rack, ui->menu_tab);
+        snprintf(buf, sizeof buf, "< %s >", tab_name(tk));
+        icon = ui_sprite(tab_icon(tk));
     } else {
         get_page(ui, rack, ui->page, &pg);
         snprintf(buf, sizeof buf, "< %s >", pg.title);
-        if (ui->row == 0) { u8g2_DrawBox(g, header.x, header.y, header.w, header.h); u8g2_SetDrawColor(g, 0); }
     }
-    gui_draw_text_centered(g, header, buf);
-    if (ui->joy_xy) {                            // joystick XY mode is on: 8/ui_xy.png at the right end of the bar (text when there is no image)
+    u8g2_DrawHLine(g, bar.x, gui_bottom(bar) - 1, bar.w);
+    if (ui->row == 0) { u8g2_DrawBox(g, header.x, header.y, header.w, header.h); u8g2_SetDrawColor(g, 0); }
+    if (icon) gui_draw_sprite(g, icon, bar.x, bar.y);                   // drawn over the rule: keep the icon's last row transparent
+    gui_draw_text_centered(g, icon ? gui_rect(header.x + icon->w, header.y, header.w - icon->w, header.h) : header, buf);
+    if (ui->joy_xy) {                            // joystick XY mode is on: 8/ui_xy.png in the last grid column of the bar (text when there is no image)
         const gui_sprite_t *xy = ui_sprite("8/ui_xy");
-        if (xy) gui_draw_sprite(g, xy, header.x + header.w - xy->w, header.y + (header.h - xy->h) / 2);
+        if (xy) gui_draw_sprite(g, xy, header.x + header.w - xy->w, bar.y + (GUI_BAR_H - xy->h) / 2);
         else u8g2_DrawStr(g, header.x + header.w - u8g2_GetStrWidth(g, "XY"), gui_text_center(g, header, "XY").y, "XY");
     }
     u8g2_SetDrawColor(g, 1);
-    u8g2_DrawHLine(g, header.x, gui_bottom(header), header.w);
-    gui_take_top(&screen, st->gap + 1);          // rule + gap
 
     if (ui->in_rack) {                           // every tab of the menu is a declarative screen (ui_screen.h)
         const ui_ctx_t ctx = {(synth_ui_t *)ui, (rack_t *)rack, 0};         // drawing only reads
@@ -281,12 +314,23 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
         return;
     }
 
-    // left: parameter rows, right: graph box
-    gui_rect_t list = gui_take_left(&screen, st->list_w);
-    gui_rect_t box = gui_rect(st->graph.x, st->graph.y, st->graph.w, st->graph.h);
+    // left: parameter rows, right: graph box. A module's page (on the 8 px grid): the rows in 8 px rows on the left, the icon / infos (and on its
+    // first page the cog) on the right (draw_module_head), the graph across the full width at the bottom.
     const rack_slot_t *ms = pg.slot != GLOBAL_PAGE ? &rack->slot[pg.slot] : NULL;
+    gui_rect_t list, box;
+    int row_gap = st->gap, row_top = st->list_top;
+    if (ms) {
+        const gui_rect_t top = gui_take_top(&screen, 6 * GUI_GRID);
+        list = gui_rect(top.x, top.y, top.w / 2, top.h);
+        draw_module_head(g, st, ui, rack, &pg, gui_rect(top.x + top.w / 2, top.y, top.w / 2, top.h));
+        box = screen;
+        row_h = GUI_GRID; row_gap = 0; row_top = 0;
+    } else {
+        list = gui_take_left(&screen, st->list_w);
+        box = gui_rect(st->graph.x, st->graph.y, st->graph.w, st->graph.h);
+    }
 
-    gui_rect_t row = gui_rect(list.x, list.y + st->list_top, list.w - 1, row_h);
+    gui_rect_t row = gui_rect(list.x, list.y + row_top, list.w - 1, row_h);
     for (int i = 0; i < pg.count; i++) {
         bool sel = ui->row == i + 1;
         const char *label;
@@ -338,7 +382,7 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
                 u8g2_SetDrawColor(g, 1);
             }
         }
-        row = gui_below(row, st->gap, row_h);
+        row = gui_below(row, row_gap, row_h);
     }
 
     // graph of the current page
@@ -347,10 +391,10 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
         case GRAPH_WAVE:
             if (ms->type == MOD_LFO) {
                 static const int lfo_wave[4] = {WAVE_SINE, WAVE_TRIANGLE, WAVE_SAW_DOWN, WAVE_PULSE};
-                draw_wave(g, box, lfo_wave[(int)ms->v[MP_LF_SHAPE]], 0.5f);
+                draw_wave(g, box, lfo_wave[(int)ms->v[MP_LF_SHAPE]], 0.5f, st->wave_cycles);
             } else {
-                if (ms->v[MP_OC_WAVE] >= OC_FIRST_ENGINE) draw_engine_preview(g, box, (int)ms->v[MP_OC_WAVE] - OC_FIRST_ENGINE, ms->v[MP_OC_PW], ms->v[MP_OC_MORPH]);
-                else draw_wave(g, box, (int)ms->v[MP_OC_WAVE], ms->v[MP_OC_PW]);
+                if (ms->v[MP_OC_WAVE] >= OC_FIRST_ENGINE) draw_engine_preview(g, box, (int)ms->v[MP_OC_WAVE] - OC_FIRST_ENGINE, ms->v[MP_OC_PW], ms->v[MP_OC_MORPH], st->wave_cycles);
+                else draw_wave(g, box, (int)ms->v[MP_OC_WAVE], ms->v[MP_OC_PW], st->wave_cycles);
             }
             break;
         case GRAPH_ENV:     { env_params_t e = module_env(ms); draw_env(g, box, &e); } break;
@@ -366,7 +410,7 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
         case GRAPH_AMP_ENV: draw_env(g, box, &p->amp_env); break;
         case GRAPH_STR_OSC: {
             static const int wave[STRW_COUNT] = {WAVE_SAW_UP, WAVE_PULSE, WAVE_TRIANGLE};
-            draw_wave(g, box, wave[p->str.wave < STRW_COUNT ? p->str.wave : 0], p->str.pw);
+            draw_wave(g, box, wave[p->str.wave < STRW_COUNT ? p->str.wave : 0], p->str.pw, st->wave_cycles);
         } break;
         case GRAPH_STR_LP:
             if (p->str.lp_on) draw_filter(g, box, FILT_LP, p->str.lp_cut, 0.7f);

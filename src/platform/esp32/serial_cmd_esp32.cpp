@@ -128,7 +128,7 @@ void run(char *line) {
         Serial.printf("[CMD] popup %s\n", k[0] ? k : "info");
         return;
     }
-    if (!strcmp(line, "flt") && g_app) {                  // flt T: the type of every FL module (0 Off 1 LP 2 BP 3 HP 4 LP24 5 Notch 6 LP6 7 Ladr 8 ChLP), a live change
+    if (!strcmp(line, "flt") && g_app) {                  // flt T: the type of every FL module (0 Off 1 LP 2 BP 3 HP 4 LP24 5 Notch 6 LP6 7 Ladr 8 ChLP 9 AP), a live change
         for (int i = 0; i < g_app->rack.count; i++)
             if (g_app->rack.slot[i].type == MOD_FILTER) g_app->rack.slot[i].v[MP_FL_TYPE] = (float)(v < 0 ? 0 : (v >= FILT_COUNT ? FILT_COUNT - 1 : v));
         audio_set_params(&g_app->rack, &g_app->params);

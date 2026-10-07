@@ -1,5 +1,5 @@
 // The RACK tab of the menu: the first declarative screen (see ui_screen.h). One table of elements describes it; the
-// strip of module sprites, the selection frame and arrow, the connection lanes and the editing fields are drawn from it, and
+// strip of module sprites, the selection frame, the connection lanes and the editing fields are drawn from it, and
 // the joystick / encoder events are handled by the generic screen code.
 //
 // (declarative screen, see ui_screen.h)
@@ -17,11 +17,32 @@
 #include "core/ui_sprites_gen.h"
 #include <stdio.h>
 
-_Static_assert(RACK_PITCH == MODULE_SPRITE_W + 4, "RACK_PITCH (ui_internal.h) must be the module sprite width + 4: regenerate the sprites or change it");
+_Static_assert(RACK_PITCH == MODULE_SPRITE_W + GUI_GRID, "RACK_PITCH (ui_internal.h) must be the module sprite width + one grid cell: regenerate the sprites or change it");
 
 enum { E_STRIP, E_TYPE, E_INSERT, E_TGT, E_PRM, E_DPTH, E_DELETE, E_COUNT };
 
-#define STRIP_TOP 7                     // room above the sprites for the selection arrow
+// The screen on the 8 px grid (y from the top of the area under the bar; the 128 x 128 screen):
+//   row 0      (8 px)   room for the selection frame
+//   rows 1..3  (24 px)  the module icons, centred in 32 px cells; links run between their connectors through the 8 px gaps
+//   row 4      (8 px)   the lanes: a mix link that skips cells, the modulation links
+//   row 5      (8 px)   one line describing the selection
+//   rows 6..13 (64 px)  the fields: 4 rows of 16 px
+#define STRIP_TOP   GUI_GRID                        // the icons' top
+#define STRIP_H     (5 * GUI_GRID)
+#define LANE_AUDIO  (STRIP_TOP + MODULE_SPRITE_H + 4)       // under the selection frame (3 px around the icon)
+#define LANE_MOD    (STRIP_TOP + MODULE_SPRITE_H + 6)
+// The connectors of a 24 x 24 icon (assets/UI_Sprites/README.md), y from its top: mix in and mod in on the left edge, one output on
+// the right edge (mix out for a sound module, mod out for a modulator).
+#define PIN_MIX_IN_Y 6
+#define PIN_MOD_IN_Y 18
+#define PIN_OUT_Y    18
+// The columns of the 8 px gap after a cell, from that cell's icon edge (the selection frames take +25 / +26 and +29 / +30):
+#define COL_OUT     (MODULE_SPRITE_W + 3)           // the left cell's output turns up or down here
+#define COL_MIX_IN  (MODULE_SPRITE_W + 4)           // a mix link that skipped cells comes up to the right cell's mix in
+#define COL_MOD_IN  (MODULE_SPRITE_W + 7)           // a mod link comes up to the right cell's mod in
+#define INFO_Y      STRIP_H
+#define FIELDS_Y    (STRIP_H + GUI_GRID)
+#define FIELD_PITCH (2 * GUI_GRID)
 
 // A module's icon: assets/UI_Sprites/24/mod_<code>.png when it exists (ui_sprites_gen.h), else the generated one (module_sprites.h).
 static const gui_sprite_t *module_sprite(int type) {
@@ -34,17 +55,35 @@ static const gui_sprite_t *module_sprite(int type) {
     return art ? art : t[type];
 }
 
+// The icon of a module on its first page: an oscillator shows its wave's, 24/osc_<wave>.png, when that image exists; else the module's.
+const gui_sprite_t *ui_module_sprite(const rack_slot_t *s) {
+    static const char *const wave[] = {"sine", "pulse", "sawdn", "sawup", "tri", "noise", "karp", "modal", "fm2", "fold", "ssaw", "vowel",
+                                       "add", "dust", "strng"};
+    const int w = (int)s->v[MP_OC_WAVE];
+    if (s->type == MOD_OSC && w >= 0 && w < (int)(sizeof wave / sizeof wave[0])) {
+        char name[24];
+        snprintf(name, sizeof name, "24/osc_%s", wave[w]);
+        const gui_sprite_t *art = ui_sprite(name);
+        if (art) return art;
+    }
+    return module_sprite(s->type);
+}
+
 // The empty slot / OUT cells: 24/slot_empty.png, 24/slot_out.png, or the generated ones.
 static const gui_sprite_t *slot_sprite(bool out) {
     const gui_sprite_t *art = ui_sprite(out ? "24/slot_out" : "24/slot_empty");
     return art ? art : out ? &spr_slot_out : &spr_slot_empty;
 }
 
-static void dotted_h(u8g2_t *g, int x0, int x1, int y) {
+// Lines between two points in any order, solid or dotted (a dotted line has a pixel every second step).
+static void line_h(u8g2_t *g, int x0, int x1, int y, bool solid) {
     if (x0 > x1) { int t = x0; x0 = x1; x1 = t; }
-    for (int x = x0; x <= x1; x += 2) u8g2_DrawPixel(g, x, y);
+    for (int x = x0; x <= x1; x += solid ? 1 : 2) u8g2_DrawPixel(g, x, y);
 }
-static void dotted_v(u8g2_t *g, int x, int y0, int y1) { for (int y = y0; y <= y1; y += 2) u8g2_DrawPixel(g, x, y); }
+static void line_v(u8g2_t *g, int x, int y0, int y1, bool solid) {
+    if (y0 > y1) { int t = y0; y0 = y1; y1 = t; }
+    for (int y = y0; y <= y1; y += solid ? 1 : 2) u8g2_DrawPixel(g, x, y);
+}
 
 /* ---------------- state helpers ---------------- */
 
@@ -104,132 +143,134 @@ static bool back_delete(const ui_ctx_t *c) { delete_activate(c); return true; }
 
 /* ---------------- the strip ---------------- */
 
-// The strip's geometry: the first visible cell starts at x0; a cell is RACK_PITCH wide and the sprite sits 2 px inside it.
-static int strip_x0(gui_rect_t r) { return r.x + (r.w - RACK_VIS * RACK_PITCH) / 2; }
+// Cell i (0..RACK_MAX: the slots, then OUT) is visible while it is inside the window. Its icon is centred in its 32 px cell: the icon's left
+// edge is cell_x(), its top r.y + STRIP_TOP.
+#define CELL_GAP ((RACK_PITCH - MODULE_SPRITE_W) / 2)           // 4: from a cell's edge to its icon
+static bool cell_vis(int sc, int i) { return i >= sc && i < sc + RACK_VIS; }
+static int cell_x(gui_rect_t r, int sc, int i) { return r.x + (r.w - RACK_VIS * RACK_PITCH) / 2 + (i - sc) * RACK_PITCH + CELL_GAP; }
 
 static void strip_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t r, bool focused, bool latched) {
     (void)st; (void)latched;
     const synth_ui_t *ui = c->ui;
     const rack_t *rk = c->rack;
-    const int x0 = strip_x0(r), y = r.y + STRIP_TOP, sc = ui->rack_scroll;
-#define CELL_VIS(i) ((i) >= sc && (i) < sc + RACK_VIS)
-#define SPRITE_X(i) (x0 + ((i) - sc) * RACK_PITCH + 2)
+    const int y = r.y + STRIP_TOP, sc = ui->rack_scroll;
     for (int i = 0; i < rk->count; i++)
-        if (CELL_VIS(i)) gui_draw_sprite(g, module_sprite(rk->slot[i].type), SPRITE_X(i), y);
-    if (rk->count < RACK_MAX && CELL_VIS(rk->count)) gui_draw_sprite(g, slot_sprite(false), SPRITE_X(rk->count), y);
-    if (CELL_VIS(RACK_MAX)) gui_draw_sprite(g, slot_sprite(true), SPRITE_X(RACK_MAX), y);
+        if (cell_vis(sc, i)) gui_draw_sprite(g, module_sprite(rk->slot[i].type), cell_x(r, sc, i), y);
+    if (rk->count < RACK_MAX && cell_vis(sc, rk->count)) gui_draw_sprite(g, slot_sprite(false), cell_x(r, sc, rk->count), y);
+    if (cell_vis(sc, RACK_MAX)) gui_draw_sprite(g, slot_sprite(true), cell_x(r, sc, RACK_MAX), y);
 
-    // the selected cell: a frame around it and an arrow pointing at it; the frame is doubled while the strip has the focus
+    // the selected cell: a frame around its icon, doubled while the strip has the focus
     const int sel = ui->rack_cur;
-    if (CELL_VIS(sel)) {
-        const int sx = SPRITE_X(sel);
+    if (cell_vis(sc, sel)) {
+        const int sx = cell_x(r, sc, sel);
         u8g2_DrawFrame(g, (u8g2_uint_t)(sx - 2), (u8g2_uint_t)(y - 2), MODULE_SPRITE_W + 4, MODULE_SPRITE_H + 4);
         if (focused) u8g2_DrawFrame(g, (u8g2_uint_t)(sx - 3), (u8g2_uint_t)(y - 3), MODULE_SPRITE_W + 6, MODULE_SPRITE_H + 6);
-        gui_draw_arrow(g, sx + MODULE_SPRITE_W / 2, y - 4, 'd', 3);
     }
-    // scroll arrows at both ends when more cells are hidden
+    // scroll arrows in the screen's side margins when more cells are hidden
     const int my = y + MODULE_SPRITE_H / 2;
     if (sc > 0) gui_draw_arrow(g, r.x, my, 'l', 3);
     if (sc + RACK_VIS < RACK_MAX + 1) gui_draw_arrow(g, r.x + r.w - 1, my, 'r', 3);
-#undef SPRITE_X
-#undef CELL_VIS
+}
+
+/* ---------------- links between the fixed connectors (assets/UI_Sprites/README.md) ---------------- */
+
+// Where a link meets module i: its icon's left edge while visible, else the window border on its side.
+static int link_x(gui_rect_t r, int sc, int i, bool *vis) {
+    *vis = cell_vis(sc, i);
+    return *vis ? cell_x(r, sc, i) : i < sc ? r.x : r.x + r.w - 1;
+}
+
+// Mix link from a's output to b's mix in, a before b. Neighbours: out of a, up the gap to the mix-in height, into b. Otherwise down the gap after
+// a, along the audio lane, up the gap before b. A module off screen joins at the window border.
+static void audio_link(u8g2_t *g, gui_rect_t r, int sc, int a, int b, bool solid) {
+    bool va, vb;
+    const int xa = link_x(r, sc, a, &va), xb = link_x(r, sc, b, &vb), top = r.y + STRIP_TOP;
+    const int yo = top + PIN_OUT_Y, yi = top + PIN_MIX_IN_Y, yl = r.y + LANE_AUDIO;
+    if (!va && !vb && (a < sc) == (b < sc)) return;                // both off screen on the same side
+    int x0 = xa, x1 = xb;
+    if (b == a + 1) {
+        if (va) { x0 = xa + COL_OUT; line_h(g, xa + MODULE_SPRITE_W - 1, x0, yo, solid); line_v(g, x0, yo, yi, solid); }
+        line_h(g, x0, xb, yi, solid);
+        return;
+    }
+    if (va) { x0 = xa + COL_OUT; line_h(g, xa + MODULE_SPRITE_W - 1, x0, yo, solid); line_v(g, x0, yo, yl, solid); }
+    if (vb) { x1 = xb - RACK_PITCH + COL_MIX_IN; line_h(g, x1, xb, yi, solid); line_v(g, x1, yi, yl, solid); }
+    line_h(g, x0, x1, yl, solid);
+}
+
+// Modulation link (dotted) from s's output to t's mod in: down the gap after s, along the mod lane, up the gap before t (beside the icon) and
+// into t. A neighbour on the right is reached straight across (output and mod in are at the same height). A module off screen joins the lane
+// at the window border.
+static void mod_link(u8g2_t *g, gui_rect_t r, int sc, int s, int t) {
+    bool vs, vt;
+    const int xs = link_x(r, sc, s, &vs), xt = link_x(r, sc, t, &vt), top = r.y + STRIP_TOP;
+    const int yo = top + PIN_OUT_Y, yi = top + PIN_MOD_IN_Y, yl = r.y + LANE_MOD;
+    if (!vs && !vt && (s < sc) == (t < sc)) return;
+    if (t == s + 1) { line_h(g, vs ? xs + MODULE_SPRITE_W - 1 : xs, xt, yo, false); return; }
+    int x0 = xs, x1 = xt;
+    if (vs) { x0 = xs + COL_OUT; line_h(g, xs + MODULE_SPRITE_W - 1, x0, yo, false); line_v(g, x0, yo, yl, false); }
+    if (vt) { x1 = xt - RACK_PITCH + COL_MOD_IN; line_h(g, x1, xt, yi, false); line_v(g, x1, yi, yl, false); }
+    line_h(g, x0, x1, yl, false);
 }
 
 /* ---------------- layout (anchors) and what is drawn behind the elements ---------------- */
 
-static int lane_audio_y(const gui_style_t *st, gui_rect_t strip) { (void)st; return strip.y + STRIP_TOP + MODULE_SPRITE_H + 3; }
-static int lane_mod_y(const gui_style_t *st, gui_rect_t strip) { return lane_audio_y(st, strip) + st->rack_lane_gap; }
-
 // The description line only appears when it fits: under it come the 4 rows of fields.
-static bool info_fits(u8g2_t *g, const gui_style_t *st, gui_rect_t area) {
-    const int rh = gui_row_h(g, st);
-    return lane_mod_y(st, area) + 3 + rh + st->gap + 4 * rh + 3 * st->gap <= gui_bottom(area);
-}
+static bool info_fits(gui_rect_t area) { return FIELDS_Y + 4 * FIELD_PITCH <= area.h; }
 
 static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, gui_rect_t *rect);
 static const el_def_t elements[E_COUNT];
 
 static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, gui_rect_t *rect) {
-    (void)c;
-    const int rh = gui_row_h(g, st);
-    rect[E_STRIP] = gui_rect(area.x, area.y, area.w, STRIP_TOP + MODULE_SPRITE_H + 1);
-    int y = lane_mod_y(st, area) + 3;
-    if (info_fits(g, st, area)) y += rh + st->gap;
-    const gui_rect_t fields = gui_rect(area.x + 1, y, area.w - 2, 4 * rh + 3 * st->gap);
-    for (int i = 1; i < E_COUNT; i++) {                          // a 2 x 4 grid; an element spanning both columns takes the whole row
-        const gui_rect_t first = gui_grid_cell(fields, 2, 4, (elements[i].row - 1) * 2 + elements[i].col, st->gap);
+    (void)g; (void)st; (void)c;
+    rect[E_STRIP] = gui_rect(area.x, area.y, area.w, STRIP_H);
+    // the fields: a 2 x 4 grid of 16 px rows (15 px boxes, 1 px apart) in two 64 px columns; an element spanning both columns takes the whole row
+    const gui_rect_t fields = gui_rect(area.x, area.y + (info_fits(area) ? FIELDS_Y : INFO_Y), area.w, 4 * FIELD_PITCH - 1);
+    for (int i = 1; i < E_COUNT; i++) {
+        const gui_rect_t first = gui_grid_cell(fields, 2, 4, (elements[i].row - 1) * 2 + elements[i].col, 1);
         rect[i] = elements[i].span > 1 ? gui_rect(first.x, first.y, fields.w, first.h) : first;
     }
 }
 
 static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, const gui_rect_t *rect) {
+    (void)st;
     const rack_t *r = c->rack;
     const synth_ui_t *ui = c->ui;
     const gui_rect_t strip = rect[E_STRIP];
-    const int S = MODULE_SPRITE_W, sc = ui->rack_scroll, x0 = strip_x0(strip);
-    const int bottom = strip.y + STRIP_TOP + MODULE_SPRITE_H;
-    const int lane_a = lane_audio_y(st, strip) - 1, lane_m = lane_mod_y(st, strip) - 1;
-    // Every link is always drawn. A module scrolled off screen is stood at the border of the window on its side (left of the first
-    // cell / right of the last one), where its stub still shows, so the lanes read as continuing beyond the edge.
-    const int xl = x0 - 1 > strip.x ? x0 - 1 : strip.x;
-    const int xr = x0 + RACK_VIS * RACK_PITCH < strip.x + strip.w - 1 ? x0 + RACK_VIS * RACK_PITCH : strip.x + strip.w - 1;
-#define CELL_VIS(i) ((i) >= sc && (i) < sc + RACK_VIS)
-#define CELL_CX(i) (x0 + ((i) - sc) * RACK_PITCH + 2 + S / 2)
-#define LINK_X(i) (CELL_VIS(i) ? CELL_CX(i) : (i) < sc ? xl : xr)
+    const int sc = ui->rack_scroll;
+    // Every link is always drawn; a module scrolled off screen joins its lane at the window border on its side.
 
-    // audio chain: solid while a source feeds it, dotted otherwise
+    // audio chain, ending at OUT: solid while a source feeds it, dotted otherwise
     int prev = RACK_NONE;
     for (int i = 0; i < r->count; i++) {
         if (!rack_slot_is_audio(r, i)) continue;
-        const int cx = LINK_X(i);
-        u8g2_DrawVLine(g, cx, bottom, lane_a - bottom + 1);
-        if (prev != RACK_NONE) {
-            const int px = LINK_X(prev);
-            if (rack_has_signal(r, prev)) u8g2_DrawHLine(g, px, lane_a, cx - px + 1);
-            else dotted_h(g, px, cx, lane_a);
-        }
+        if (prev != RACK_NONE) audio_link(g, strip, sc, prev, i, rack_has_signal(r, prev));
         prev = i;
     }
-    if (prev != RACK_NONE) {
-        const int px = LINK_X(prev), ox = LINK_X(RACK_MAX);
-        if (rack_has_signal(r, prev)) u8g2_DrawHLine(g, px, lane_a, ox - px + 1);
-        else dotted_h(g, px, ox, lane_a);
-        u8g2_DrawVLine(g, ox, bottom, lane_a - bottom + 1);
-    }
+    if (prev != RACK_NONE) audio_link(g, strip, sc, prev, RACK_MAX, rack_has_signal(r, prev));
 
     // modulator links
     for (int i = 0; i < r->count; i++) {
         const rack_slot_t *s = &r->slot[i];
         if (!rack_slot_is_mod(r, i) || !s->tgt_id) continue;
         const int ti = rack_find(r, s->tgt_id);
-        if (ti == RACK_NONE) continue;
-        const int mx = LINK_X(i) + 1, tx = LINK_X(ti) + 1;
-        dotted_v(g, mx, bottom, lane_m);
-        dotted_v(g, tx, bottom, lane_m);
-        dotted_h(g, mx, tx, lane_m);
+        if (ti != RACK_NONE) mod_link(g, strip, sc, i, ti);
     }
     for (int i = 0; i < r->count; i++) {                         // motion sequencer: one link per lane that has a target
         if (r->slot[i].type != MOD_MSEQ) continue;
         const ms_pattern_t *pat = rack_ms_const(r, i);
         for (int l = 0; l < MS_LANES; l++) {
             const int ti = pat->lane[l].tgt_id ? rack_find(r, pat->lane[l].tgt_id) : RACK_NONE;
-            if (ti == RACK_NONE) continue;
-            const int mx = LINK_X(i) + 1, tx = LINK_X(ti) + 1;
-            dotted_v(g, mx, bottom, lane_m);
-            dotted_v(g, tx, bottom, lane_m);
-            dotted_h(g, mx, tx, lane_m);
+            if (ti != RACK_NONE) mod_link(g, strip, sc, i, ti);
         }
     }
-#undef LINK_X
-#undef CELL_CX
-#undef CELL_VIS
 
-    // one line describing the selection
-    if (info_fits(g, st, area)) {
+    // one line describing the selection, in its own 8 px row
+    if (info_fits(area)) {
         char buf[32];
         if (ui->rack_cur < r->count) rack_describe(r, ui->rack_cur, buf, sizeof buf);
         else snprintf(buf, sizeof buf, "+ %s", rack_type_name((module_type_t)ui->rack_type));
-        gui_draw_text_centered(g, gui_rect(area.x, lane_m + 3, area.w, gui_row_h(g, st)), buf);
+        gui_draw_text_centered(g, gui_rect(area.x, area.y + INFO_Y, area.w, GUI_GRID), buf);
     }
 }
 

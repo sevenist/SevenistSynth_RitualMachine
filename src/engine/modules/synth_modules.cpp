@@ -314,7 +314,7 @@ class Filter : public Module {
 public:
     const ModuleInfo &info() const override {
         static const ModuleInfo i = {"Filter", S, 1, 1, FLT_N, false, {"in"}, {"out"},
-            {{"mode", FLTM_LP, 0, 3}, {"sections", 2, 1, 4}, {"cutoff", 96 * kSemi, 0, 135 * kSemi}, {"res", 0, 0, kUnity},
+            {{"mode", FLTM_LP, 0, FLTM_AP}, {"sections", 2, 1, 4}, {"cutoff", 96 * kSemi, 0, 135 * kSemi}, {"res", 0, 0, kUnity},
              {"cut_mod", 60 * kSemi, 0, 120 * kSemi}, {"algo", FLTA_SVF, FLTA_SVF, FLTA_CHAM}}};
         return i;
     }
@@ -387,6 +387,7 @@ public:
                     case FLTM_LP: x = lp; break;
                     case FLTM_BP: x = c[s].k * bp; break;                 // normalised: 0 dB at the centre
                     case FLTM_HP: x = hp; break;
+                    case FLTM_AP: x -= 2.0f * c[s].k * bp; break;         // lp - k bp + hp: one multiply-add over the SVF
                     default: x = lp + hp; break;
                 }
                 if (glide) { c[s].a1 += dc[s].a1; c[s].a2 += dc[s].a2; c[s].a3 += dc[s].a3; }

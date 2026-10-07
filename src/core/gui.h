@@ -17,6 +17,13 @@ extern "C" {
 typedef struct { int x, y; } gui_point_t;
 typedef struct { int x, y, w, h; } gui_rect_t;
 
+/* ---------------- the 8 x 8 grid ---------------- */
+// Every placement sits on an 8 px grid (assets/UI_Sprites/README.md): the 128 x 128 screen is 16 x 16 cells. The top bar is one
+// 16 px row (its rule is the bar's last pixel row); the screens draw under it.
+#define GUI_GRID   8
+#define GUI_BAR_H  16
+#define GUI_SNAP(v) (((v) + GUI_GRID - 1) / GUI_GRID * GUI_GRID)   // v rounded up to the grid
+
 /* ---------------- style sheet ---------------- */
 
 typedef struct {
@@ -36,6 +43,9 @@ typedef struct {
     int roll_pad;             // space between the roll frame and the notes
     int roll_beat;            // dotted beat line every N steps
     int strip_h;              // height of the playhead strip under the roll
+
+    // Oscillator / LFO previews: how many periods of the wave the graph shows (engines too: a decay is drawn over the whole box).
+    float wave_cycles;
 
     // Rack (module builder): horizontal slots.
     int rack_pitch;           // distance between slot origins (sprite width + gap)

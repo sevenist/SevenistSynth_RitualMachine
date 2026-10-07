@@ -198,6 +198,7 @@ const screen_def_t *screen_for_tab(tab_t t) {
         case TAB_MACROS:  return &scr_macros_screen;
         case TAB_CURVES:  return &scr_curves_screen;
         case TAB_LEDS:    return &scr_leds_screen;
+        case TAB_JOY:     return &scr_joy_screen;
         default:         return &scr_rack_screen;
     }
 }

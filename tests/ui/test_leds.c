@@ -11,15 +11,16 @@ static bool near_rgb(led_color_t c, int r, int g, int b) { return abs(c.r - r) <
 TEST(leds_default_roles_match_the_first_colours) {
     led_roles_init();
     CHECK(near_rgb(led_role_rgb(LR_NOTE, false), 45, 45, 45));
-    CHECK(near_rgb(led_role_rgb(LR_SHARP, false), 0, 0, 40));
-    CHECK(near_rgb(led_role_rgb(LR_ROOT, false), 0, 110, 140));
-    CHECK(near_rgb(led_role_rgb(LR_NOTE, true), 255, 90, 0));                  // a held note
-    CHECK(near_rgb(led_role_rgb(LR_SHIFT, false), 80, 60, 0));
-    CHECK(near_rgb(led_role_rgb(LR_SHIFT, true), 255, 200, 0));
-    CHECK(near_rgb(led_role_rgb(LR_MENU, true), 60, 120, 255));
-    CHECK(near_rgb(led_role_rgb(LR_JUMP, false), 0, 40, 30));
-    CHECK(near_rgb(led_role_rgb(LR_JUMP, true), 0, 160, 120));
-    CHECK(near_rgb(led_role_rgb(LR_BACK, true), 90, 0, 0));                    // no active state: the idle colour
+    CHECK(near_rgb(led_role_rgb(LR_SHARP, false), 0, 0, 41));
+    CHECK(near_rgb(led_role_rgb(LR_ROOT, false), 94, 0, 140));
+    CHECK(near_rgb(led_role_rgb(LR_NOTE, true), 140, 255, 0));                  // a held note
+    CHECK(near_rgb(led_role_rgb(LR_SHIFT, false), 43, 79, 0));
+    CHECK(near_rgb(led_role_rgb(LR_SHIFT, true), 140, 255, 0));
+    CHECK(near_rgb(led_role_rgb(LR_MENU, true), 80, 0, 255));
+    CHECK(near_rgb(led_role_rgb(LR_JUMP, false), 40, 0, 22));
+    CHECK(near_rgb(led_role_rgb(LR_JUMP, true), 161, 0, 88));
+    CHECK(near_rgb(led_role_rgb(LR_BACK, true), 89, 0, 0));                    // no active state: the idle colour
+    CHECK(near_rgb(led_role_rgb(LR_PLAY, true), 0, 255, 0));                    // Play stays green (the user)
     CHECK(near_rgb(led_role_rgb(LR_NONE, false), 0, 0, 0));
 }
 
@@ -36,16 +37,16 @@ TEST(leds_role_of_each_key_function) {
 TEST(leds_keys_follow_their_state) {
     ui_fresh();
     ev_idle(5);
-    CHECK(near_rgb(ui_stub_led[SHIFT_KEY], 80, 60, 0));
+    CHECK(near_rgb(ui_stub_led[SHIFT_KEY], 43, 79, 0));
     ev_press(SHIFT_KEY);
-    CHECK(near_rgb(ui_stub_led[SHIFT_KEY], 255, 200, 0));                       // Shift held: Active
+    CHECK(near_rgb(ui_stub_led[SHIFT_KEY], 140, 255, 0));                       // Shift held: Active
     ev_release(SHIFT_KEY);
-    CHECK(near_rgb(ui_stub_led[SHIFT_KEY], 80, 60, 0));
+    CHECK(near_rgb(ui_stub_led[SHIFT_KEY], 43, 79, 0));
     const control_id_t note = CTL_KEY(4, 0);                                    // bottom-left: the base note (Root)
     ev_press(note);
-    CHECK(near_rgb(ui_stub_led[note], 255, 90, 0));
+    CHECK(near_rgb(ui_stub_led[note], 140, 255, 0));
     ev_release(note);
-    CHECK(near_rgb(ui_stub_led[note], 0, 110, 140));
+    CHECK(near_rgb(ui_stub_led[note], 94, 0, 140));
 }
 
 TEST(leds_tab_edits_and_previews_a_role) {
@@ -57,23 +58,27 @@ TEST(leds_tab_edits_and_previews_a_role) {
     ev_turn(CTL_ENC_B, LR_SHIFT);
     CHECK_EQ(ui_app.ui.led_role, LR_SHIFT);
     ev_idle(5);
-    CHECK(near_rgb(ui_stub_led[SHIFT_KEY], 255, 200, 0));                       // the preview: the role's Active colour
-    ui_app.ui.row = 4;                                                          // Active colour: Yellow -> Lime
+    CHECK(near_rgb(ui_stub_led[SHIFT_KEY], 140, 255, 0));                       // the preview: the role's Active colour
+    CHECK(near_rgb(ui_stub_led[CTL_KEY(4, 0)], 0, 0, 0));                       // every other role is off (a Root key here)
+    ui_app.ui.row = 2;                                                          // on the Idle rows the preview shows the Idle colour
+    ev_idle(5);
+    CHECK(near_rgb(ui_stub_led[SHIFT_KEY], 43, 79, 0));
+    ui_app.ui.row = 4;                                                         // Active colour: Lime -> Green
     ev_turn(CTL_ENC_B, 1);
     ev_idle(1);
-    CHECK(near_rgb(ui_stub_led[SHIFT_KEY], 140, 255, 0));
+    CHECK(near_rgb(ui_stub_led[SHIFT_KEY], 0, 255, 0));
     ui_app.ui.row = 5;                                                          // Active %: 100 -> 50
     ev_turn(CTL_ENC_B, -10);
     ev_idle(1);
-    CHECK(near_rgb(ui_stub_led[SHIFT_KEY], 70, 128, 0));
+    CHECK(near_rgb(ui_stub_led[SHIFT_KEY], 0, 128, 0));
     ev_tap(CTL_BTN_1);                                                          // leave the menu: the key shows its idle colour again
     ev_idle(5);
-    CHECK(near_rgb(ui_stub_led[SHIFT_KEY], 80, 60, 0));
+    CHECK(near_rgb(ui_stub_led[SHIFT_KEY], 43, 79, 0));
     ev_tap(CTL_BTN_1);
     ui_app.ui.menu_tab = tab_index_of(&ui_app.rack, TAB_LEDS);
     ui_app.ui.row = 6;                                                          // Reset
     ev_tap(CTL_JOY_SW);
-    CHECK(near_rgb(led_role_rgb(LR_SHIFT, true), 255, 200, 0));
+    CHECK(near_rgb(led_role_rgb(LR_SHIFT, true), 140, 255, 0));
 }
 
 TEST(leds_saved_in_ui_cfg) {

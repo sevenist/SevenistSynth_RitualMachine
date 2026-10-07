@@ -53,7 +53,7 @@ C:\.platformio\penv\Scripts\pio.exe run -t upload *> $env:TEMP\pio_upload.log ; 
 # experiments without editing platformio.ini: flags are appended
 $env:PLATFORMIO_BUILD_FLAGS = "-DHWV1_SD_BENCH"   ... run ... ; Remove-Item Env:\PLATFORMIO_BUILD_FLAGS
 # set the synth under test over serial, then measure it (the patch lives in RAM until the next reset)
-python tools/serial_test.py --cmd "patch sampler 3 2" --chords 1,3,6,8 --hold 6 --log run.txt
+C:\.platformio\penv\Scripts\python.exe tools\serial_test.py --cmd "patch sampler 3 2" --chords 1,3,6,8 --hold 6 --log run.txt
 ```
 - Dev serial commands (`DEV_SERIAL_CMD`): `patch startup`, `patch sampler F L` (catalog index F, loop mode L: 0 file 1 off 2 fwd 3 ping-pong; one sampler into one filter, effects off), `voices N`, `samples` (catalog), plus the older `on/off/chord/eng/release/status`.
   Add a `patch` for any other test synth you need (`rack_init_*` in `core/rack.c`): the loop is only as good as its repeatable patches.
@@ -138,6 +138,8 @@ After they say flashed: rerun section 2, compare with a before/now table, say if
 12. **Two failure modes cascade.** A saturated card -> underruns -> voices fall back to the slow path -> CPU spikes -> more late blocks. Fix the first stage, and read both counters before concluding.
 
 ## Environment traps (also in CONTINUE.md)
+
+- **Never bare `python` (or `py`)**: on this machine it is MSYS2 3.12.9 without pyserial (`py` is 3.13). Always `C:\.platformio\penv\Scripts\python.exe` (3.11.7, pyserial), and never bare `pio` either (see the skill `board-session`, section 2).
 
 - **Scripted edits through this harness lose one level of backslashes**: `\\n` written in a Python heredoc reaches the C file as a real newline (the printf then does not compile). Use the Edit tool for any line with `\n`, or build the character with `chr(92)` outside the quoted block. After a scripted printf edit, grep that the format string is one line.
 - PowerShell does not expand `*.c` for gcc (compile ui_dump from bash); `Select-Object -First N` on a pipeline closes it and kills the upstream process (an upload!).

@@ -103,6 +103,11 @@ const char *rack_param_long(module_type_t t, int p);       // "Cutoff"
 int         rack_mparam_count(module_type_t t);
 const char *rack_mparam_label(module_type_t t, int i);
 bool        rack_mparam_adjust(rack_slot_t *s, int i, int dir);                   // true if changed
+// Continuous access for knobs (as param_norm in synth_params.h): 0..1 of the range, of the log range for a logarithmic one; not enumerations.
+// set_norm rounds to the decimals the parameter shows.
+bool        rack_mparam_is_continuous(module_type_t t, int i);
+float       rack_mparam_norm(const rack_slot_t *s, int i);
+bool        rack_mparam_set_norm(rack_slot_t *s, int i, float n);
 void        rack_mparam_format(const rack_slot_t *s, int i, char *out, int n);    // "4.0kHz", "Saw"
 
 // Lookup / connections

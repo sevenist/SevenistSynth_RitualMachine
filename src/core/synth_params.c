@@ -1,5 +1,9 @@
 #include "core/synth_params.h"
+#include "core/fine_step.h"
+#include <math.h>
 #include <stdio.h>
+
+bool g_fine_step;
 
 typedef enum { KIND_ENUM, KIND_LIN, KIND_LOG } kind_t;
 
@@ -80,12 +84,38 @@ int param_adjust(synth_params_t *p, param_id_t id, int dir) {
         return 1;
     }
     float *f = (float *)base, v = *f, nv;
-    nv = d->kind == KIND_LOG ? (dir > 0 ? v * d->step : v / d->step) : v + dir * d->step;
+    const float st = d->kind == KIND_LOG ? fine_log_step(d->step) : fine_lin_step(d->step, d->decimals);
+    nv = d->kind == KIND_LOG ? (dir > 0 ? v * st : v / st) : v + dir * st;
     if (nv < d->min) nv = d->min;
     if (nv > d->max) nv = d->max;
     if (nv == v) return 0;
     *f = nv;
     return 1;
+}
+
+// Continuous access (knobs): a linear value as 0..1 of min..max, a logarithmic one as 0..1 of log(min)..log(max). Set values are rounded to the
+// decimals the parameter shows.
+bool param_is_continuous(param_id_t id) { return table[id].kind != KIND_ENUM; }
+
+float param_norm(const synth_params_t *p, param_id_t id) {
+    const desc_t *d = &table[id];
+    if (d->kind == KIND_ENUM) return 0.0f;
+    const float v = *(const float *)((const uint8_t *)p + d->offset);
+    const float n = d->kind == KIND_LOG ? logf(v / d->min) / logf(d->max / d->min) : (v - d->min) / (d->max - d->min);
+    return n < 0.0f ? 0.0f : n > 1.0f ? 1.0f : n;
+}
+
+bool param_set_norm(synth_params_t *p, param_id_t id, float n) {
+    const desc_t *d = &table[id];
+    if (d->kind == KIND_ENUM) return false;
+    n = n < 0.0f ? 0.0f : n > 1.0f ? 1.0f : n;
+    float *f = (float *)((uint8_t *)p + d->offset);
+    const float q = powf(10.0f, (float)d->decimals);           // to the precision shown: whole units stay whole
+    float nv = roundf((d->kind == KIND_LOG ? d->min * powf(d->max / d->min, n) : d->min + n * (d->max - d->min)) * q) / q;
+    nv = nv < d->min ? d->min : nv > d->max ? d->max : nv;
+    if (nv == *f) return false;
+    *f = nv;
+    return true;
 }
 
 const char *param_label(param_id_t id) { return table[id].label; }

@@ -14,18 +14,20 @@ enum { P_OFF, P_WHITE, P_RED, P_ORANGE, P_AMBER, P_YELLOW, P_LIME, P_GREEN, P_MI
 static const char *const role_names[LR_COUNT] = {"Note", "Sharp", "Root", "Shift", "Mod", "Menu", "Back", "Play", "Octave", "Jump", "Nav", "None"};
 
 #define SH(c, p) ((led_shade_t){(c), (p)})
-// The colours of the first version (dim when idle, full when active), as palette colour + brightness.
+// The colours of the first version as they looked on the board (dim when idle, full when active), as palette colour + brightness. That
+// version sent red and green swapped (LED colour order, fixed 2026-10-07): these are the nearest palette colours to what was seen, which the
+// user liked; Play stays green and Back stays red (the user's choice; they looked red / green then).
 static const led_role_def_t defaults[LR_COUNT] = {
-    [LR_NOTE]   = {SH(P_WHITE, 18),  SH(P_ORANGE, 100)},
-    [LR_SHARP]  = {SH(P_BLUE, 16),   SH(P_ORANGE, 100)},
-    [LR_ROOT]   = {SH(P_TEAL, 55),   SH(P_ORANGE, 100)},
-    [LR_SHIFT]  = {SH(P_YELLOW, 31), SH(P_YELLOW, 100)},
-    [LR_MOD]    = {SH(P_PINK, 27),   SH(P_PINK, 100)},
-    [LR_MENU]   = {SH(P_BLUE, 35),   SH(P_SKY, 100)},
+    [LR_NOTE]   = {SH(P_WHITE, 18),  SH(P_LIME, 100)},
+    [LR_SHARP]  = {SH(P_BLUE, 16),   SH(P_LIME, 100)},
+    [LR_ROOT]   = {SH(P_VIOLET, 55), SH(P_LIME, 100)},
+    [LR_SHIFT]  = {SH(P_LIME, 31),   SH(P_LIME, 100)},
+    [LR_MOD]    = {SH(P_MINT, 27),   SH(P_MINT, 100)},
+    [LR_MENU]   = {SH(P_BLUE, 35),   SH(P_INDIGO, 100)},
     [LR_BACK]   = {SH(P_RED, 35),    SH(P_RED, 35)},
     [LR_PLAY]   = {SH(P_GREEN, 20),  SH(P_GREEN, 100)},
-    [LR_OCTAVE] = {SH(P_VIOLET, 30), SH(P_VIOLET, 100)},
-    [LR_JUMP]   = {SH(P_MINT, 16),   SH(P_MINT, 63)},
+    [LR_OCTAVE] = {SH(P_TEAL, 30),   SH(P_TEAL, 100)},
+    [LR_JUMP]   = {SH(P_PINK, 16),   SH(P_PINK, 63)},
     [LR_NAV]    = {SH(P_WHITE, 12),  SH(P_WHITE, 12)},
     [LR_NONE]   = {SH(P_OFF, 0),     SH(P_OFF, 0)},
 };

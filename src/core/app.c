@@ -4,6 +4,7 @@
 #include "core/keymap.h"
 #include "core/modifiers.h"
 #include "core/curves.h"
+#include "core/fine_step.h"
 #include "core/led_roles.h"
 #include "core/ui_settings.h"
 #include "core/sprites.h"
@@ -89,9 +90,17 @@ static void note_on(app_t *app, control_id_t ctl, int semitones) {
 }
 
 static void note_off(app_t *app, control_id_t ctl) {
-    if (!app->in.held[ctl]) return;
+    if (!app->in.held[ctl] || app->in.latched[ctl]) return;     // a latched note keeps sounding after its key is released
     audio_note_off(app->in.held[ctl] - 1);
     app->in.held[ctl] = 0;
+}
+
+// Shift + Back: stops every latched note (see ACT_NOTE). Returns how many.
+static int release_latched(app_t *app) {
+    int n = 0;
+    for (int c = 0; c < CTL_COUNT; c++)
+        if (app->in.latched[c]) { app->in.latched[c] = false; note_off(app, (control_id_t)c); n++; }
+    return n;
 }
 
 // While a modal popup is up it gets the actions (so the key layout works as elsewhere). Notes, Shift and the master volume still act;
@@ -104,7 +113,7 @@ static bool popup_action(app_t *app, const binding_t *b, input_event_t e) {
         case ACT_NAV:
             if (b->arg == NAV_LEFT || b->arg == NAV_RIGHT) popup_move(&app->popup, b->arg == NAV_LEFT ? -1 : 1);
             break;
-        case ACT_VALUE_ADJUST: case ACT_ROW_MOVE: case ACT_PAGE_MOVE:
+        case ACT_VALUE_ADJUST: case ACT_VALUE_FINE: case ACT_ROW_MOVE: case ACT_PAGE_MOVE:
             popup_move(&app->popup, amount);
             break;
         case ACT_LATCH: case ACT_SELECT:
@@ -180,6 +189,37 @@ static bool learn_push(app_t *app, action_id_t act) {
     return true;
 }
 
+/* ---------------- the joystick as an XY controller (synth_ui.h: synth_ui_joy_*) ---------------- */
+
+#define JOY_INFO_MS 1500
+
+static void control_event(app_t *app, input_event_t e);
+
+// A push on a page row: binds its parameter (the rules: synth_ui_joy_click). False when the row is not a parameter.
+static bool joy_bind(app_t *app) {
+    int axis = 0;
+    const joy_click_t r = synth_ui_joy_click(&app->ui, &app->rack, &axis);
+    if (r == JOY_CLICK_NONE) return false;
+    char name[24], t[40];
+    const mapping_t *m = &app->ui.joy[axis];
+    if (!synth_ui_target_describe(NULL, NULL, &app->rack, &m->t, name, sizeof name, NULL, 0)) snprintf(name, sizeof name, "?");
+    snprintf(t, sizeof t, "%s %s%s", axis ? "Y" : "X", name, m->min > mapping_max(m) ? " (inv)" : "");
+    popup_info(&app->popup, r == JOY_CLICK_INVERTED ? "JOY INVERT" : "JOY", t, 0, audio_millis(), JOY_INFO_MS);
+    if (app->ui.joy_xy) synth_ui_joy_mode(&app->ui, &app->params, &app->seq, &app->rack, true);   // XY mode: the new binding rests where its value is
+    app->dirty = true;
+    return true;
+}
+
+static void joy_mode(app_t *app, bool on) {
+    if (on && app->in.joy_dir != CTL_NONE) {            // a held direction is let go: the stick stops navigating
+        control_event(app, (input_event_t){app->in.joy_dir, IN_RELEASE, 0, false});
+        app->in.joy_dir = CTL_NONE;
+    }
+    synth_ui_joy_mode(&app->ui, &app->params, &app->seq, &app->rack, on);
+    popup_info(&app->popup, "JOY", on ? "XY mode" : "Navigation", 0, audio_millis(), JOY_INFO_MS);
+    app->dirty = true;
+}
+
 // Runs one binding for one event. `e.kind` is IN_RELEASE only for hold actions.
 static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
     if (popup_modal(&app->popup) && popup_action(app, b, e)) return;
@@ -195,13 +235,31 @@ static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             snprintf(app->status, sizeof app->status, "%s > Nav", control_name(b->ctl));
             break;
         }
-        case ACT_LATCH:        ui_event(app, UI_LATCH); snprintf(app->status, sizeof app->status, "%s > %s", control_name(b->ctl), app->ui.latched ? "Latched" : "Released"); break;
+        case ACT_LATCH:
+            if (!app->ui.in_rack && joy_bind(app)) break;   // the pages: a push on a parameter row binds it to a joystick axis
+            ui_event(app, UI_LATCH); snprintf(app->status, sizeof app->status, "%s > %s", control_name(b->ctl), app->ui.latched ? "Latched" : "Released");
+            break;
+        case ACT_JOY_MODE:
+            joy_mode(app, !app->ui.joy_xy);
+            break;
         case ACT_VALUE_ADJUST: ui_event_n(app, n, UI_VALUE_INC, UI_VALUE_DEC); set_status(app, b, n); break;
+        case ACT_VALUE_FINE:                                // the same in fine steps (core/fine_step.h)
+            g_fine_step = true;
+            ui_event_n(app, n, UI_VALUE_INC, UI_VALUE_DEC);
+            g_fine_step = false;
+            set_status(app, b, n);
+            break;
         case ACT_PAGE_MOVE:    ui_event_n(app, n, UI_PAGE_NEXT, UI_PAGE_PREV); set_status(app, b, n); break;
         case ACT_ROW_TOP:      ui_event(app, UI_ROW_TOP); break;
         case ACT_SELECT:       ui_event(app, UI_SELECT); break;
         case ACT_MENU:         ui_event(app, UI_MENU); break;
-        case ACT_BACK:         ui_event(app, UI_BACK); break;
+        case ACT_BACK:                                      // Shift + Back (its Shift entry Default): release all latched notes, Shift only like the latch
+            if (app->in.shift && !app->in.mod) {
+                snprintf(app->status, sizeof app->status, "Released %d", release_latched(app));
+                popup_info(&app->popup, "LATCH", app->status, 0, audio_millis(), LEARN_INFO_MS);
+                app->dirty = true;
+            } else ui_event(app, UI_BACK);
+            break;
         case ACT_PLAY:         ui_event(app, UI_PLAY); break;
         case ACT_SHIFT:
             app->in.shift = e.kind != IN_RELEASE;
@@ -209,8 +267,13 @@ static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
         case ACT_MOD:
             app->in.mod = e.kind != IN_RELEASE;
             break;
-        case ACT_NOTE:
-            if (e.kind == IN_RELEASE) note_off(app, b->ctl); else note_on(app, b->ctl, b->arg);
+        case ACT_NOTE:                                      // Shift + note (its Shift entry Default) latches the note; any next press of the key releases it
+            if (e.kind == IN_RELEASE) note_off(app, b->ctl);
+            else if (app->in.latched[b->ctl]) { app->in.latched[b->ctl] = false; note_off(app, b->ctl); }
+            else {
+                note_on(app, b->ctl, b->arg);
+                app->in.latched[b->ctl] = app->in.shift && !app->in.mod && app->in.held[b->ctl];   // Shift only: Mod + note plays as without modifier
+            }
             break;
         case ACT_OCTAVE:
             app->in.octave += n;
@@ -467,6 +530,12 @@ static control_id_t joy_direction(const input_state_t *in) {
 }
 
 static void joy_update(app_t *app, uint32_t now) {
+    if (app->ui.joy_xy) {                               // XY mode: the axes drive the bound parameters, no navigation
+        bool changed = synth_ui_joy_axis(&app->ui, &app->params, &app->seq, &app->rack, 0, app->in.axis_x);
+        changed |= synth_ui_joy_axis(&app->ui, &app->params, &app->seq, &app->rack, 1, app->in.axis_y);
+        if (changed) { audio_set_params(&app->rack, &app->params); app->dirty = true; catch_stale = true; }
+        return;
+    }
     const control_id_t dir = joy_direction(&app->in);
     if (dir == app->in.joy_dir) return;
     if (app->in.joy_dir != CTL_NONE) control_event(app, (input_event_t){app->in.joy_dir, IN_RELEASE, 0, false});

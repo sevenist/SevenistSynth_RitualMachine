@@ -68,13 +68,16 @@ struct KnobState {
     float prev = 0;
     float moved = 0;                           // radians turned since the last reported step (signed, already multiplied by the knob's sign)
     int   value = 0;                           // absolute mode: the reported value
+    int   dir = 0;                             // absolute mode: the way of the last report (+1 / -1, 0 = none yet)
+    uint32_t last_ms = 0;                      // ... and when it was
     bool  init = false;
 };
 KnobState knob[HWV1_KNOB_COUNT];
 constexpr float kPi = 3.14159265f;
 constexpr float kMinRadius = 80.0f;            // ADC counts from the centre; below this the pair is not a valid signal (knob not connected)
 constexpr float kEncoderQuantum = 2 * kPi * HWV1_COUNTS_PER_DETENT / HWV1_COUNTS_PER_REV;     // radians per detent
-constexpr float kAbsoluteQuantum = 2 * kPi * HWV1_ABS_STEP / INPUT_VALUE_MAX;                // radians per value step
+constexpr float kAbsoluteQuantum = 2 * kPi * HWV1_ABS_STEP / INPUT_VALUE_MAX;                // radians per value step while moving
+constexpr float kAbsoluteStart = 2 * kPi * HWV1_ABS_START / INPUT_VALUE_MAX;                 // radians to start or reverse (the hysteresis)
 
 void scan_knobs() {
     for (int i = 0; i < HWV1_KNOB_COUNT; i++) {
@@ -91,11 +94,21 @@ void scan_knobs() {
         k.prev = a;
         k.moved += d * (float)cfg.sign;
         const bool enc = cfg.mode == HW_KNOB_ENCODER;
-        const float q = enc ? kEncoderQuantum : kAbsoluteQuantum;
-        const int n = (int)(k.moved / q);      // whole quanta, truncated towards zero
-        if (!n) continue;
-        k.moved -= (float)n * q;
-        if (enc) { push(cfg.ctl, IN_DELTA, n); continue; }
+        if (enc) {
+            const int n = (int)(k.moved / kEncoderQuantum);    // whole quanta, truncated towards zero
+            if (!n) continue;
+            k.moved -= (float)n * kEncoderQuantum;
+            push(cfg.ctl, IN_DELTA, n);
+            continue;
+        }
+        // Absolute: fine steps while the knob keeps turning one way, a larger threshold from rest or to reverse (noise stays under it).
+        const uint32_t now = millis();
+        const int way = k.moved > 0 ? 1 : -1;
+        const bool moving = k.dir == way && now - k.last_ms < HWV1_ABS_IDLE_MS;
+        if (fabsf(k.moved) < (moving ? kAbsoluteQuantum : kAbsoluteStart)) continue;
+        const int n = (int)(k.moved / kAbsoluteQuantum);
+        k.moved -= (float)n * kAbsoluteQuantum;
+        k.dir = way; k.last_ms = now;
         int v = k.value + n * HWV1_ABS_STEP;
         if (v < 0) v = 0;
         if (v > INPUT_VALUE_MAX) v = INPUT_VALUE_MAX;

@@ -50,7 +50,7 @@ void put(int i, led_color_t c) {
 
 extern "C" {
 void leds_init(void) {
-    FastLED.addLeds<SK6812, PIN_LED_DATA, RGB>(frame, HW_NUM_LEDS);
+    FastLED.addLeds<SK6812, PIN_LED_DATA, HW_LED_ORDER>(frame, HW_NUM_LEDS);
     FastLED.setBrightness(HW_LED_BRIGHTNESS < HW_LED_MAX_BRIGHTNESS ? HW_LED_BRIGHTNESS : HW_LED_MAX_BRIGHTNESS);
     FastLED.clear(true);
     dirty = false;

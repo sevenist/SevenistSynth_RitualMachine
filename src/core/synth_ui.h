@@ -103,6 +103,17 @@ typedef struct {
     int     macro_cur, macro_dest;         // MACROS tab (scr_macros.c): the macro and the destination shown
     int     curve_cur, curve_pt;           // CURVES tab (scr_curves.c): the user curve (0..7) and its selected point
     int     led_role;                      // LEDS tab (scr_leds.c): the key role shown (led_role_t)
+    // The joystick as an XY controller (synth_ui_joy_*): what X (0) and Y (1) drive, through a mapping (t.kind MACRO_NONE: nothing).
+    mapping_t joy[2];
+    mapping_t joy_prev[2];                 // the bindings before the last new one (a second push on it moves it to the other axis and restores them)
+    int8_t  joy_fresh;                     // the axis of the parameter just bound while a push on it moves it (-1: none)
+    uint8_t joy_next;                      // the axis a new parameter replaces (the older binding)
+    bool    joy_xy;                        // XY mode: the stick drives joy[] instead of navigating
+    float   joy_rest[2];                   // XY mode, during a push: the target's value (0..1) when the stick left the centre, -1 = none ...
+    float   joy_centre[2];                 // ... the mapping position 0..1 that gives it (the stick's centre) ...
+    float   joy_wrote[2];                  // ... and the value the stick set last (a different value on release: changed elsewhere, kept)
+    int16_t joy_last[2];                   // last stick position applied (1..255, JOY_POS_CENTRE = centred)
+    int     joy_tab;                       // JOY tab (scr_joy.c): the axis shown
     int     knob_key[SYNTH_UI_KNOBS];      // what each knob last drove and where it was set (see knob_new_position)
     int     knob_pos[SYNTH_UI_KNOBS];
     int8_t  knob_catch_dir[SYNTH_UI_COL_KNOBS]; // catch state per col knob: 0 = caught, -1 = turn left to catch, +1 = turn right
@@ -166,6 +177,22 @@ void synth_ui_macro_remove(synth_ui_t *ui, int k, int dest);
 void synth_ui_macro_describe(const synth_ui_t *ui, const rack_t *rack, int k, char *out, int n);   // "M1 > FL1 Cut +2"
 void synth_ui_macros_prune(synth_ui_t *ui, const rack_t *rack);               // drops destinations whose module was deleted
 
+// The joystick as an XY controller (user design, 2026-10-07). On a page, a push on a parameter row binds it (joy_click):
+//   a new parameter     replaces the older binding (X, then Y, then X ...)                    JOY_CLICK_BOUND
+//   the same, again     moves it to the other axis and brings back what it replaced            JOY_CLICK_MOVED   (again: back)
+//   a bound one         (not the one just bound) inverts its axis (Min <-> Max)               JOY_CLICK_INVERTED
+//   not a parameter     JOY_CLICK_NONE (the push keeps its old meaning)
+// *axis = the axis concerned. joy_mode: XY mode on / off (the app: Shift + push, ACT_JOY_MODE). joy_axis: the stick's raw axis value
+// (0..INPUT_VALUE_MAX) moves the parameter from the value it has when the stick leaves the centre (so a value set by a knob, an encoder or the
+// navigation is followed) towards the mapping's ends; back in the centre it is that value again (unless it was changed elsewhere during the
+// push: kept). Returns true when a sound value changed. Ranges / curves: the JOY menu tab.
+#define JOY_XY_DEADZONE 48
+#define JOY_POS_CENTRE  128
+typedef enum { JOY_CLICK_NONE, JOY_CLICK_BOUND, JOY_CLICK_MOVED, JOY_CLICK_INVERTED } joy_click_t;
+joy_click_t synth_ui_joy_click(synth_ui_t *ui, const rack_t *rack, int *axis);
+void synth_ui_joy_mode(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, bool on);
+bool synth_ui_joy_axis(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int axis, int value);
+
 // Jump slots (see jump_slot_t). save: the page / tab on screen goes into slot k. resolve: finds every slot's page again (called by
 // synth_ui_rebuild_pages; a slot whose module was deleted is cleared). ready: the slot can be jumped to now (its LED is bright).
 void synth_ui_jump_save(synth_ui_t *ui, const rack_t *rack, int k);
@@ -181,7 +208,7 @@ bool synth_ui_open_page(synth_ui_t *ui, const rack_t *rack, int slot, int def);
 bool synth_ui_on_mods_tab(const synth_ui_t *ui, const rack_t *rack);
 // True while the CURVES tab is on screen (the knobs CURVES_KNOB_X / _Y then move the selected point; see scr_curves.c).
 bool synth_ui_on_curves_tab(const synth_ui_t *ui, const rack_t *rack);
-// True while the LEDS tab is on screen (the keys of the role shown light in its Active colour; see key_leds.c).
+// True while the LEDS tab is on screen (only the keys of the role shown light, the others are off; see key_leds.c).
 bool synth_ui_on_leds_tab(const synth_ui_t *ui, const rack_t *rack);
 
 // True while the sequencer page is on screen (it needs redrawing on every step).

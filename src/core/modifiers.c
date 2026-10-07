@@ -87,6 +87,7 @@ static const struct { uint8_t act; int8_t arg; const char *name; const char *tok
     {ACT_PAGE_MOVE,     1, "Pages",    "pages"},
     {ACT_VALUE_ADJUST,  1, "Value",    "value"},
     {ACT_VALUE_ADJUST,  4, "Value x4", "value4"},
+    {ACT_VALUE_FINE,    1, "Val fine", "valuefine"},          // 1/5 steps (core/fine_step.h)
     {ACT_OCTAVE,        1, "Octave",   "octave"},
     {ACT_VOLUME_STEP,   1, "Volume",   "volume"},
     {ACT_MACRO,         0, "Macro 1",  "macro1"},               // plays macro 1..8 (what it drives: learned with "Learn M1..8")
@@ -186,8 +187,9 @@ static void set_defaults(void) {
     g_e[MODL_SHIFT][CTL_KNOB_R3]    = act(ACT_MACRO_LEARN, 2);
     g_e[MODL_SHIFT][CTL_JOY_UP]     = act(ACT_OCTAVE, 1);
     g_e[MODL_SHIFT][CTL_JOY_DOWN]   = act(ACT_OCTAVE, -1);
-    g_e[MODL_SHIFT][CTL_JOY_LEFT]   = act(ACT_PAGE_MOVE, -1);
-    g_e[MODL_SHIFT][CTL_JOY_RIGHT]  = act(ACT_PAGE_MOVE, 1);
+    g_e[MODL_SHIFT][CTL_JOY_LEFT]   = act(ACT_VALUE_FINE, -1);       // fine steps of the value (user, 2026-10-07; was Pages: row 0 still changes the page)
+    g_e[MODL_SHIFT][CTL_JOY_RIGHT]  = act(ACT_VALUE_FINE, 1);
+    g_e[MODL_SHIFT][CTL_JOY_SW]     = act(ACT_JOY_MODE, 0);           // Shift + push: joystick XY mode (user, 2026-10-07)
     if (!input_control_present(CTL_KNOB_R1)) {
         g_e[MODL_SHIFT][CTL_COL_KNOB_2] = act(ACT_MACRO, 0);
         g_e[MODL_SHIFT][CTL_COL_KNOB_3] = act(ACT_MACRO, 1);

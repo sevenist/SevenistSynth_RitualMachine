@@ -39,6 +39,8 @@ typedef enum {
     ACT_VOLUME_STEP,        // master volume by arg steps of 0.05 per detent (an endless knob: the prototype)
     ACT_JUMP,               // arg = slot 0..7: go to the saved UI location; with Shift: save the current location in the slot
     ACT_MOD,                // HOLD action: the Mod modifier is on while the control is down (what Shift / Mod + a control do: core/modifiers.h)
+    ACT_JOY_MODE,           // joystick XY mode on / off (the stick drives the parameters bound by a push; synth_ui.h: synth_ui_joy_*)
+    ACT_VALUE_FINE,         // fine steps of the focused value (core/fine_step.h: 1/5 of a step): +1 = increase; Shift + joystick left / right
     ACT_COUNT
 } action_id_t;
 

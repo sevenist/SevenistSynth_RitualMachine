@@ -41,8 +41,10 @@
 #define HW_KBD_COLS       8
 #define HW_KBD_I2C_HZ     400000
 
-// LED chain: 36 x SK6812, FastLED colour order RGB (checked on the board 2026-10-06: SynthBox used BGR, red and blue came out swapped)
+// LED chain: 36 x SK6812, FastLED colour order GRB (the SK6812's own order). SynthBox used BGR (red and blue swapped, seen 2026-10-06); RGB then
+// left red and green swapped (the user, 2026-10-07: the LEDS tab's Red showed green). Not yet checked on the board.
 #define HW_NUM_LEDS       36
+#define HW_LED_ORDER      GRB
 #ifndef HW_LED_MAX_BRIGHTNESS      // set in platformio.ini
 #define HW_LED_MAX_BRIGHTNESS 51   // 20 % of 255: the user's limit (power: full white on 36 LEDs ~2 A browns out the board / USB). The driver never exceeds it
 #endif

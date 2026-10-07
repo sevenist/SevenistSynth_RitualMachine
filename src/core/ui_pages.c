@@ -184,6 +184,9 @@ void synth_ui_init(synth_ui_t *ui, const rack_t *rack) {
     ui->run_anim = GUI_ANIM_INVALID; ui->ms_lane = 0; ui->ms_step = 0; ui->smp_cur = 0; ui->smp_tgt = 0; ui->key_cur = KEY_COLS; ui->eg_pt = 0; ui->fx_slot = 0;
     ui->mods_layer = 0; ui->mods_ctl = CTL_COL_KNOB_0; ui->learn_req = false; ui->learn_wait = false; ui->knob_away = 0;
     ui->learn_macro = -1; ui->macro_cur = 0; ui->macro_dest = 0; ui->curve_cur = 0; ui->curve_pt = 0; ui->led_role = 0;
+    memset(ui->joy, 0, sizeof ui->joy); memset(ui->joy_prev, 0, sizeof ui->joy_prev);
+    ui->joy_fresh = -1; ui->joy_next = 0; ui->joy_xy = false; ui->joy_tab = 0;
+    for (int a = 0; a < 2; a++) { ui->joy_rest[a] = -1.0f; ui->joy_centre[a] = 0.5f; ui->joy_wrote[a] = 0.0f; ui->joy_last[a] = JOY_POS_CENTRE; }
     for (int i = 0; i < SYNTH_UI_JUMP_SLOTS; i++) ui->jump[i].valid = false;
     synth_ui_rebuild_pages(ui, rack);
     macros_default(ui, rack);
@@ -202,24 +205,24 @@ bool synth_ui_shows_playhead(const synth_ui_t *ui, const rack_t *rack) {
 }
 
 /* ---------------- menu tabs ----------------
- * Modular synth: RACK, GENERAL, SAMPLES, FX RACK, KEYS, LEDS, MODIFIERS, MACROS, CURVES.  FM synth: GENERAL, ALGORITHM (the operator tree:
- * a push opens the operator's page), FX RACK, KEYS, LEDS, MODIFIERS, MACROS, CURVES.  Strings: GENERAL, FX RACK, KEYS, MODIFIERS (its sound is edited on the pages). */
+ * Modular synth: RACK, GENERAL, SAMPLES, FX RACK, KEYS, LEDS, MODIFIERS, MACROS, JOY, CURVES.  FM synth: GENERAL, ALGORITHM (the operator tree:
+ * a push opens the operator's page), FX RACK, KEYS, LEDS, MODIFIERS, MACROS, JOY, CURVES.  Strings: the FM list without ALGORITHM (its sound is edited on the pages). */
 
 int tab_count(const rack_t *r) {
-    if (synth_type_is_fm(r->cfg.type)) return 8;
-    return synth_type_is_strings(r->cfg.type) ? 7 : 9;
+    if (synth_type_is_fm(r->cfg.type)) return 9;
+    return synth_type_is_strings(r->cfg.type) ? 8 : 10;
 }
 
 tab_t tab_kind(const rack_t *r, int idx) {
-    static const tab_t modular[9] = {TAB_RACK, TAB_GENERAL, TAB_SAMPLES, TAB_FX, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_CURVES};
-    static const tab_t fm[8] = {TAB_GENERAL, TAB_FM_ALGO, TAB_FX, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_CURVES};
-    static const tab_t strings[7] = {TAB_GENERAL, TAB_FX, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_CURVES};
-    if (synth_type_is_fm(r->cfg.type)) return fm[idx % 8];
-    return synth_type_is_strings(r->cfg.type) ? strings[idx % 7] : modular[idx % 9];
+    static const tab_t modular[10] = {TAB_RACK, TAB_GENERAL, TAB_SAMPLES, TAB_FX, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
+    static const tab_t fm[9] = {TAB_GENERAL, TAB_FM_ALGO, TAB_FX, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
+    static const tab_t strings[8] = {TAB_GENERAL, TAB_FX, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
+    if (synth_type_is_fm(r->cfg.type)) return fm[idx % 9];
+    return synth_type_is_strings(r->cfg.type) ? strings[idx % 8] : modular[idx % 10];
 }
 
 const char *tab_name(tab_t t) {
-    static const char *const n[] = {"RACK", "GENERAL", "ALGORITHM", "OPERATOR", "ENVELOPE", "FX RACK", "SAMPLES", "KEYS", "MODIFIERS", "MACROS", "CURVES", "LEDS"};
+    static const char *const n[] = {"RACK", "GENERAL", "ALGORITHM", "OPERATOR", "ENVELOPE", "FX RACK", "SAMPLES", "KEYS", "MODIFIERS", "MACROS", "CURVES", "LEDS", "JOY"};
     return n[t];
 }
 

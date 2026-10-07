@@ -224,3 +224,33 @@ TEST(modifiers_prototype_gets_macros_on_k3_k4) {
     ev_release(SHIFT);
     ui_board(false);
 }
+
+TEST(modifiers_shift_note_latches_until_pressed_again) {
+    ui_fresh();
+    const control_id_t f1 = CTL_KEY(0, 0), note = CTL_KEY(4, 0), other = CTL_KEY(4, 1);   // F1 = Shift in the built-in layouts
+    ev_press(f1); ev_press(note); ev_release(note); ev_release(f1);
+    CHECK(ui_app.in.held[note] != 0);                                           // Shift + note: still sounding after both are released
+    ev_press(other); ev_release(other);
+    CHECK(ui_app.in.held[other] == 0);                                          // a plain note is not latched
+    CHECK(ui_app.in.held[note] != 0);
+    ev_press(note);
+    CHECK(ui_app.in.held[note] == 0);                                           // the next press releases the latched note
+    ev_release(note);
+    CHECK(ui_app.in.held[note] == 0);
+    ev_press(note);
+    CHECK(ui_app.in.held[note] != 0);                                           // and the key plays normally again
+    ev_release(note);
+    CHECK(ui_app.in.held[note] == 0);
+    ev_press(f1); ev_tap(note); ev_tap(other); ev_release(f1);                  // two latched notes
+    CHECK(ui_app.in.held[note] != 0 && ui_app.in.held[other] != 0);
+    const bool in_rack = ui_app.ui.in_rack;
+    ev_press(SHIFT); ev_tap(CTL_BTN_2); ev_release(SHIFT);                      // Shift + Back: release all, and no Back on the screen
+    CHECK(ui_app.in.held[note] == 0 && ui_app.in.held[other] == 0);
+    CHECK_STR(ui_app.popup.info.text, "Released 2");
+    CHECK(ui_app.ui.in_rack == in_rack);
+    ev_tap(note);
+    CHECK(ui_app.in.held[note] == 0);                                           // no latch left on the key
+    mod_key();                                                                  // Mod + note: no latch (Shift only, the user)
+    ev_press(MOD); ev_press(note); ev_release(note); ev_release(MOD);
+    CHECK(ui_app.in.held[note] == 0);
+}

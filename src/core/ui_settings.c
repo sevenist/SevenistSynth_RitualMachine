@@ -13,6 +13,7 @@ typedef struct {
     unsigned    mods_rev;       // the modifier layers: their edit counter (core/modifiers.h)
     unsigned    leds_rev;       // the key LED colours (core/led_roles.h)
     macro_def_t macro[SYNTH_UI_MACROS];   // bytes only (no padding): compared with memcmp
+    mapping_t   joy[2];                   // the joystick axes (bytes only too)
 } saved_t;
 
 static saved_t g_saved;
@@ -28,6 +29,7 @@ static void capture(const synth_ui_t *ui, const rack_t *rack, saved_t *s) {
     s->mods_rev = modifiers_rev();
     s->leds_rev = led_roles_rev();
     memcpy(s->macro, ui->macro, sizeof s->macro);
+    memcpy(s->joy, ui->joy, sizeof s->joy);
 }
 
 static bool same(const saved_t *a, const saved_t *b) {
@@ -37,7 +39,8 @@ static bool same(const saved_t *a, const saved_t *b) {
         if (x->valid != y->valid || (x->valid && (x->in_rack != y->in_rack || x->mod_id != y->mod_id || x->mod_type != y->mod_type || x->def != y->def ||
                                                   x->tab != y->tab || x->row != y->row))) return false;
     }
-    return a->mods_rev == b->mods_rev && a->leds_rev == b->leds_rev && !memcmp(a->macro, b->macro, sizeof a->macro);
+    return a->mods_rev == b->mods_rev && a->leds_rev == b->leds_rev && !memcmp(a->macro, b->macro, sizeof a->macro) &&
+           !memcmp(a->joy, b->joy, sizeof a->joy);
 }
 
 // The word of a GENERAL setting in the file: its label in lower case ("Vol" -> "vol").
@@ -61,6 +64,11 @@ int ui_settings_to_text(const synth_ui_t *ui, const rack_t *rack, char *buf, int
             char t[64];
             if (mapping_to_text(&ui->macro[k].dest[i], t, sizeof t)) n += snprintf(buf + n, (size_t)(cap - n), "macro %d %s\n", k + 1, t);
         }
+    if (n < cap) n += snprintf(buf + n, (size_t)(cap - n), "joy\n");                    // joy x|y <target> [range MIN MAX] [curve NAME]
+    for (int a = 0; a < 2 && n < cap; a++) {
+        char t[64];
+        if (mapping_to_text(&ui->joy[a], t, sizeof t)) n += snprintf(buf + n, (size_t)(cap - n), "joy %s %s\n", a ? "y" : "x", t);
+    }
     if (n < cap) n += modifiers_to_text(buf + n, cap - n);
     if (n < cap) n += led_roles_to_text(buf + n, cap - n);
     return n < cap ? n : cap - 1;
@@ -70,7 +78,7 @@ bool ui_settings_from_text(synth_ui_t *ui, rack_t *rack, const char *txt) {
     bool any = false;
     int knob_mode = rack->cfg.knob_mode;
     jump_slot_t jump[SYNTH_UI_JUMP_SLOTS] = {{0}};
-    bool mods = false, legacy = false, macros = false, leds = false;                           // the modifier layers are in the file; the first format's "shift N" lines
+    bool mods = false, legacy = false, macros = false, leds = false, joy = false;                          // the modifier layers are in the file; the first format's "shift N" lines
     mod_entry_t old[SYNTH_UI_COL_KNOBS];
     for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) old[k] = modifiers_get(MODL_SHIFT, (control_id_t)(CTL_COL_KNOB_0 + k));
     for (const char *line = txt; line && *line; line = strchr(line, '\n'), line = line ? line + 1 : NULL) {
@@ -83,6 +91,8 @@ bool ui_settings_from_text(synth_ui_t *ui, rack_t *rack, const char *txt) {
             macros = any = true;
         } else if (got >= 1 && !strcmp(w1, "leds")) {
             leds = any = true;
+        } else if (got >= 1 && !strcmp(w1, "joy")) {                 // the "joy" header (or an axis line): the file holds the axes
+            joy = any = true;
         } else if (got >= 2 && !strcmp(w1, "knob")) {
             if (!strcmp(w2, "catch")) { knob_mode = 0; any = true; }
             else if (!strcmp(w2, "direct")) { knob_mode = 1; any = true; }
@@ -143,6 +153,18 @@ bool ui_settings_from_text(synth_ui_t *ui, rack_t *rack, const char *txt) {
             if (sscanf(line, "macro %d %n", &k, &at) != 1 || at == 0 || k < 1 || k > SYNTH_UI_MACROS || !mapping_parse(line + at, &mp)) continue;
             macro_def_t *md = &ui->macro[k - 1];
             if (md->n < SYNTH_UI_MACRO_DESTS) md->dest[md->n++] = mp;
+        }
+        synth_ui_macros_prune(ui, rack);
+    }
+    if (joy) {                                                  // the joystick axes: the file holds them (an axis not listed is unbound)
+        memset(ui->joy, 0, sizeof ui->joy);
+        ui->joy_fresh = -1;
+        for (const char *line = txt; line && *line; line = strchr(line, '\n'), line = line ? line + 1 : NULL) {
+            char ax[4];
+            int at = 0;
+            mapping_t mp;
+            if (sscanf(line, "joy %3s %n", ax, &at) != 1 || at == 0 || (strcmp(ax, "x") && strcmp(ax, "y")) || !mapping_parse(line + at, &mp)) continue;
+            ui->joy[ax[0] == 'y'] = mp;
         }
         synth_ui_macros_prune(ui, rack);
     }

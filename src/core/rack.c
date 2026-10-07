@@ -1,5 +1,7 @@
 #include "core/rack.h"
 #include "core/synth_params.h"
+#include "core/fine_step.h"
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -342,7 +344,7 @@ static const depth_unit_t *unit_of(const rack_t *r, int slot) {
 }
 
 static bool adjust_in(float *v, const depth_unit_t *u, int dir) {
-    float nv = *v + (float)dir * u->step;
+    float nv = *v + (float)dir * fine_lin_step(u->step, u->decimals);
     if (nv < u->min) nv = u->min;
     if (nv > u->max) nv = u->max;
     if (nv > -u->step * 0.5f && nv < u->step * 0.5f) nv = 0;           // no float drift around zero
@@ -449,11 +451,33 @@ bool rack_mparam_adjust(rack_slot_t *s, int i, int dir) {
     const mp_t *d = &info[s->type].mp[i];
     float v = s->v[i], nv;
     if (d->kind == K_ENUM)     nv = v + (float)dir;
-    else if (d->kind == K_LOG) nv = dir > 0 ? v * d->step : v / d->step;
-    else                       nv = v + (float)dir * d->step;
+    else if (d->kind == K_LOG) nv = dir > 0 ? v * fine_log_step(d->step) : v / fine_log_step(d->step);
+    else                       nv = v + (float)dir * fine_lin_step(d->step, d->decimals);
     if (nv < d->min) nv = d->min;
     if (nv > d->max) nv = d->max;
     if (nv == v) return false;
+    s->v[i] = nv;
+    return true;
+}
+
+bool rack_mparam_is_continuous(module_type_t t, int i) { return i >= 0 && i < info[t].nmp && info[t].mp[i].kind != K_ENUM; }
+
+float rack_mparam_norm(const rack_slot_t *s, int i) {
+    const mp_t *d = &info[s->type].mp[i];
+    if (d->kind == K_ENUM) return 0.0f;
+    const float v = s->v[i];
+    const float n = d->kind == K_LOG ? logf(v / d->min) / logf(d->max / d->min) : (v - d->min) / (d->max - d->min);
+    return n < 0.0f ? 0.0f : n > 1.0f ? 1.0f : n;
+}
+
+bool rack_mparam_set_norm(rack_slot_t *s, int i, float n) {
+    const mp_t *d = &info[s->type].mp[i];
+    if (d->kind == K_ENUM) return false;
+    n = n < 0.0f ? 0.0f : n > 1.0f ? 1.0f : n;
+    const float q = powf(10.0f, (float)d->decimals);           // to the precision shown: semitones, cents, counts stay whole
+    float nv = roundf((d->kind == K_LOG ? d->min * powf(d->max / d->min, n) : d->min + n * (d->max - d->min)) * q) / q;
+    nv = nv < d->min ? d->min : nv > d->max ? d->max : nv;
+    if (nv == s->v[i]) return false;
     s->v[i] = nv;
     return true;
 }

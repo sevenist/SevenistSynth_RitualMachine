@@ -38,6 +38,9 @@ static const fn_def_t fns[] = {
     {ACT_JUMP,         6,         "Jump 7", "jump7"},
     {ACT_JUMP,         7,         "Jump 8", "jump8"},
     {ACT_MOD,          0,         "Mod",    "mod"},
+    {ACT_JOY_MODE,     0,         "Joy XY", "joyxy"},
+    {ACT_VALUE_FINE,   -1,        "Fine -", "fine-"},
+    {ACT_VALUE_FINE,   +1,        "Fine +", "fine+"},
 };
 #define N_FNS ((int)(sizeof fns / sizeof fns[0]))
 

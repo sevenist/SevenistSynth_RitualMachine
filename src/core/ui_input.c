@@ -134,11 +134,27 @@ static float fm_get(void *c) { const fm_ctx_t *x = c; return dx7_value_get(x->p,
 static bool  fm_set(void *c, float v) { const fm_ctx_t *x = c; return dx7_value_set(x->p, x->op, x->v, v); }
 static knob_drv_t fm_drv(fm_ctx_t *c) { return (knob_drv_t){NULL, c, fm_get, fm_set, dx7_value_steps(c->op, c->v)}; }
 
+// Continuous parameters (user 2026-10-07): a linear / logarithmic module or global parameter is driven exactly over the knob's whole resolution
+// (rack_mparam_set_norm / param_set_norm, rounded to the decimals shown) instead of walked in its 0.05 steps. Not the modulation depth (in its
+// target's unit), not the sampler's slice (the page keeps it inside the file's slices).
+#define KNOB_CONT_STEPS INPUT_VALUE_MAX
+typedef struct { rack_slot_t *s; int i; synth_params_t *p; int id; } cont_ctx_t;
+static float cont_get(void *c) { const cont_ctx_t *x = c; return x->s ? rack_mparam_norm(x->s, x->i) : param_norm(x->p, (param_id_t)x->id); }
+static bool  cont_set(void *c, float n) { const cont_ctx_t *x = c; return x->s ? rack_mparam_set_norm(x->s, x->i, n) : param_set_norm(x->p, (param_id_t)x->id, n); }
+static knob_drv_t cont_drv(cont_ctx_t *c) { return (knob_drv_t){NULL, c, cont_get, cont_set, KNOB_CONT_STEPS}; }
+
+typedef struct { fm_ctx_t fm; cont_ctx_t cont; } drv_ctx_t;   // what an exact driver points at (one of them)
+
+static bool module_continuous(const rack_slot_t *s, int i) {
+    const module_type_t t = (module_type_t)s->type;
+    return rack_mparam_is_continuous(t, i) && i != rack_depth_index(t) && !(t == MOD_SAMPLER && i == MP_SM_SLICE);
+}
+
 // Knob bookkeeping. `key` identifies what the knob drives.
 // Returns true when the event should be applied. For col knobs (knob < SYNTH_UI_COL_KNOBS): catch mode — the knob is
 // ignored until it crosses the current parameter value; once caught it applies normally. knob_catch_dir is 0 when caught.
 static bool knob_new_position(synth_ui_t *ui, int knob, int key, int value) {
-    const int pos = value >> 3;                         // 128 positions are enough to tell steps apart
+    const int pos = value;                              // the whole resolution: continuous parameters use it (the noise is filtered by the HAL)
     const bool key_changed = ui->knob_key[knob] != key;
     if (!key_changed && ui->knob_pos[knob] == pos) return false;
     ui->knob_key[knob] = key; ui->knob_pos[knob] = pos;
@@ -167,12 +183,21 @@ static bool knob_check_catch(synth_ui_t *ui, const rack_t *rack, int knob, int v
 typedef struct { synth_ui_t *ui; synth_params_t *params; seq_t *seq; rack_t *rack; const page_t *pg; int row; } row_ctx_t;
 static bool row_step(void *c, int dir) { row_ctx_t *x = c; return page_row_step(x->ui, x->params, x->seq, x->rack, x->pg, x->row, dir); }
 
-// A page row's knob driver: exact for an FM value, walking otherwise.
-static knob_drv_t row_drv(row_ctx_t *rc, fm_ctx_t *fc) {
+// A page row's knob driver: exact for an FM value and a continuous parameter, walking otherwise.
+static knob_drv_t row_drv(row_ctx_t *rc, drv_ctx_t *dc) {
+    fm_ctx_t *fc = &dc->fm;
+    cont_ctx_t *cc = &dc->cont;
     fm_row_t r;
-    if (graph_is_fm(rc->pg->graph) && fm_page_row(rc->ui, rc->pg, rc->row, &r) && !r.selector && r.cfg < 0) {
-        *fc = (fm_ctx_t){&rc->rack->cfg.fm, r.op, r.v};
-        return fm_drv(fc);
+    const page_t *pg = rc->pg;
+    if (graph_is_fm(pg->graph)) {
+        if (fm_page_row(rc->ui, pg, rc->row, &r) && !r.selector && r.cfg < 0) { *fc = (fm_ctx_t){&rc->rack->cfg.fm, r.op, r.v}; return fm_drv(fc); }
+    } else if (pg->slot != GLOBAL_PAGE && pg->graph != GRAPH_MS_STEPS && pg->graph != GRAPH_MS_LANE) {
+        rack_slot_t *s = &rc->rack->slot[pg->slot];
+        const int i = pg->graph == GRAPH_EG ? (rc->row >= 2 ? 3 * rc->ui->eg_pt + (rc->row - 2) : -1) : pg->params[rc->row - 1];
+        if (i >= 0 && module_continuous(s, i)) { *cc = (cont_ctx_t){s, i, NULL, 0}; return cont_drv(cc); }
+    } else if (pg->slot == GLOBAL_PAGE && pg->graph != GRAPH_SEQ && pg->graph != GRAPH_SEQ_CFG) {
+        const int id = pg->params[rc->row - 1];
+        if (param_is_continuous((param_id_t)id)) { *cc = (cont_ctx_t){NULL, 0, rc->params, id}; return cont_drv(cc); }
     }
     return (knob_drv_t){row_step, rc, NULL, NULL, 0};
 }
@@ -198,7 +223,7 @@ bool synth_ui_knob_row(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_
     if (row > pg.count || !row_is_knobbable(rack, &pg, row)) return false;
     if (!knob_new_position(ui, row - 1, ui->page * 8 + row, value)) return false;
     row_ctx_t c = {ui, params, seq, rack, &pg, row};
-    fm_ctx_t fc;
+    drv_ctx_t fc;
     const knob_drv_t d = row_drv(&c, &fc);
     if (!knob_check_catch(ui, rack, row - 1, value, &d)) return false;
     knob_set(&d, value);
@@ -245,9 +270,17 @@ static bool target_ctx(synth_params_t *params, seq_t *seq, rack_t *rack, const m
     return true;
 }
 
-// A target's knob driver: exact for an FM value, walking otherwise.
-static knob_drv_t target_drv(macro_ctx_t *c, fm_ctx_t *fc) {
-    if (c->m.kind == MACRO_FM) { *fc = (fm_ctx_t){&c->rack->cfg.fm, c->m.id, c->m.prm}; return fm_drv(fc); }
+// A target's knob driver: exact for an FM value and a continuous parameter, walking otherwise.
+static knob_drv_t target_drv(macro_ctx_t *c, drv_ctx_t *dc) {
+    if (c->m.kind == MACRO_FM) { dc->fm = (fm_ctx_t){&c->rack->cfg.fm, c->m.id, c->m.prm}; return fm_drv(&dc->fm); }
+    if (c->m.kind == MACRO_MODULE && module_continuous(&c->rack->slot[c->slot], c->m.prm)) {
+        dc->cont = (cont_ctx_t){&c->rack->slot[c->slot], c->m.prm, NULL, 0};
+        return cont_drv(&dc->cont);
+    }
+    if (c->m.kind == MACRO_GLOBAL && param_is_continuous((param_id_t)c->m.prm)) {
+        dc->cont = (cont_ctx_t){NULL, 0, c->params, c->m.prm};
+        return cont_drv(&dc->cont);
+    }
     return (knob_drv_t){macro_step, c, NULL, NULL, 0};
 }
 
@@ -299,7 +332,7 @@ bool synth_ui_knob_row_target(synth_ui_t *ui, synth_params_t *params, seq_t *seq
     macro_ctx_t c;
     if (!target_ctx(params, seq, rack, &mp->t, &c)) return false;
     if (!knob_new_position(ui, k, target_key(&mp->t), value)) return false;
-    fm_ctx_t fc;
+    drv_ctx_t fc;
     const knob_drv_t d = target_drv(&c, &fc);
     return col_knob_mapped(ui, rack, k, value, &d, mp);
 }
@@ -308,7 +341,7 @@ bool synth_ui_knob_target(synth_ui_t *ui, synth_params_t *params, seq_t *seq, ra
     macro_ctx_t c;
     if (knob < SYNTH_UI_COL_KNOBS || knob >= SYNTH_UI_KNOBS || !target_ctx(params, seq, rack, &mp->t, &c)) return false;
     if (!knob_new_position(ui, knob, target_key(&mp->t), value)) return false;
-    fm_ctx_t fc;
+    drv_ctx_t fc;
     const knob_drv_t d = target_drv(&c, &fc);
     drv_set_norm(&d, mapping_apply(mp, (float)value / INPUT_VALUE_MAX));
     return true;
@@ -324,7 +357,7 @@ bool synth_ui_target_step(synth_params_t *params, seq_t *seq, rack_t *rack, cons
 
 float synth_ui_target_norm(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_t *m) {
     macro_ctx_t c;
-    fm_ctx_t fc;
+    drv_ctx_t fc;
     if (!target_ctx(params, seq, rack, m, &c)) return -1.0f;
     const knob_drv_t d = target_drv(&c, &fc);
     int total;
@@ -397,7 +430,7 @@ static bool same_target(const macro_t *a, const macro_t *b) { return a->kind == 
 
 static bool macro_dest_set(synth_params_t *params, seq_t *seq, rack_t *rack, const mapping_t *mp, float knob) {
     macro_ctx_t c;
-    fm_ctx_t fc;
+    drv_ctx_t fc;
     if (!target_ctx(params, seq, rack, &mp->t, &c)) return false;
     const knob_drv_t d = target_drv(&c, &fc);
     drv_set_norm(&d, mapping_apply(mp, knob));
@@ -419,7 +452,7 @@ bool synth_ui_macro_row(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack
     const macro_def_t *md = &ui->macro[k];
     if (md->n == 0) return false;
     macro_ctx_t c;
-    fm_ctx_t fc;
+    drv_ctx_t fc;
     if (!target_ctx(params, seq, rack, &md->dest[0].t, &c)) return false;
     if (!knob_new_position(ui, kk, target_key(&md->dest[0].t), value)) return false;
     const knob_drv_t d = target_drv(&c, &fc);
@@ -475,6 +508,91 @@ void synth_ui_macros_prune(synth_ui_t *ui, const rack_t *rack) {
             const macro_t *t = &ui->macro[k].dest[i].t;
             if (t->kind == MACRO_MODULE && rack_find(rack, t->id) == RACK_NONE) synth_ui_macro_remove(ui, k, i);
         }
+    for (int a = 0; a < 2; a++) {                       // the joystick axes too
+        const macro_t *t = &ui->joy[a].t;
+        if (t->kind == MACRO_MODULE && rack_find(rack, t->id) == RACK_NONE) { memset(&ui->joy[a], 0, sizeof ui->joy[a]); ui->joy_fresh = -1; }
+    }
+}
+
+/* ---------------- the joystick as an XY controller ---------------- */
+
+static void mapping_invert(mapping_t *m) {              // Min <-> Max (Min > Max inverts, synth_ui.h)
+    const int lo = m->min, hi = mapping_max(m);
+    m->min = (uint8_t)hi; m->max_off = (uint8_t)(100 - lo);
+}
+
+joy_click_t synth_ui_joy_click(synth_ui_t *ui, const rack_t *rack, int *axis) {
+    macro_t t;
+    if (!synth_ui_target_at_cursor(ui, rack, &t)) return JOY_CLICK_NONE;
+    const int f = ui->joy_fresh;
+    if (f >= 0 && same_target(&ui->joy[f].t, &t)) {    // the parameter just bound, again: it goes to the other axis, the one it replaced comes back
+        const mapping_t m = ui->joy[f];
+        ui->joy[0] = ui->joy_prev[0]; ui->joy[1] = ui->joy_prev[1];
+        ui->joy[1 - f] = m;
+        ui->joy_fresh = (int8_t)(1 - f); ui->joy_next = (uint8_t)f;
+        *axis = 1 - f;
+        return JOY_CLICK_MOVED;
+    }
+    for (int a = 0; a < 2; a++)
+        if (same_target(&ui->joy[a].t, &t)) {           // already bound (not just now): its axis is inverted
+            mapping_invert(&ui->joy[a]);
+            ui->joy_fresh = -1;
+            *axis = a;
+            return JOY_CLICK_INVERTED;
+        }
+    const int a = ui->joy_next % 2;                     // a new one replaces the older binding: X, Y, X, Y ...
+    ui->joy_prev[0] = ui->joy[0]; ui->joy_prev[1] = ui->joy[1];
+    ui->joy[a] = (mapping_t){t, 0, 0, 0};
+    ui->joy_fresh = (int8_t)a; ui->joy_next = (uint8_t)(1 - a);
+    *axis = a;
+    return JOY_CLICK_BOUND;
+}
+
+void synth_ui_joy_mode(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, bool on) {
+    if (ui->joy_xy)                                     // leaving (or restarting) XY mode: an axis away from its centre goes back to its value
+        for (int a = 0; a < 2; a++) synth_ui_joy_axis(ui, params, seq, rack, a, INPUT_AXIS_CENTER);
+    ui->joy_xy = on;
+    ui->joy_fresh = -1;                                 // after a mode change a click on a bound parameter inverts it
+    for (int a = 0; a < 2; a++) { ui->joy_last[a] = JOY_POS_CENTRE; ui->joy_rest[a] = -1.0f; }
+}
+
+// The stick's rest value follows the parameter: it is read again each time the stick leaves the centre, so a value set meanwhile by a knob,
+// an encoder or the navigation is the one the stick moves around. Back in the centre the stick puts that value back, unless something
+// else changed the parameter during the push (it is then not where the stick put it): that change is kept.
+bool synth_ui_joy_axis(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int axis, int value) {
+    if (!ui->joy_xy || axis < 0 || axis > 1) return false;
+    int d = axis == 0 ? value - INPUT_AXIS_CENTER : INPUT_AXIS_CENTER - value;     // right / up = positive (a low Y value is pushed up)
+    const int span = INPUT_AXIS_CENTER - JOY_XY_DEADZONE;
+    d = d > JOY_XY_DEADZONE ? d - JOY_XY_DEADZONE : d < -JOY_XY_DEADZONE ? d + JOY_XY_DEADZONE : 0;
+    const float x = (float)(d > span ? span : d < -span ? -span : d) / (float)span;
+    const int pos = d == 0 ? JOY_POS_CENTRE : (int)(x * 127.0f) + JOY_POS_CENTRE;   // 1..255: nothing to do while the stick stays on the same position
+    const int last = ui->joy_last[axis];
+    if (pos == last) return false;
+    ui->joy_last[axis] = (int16_t)pos;
+    macro_ctx_t c;
+    drv_ctx_t fc;
+    if (!target_ctx(params, seq, rack, &ui->joy[axis].t, &c)) return false;
+    const knob_drv_t drv = target_drv(&c, &fc);
+    int total, cur;
+    if (pos == JOY_POS_CENTRE) {                        // let go
+        if (ui->joy_rest[axis] < 0.0f) return false;
+        cur = knob_measure(&drv, &total);
+        const bool untouched = cur == (int)(ui->joy_wrote[axis] * (float)total + 0.5f);
+        if (untouched) drv_set_norm(&drv, ui->joy_rest[axis]);   // exactly the value it had
+        ui->joy_rest[axis] = -1.0f;
+        return untouched;
+    }
+    if (last == JOY_POS_CENTRE || ui->joy_rest[axis] < 0.0f) {   // leaving the centre: the value now is the one to move around
+        cur = knob_measure(&drv, &total);
+        ui->joy_rest[axis] = total > 0 ? (float)cur / (float)total : 0.0f;
+        ui->joy_centre[axis] = (float)mapping_inverse(&ui->joy[axis], ui->joy_rest[axis]) / (float)(MAPPING_POSITIONS - 1);
+    }
+    const float ctr = ui->joy_centre[axis];
+    float n = mapping_apply(&ui->joy[axis], ctr + x * (x > 0.0f ? 1.0f - ctr : ctr));
+    n = n < 0.0f ? 0.0f : n > 1.0f ? 1.0f : n;
+    drv_set_norm(&drv, n);
+    ui->joy_wrote[axis] = n;
+    return true;
 }
 
 void synth_ui_catch_refresh(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, const mapping_t *tgt) {
@@ -488,7 +606,7 @@ void synth_ui_catch_refresh(synth_ui_t *ui, synth_params_t *params, seq_t *seq, 
         knob_drv_t d;
         row_ctx_t rc;
         macro_ctx_t mc;
-        fm_ctx_t fc;
+        drv_ctx_t fc;
         if (!ui->in_rack && ui->knob_val[k] >= 0 && !rack->cfg.knob_mode) {
             if (tgt && tgt[k].t.kind != MACRO_PAGE_ROW) {
                 if (target_ctx(params, seq, rack, &tgt[k].t, &mc)) { d = target_drv(&mc, &fc); key = target_key(&tgt[k].t); mp = &tgt[k]; have = true; }

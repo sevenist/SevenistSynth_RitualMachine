@@ -1,4 +1,5 @@
 #include "core/fxrack.h"
+#include "core/fine_step.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -77,7 +78,7 @@ bool fxr_adjust(fx_slot_t *s, int i, int dir) {
     const fxp_t *p = param(s->type, i);
     int v = s->v[i], nv;
     if (p->kind == PK_RATE) nv = dir > 0 ? (v + 1 > v * 6 / 5 ? v + 1 : v * 6 / 5) : (v - 1 < v * 5 / 6 ? v - 1 : v * 5 / 6);   // 20 % steps
-    else nv = v + dir * p->step;
+    else nv = v + dir * fine_int_step(p->step);
     if (nv < p->min) nv = p->min;
     if (nv > p->max) nv = p->max;
     if (nv == v) return false;

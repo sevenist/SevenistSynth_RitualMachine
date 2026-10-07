@@ -26,15 +26,18 @@ void key_leds_update(const app_t *app, bool input_event, uint32_t now_ms) {
     if (!input_event && !edited && now_ms - last_ms < KEY_LEDS_PERIOD_MS) return;
     last_ms = now_ms;
     last_rev = led_roles_rev();
-    const bool preview = synth_ui_on_leds_tab(&app->ui, &app->rack);   // the LEDS tab: the keys of the role shown light in its Active colour
+    // The LEDS tab: only the keys of the role shown light, in the shade being edited (Idle on the Idle rows, else Active); the others are off
+    // so no other colour hides it.
+    const bool preview = synth_ui_on_leds_tab(&app->ui, &app->rack);
+    const bool preview_idle = app->ui.row == 2 || app->ui.row == 3;   // scr_leds.c rows: 1 Role, 2 Idle, 3 Idle %, 4 Active, 5 Act %
     for (int r = 0; r < KEY_ROWS; r++)
         for (int c = 0; c < KEY_COLS; c++) {
             if (!input_key_present(r, c)) continue;
             const control_id_t ctl = (control_id_t)CTL_KEY(r, c);
             const key_fn_t f = keymap_get(r * KEY_COLS + c);
             const int role = led_role_of(f);
-            const bool active = key_active(app, ctl, f) || (preview && role == app->ui.led_role);
-            leds_set(ctl, led_role_rgb(role, active));
+            if (preview) leds_set(ctl, role == app->ui.led_role ? led_role_rgb(role, !preview_idle) : (led_color_t){0, 0, 0});
+            else         leds_set(ctl, led_role_rgb(role, key_active(app, ctl, f)));
         }
     leds_show();                                             // the driver sends only when something changed
 }

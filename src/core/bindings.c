@@ -49,7 +49,7 @@ int action_is_hold(action_id_t a) { return a == ACT_SHIFT || a == ACT_MOD || a =
 const char *action_name(action_id_t a) {
     static const char *const n[ACT_COUNT] = {
         [ACT_NONE] = "-", [ACT_ROW_MOVE] = "Row", [ACT_NAV] = "Nav", [ACT_LATCH] = "Latch", [ACT_VALUE_ADJUST] = "Value", [ACT_PAGE_MOVE] = "Page", [ACT_ROW_TOP] = "Top",
-        [ACT_SELECT] = "Select", [ACT_MENU] = "Menu", [ACT_BACK] = "Back", [ACT_PLAY] = "Play", [ACT_SHIFT] = "Shift",
+        [ACT_SELECT] = "Select", [ACT_MENU] = "Menu", [ACT_BACK] = "Back", [ACT_PLAY] = "Play", [ACT_SHIFT] = "Shift", [ACT_JOY_MODE] = "Joy XY", [ACT_VALUE_FINE] = "Fine",
         [ACT_NOTE] = "Note", [ACT_OCTAVE] = "Octave", [ACT_PAGE_KNOB] = "Page knob", [ACT_MACRO] = "Macro",
         [ACT_MACRO_LEARN] = "Learn", [ACT_MASTER_VOLUME] = "Volume", [ACT_VOLUME_STEP] = "Volume",
         [ACT_JUMP]            = "Jump",

@@ -69,7 +69,12 @@ static const hwv1_knob_t kHwv1Knobs[HWV1_KNOB_COUNT] = {
 
 #define HWV1_COUNTS_PER_REV    100      // a full turn = 100 counts (SynthBox: 50 per half turn)
 #define HWV1_COUNTS_PER_DETENT 4        // encoder mode: counts for one IN_DELTA step (25 detents per turn = 0.25 rad per step and per hysteresis)
-#define HWV1_ABS_STEP          8        // absolute mode: the value moves in steps of this many units (128 steps over a full turn, 0.049 rad each)
+// Absolute mode, continuous knobs (user 2026-10-07) with a hysteresis against the prototype's ADC noise: a knob at rest must turn HWV1_ABS_START
+// units (or reverse) before it reports; while it keeps turning the same way (a report less than HWV1_ABS_IDLE_MS ago) it reports every
+// HWV1_ABS_STEP units. Tune START above the noise seen at rest, STEP for the resolution (1024 units = one turn).
+#define HWV1_ABS_STEP          2        // units per report while moving (512 per turn, 0.012 rad)
+#define HWV1_ABS_START         8        // units to start / reverse (0.049 rad: the old fixed step, which hid the noise)
+#define HWV1_ABS_IDLE_MS       150      // after this long without a report the knob is at rest again
 
 // Scan periods. The key controller debounces in hardware and the analog parts do not need to be faster than the screen can show.
 #define HWV1_KEY_PERIOD_MS     5

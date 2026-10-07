@@ -24,6 +24,7 @@ typedef struct {
     int16_t      knob_last[CTL_COUNT];  // last position + 1 of an absolute knob whose Shift / Mod entry is a step action (0 = not seen yet)
     int          octave;                // keyboard octave offset, KEYBOARD_OCTAVE_MIN..MAX
     uint8_t      held[CTL_COUNT];       // note + 1 started by a key control (0 = none), so its release stops the right note
+    bool         latched[CTL_COUNT];    // the note of this key was started with Shift: its release does not stop it, the next press does
     int          axis_x, axis_y;        // joystick axes 0..INPUT_VALUE_MAX
     control_id_t joy_dir;               // virtual direction control currently held (CTL_NONE = centred)
     uint32_t     joy_next_ms;           // when the held direction repeats

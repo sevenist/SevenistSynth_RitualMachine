@@ -6,60 +6,90 @@ not: state, the latest measurements and what to do next, the user's working styl
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
 `tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
-## Session todo (updated 2026-10-07, second session)
+## Session todo (updated 2026-10-07, third session)
 
-Board unavailable this session (prototype charging): work on the simulator.
+- [ ] **Role-based key LED colours**: BUILT 2026-10-07 (45 UI tests green, sim + firmware build), NOT tried by the user yet. LEDS menu tab, 16 named colours + brightness %, one role per key-function kind, Idle + Active each, saved in ui.cfg. The sim panel still does not draw the LEDs. User 2026-10-07: the preview must show only the role selected, the other keys' colours (the green) masked it -> FIXED (key_leds.c): on the LEDS tab only the keys of the role shown light, the others are off; on the Idle / Idle % rows they show the Idle colour, else the Active one (45 UI tests green, sim + firmware build, NOT flashed). Also red and green were swapped on the keys (FastLED order RGB, the SK6812 is GRB): now `HW_LED_ORDER GRB` (board_pins.h), firmware build, NOT checked on the board; every colour seen since 2026-10-06 had red / green swapped, so the default role colours were set back (led_roles.c) to the nearest palette colours of what the user saw and liked, except Play (stays green) and Back (stays red) (user, 2026-10-07: GRB flashed, red / green now right) (from: user)
+- [ ] **UI sprites build** (user, 2026-10-07: "the UI is in its right place but the style is still too generic"): a build step that turns every image in
+  `assets/UI_Sprites/` (only the README so far) into a generated assets header (1-bit, the `gui_sprite_t` format of `core/sprites.h`), run by
+  build.ps1 and by a PlatformIO pre-build script so the sim and the firmware always use the current images; then the drawing code uses them instead of the
+  generic boxes / text. To decide with the user: image format (PNG 1-bit / threshold), naming and sub-folders, animation frames; `tools/gen_module_sprites.py`
+  (drawn in code) stays or moves to images (from: user, next item "B")
+- [ ] Then "D" = engine / board items: decide the SD options (a)-(d); internal RAM for the startup patch (what stays internal with a 74 KB fast heap: reverb tank, delay, filters; or free internal RAM, IRAM code 124 KB) (from: user + measurements)
+- [ ] **Shift + note = latch** (user, 2026-10-07; asked with options: toggle per note, not a sustain pedal; Shift only, Mod + note plays normally, an exception to "Shift and Mod behave the same"): BUILT (app.c `ACT_NOTE`, `input_state_t.latched[]`; test `modifiers_shift_note_latches_until_pressed_again`, 46 UI tests green, sim + firmware build, NOT flashed). The note keeps sounding after release; the next press of the key (with or without Shift) releases it. Only when the key's Shift entry is Default. **Shift + Back = release all** latched notes (user, 2026-10-07; Shift only, its Shift entry Default; popup "LATCH / Released N"; replaces Back on the screen while Shift is held). Limits: a latched key whose function is changed in KEYS keeps its note until a panic / restart (from: user)
+- [ ] **Joystick XY controller** (user idea, 2026-10-07; asked with options): BUILT (50 UI tests green incl. `tests/ui/test_joy.c`, sim + firmware build, NOT tried by the user, NOT flashed). See the section "Joystick XY" below (from: user)
+- [ ] **Fine steps + continuous knobs** (user, 2026-10-07; options asked: B fine / coarse + continuous knobs): BUILT (54 UI tests green incl.
+  `tests/ui/test_steps.c`, sim + firmware build, NOT flashed). See the section "Fine steps, continuous knobs" below. On the board: tune the knob hysteresis
+  (`HWV1_ABS_START` / `_STEP` / `_IDLE_MS` in hwv1_layout.h) against the noise (from: user)
+- [ ] Quick macro UI: a button next to a mappable element, so a macro is assigned without Shift + knob (from: user)
+- [ ] Board test later (user): ui.cfg (Knob Direct + two jump slots survive a reboot) and jump slots by identity on the board; catch refresh after manual changes (from: user)
+- [ ] Convert the main view (the pages) to a declarative screen: it still translates the new events to the old ones and has no latch (UI_GUIDE.md section 8) (from: debt)
+- [ ] Integration findings for an engine-independent "audio backend" interface (own voice allocator, mono -> stereo, memory policy, measurement hooks) (from: user)
+- [ ] Uncommitted: the new skill `.claude/skills/board-session/` (per-session flash permission) and the esp32-optimize edit (always the penv `python.exe`) (from: notes)
+- [x] Tried by the user and working (2026-10-07): MODIFIERS tab, FM editor pages, FM mappings, range per mapping, response curves + custom curves editor, macros 1..8 with multiple destinations
+- [x] UI tests in the repo: `tests/ui/*.c` + `tools/build_ui_tests.ps1` (done 2026-10-07)
+- Set aside (user, 2026-10-07): unformatted card "format?" ASK (a mount without a file system is still "no card"; needs FATFS mkfs)
 
-- [ ] MODIFIERS menu tab: BUILT 2026-10-07 (sim + firmware build, scratch host test 26 checks green, NOT tried by the user in the SDL window, NOT flashed). Try it: in the
-  KEYS tab give a key the function "Mod" (User layout), then in MODIFIERS: Shift + Mod + turn K3 on a page row, Learn button, a key's Shift entry. Details below.
-  Since then: Shift and Mod symmetric, Macro 1..3 / Learn M1..3 as knob functions, board-dependent starting entries (37 checks) (from: user)
+## Fine steps, continuous knobs (2026-10-07; built, NOT flashed, NOT tried by the user)
 
-FM editor and mappings (from: user, 2026-10-07; decisions asked with options, recorded here):
-- [ ] **FM like the rack**: BUILT 2026-10-07 (UI tests green, sim + firmware build, NOT tried by the user, NOT flashed). Main-view pages FM SYNTH (Patch Algo
+- **Fine steps**: `ACT_VALUE_FINE` = the value in steps of 1/5 (`core/fine_step.h`, a flag the app sets around the action: `param_adjust`,
+  `rack_mparam_adjust`, the depth, `fxr_adjust` read it): 0.05 -> 0.01, 5 % -> 1 %, a log factor x1.2 -> its 5th root; never finer than the decimals shown
+  (semitones, cents, ms stay whole). Enumerations, FM values, sequencer: unchanged. **Shift + joystick left / right** = Fine -/+ (Shift starting entries;
+  they were Pages: row 0 + left / right still changes the page); also key functions "Fine -" / "Fine +" and the knob / encoder function "Val fine".
+- **Continuous knobs**: a linear / logarithmic module or global parameter is driven exactly (`rack_mparam_norm / _set_norm`, `param_norm / _set_norm`,
+  `cont_drv` in ui_input.c) over the knob's whole resolution, rounded to the decimals it shows; log parameters over their log range. Page rows, Shift / Mod
+  targets, macros and the joystick XY all use it. Still walked: enumerations, the modulation depth (target units), the sampler slice (clamped to the
+  file), GENERAL settings, sequencer. `knob_new_position` keeps the full 0..1023 (was >> 3). Values are no longer on the 0.05 grid after a knob.
+- **HAL hysteresis** (input_esp32.cpp `scan_knobs`, HWV1 only): from rest or to reverse a knob must turn `HWV1_ABS_START` 8 units (the old step, which hid
+  the noise); while it keeps turning one way (a report < `HWV1_ABS_IDLE_MS` 150 ms ago) it reports every `HWV1_ABS_STEP` 2 units (512 per turn). Untested:
+  if a knob at rest still jitters raise START, if fine moves feel steppy lower STEP.
+
+## Joystick XY (2026-10-07; built, NOT tried by the user, NOT flashed)
+
+User design (the click rules were confirmed on a worked example; options asked for the response and what to keep):
+- **Bind**: on a page, a joystick push on a parameter row (`synth_ui_target_at_cursor`: the rows a knob may drive) binds it. A new parameter replaces the
+  older binding (X, Y, X ...); the same one pushed again at once moves to the other axis and the one it replaced comes back (again: back); a bound parameter
+  that is not the one just bound gets its axis inverted (Min <-> Max). A push on any other row (row 0, Run, step toggles) keeps its old "act like Right".
+  Popup "JOY: X <name>" / "JOY INVERT".
+- **XY mode**: Shift + push (Shift layer starting entry `CTL_JOY_SW` = `ACT_JOY_MODE`, editable; also a key function "Joy XY", token `joyxy`) toggles it;
+  "XY" at the right of the header. Decided **around the value**: full throw reaches the mapping's ends, letting go (dead zone `JOY_XY_DEADZONE` 48)
+  gives exactly the value back; leaving the mode off-centre also restores it. **The rest value follows the parameter** (user, after the first build: a knob
+  / navigation change was undone): it is read each time the stick leaves the centre; a change made elsewhere during a push is kept on release.
+- **Range + curve per axis**: the JOY menu tab (after MACROS): Axis, Tgt, Min, Max, Curve, Clear, the response picture. **Saved in ui.cfg**: `joy` then
+  `joy x|y <mapping>`. Code: `ui_input.c` (`synth_ui_joy_click / _mode / _axis`), `app.c` (`joy_bind`, `joy_mode`, `joy_update`), `scr_joy.c`.
+- Chosen by me (say if one is wrong): the toggle is **Shift only** like the latch (Mod + push = Default, a normal push); "just bound" ends when XY mode is
+  toggled (after playing, a push on it inverts); in XY mode the stick never navigates, so Shift + joystick (octave / pages) does nothing there; a push in XY
+  mode still binds (the cursor moves with the encoders or after leaving the mode); the axis Y is up = positive.
+- Limits: a walked parameter (most module params) is measured on every stick move like a knob (cost not measured on the board); no LED for XY mode.
+
+## FM editor, mappings, macros, curves (2026-10-07; tried by the user: works; decisions asked with options)
+
+- **FM like the rack**: BUILT 2026-10-07 (UI tests green, sim + firmware build). Main-view pages FM SYNTH (Patch Algo
   Fb Vol, the tree as picture), OPn (Lvl Crs Fine Fix, the tree with OPn marked), OPn ENV (Pt Lvl Time, the envelope); the ALGORITHM tab keeps Algo / Fb and an
   Op selector over the tree (left / right), a push opens OPn (`synth_ui_open_page`). OPERATOR / ENVELOPE tabs removed (their tab_t values stay: saved jumps).
   The tree is the existing generated sprite (now centred, transparent), not a new drawing: say if a bigger / different tree is wanted
-- [ ] **FM parameters mappable**: BUILT with the above: `MACRO_FM` targets (op + `dx7_value_t`, ui.cfg `param fm <op> <v>`), learn / Shift / Mod / macros on
+- **FM parameters mappable**: BUILT with the above: `MACRO_FM` targets (op + `dx7_value_t`, ui.cfg `param fm <op> <v>`), learn / Shift / Mod / macros on
   every FM row but Patch and Pt. FM values are driven exactly (`dx7_value_get / set` + `knob_drv_t` in ui_input.c): the walking measure would have changed
   off-grid fine values and envelope times just by showing a page. Envelope time scale: at least 1 ms per knob position (found by the new test)
-- [x] **UI tests in the repo** (2026-10-07): `tests/ui/*.c` + `tools/build_ui_tests.ps1` (45 tests: modifiers, FM, mappings / macros, curves, LEDs; they found a parse bug: a mapping line read the range / curve of the NEXT line of ui.cfg), stubs `tools/ui_stubs.c` (RAM card, prototype
+- **UI tests in the repo** (2026-10-07): `tests/ui/*.c` + `tools/build_ui_tests.ps1` (45 tests: modifiers, FM, mappings / macros, curves, LEDs; they found a parse bug: a mapping line read the range / curve of the NEXT line of ui.cfg), stubs `tools/ui_stubs.c` (RAM card, prototype
   controls). `STORAGE_FILE_MAX` 2 -> 4 KB (ui.cfg with many layer entries could be cut; +6 KB RAM on the board, 55.5 %)
-- [ ] **Range per mapping**: BUILT 2026-10-07 (with the two items below; UI tests green, NOT tried by the user). Every mapping (a Shift / Mod knob target, each macro destination) has Min and Max as a % of the parameter's range; Min > Max inverts.
+- **Range per mapping**: BUILT 2026-10-07 (with the two items below; UI tests green). Every mapping (a Shift / Mod knob target, each macro destination) has Min and Max as a % of the parameter's range; Min > Max inverts.
   The knob's full turn sweeps Min..Max through the mapping's curve. Decided: % (not the parameter's unit)
-- [ ] **Response curves**: BUILT (built-ins Lin Exp Log S; user curves = the editor item). A curve per mapping = a LUT read with linear interpolation between entries (cheap). Built-in curves (at least linear, exp, log, S; to list)
+- **Response curves**: BUILT (built-ins Lin Exp Log S; user curves = the editor item). A curve per mapping = a LUT read with linear interpolation between entries (cheap). Built-in curves (at least linear, exp, log, S; to list)
   and user curves. Catch with any curve: decided **in knob position** (the knob is caught when it crosses the position where the curve last left the value; a value
   changed elsewhere is caught at the first knob position that maps to it)
-- [ ] **Multi-destination macros**: BUILT (MACROS tab, ui.cfg `macro K ...` lines; Shift + R knob now ADDS a destination instead of replacing). Decided **macros 1..8, up to 8 destinations each**, each destination with its own range and curve (learn adds a destination;
+- **Multi-destination macros**: BUILT (MACROS tab, ui.cfg `macro K ...` lines; Shift + R knob now ADDS a destination instead of replacing). Decided **macros 1..8, up to 8 destinations each**, each destination with its own range and curve (learn adds a destination;
   today's single-target macros = one destination). Needs a macro editor (list of destinations, remove, range, curve) and saving in ui.cfg
-- [ ] **Custom curves editor**: BUILT 2026-10-07 (UI tests green, NOT tried by the user). User decisions: 16 points max, a CURVES tab for now (may move), X / Y by two knobs set in code (`CURVES_KNOB_X / _Y`, bindings.h; default K3 / K4 so the board has them, R1 / R2 the other choice). One file `system/config/curves.cfg` instead of a folder (a new folder would make every card ask "Missing: ... Create?"); 8 curves U1..U8; table 129 entries. Firmware RAM 58.9 % (+9 KB). Was: a curve = a list of points (x, y); for **each point** the segment after it is either linear (interpolated to the next point) or
+- **Custom curves editor**: BUILT 2026-10-07 (UI tests green). User decisions: 16 points max, a CURVES tab for now (may move), X / Y by two knobs set in code (`CURVES_KNOB_X / _Y`, bindings.h; default K3 / K4 so the board has them, R1 / R2 the other choice). One file `system/config/curves.cfg` instead of a folder (a new folder would make every card ask "Missing: ... Create?"); 8 curves U1..U8; table 129 entries. Firmware RAM 58.9 % (+9 KB). Was: a curve = a list of points (x, y); for **each point** the segment after it is either linear (interpolated to the next point) or
   stepped (held until the next point). Stored on the card (`system/curves/<name>.crv`, text), turned into the LUT when loaded. To decide when started: max points,
   LUT size, where the editor lives (a CURVES menu tab?), how a point is moved with 4 knobs on a 128 x 128 screen
 
-- [ ] **Role-based key LED colours**: BUILT 2026-10-07 (45 UI tests green, sim + firmware build, NOT on the board: the user tests it). User decisions: a LEDS menu tab, 16 named colours + brightness %, one role per key-function kind (Note / Sharp / Root / Shift / Mod / Menu / Back / Play / Octave / Jump / Nav / None), Idle + Active each ("Note held" = the note roles' Active colour, not a role of its own). The LEDS tab previews the role on the keys (Active colour). Saved in ui.cfg. The sim panel still does not draw the LEDs (from: user)
-- [ ] **Next (user, 2026-10-07)**: B = UI sprites build (tomorrow), then D = engine / board items (SD options, internal RAM). The user tests today's build on the board alone (no automated board session)
-- [ ] Quick macro UI: a button next to a mappable element, so a macro is assigned without Shift + knob (from: user)
-- [ ] **UI sprites build** (user, 2026-10-07: "the UI is in its right place but the style is still too generic"): a build step that turns every image in
-  `assets/UI_Sprites/` (created 2026-10-07, README inside) into a generated assets header (1-bit, the `gui_sprite_t` format of `core/sprites.h`), run by
-  build.ps1 and by a PlatformIO pre-build script so the sim and the firmware always use the current images; then the drawing code uses them instead of the
-  generic boxes / text. To decide with the user: image format (PNG 1-bit / threshold), naming and sub-folders, animation frames; `tools/gen_module_sprites.py`
-  (drawn in code) stays or moves to images (from: user)
-- [ ] Convert the main view (the pages) to a declarative screen: it still translates the new events to the old ones and has no latch (UI_GUIDE.md section 8) (from: debt)
-- [ ] Board test later (user): ui.cfg (Knob Direct + two jump slots survive a reboot) and jump slots by identity on the board; catch refresh after manual changes (from: user)
-- [ ] Integration findings for an engine-independent "audio backend" interface (own voice allocator, mono -> stereo, memory policy, measurement hooks) (from: user)
-- [ ] Decide the SD options (a)-(d) (from: notes)
-- [ ] Internal RAM for the startup patch: what stays internal with a 74 KB fast heap (reverb tank, delay, filters) or free internal RAM (IRAM code 124 KB) (from: measurements)
-- [x] ui.cfg: the catch / Knob setting is recalled properly (user, 2026-10-07)
-- [x] Shift + F1..F4 section keys: covered by the jump keys, fine for now; may change for the final hardware revision (user, 2026-10-07)
-- [x] F1 key reset after the revert: checked on the board, works (done 2026-10-07). Risk kept: F1 is the Shift key, so Shift held 2 s within 4 s of start resets the layout
-- Set aside (user, 2026-10-07): unformatted card "format?" ASK (a mount without a file system is still "no card"; needs FATFS mkfs)
-
-## Shift / Mod layers, the MODIFIERS tab (2026-10-07; built, NOT tried by the user, NOT flashed)
+## Shift / Mod layers, the MODIFIERS tab (2026-10-07; built, tried by the user: works)
 
 User decisions (asked with options): **every control, keys included**, can be set per layer (I recommended knobs + encoders + joystick only: against it, see the
 decisions list); knob targets = **any parameter by learn** (module params by module id, global, sequencer, live GENERAL settings); **Mod = a new key function, on no
 built-in layout** (the user assigns it in the KEYS tab); learn by **both** the chord Shift + Mod + turn a knob and a Learn button in the tab.
 Details chosen by me (say if one is wrong): **Shift and Mod behave the same** (user, after the first try: Mod lacked Shift's popup): Default = as without
-modifier, except a column knob ("No target" popup) and a jump key (saves); Shift's old fixed behaviours (EncA pages, EncB x4, joystick octave / pages, R learn,
+modifier, except a column knob ("No target" popup), a jump key (saves) and, **Shift only**, a note key (latch) and Back (release all latched notes) (user 2026-10-07: see the todo); Shift's old fixed behaviours (EncA pages, EncB x4, joystick octave / pages, R learn,
 K1 Spk, K2 Vol) are the Shift layer's starting entries, editable; ui.cfg stores only the differences from them (`act default` for a cleared one); Shift + Mod held = the Mod layer; the layers are global (not per key layout) and live in ui.cfg; a modifier key is never taken by a layer, and Shift / Mod
 cannot be a layer entry; the chord learns into the layer the tab shows (default Shift); with the Learn button the next Latch / Select push assigns (Back cancels);
 an absolute knob with a step action (Rows, Pages, Value, Value x4, Octave, Volume) steps once per 1/32 of its travel; a learned module param goes back to Default
@@ -108,7 +138,7 @@ The user wanted the confusion about the joystick gone and a safer knob. Order ta
   per 4 voices: LP 18.0k, LP24 24.7k, LP6 7.8k, ChLP 6.4k, Ladr 15.9k. Serial `flt T`. Host test `light_filters_lp6_ladder_and_chamberlin`.
 - Not done: listening (all of it); the Ladr tuning at high cutoffs is approximate (not zero-delay); the light types have no exact per-sample path for audio-rate cutoff FM.
 
-## Key LEDs (2026-10-06; flashed, checked by the user: every key lights its own LED, colours right)
+## Key LEDs (2026-10-06; flashed, checked by the user: every key lights its own LED, colours right; red and green were in fact swapped, colour order RGB -> GRB 2026-10-07)
 
 - Driver `leds_esp32.cpp`: FastLED 3.10.6 pinned (it gives the first RMT channel DMA on the S3 by itself; SynthBox's `patch_fastled_dma.py` targets 3.10.3's file layout and is not
   needed), `-DFASTLED_RMT_MAX_CHANNELS=1`, SK6812 order **RGB** (SynthBox's BGR swapped red and blue here), chain map in physical columns (the HWV1_FLIP_COLS flip mirrored every row),

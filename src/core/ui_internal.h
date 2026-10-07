@@ -48,7 +48,7 @@ typedef struct {
 #define PRM_TPRM 101
 
 // The values are saved in ui.cfg (jump slots): never reorder. TAB_FM_OP / TAB_FM_ENV are no longer shown (the operators have main-view pages).
-typedef enum { TAB_RACK, TAB_GENERAL, TAB_FM_ALGO, TAB_FM_OP, TAB_FM_ENV, TAB_FX, TAB_SAMPLES, TAB_KEYS, TAB_MODS, TAB_MACROS, TAB_CURVES, TAB_LEDS } tab_t;
+typedef enum { TAB_RACK, TAB_GENERAL, TAB_FM_ALGO, TAB_FM_OP, TAB_FM_ENV, TAB_FX, TAB_SAMPLES, TAB_KEYS, TAB_MODS, TAB_MACROS, TAB_CURVES, TAB_LEDS, TAB_JOY } tab_t;   // append only: jump slots save these values
 
 // FM pages (global pages, ui_pages.c): FM SYNTH (Patch, Algo, Fb, Vol), then per operator OPn (Lvl, Crs, Fine, Fix) and OPn ENV (Pt, Lvl, Time).
 // The page def of operator k: GP_FM_OP_BASE + k and GP_FM_ENV_BASE + k.

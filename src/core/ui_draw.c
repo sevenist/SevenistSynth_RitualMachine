@@ -247,6 +247,7 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
         if (ui->row == 0) { u8g2_DrawBox(g, header.x, header.y, header.w, header.h); u8g2_SetDrawColor(g, 0); }
     }
     gui_draw_text_centered(g, header, buf);
+    if (ui->joy_xy) u8g2_DrawStr(g, header.x + header.w - u8g2_GetStrWidth(g, "XY"), gui_text_center(g, header, "XY").y, "XY");   // joystick XY mode is on
     u8g2_SetDrawColor(g, 1);
     u8g2_DrawHLine(g, header.x, gui_bottom(header), header.w);
     gui_take_top(&screen, st->gap + 1);          // rule + gap

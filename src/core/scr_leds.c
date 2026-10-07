@@ -1,6 +1,7 @@
 // The LEDS tab of the menu: the colour of each key role (core/led_roles.h). Role picks a role; Idle / Active pick a named colour, the % rows
 // its brightness (Active only for the roles that have an active state); Reset puts every role back to the defaults. While this tab is on
-// screen the keys of the role shown light in its Active colour, so the choice can be judged on the keys themselves (key_leds.c).
+// screen only the keys of the role shown light (in the Idle colour on the Idle rows, else the Active one) and every other key is off, so the
+// choice can be judged on the keys themselves (key_leds.c; it reads the row numbers of `elements`).
 // On the right: the keys of the board, the ones with this role filled. Saved in ui.cfg by itself.
 // A declarative screen (see ui_screen.h).
 #include "core/ui_screen.h"

@@ -2,6 +2,7 @@
 // Platform-independent description of the synth sound + a table that lets the
 // UI edit any parameter generically. The platform audio layer renders it.
 #include <stddef.h>
+#include <stdbool.h>
 #include <stdint.h>
 
 #ifdef __cplusplus
@@ -69,6 +70,10 @@ void synth_params_default(synth_params_t *p);
 
 // Changes a parameter by one step (dir = +1 / -1), clamped. Returns true if it changed.
 int  param_adjust(synth_params_t *p, param_id_t id, int dir);
+// Continuous access for knobs: the value as 0..1 of its range (logarithmic parameters: of their log range). Enumerations: not continuous.
+bool  param_is_continuous(param_id_t id);
+float param_norm(const synth_params_t *p, param_id_t id);
+bool  param_set_norm(synth_params_t *p, param_id_t id, float n);
 
 // Short label ("Cut") and formatted value ("4.0kHz", "Saw") for display.
 const char *param_label(param_id_t id);

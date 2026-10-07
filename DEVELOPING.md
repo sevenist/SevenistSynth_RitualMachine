@@ -66,8 +66,9 @@ On the KEYS tab a jump key only selects itself. Saving a location is only Shift 
 
 **Shift / Mod layers (MODIFIERS tab, `core/modifiers.h`, `scr_mods.c`).** Every control, keys included, has an entry per layer (Shift, Mod): *Default*, an action, or
 (knobs and encoders) a parameter. **Shift and Mod work the same**: Default = the control as without a modifier, except a column knob (drives nothing, popup
-"No target") and a jump key (saves its slot). What Shift used to do (EncA pages, EncB x4, joystick octave / pages, R knobs learn, K1 speaker, K2 volume) are the Shift
-layer's starting entries (`modifiers_init`), visible and editable; the Mod layer starts empty. Shift and Mod both held: the Mod layer wins. Mod is a key function (`ACT_MOD`,
+"No target") and a jump key (saves its slot); Shift only: a note key latches its note, Back releases every latched note. Shift's starting entries: EncA pages, EncB x4,
+joystick up / down octave, joystick left / right **fine steps** (`ACT_VALUE_FINE`, `core/fine_step.h`), joystick push XY mode (`ACT_JOY_MODE`), R knobs learn, K1 speaker,
+K2 volume: the Shift layer's starting entries (`modifiers_init`), visible and editable; the Mod layer starts empty. Shift and Mod both held: the Mod layer wins. Mod is a key function (`ACT_MOD`,
 "Mod" in the KEYS tab), on no built-in layout. Learn: **Shift + Mod + turn a knob** gives it the parameter under the cursor (a page row a knob may drive, or a
 live GENERAL setting) for the layer the tab shows; or the tab's *Learn* button: the menu closes and the next push (Latch / Select) on a row assigns it, Back cancels.
 On the tab a key press or a turn of a column / right knob selects that control (with Shift or Mod held: that layer too). A learned module parameter goes back to

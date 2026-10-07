@@ -3,6 +3,7 @@
 #include "hal/hal_display.h"
 #include "core/sprites.h"
 #include "core/module_sprites.h"
+#include "core/ui_sprites_gen.h"
 #include "core/dx7_algos.h"
 #include <math.h>
 #include <stdio.h>
@@ -247,7 +248,11 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
         if (ui->row == 0) { u8g2_DrawBox(g, header.x, header.y, header.w, header.h); u8g2_SetDrawColor(g, 0); }
     }
     gui_draw_text_centered(g, header, buf);
-    if (ui->joy_xy) u8g2_DrawStr(g, header.x + header.w - u8g2_GetStrWidth(g, "XY"), gui_text_center(g, header, "XY").y, "XY");   // joystick XY mode is on
+    if (ui->joy_xy) {                            // joystick XY mode is on: 8/ui_xy.png at the right end of the bar (text when there is no image)
+        const gui_sprite_t *xy = ui_sprite("8/ui_xy");
+        if (xy) gui_draw_sprite(g, xy, header.x + header.w - xy->w, header.y + (header.h - xy->h) / 2);
+        else u8g2_DrawStr(g, header.x + header.w - u8g2_GetStrWidth(g, "XY"), gui_text_center(g, header, "XY").y, "XY");
+    }
     u8g2_SetDrawColor(g, 1);
     u8g2_DrawHLine(g, header.x, gui_bottom(header), header.w);
     gui_take_top(&screen, st->gap + 1);          // rule + gap

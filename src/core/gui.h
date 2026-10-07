@@ -113,10 +113,13 @@ void gui_draw_arrow(u8g2_t *g, int x, int y, char dir, int size);
 // 1 = pixel on. Define them in a header as `static const uint8_t data[]` (see sprites.h).
 // A sprite may be a sheet: `frames` images of w x h stacked vertically in `data`
 // (frames 0 or 1 = a single image). Used by the animation helpers below.
+// mask (optional, same layout as data): 1 = the pixel is drawn (lit where data is 1, off where it is 0), 0 = transparent (left as it is).
+// Without a mask the sprite's 0 pixels are drawn off (solid). Images from assets/UI_Sprites/ get a mask when the PNG has transparency.
 typedef struct {
     uint8_t w, h;
     const uint8_t *data;
     uint8_t frames;
+    const uint8_t *mask;
 } gui_sprite_t;
 
 void gui_draw_sprite(u8g2_t *g, const gui_sprite_t *sp, int x, int y);            // frame 0

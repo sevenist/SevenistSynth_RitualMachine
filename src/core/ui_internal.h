@@ -23,7 +23,7 @@
 
 // Rack strip: the module sprite is MODULE_SPRITE_W wide (module_sprites.h, generated); RACK_PITCH = sprite + 4 px so the selection frame fits between cells.
 // RACK_VIS cells are visible at once (the screen width minus room for the scroll arrows); the strip scrolls over the RACK_MAX + 1 cells (slots and OUT).
-#define RACK_PITCH 29
+#define RACK_PITCH 28
 #define RACK_VIS   ((DISPLAY_WIDTH - 8) / RACK_PITCH)
 
 static inline int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }

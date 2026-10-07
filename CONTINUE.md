@@ -6,30 +6,36 @@ not: state, the latest measurements and what to do next, the user's working styl
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
 `tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
-## Session todo (updated 2026-10-07, third session)
+## Session todo (updated 2026-10-07, fourth session)
 
-- [ ] **Role-based key LED colours**: BUILT 2026-10-07 (45 UI tests green, sim + firmware build), NOT tried by the user yet. LEDS menu tab, 16 named colours + brightness %, one role per key-function kind, Idle + Active each, saved in ui.cfg. The sim panel still does not draw the LEDs. User 2026-10-07: the preview must show only the role selected, the other keys' colours (the green) masked it -> FIXED (key_leds.c): on the LEDS tab only the keys of the role shown light, the others are off; on the Idle / Idle % rows they show the Idle colour, else the Active one (45 UI tests green, sim + firmware build, NOT flashed). Also red and green were swapped on the keys (FastLED order RGB, the SK6812 is GRB): now `HW_LED_ORDER GRB` (board_pins.h), firmware build, NOT checked on the board; every colour seen since 2026-10-06 had red / green swapped, so the default role colours were set back (led_roles.c) to the nearest palette colours of what the user saw and liked, except Play (stays green) and Back (stays red) (user, 2026-10-07: GRB flashed, red / green now right) (from: user)
-- [ ] **UI sprites build** (user, 2026-10-07: "the UI is in its right place but the style is still too generic"): a build step that turns every image in
-  `assets/UI_Sprites/` (only the README so far) into a generated assets header (1-bit, the `gui_sprite_t` format of `core/sprites.h`), run by
-  build.ps1 and by a PlatformIO pre-build script so the sim and the firmware always use the current images; then the drawing code uses them instead of the
-  generic boxes / text. To decide with the user: image format (PNG 1-bit / threshold), naming and sub-folders, animation frames; `tools/gen_module_sprites.py`
-  (drawn in code) stays or moves to images (from: user, next item "B")
+This session: commit the sprite pipeline, then the 8 x 8 grid layout. Confirmed by the user on the board (2026-10-07): joystick XY, fine steps, role-based
+LED colours (preview by role, GRB order, default colours). Still to tune on the board: the HWV1 knob hysteresis.
+
+- [ ] **8 x 8 grid layout** (user, 2026-10-07): every placement on an 8 px grid, the top bar 16 px high (one row); rack cells 32 px (24 icon + 8),
+  four across; then the links drawn to the fixed connectors. Touches every screen (from: user)
+- [ ] **UI sprites build**: pipeline BUILT 2026-10-07 (56 UI tests green incl. `tests/ui/test_sprites.c`, sim + firmware build). Format decided with the
+  user, written in `assets/UI_Sprites/README.md`: folders by size (8 / 16 / 24 / 64), PNG white = lit, black = off (drawn), alpha < 50 % = transparent
+  (a mask plane, `gui_sprite_t.mask`), frames `_00 _01 ...`, module connectors by a fixed convention (in left-middle, out right-middle, mod out
+  bottom-middle, mod in top-middle), modules 24x24 (the generated fallback too; RACK_PITCH 29 -> 28). Converter `tools/gen_ui_sprites.py` (plain
+  Python + zlib, no Pillow), run by build.ps1 and `extra_scripts = pre:tools/pio_gen_sprites.py`; lookup `ui_sprite("24/mod_osc")`, NULL = fallback.
+  Wired so far: modules + slot cells (scr_rack.c), the XY mark (`8/ui_xy`, a placeholder I drew: redraw it). The user draws the art. NOT flashed (from: user)
+- [ ] **Knob hysteresis on the board**: continuous knobs are in (fine steps confirmed); tune `HWV1_ABS_START` / `_STEP` / `_IDLE_MS` (hwv1_layout.h):
+  raise START if a knob at rest jitters, lower STEP if fine moves feel steppy (from: notes)
+- [ ] **Shift + note = latch**, Shift + Back = release all: built and in b913afa, not confirmed by the user yet (from: notes).
+  Latch details (user, 2026-10-07; toggle per note, not a sustain pedal; Shift only, Mod + note plays normally): app.c `ACT_NOTE`, `input_state_t.latched[]`;
+  test `modifiers_shift_note_latches_until_pressed_again`. The next press of the key (with or without Shift) releases it; only when the key's Shift entry is
+  Default. Shift + Back: popup "LATCH / Released N". Limits: a latched key whose function is changed in KEYS keeps its note until a panic / restart
 - [ ] Then "D" = engine / board items: decide the SD options (a)-(d); internal RAM for the startup patch (what stays internal with a 74 KB fast heap: reverb tank, delay, filters; or free internal RAM, IRAM code 124 KB) (from: user + measurements)
-- [ ] **Shift + note = latch** (user, 2026-10-07; asked with options: toggle per note, not a sustain pedal; Shift only, Mod + note plays normally, an exception to "Shift and Mod behave the same"): BUILT (app.c `ACT_NOTE`, `input_state_t.latched[]`; test `modifiers_shift_note_latches_until_pressed_again`, 46 UI tests green, sim + firmware build, NOT flashed). The note keeps sounding after release; the next press of the key (with or without Shift) releases it. Only when the key's Shift entry is Default. **Shift + Back = release all** latched notes (user, 2026-10-07; Shift only, its Shift entry Default; popup "LATCH / Released N"; replaces Back on the screen while Shift is held). Limits: a latched key whose function is changed in KEYS keeps its note until a panic / restart (from: user)
-- [ ] **Joystick XY controller** (user idea, 2026-10-07; asked with options): BUILT (50 UI tests green incl. `tests/ui/test_joy.c`, sim + firmware build, NOT tried by the user, NOT flashed). See the section "Joystick XY" below (from: user)
-- [ ] **Fine steps + continuous knobs** (user, 2026-10-07; options asked: B fine / coarse + continuous knobs): BUILT (54 UI tests green incl.
-  `tests/ui/test_steps.c`, sim + firmware build, NOT flashed). See the section "Fine steps, continuous knobs" below. On the board: tune the knob hysteresis
-  (`HWV1_ABS_START` / `_STEP` / `_IDLE_MS` in hwv1_layout.h) against the noise (from: user)
 - [ ] Quick macro UI: a button next to a mappable element, so a macro is assigned without Shift + knob (from: user)
 - [ ] Board test later (user): ui.cfg (Knob Direct + two jump slots survive a reboot) and jump slots by identity on the board; catch refresh after manual changes (from: user)
 - [ ] Convert the main view (the pages) to a declarative screen: it still translates the new events to the old ones and has no latch (UI_GUIDE.md section 8) (from: debt)
 - [ ] Integration findings for an engine-independent "audio backend" interface (own voice allocator, mono -> stereo, memory policy, measurement hooks) (from: user)
-- [ ] Uncommitted: the new skill `.claude/skills/board-session/` (per-session flash permission) and the esp32-optimize edit (always the penv `python.exe`) (from: notes)
-- [x] Tried by the user and working (2026-10-07): MODIFIERS tab, FM editor pages, FM mappings, range per mapping, response curves + custom curves editor, macros 1..8 with multiple destinations
-- [x] UI tests in the repo: `tests/ui/*.c` + `tools/build_ui_tests.ps1` (done 2026-10-07)
+- [x] Joystick XY controller: tried by the user on the board, works (done 2026-10-07)
+- [x] Fine steps: tried by the user on the board, work (done 2026-10-07)
+- [x] Role-based key LED colours: LEDS tab, preview by role, GRB order, default colours: checked by the user on the board (done 2026-10-07)
 - Set aside (user, 2026-10-07): unformatted card "format?" ASK (a mount without a file system is still "no card"; needs FATFS mkfs)
 
-## Fine steps, continuous knobs (2026-10-07; built, NOT flashed, NOT tried by the user)
+## Fine steps, continuous knobs (2026-10-07; fine steps tried by the user: work; knob hysteresis not tuned yet)
 
 - **Fine steps**: `ACT_VALUE_FINE` = the value in steps of 1/5 (`core/fine_step.h`, a flag the app sets around the action: `param_adjust`,
   `rack_mparam_adjust`, the depth, `fxr_adjust` read it): 0.05 -> 0.01, 5 % -> 1 %, a log factor x1.2 -> its 5th root; never finer than the decimals shown
@@ -43,7 +49,7 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
   the noise); while it keeps turning one way (a report < `HWV1_ABS_IDLE_MS` 150 ms ago) it reports every `HWV1_ABS_STEP` 2 units (512 per turn). Untested:
   if a knob at rest still jitters raise START, if fine moves feel steppy lower STEP.
 
-## Joystick XY (2026-10-07; built, NOT tried by the user, NOT flashed)
+## Joystick XY (2026-10-07; tried by the user on the board: works)
 
 User design (the click rules were confirmed on a worked example; options asked for the response and what to keep):
 - **Bind**: on a page, a joystick push on a parameter row (`synth_ui_target_at_cursor`: the rows a knob may drive) binds it. A new parameter replaces the

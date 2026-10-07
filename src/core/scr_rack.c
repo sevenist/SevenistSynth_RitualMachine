@@ -14,6 +14,7 @@
 #include "core/ui_screen.h"
 #include "core/sprites.h"
 #include "core/module_sprites.h"
+#include "core/ui_sprites_gen.h"
 #include <stdio.h>
 
 _Static_assert(RACK_PITCH == MODULE_SPRITE_W + 4, "RACK_PITCH (ui_internal.h) must be the module sprite width + 4: regenerate the sprites or change it");
@@ -22,10 +23,21 @@ enum { E_STRIP, E_TYPE, E_INSERT, E_TGT, E_PRM, E_DPTH, E_DELETE, E_COUNT };
 
 #define STRIP_TOP 7                     // room above the sprites for the selection arrow
 
+// A module's icon: assets/UI_Sprites/24/mod_<code>.png when it exists (ui_sprites_gen.h), else the generated one (module_sprites.h).
 static const gui_sprite_t *module_sprite(int type) {
     static const gui_sprite_t *const t[MOD_TYPE_COUNT] = {&spr_mod_osc, &spr_mod_filter, &spr_mod_sat,
                                                           &spr_mod_lfo, &spr_mod_mseq, &spr_mod_env, &spr_mod_sampler, &spr_mod_eg, &spr_mod_comb};
-    return t[type];
+    static const char *const code[MOD_TYPE_COUNT] = {"osc", "filter", "sat", "lfo", "mseq", "env", "sampler", "eg", "comb"};
+    char name[24];
+    snprintf(name, sizeof name, "24/mod_%s", code[type]);
+    const gui_sprite_t *art = ui_sprite(name);
+    return art ? art : t[type];
+}
+
+// The empty slot / OUT cells: 24/slot_empty.png, 24/slot_out.png, or the generated ones.
+static const gui_sprite_t *slot_sprite(bool out) {
+    const gui_sprite_t *art = ui_sprite(out ? "24/slot_out" : "24/slot_empty");
+    return art ? art : out ? &spr_slot_out : &spr_slot_empty;
 }
 
 static void dotted_h(u8g2_t *g, int x0, int x1, int y) {
@@ -104,8 +116,8 @@ static void strip_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
 #define SPRITE_X(i) (x0 + ((i) - sc) * RACK_PITCH + 2)
     for (int i = 0; i < rk->count; i++)
         if (CELL_VIS(i)) gui_draw_sprite(g, module_sprite(rk->slot[i].type), SPRITE_X(i), y);
-    if (rk->count < RACK_MAX && CELL_VIS(rk->count)) gui_draw_sprite(g, &spr_slot_empty, SPRITE_X(rk->count), y);
-    if (CELL_VIS(RACK_MAX)) gui_draw_sprite(g, &spr_slot_out, SPRITE_X(RACK_MAX), y);
+    if (rk->count < RACK_MAX && CELL_VIS(rk->count)) gui_draw_sprite(g, slot_sprite(false), SPRITE_X(rk->count), y);
+    if (CELL_VIS(RACK_MAX)) gui_draw_sprite(g, slot_sprite(true), SPRITE_X(RACK_MAX), y);
 
     // the selected cell: a frame around it and an arrow pointing at it; the frame is doubled while the strip has the focus
     const int sel = ui->rack_cur;

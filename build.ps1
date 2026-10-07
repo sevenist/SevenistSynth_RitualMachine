@@ -44,6 +44,13 @@ if ($Sd) {
     else { Sync-Card $drive }
 }
 
+# ---- UI sprites: assets/UI_Sprites/{8,16,24,64}/*.png -> src/core/ui_sprites_gen.c/.h (rewritten only when they change) ----
+$py = "C:\.platformio\penv\Scripts\python.exe"           # the PlatformIO Python (never a bare python: see CONTINUE.md, traps)
+if (Test-Path $py) {
+    & $py tools/gen_ui_sprites.py
+    if ($LASTEXITCODE -ne 0) { Write-Host "Some UI sprites could not be converted (see above)" -ForegroundColor Yellow }
+} else { Write-Host "No PlatformIO Python: UI sprites not regenerated (the committed ui_sprites_gen.c is used)" -ForegroundColor Yellow }
+
 $cSrc   = @(Get-ChildItem src/core/*.c) + @(Get-ChildItem src/platform/$Platform/*.c) +
           @(Get-ChildItem $u8g2/csrc/*.c) + @(Get-ChildItem $u8g2/sys/sdl/common/*.c)
 $cppSrc = @(Get-ChildItem src/engine -Recurse -Filter *.cpp) + @(Get-ChildItem src/platform/engine/*.cpp) +

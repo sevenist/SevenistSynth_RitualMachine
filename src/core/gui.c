@@ -9,7 +9,7 @@ const gui_style_t gui_default_style = {
     .list_w = 64, .list_top = 2,
     .graph = {66, 14, 61, 49},
     .roll_pitch_px = 1, .roll_bar_h = 2, .roll_pad = 1, .roll_beat = 4, .strip_h = 2,
-    .rack_pitch = 29, .rack_lane_gap = 3,   // pitch = module sprite + 4 (RACK_PITCH in ui_internal.h)
+    .rack_pitch = 28, .rack_lane_gap = 3,   // pitch = module sprite + 4 (RACK_PITCH in ui_internal.h)
 };
 
 // The default style is the 128 x 64 layout; other sizes keep its fonts and spacings and stretch what depends on the screen:
@@ -141,8 +141,19 @@ void gui_draw_sprite_frame(u8g2_t *g, const gui_sprite_t *sp, int frame, int x, 
     int row_bytes = (sp->w + 7) / 8;
     int nframes = sp->frames ? sp->frames : 1;
     if (frame < 0 || frame >= nframes) frame = 0;
-    u8g2_DrawBitmap(g, (u8g2_uint_t)x, (u8g2_uint_t)y, row_bytes, sp->h,
-                    sp->data + (size_t)frame * sp->h * row_bytes);
+    const size_t at = (size_t)frame * sp->h * row_bytes;
+    if (!sp->mask) {
+        u8g2_DrawBitmap(g, (u8g2_uint_t)x, (u8g2_uint_t)y, row_bytes, sp->h, sp->data + at);
+        return;
+    }
+    // Masked: the drawn pixels are first cleared (in the other colour), then the lit ones set; transparent pixels are not touched.
+    const uint8_t color = u8g2_GetDrawColor(g), mode = g->bitmap_transparency;
+    u8g2_SetBitmapMode(g, 1);
+    u8g2_SetDrawColor(g, color ? 0 : 1);
+    u8g2_DrawBitmap(g, (u8g2_uint_t)x, (u8g2_uint_t)y, row_bytes, sp->h, sp->mask + at);
+    u8g2_SetDrawColor(g, color);
+    u8g2_DrawBitmap(g, (u8g2_uint_t)x, (u8g2_uint_t)y, row_bytes, sp->h, sp->data + at);
+    u8g2_SetBitmapMode(g, mode);
 }
 
 void gui_draw_sprite_selected(u8g2_t *g, const gui_sprite_t *sp, int x, int y) {

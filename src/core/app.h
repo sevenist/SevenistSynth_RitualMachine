@@ -19,6 +19,9 @@ extern "C" {
 typedef struct {
     bool         shift;                 // the Shift hold-action is active
     control_id_t shift_key;             // the matrix key that holds Shift (CTL_NONE: none; the Shift button of the binding table is separate)
+    bool         mod;                   // the Mod hold-action is active (a key function only: core/keymap.h)
+    control_id_t mod_key;               // the matrix key that holds Mod
+    int16_t      knob_last[CTL_COUNT];  // last position + 1 of an absolute knob whose Shift / Mod entry is a step action (0 = not seen yet)
     int          octave;                // keyboard octave offset, KEYBOARD_OCTAVE_MIN..MAX
     uint8_t      held[CTL_COUNT];       // note + 1 started by a key control (0 = none), so its release stops the right note
     int          axis_x, axis_y;        // joystick axes 0..INPUT_VALUE_MAX

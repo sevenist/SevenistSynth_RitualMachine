@@ -93,6 +93,7 @@ static void key_event(const SDL_KeyboardEvent *k) {
 }
 
 bool input_key_present(int row, int col) { return row >= 0 && row < KEY_ROWS && col >= 0 && col < 4; }     // future prototype: 4 columns only
+bool input_control_present(control_id_t c) { (void)c; return true; }     // the panel has every control
 bool input_boot_reset(void) { return false; }      // no keys before the window opens: F1 held in the first seconds does it (app.c)
 
 bool input_pending(void) { return q_head != q_tail; }

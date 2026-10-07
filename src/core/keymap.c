@@ -37,6 +37,7 @@ static const fn_def_t fns[] = {
     {ACT_JUMP,         5,         "Jump 6", "jump6"},
     {ACT_JUMP,         6,         "Jump 7", "jump7"},
     {ACT_JUMP,         7,         "Jump 8", "jump8"},
+    {ACT_MOD,          0,         "Mod",    "mod"},
 };
 #define N_FNS ((int)(sizeof fns / sizeof fns[0]))
 
@@ -57,6 +58,24 @@ int keymap_fn_index(key_fn_t f) {
 void keymap_fn_name(key_fn_t f, char *out, int n) {
     if (f.act == ACT_NOTE) { seq_note_name(KEYBOARD_BASE_NOTE + f.arg, out, n); return; }
     snprintf(out, (size_t)n, "%s", fns[keymap_fn_index(f)].name);
+}
+
+void keymap_fn_token(key_fn_t f, char *out, int n) {
+    if (f.act == ACT_NOTE) snprintf(out, (size_t)n, "note %d", f.arg);
+    else                   snprintf(out, (size_t)n, "%s", fns[keymap_fn_index(f)].tok);
+}
+
+bool keymap_fn_parse(const char *s, key_fn_t *out) {
+    char w[16];
+    int note;
+    if (sscanf(s, "%15s", w) != 1) return false;
+    if (!strcmp(w, "note")) {
+        if (sscanf(s, "%*s %d", &note) != 1 || note < 0 || note > KEYMAP_NOTE_MAX) return false;
+        *out = (key_fn_t){ACT_NOTE, (int8_t)note};
+        return true;
+    }
+    for (int i = 0; i < N_FNS; i++) if (!strcmp(w, fns[i].tok)) { *out = (key_fn_t){fns[i].act, fns[i].arg}; return true; }
+    return false;
 }
 
 /* ---------------- the built-in layouts ---------------- */
@@ -171,12 +190,9 @@ bool keymap_from_text(const char *txt) {
             int r, c;
             if (sscanf(w2, "%d.%d", &r, &c) != 2 || r < 0 || r >= KEY_ROWS || c < 0 || c >= KEY_COLS) continue;
             key_fn_t *k = &user[r * KEY_COLS + c];
-            if (!strcmp(w3, "note")) {
-                int s;
-                if (sscanf(line, "%*s %*s %*s %d", &s) == 1 && s >= 0 && s <= KEYMAP_NOTE_MAX) *k = NOTE(s);
-            } else {
-                for (int i = 0; i < N_FNS; i++) if (!strcmp(w3, fns[i].tok)) *k = FN(i);
-            }
+            int at = 0;
+            sscanf(line, "%*s %*s %n", &at);
+            if (at > 0) keymap_fn_parse(line + at, k);
         }
     }
     if (layout < 0) return false;                                 // not a key file

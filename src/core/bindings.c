@@ -4,7 +4,8 @@
 /* ===========================================================================================================================
  * THE BINDING TABLE. One row = one link:   { control, event kind, modifier state, action, argument }
  *
- *   Shift is the hold-action on BTN 3: rows marked MODS_SHIFT are active only while it is held, MODS_NONE only while it is not.
+ *   Shift is the hold-action on BTN 3. What a control does with Shift or Mod held is not here: the layers of core/modifiers.h (their
+ *   defaults in modifiers_init); a control whose layer entry is Default uses its MODS_NONE / MODS_ANY row as without a modifier.
  *   To rebind a control, edit its row (or add one: a control can trigger several actions). The list of actions and what their
  *   argument means is in bindings.h.
  * ======================================================================================================================== */
@@ -12,42 +13,29 @@ const binding_t bindings[] = {
     /* ---- left strip ---- */
     {CTL_VOLUME,     IN_VALUE, MODS_ANY,   ACT_MASTER_VOLUME,  0},       // absolute knob (simulator panel) ...
     {CTL_VOLUME,     IN_DELTA, MODS_ANY,   ACT_VOLUME_STEP,    +1},       // ... or endless knob (prototype): one step per detent, no jump
-    {CTL_ENC_A,      IN_DELTA, MODS_NONE,  ACT_ROW_MOVE,       +1},       // encoder A: rows ...
-    {CTL_ENC_A,      IN_DELTA, MODS_SHIFT, ACT_PAGE_MOVE,      +1},       //            ... with Shift: pages
+    {CTL_ENC_A,      IN_DELTA, MODS_NONE,  ACT_ROW_MOVE,       +1},       // encoder A: rows (Shift layer default: pages)
     {CTL_ENC_A_SW,   IN_PRESS, MODS_ANY,   ACT_ROW_TOP,         0},       // push: back to the page selector
-    {CTL_ENC_B,      IN_DELTA, MODS_NONE,  ACT_VALUE_ADJUST,   +1},       // encoder B: the value ...
-    {CTL_ENC_B,      IN_DELTA, MODS_SHIFT, ACT_VALUE_ADJUST,   +4},       //            ... with Shift: coarse (4 steps per detent)
+    {CTL_ENC_B,      IN_DELTA, MODS_NONE,  ACT_VALUE_ADJUST,   +1},       // encoder B: the value (Shift layer default: 4 steps per detent)
     {CTL_ENC_B_SW,   IN_PRESS, MODS_ANY,   ACT_SELECT,          0},       // push: activate (Insert, Delete, Run ...)
     {CTL_PLAY,       IN_PRESS, MODS_ANY,   ACT_PLAY,            0},
 
     /* ---- matrix keyboard: the keys are not in this table, their layout is chosen at run time (core/keymap.h) ---- */
 
-    /* ---- matrix keyboard: the knob above each column edits row 1..4 of the current page ---- */
+    /* ---- matrix keyboard: the knob above each column edits row 1..4 of the current page (Shift / Mod + knob: core/modifiers.h) ---- */
     {CTL_COL_KNOB_0, IN_VALUE, MODS_NONE,  ACT_PAGE_KNOB,       1},
     {CTL_COL_KNOB_1, IN_VALUE, MODS_NONE,  ACT_PAGE_KNOB,       2},
     {CTL_COL_KNOB_2, IN_VALUE, MODS_NONE,  ACT_PAGE_KNOB,       3},
     {CTL_COL_KNOB_3, IN_VALUE, MODS_NONE,  ACT_PAGE_KNOB,       4},
-    {CTL_COL_KNOB_0, IN_VALUE, MODS_SHIFT, ACT_PAGE_KNOB_SHIFT, 1},
-    {CTL_COL_KNOB_1, IN_VALUE, MODS_SHIFT, ACT_PAGE_KNOB_SHIFT, 2},
-    {CTL_COL_KNOB_2, IN_VALUE, MODS_SHIFT, ACT_PAGE_KNOB_SHIFT, 3},
-    {CTL_COL_KNOB_3, IN_VALUE, MODS_SHIFT, ACT_PAGE_KNOB_SHIFT, 4},
 
     /* ---- right section ---- */
-    {CTL_KNOB_R1,    IN_VALUE, MODS_NONE,  ACT_MACRO,           0},       // macros ...
+    {CTL_KNOB_R1,    IN_VALUE, MODS_NONE,  ACT_MACRO,           0},       // macros (Shift layer default: assign the parameter under the cursor)
     {CTL_KNOB_R2,    IN_VALUE, MODS_NONE,  ACT_MACRO,           1},
     {CTL_KNOB_R3,    IN_VALUE, MODS_NONE,  ACT_MACRO,           2},
-    {CTL_KNOB_R1,    IN_VALUE, MODS_SHIFT, ACT_MACRO_LEARN,     0},       // ... with Shift: assign the parameter under the cursor
-    {CTL_KNOB_R2,    IN_VALUE, MODS_SHIFT, ACT_MACRO_LEARN,     1},
-    {CTL_KNOB_R3,    IN_VALUE, MODS_SHIFT, ACT_MACRO_LEARN,     2},
 
     {CTL_JOY_UP,     IN_PRESS, MODS_NONE,  ACT_NAV,            NAV_UP},   // joystick: moves the focus (latched: edits the value)
-    {CTL_JOY_DOWN,   IN_PRESS, MODS_NONE,  ACT_NAV,            NAV_DOWN},
+    {CTL_JOY_DOWN,   IN_PRESS, MODS_NONE,  ACT_NAV,            NAV_DOWN}, // (Shift layer default: octave up / down, pages)
     {CTL_JOY_LEFT,   IN_PRESS, MODS_NONE,  ACT_NAV,            NAV_LEFT},
     {CTL_JOY_RIGHT,  IN_PRESS, MODS_NONE,  ACT_NAV,            NAV_RIGHT},
-    {CTL_JOY_UP,     IN_PRESS, MODS_SHIFT, ACT_OCTAVE,         +1},       // with Shift: octave up / down, pages
-    {CTL_JOY_DOWN,   IN_PRESS, MODS_SHIFT, ACT_OCTAVE,         -1},
-    {CTL_JOY_LEFT,   IN_PRESS, MODS_SHIFT, ACT_PAGE_MOVE,      -1},
-    {CTL_JOY_RIGHT,  IN_PRESS, MODS_SHIFT, ACT_PAGE_MOVE,      +1},
     {CTL_JOY_SW,     IN_PRESS, MODS_ANY,   ACT_LATCH,           0},       // push: latch the focused value / activate a button
 
     {CTL_BTN_1,      IN_PRESS, MODS_ANY,   ACT_MENU,            0},
@@ -56,7 +44,7 @@ const binding_t bindings[] = {
 };
 const int bindings_count = (int)(sizeof bindings / sizeof bindings[0]);
 
-int action_is_hold(action_id_t a) { return a == ACT_SHIFT || a == ACT_NOTE; }
+int action_is_hold(action_id_t a) { return a == ACT_SHIFT || a == ACT_MOD || a == ACT_NOTE; }
 
 const char *action_name(action_id_t a) {
     static const char *const n[ACT_COUNT] = {
@@ -64,8 +52,8 @@ const char *action_name(action_id_t a) {
         [ACT_SELECT] = "Select", [ACT_MENU] = "Menu", [ACT_BACK] = "Back", [ACT_PLAY] = "Play", [ACT_SHIFT] = "Shift",
         [ACT_NOTE] = "Note", [ACT_OCTAVE] = "Octave", [ACT_PAGE_KNOB] = "Page knob", [ACT_MACRO] = "Macro",
         [ACT_MACRO_LEARN] = "Learn", [ACT_MASTER_VOLUME] = "Volume", [ACT_VOLUME_STEP] = "Volume",
-        [ACT_PAGE_KNOB_SHIFT] = "Knob shift",
         [ACT_JUMP]            = "Jump",
+        [ACT_MOD]             = "Mod",
     };
     return (a >= 0 && a < ACT_COUNT && n[a]) ? n[a] : "?";
 }

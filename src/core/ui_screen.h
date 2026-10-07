@@ -30,7 +30,7 @@ typedef struct { synth_ui_t *ui; rack_t *rack; int arg; } ui_ctx_t;
 
 typedef enum {
     EL_VALUE,       // a value: joystick moves the focus, push latches, then the joystick (or encoder B at any time) changes it
-    EL_DIRECT,      // a value the joystick changes directly with left / right (no latch): a selector such as the slot strip
+    EL_DIRECT,      // a value the joystick changes directly with left / right (no latch): a selector such as the slot strip; push runs activate() if set
     EL_BUTTON,      // an action: push activates it
 } el_kind_t;
 
@@ -76,7 +76,11 @@ gui_rect_t ui_picture_box(const gui_style_t *st);
 // The screen of a menu tab.
 const screen_def_t *screen_for_tab(tab_t t);
 
-extern const screen_def_t scr_rack_screen, scr_general_screen, scr_samples_screen, scr_fx_screen, scr_fm_algo_screen, scr_fm_op_screen, scr_fm_env_screen, scr_keys_screen;
+extern const screen_def_t scr_rack_screen, scr_general_screen, scr_samples_screen, scr_fx_screen, scr_fm_algo_screen, scr_keys_screen,
+                          scr_mods_screen, scr_macros_screen, scr_curves_screen, scr_leds_screen;
+
+// The GENERAL tab's setting (cfg_param_id_t) on focus row `row` (ui->row), -1 for none.
+int scr_general_setting(int row);
 
 #ifdef __cplusplus
 }

@@ -16,7 +16,7 @@ Files, all in `src/core/`:
 | `ui_draw.c` | the main view's screens (old model) and `synth_ui_draw`, the entry point that draws a frame |
 | `ui_graphs.c` | the pictures of the graph box: waveform, envelope, filter response, effect sketches, algorithm diagram... |
 | `ui_screen.c/.h` | the declarative-screen engine: element tables, focus navigation, latch, drawing of elements, the tab -> screen lookup |
-| `scr_rack.c`, `scr_general.c`, `scr_samples.c`, `scr_fx.c`, `scr_fm.c` | the menu tabs, written with that engine: RACK, GENERAL, SAMPLES, FX RACK, and the three FM editor tabs (ALGORITHM, OPERATOR, ENVELOPE) |
+| `scr_rack.c`, `scr_general.c`, `scr_samples.c`, `scr_fx.c`, `scr_fm.c` | the menu tabs, written with that engine: RACK, GENERAL, SAMPLES, FX RACK, the FM tab ALGORITHM (the operator tree), KEYS, MODIFIERS |
 | `gui.c/.h` | the drawing toolkit and style (rectangles, text, fields, buttons, sprites, animations) |
 | `app.c` | calls the UI, decides when to redraw |
 | `bindings.c/.h` | which hardware control triggers which action (not part of the UI) |
@@ -49,7 +49,7 @@ Declared in `synth_ui.h`. The fields that matter:
 | `latched` | the focused element is latched: the joystick edits its value (declarative screens only) |
 | `page` | index into the generated page list (main view) |
 | `in_rack` | true while the **menu** is open (the name is historical: it was the rack editor); then `menu_tab` is the tab |
-| `menu_tab` | which tab of the menu: RACK, GENERAL, SAMPLES, FX RACK (modular synth), or GENERAL, ALGORITHM, OPERATOR, ENVELOPE, FX RACK (FM synth) |
+| `menu_tab` | which tab of the menu: RACK, GENERAL, SAMPLES, FX RACK (modular synth), or GENERAL, ALGORITHM, FX RACK, KEYS, MODIFIERS (FM synth; the operators have main-view pages: OPn, OPn ENV) |
 | `rack_cur`, `rack_scroll`, `rack_type` | RACK tab: selected cell (a slot, or the empty one after the last), first visible cell, module type Insert will add |
 | `cursor` | selected step of the step sequencer |
 | `fm_op`, `fm_pt`, `ms_lane`, `ms_step`, `eg_pt`, `fx_slot`, `smp_cur`, `smp_tgt` | per-screen sub-selections (operator, envelope point, lane, step, sample...) |
@@ -199,7 +199,7 @@ The tabs and their files:
 | GENERAL | `scr_general.c` | Type, Patch, Voices, Vol | info box (`draw_synth_info`) |
 | SAMPLES | `scr_samples.c` | File, Tgt, Assign, Scan | overview of the highlighted file, its length and root note |
 | FX RACK | `scr_fx.c` | Slot, Type, the effect's parameters (names from `fxr_label`, unused ones hidden) | sketch of the effect (`draw_fx_picture`) |
-| ALGORITHM, OPERATOR, ENVELOPE (FM) | `scr_fm.c` | Algo / Fb / Op, Op + the operator's parameters, Op / Pt / Lvl / Time | algorithm diagram or operator envelope, the patch name under the list |
+| ALGORITHM (FM) | `scr_fm.c` | Algo / Fb / Op (a selector: left / right pick an operator, push opens its OPn page) | the operator tree with the selected operator inverted, the patch name under the list |
 
 Edits that change the structure (module insert / delete, target, type, voices, the FM patch) set `rack_dirty` or `rebuild`; the audio graph is rebuilt when the menu closes. Edits that are live
 (volume, effect parameters, FM operator values) return `true` so the app pushes them to the audio side at once.
@@ -249,7 +249,7 @@ the main view's pages are the remaining screens to convert. Callbacks that serve
 | change the look of a focused / latched element | `gui_draw_field_state`, `gui_draw_button` in `gui.c` |
 | add a screen that is not a list | a declarative screen (section 8), or the old way: a `graph_t` value, a `draw_*`, a `handle_*` and a branch in `synth_ui_draw` and `synth_ui_handle` |
 | change the screen size | `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` in `hal/hal_display.h` |
-| change what a button or knob does | `core/bindings.c` (not the UI) |
+| change what a button or knob does | `core/bindings.c` (not the UI); what it does with Shift / Mod: the user's MODIFIERS tab (`core/modifiers.c`, defaults in `modifiers_init`) |
 | change the module icons | `tools/gen_module_sprites.py`, then run it |
 
 To look at a screen without the SDL window: `tools/ui_dump.c` prints it as ASCII after a script of control events (`UI_DUMP_SIZE=128x128` for a taller screen; see DEVELOPING.md).

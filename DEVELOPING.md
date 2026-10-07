@@ -15,6 +15,7 @@ cd D:\DEV\SevenSynthCore\ui\oled_sim
 .\build.ps1                      # clean build ~5 s, one changed file ~1.5 s (per-file objects in build\obj, parallel)
 .\build\oled_sim.exe             # SDL2.dll must be on PATH (C:\msys64\ucrt64\bin)
 .\tools\build_engine_tests.ps1 -Matrix    # 133 engine tests in six sample-rate / block-size configurations
+.\tools\build_ui_tests.ps1                # UI tests (tests/ui): the core driven by control events on the stubs of tools/ui_stubs.c
 ```
 
 **Samples:** put `.wav` / `.mp3` files in `samples_src/` and run `.\build.ps1`: every new or changed file is converted to `samples/<name>.smp` (the cooked format; stereo is mixed to mono,
@@ -33,7 +34,7 @@ control -> action and the octave / Shift state.
 
 | Control | Default role (table in `core/bindings.c`) | Keyboard (physical key, QWERTY names) |
 | --- | --- | --- |
-| Encoder A turn / push | previous / next element, i.e. rows (with Shift: pages) / jump to the page selector | `[` `]` / `\` |
+| Encoder A turn / push | previous / next element, i.e. rows (Shift layer default: pages) / jump to the page selector | `[` `]` / `\` |
 | Encoder B turn / push | change the focused value, **no latch needed** (with Shift: 4 steps per detent) / activate a button | `;` `'` / `/` |
 | Joystick | **one navigation model on every screen** (`ui_screen.c`): up / down / left / right move the focus to the neighbouring element; an element with no neighbour on that side (and every `EL_DIRECT` element: the module strip, the page / tab selector) is edited by left / right instead. **Push = latch, only on screens with `use_latch` (today: the RACK tab, whose dense multi-column grid needs it)**: the joystick then edits the latched value, push again to release; on a button, push activates it. In the main view (pages, not converted yet): rows and values, push activates the row. With Shift: up / down = octave, left / right = page | arrow keys, push = Right Ctrl |
 | Button 1 | open / close the menu | Enter |
@@ -42,8 +43,8 @@ control -> action and the octave / Shift state.
 | Play | start / stop the sequencer | Space |
 | Matrix keys | **the key layout** (`core/keymap.c`, KEYS tab of the menu): function row F1..F4 = Shift, Menu, Back, Play (F5..F8 on the simulator: Octave - / +, Page - / +); note rows by layout: *Keys 8x4* (default: bottom-left = C4 (60) + octave, +1 per key to the right, +8 per row up), *Two 4x4* (left block 0..15 with +4 per row, right block 16..31), *Notes+Nav* (left block 0..15, right block = octave, cursor cross with Latch, Select, Value, Row, Page), *User* | `F1`-`F8` / `1`-`8` / `Q`-`I` / `A`-`K` / `Z`-`,` (top to bottom) |
 | Octave | -5..+4: every MIDI note 0..127 is reachable | Shift + joystick up / down |
-| Column knobs 1..4 | the value of row 1..4 of the current page. **Catch mode (default, GENERAL tab "Knob")**: a knob is ignored until it crosses the current value (or lands on it), so no jump; a small arrow at the right edge of the row says which way to turn (right = turn right). It is re-evaluated after every manual change (page, row, encoder / joystick edit, macro, Shift) but never after a knob move. *Direct* mode: the value follows the knob at once, no arrows. **With Shift**: the knob drives its secondary target (`ui->knob_shift[]`; default knob 1 = speaker level, knob 2 = master volume; global config params only), with the same catch | mouse |
-| Right knobs R1..R3 | macros: start on the first filter's cutoff / resonance and the first LFO's rate; **Shift + knob** assigns the parameter under the cursor | mouse |
+| Column knobs 1..4 | the value of row 1..4 of the current page. **Catch mode (default, GENERAL tab "Knob")**: a knob is ignored until it crosses the current value (or lands on it), so no jump; a small arrow at the right edge of the row says which way to turn (right = turn right). It is re-evaluated after every manual change (page, row, encoder / joystick edit, macro, Shift) but never after a knob move. *Direct* mode: the value follows the knob at once, no arrows. **With Shift / Mod**: what the MODIFIERS tab gives it (default Shift + knob 1 = speaker level, Shift + knob 2 = master volume): a parameter, with the same catch, or a step action | mouse |
+| Right knobs R1..R3 | macros 1..3 of 8 (MACROS tab): a macro drives up to 8 parameters, each through its own Min / Max / curve; they start on the first filter's cutoff / resonance and the first LFO's rate; **Shift + knob** adds the parameter under the cursor as a destination (Shift layer entries "Learn M1..3"). Not on the prototype: there any knob can play a macro through a Shift / Mod entry "Macro 1..8" (default on a board without R knobs: Shift + K3 / K4 = Macro 1 / 2, with the catch) | mouse |
 | Master volume knob | master volume (same value as Vol in the GENERAL tab; 0..2 = the gain, ramped over one audio block). On the prototype it is an endless knob: one step of 0.05 per detent from the current value | mouse |
 | Esc, closing a window | quit | |
 
@@ -54,14 +55,31 @@ On an AZERTY keyboard the keys keep their physical position: "Q" is the key labe
 Three layouts are built in (in flash); the fourth, *User*, is the user's. In the KEYS tab: *Layout* picks one, *Key* picks a key (or press it: on this tab a key
 selects itself and only notes, Shift and Menu still act), *Func* gives it a function (the controls, then notes C4..B7; editing a built-in layout copies it into
 User), *Reset* goes back to *Keys 8x4*. The right box lists the keys with their functions. The layout and the User keys are saved in `system/config/keys.cfg` on the
-TF card when the menu closes (the other UI settings, Knob mode, jump slots and Shift-knob targets, are in `system/config/ui.cfg`: `core/ui_settings.c`, written 2 s after a change) (a text file: `layout user` then `key <row>.<col> <function>` lines, editable on a PC; the simulator's card is `sdcard/`). A card that
+TF card when the menu closes (the other UI settings, Knob mode, jump slots and the Shift / Mod layers, are in `system/config/ui.cfg`: `core/ui_settings.c`, written 2 s after a change) (a text file: `layout user` then `key <row>.<col> <function>` lines, editable on a PC; the simulator's card is `sdcard/`). A card that
 shows up gives its `keys.cfg`, unless the keys were changed meanwhile (then they are written to it). **Lock-out escape**: hold F1 (the top-left function key)
 for 2 s within 4 s of start: the layout goes back to *Keys 8x4* and a "KEYS RESET" screen shows until F1 is released.
 
 **Jump keys.** *Func* also offers `Jump 1..8` (`ACT_JUMP`, arg = slot). Pressing a jump key goes to the location saved in its slot (menu or main view, tab, page, row; `synth_ui_t.jump[]`,
 `ui_input.c`); **Shift + the key saves the current location** in the slot. Leaving the rack editor by a jump rebuilds the synth like closing it with Menu; a saved row / page is clamped to
 what exists now (saved page numbers go stale when the rack is edited). The slots are saved in `system/config/ui.cfg` (`core/ui_settings.c`). A slot stores WHAT it points at (`jump_slot_t`: module id + type + which of its pages, a global page, or a menu tab's kind), resolved to a page index once per page rebuild (`synth_ui_jump_resolve`): inserting modules does not move it; deleting its module clears it (LED dim); a page the synth type does not show (FM) makes it wait (popup "Not in this synth"). The key's LED is dim teal when the slot is empty, bright when saved.
-On the KEYS tab a jump key only selects itself.
+On the KEYS tab a jump key only selects itself. Saving a location is only Shift (or Mod) + the jump key (user, 2026-10-07: keep it simple; the "Save 1..8" key function was removed).
+
+**Shift / Mod layers (MODIFIERS tab, `core/modifiers.h`, `scr_mods.c`).** Every control, keys included, has an entry per layer (Shift, Mod): *Default*, an action, or
+(knobs and encoders) a parameter. **Shift and Mod work the same**: Default = the control as without a modifier, except a column knob (drives nothing, popup
+"No target") and a jump key (saves its slot). What Shift used to do (EncA pages, EncB x4, joystick octave / pages, R knobs learn, K1 speaker, K2 volume) are the Shift
+layer's starting entries (`modifiers_init`), visible and editable; the Mod layer starts empty. Shift and Mod both held: the Mod layer wins. Mod is a key function (`ACT_MOD`,
+"Mod" in the KEYS tab), on no built-in layout. Learn: **Shift + Mod + turn a knob** gives it the parameter under the cursor (a page row a knob may drive, or a
+live GENERAL setting) for the layer the tab shows; or the tab's *Learn* button: the menu closes and the next push (Latch / Select) on a row assigns it, Back cancels.
+On the tab a key press or a turn of a column / right knob selects that control (with Shift or Mod held: that layer too). A learned module parameter goes back to
+Default when its module is deleted. Saved in `ui.cfg`, only what differs from the starting entries (`modifiers` then lines like `shift k3 param mod 1 0`,
+`mod enca act pages`, `shift joyu act default`); the
+first format's `shift N cfg <setting>` lines are still read.
+
+**Mappings and macros (`core/curves.h`, `scr_macros.c`).** A Param entry and every macro destination is a `mapping_t`: target + Min / Max (% of the target's range, Min > Max inverts) + a curve (Lin, Exp, Log, S: 33-point tables read with linear interpolation). Edited in the MODIFIERS tab (Min, Max, Curve rows) and the MACROS tab (Macro, Dest, Tgt, Min, Max, Curve, Learn, Remove; the picture is the response). The catch of a mapped col knob works in knob position: caught when the knob's output lands on the current step, or once it crosses the first position that maps to the current value; a macro's catch follows its first destination. An encoder steps the parameter itself (the mapping is not used). ui.cfg: `macros` then `macro K <target> [range MIN MAX] [curve NAME]` per destination; a file without the `macros` line keeps the default macros.
+
+**User curves (CURVES tab, `scr_curves.c`).** U1..U8, each 2..16 points (X / Y 0..100); every point says whether the segment after it is linear or stepped (held until the next point). Turned into a 129-entry table on every edit (a step is one table step wide). Rows: Curve, New, Point, X, Y, Seg, Add, Del pt, Delete; the knobs `CURVES_KNOB_X / _Y` (bindings.h, default column knobs 3 / 4; R1 / R2 on the simulator are the other choice) move the selected point absolutely. Saved in `system/config/curves.cfg` (`curve K` then `point X Y lin|step`), 2 s after an edit like ui.cfg, loaded before ui.cfg (its mappings name the curves). A mapping whose curve was deleted reads it as linear.
+
+**Key LED colours (LEDS tab, `core/led_roles.h`, `scr_leds.c`, `key_leds.c`).** Every key has a role from its function: Note, Sharp, Root (C), Shift, Mod, Menu, Back, Play, Octave, Jump, Nav, None. A role has an Idle and an Active colour, each one of 16 named colours at 0..100 %; Active = a held note (the note roles), Shift / Mod held, the menu open, the sequencer running, the octave shifted that way, a jump slot saved (Back, Nav, None have none). The defaults are the first version's colours. Rows: Role, Idle, Idle %, Active, Act %, Reset; the picture fills the keys of that role; while the tab is open those keys light in the Active colour. Saved in ui.cfg (`leds` then `led <role> <colour> <pct> <colour> <pct>` for the roles that differ). The simulator's panel does not draw the LEDs yet: judge on the board. `input_control_present()` (HAL) tells which non-key controls the board has.
 
 Requirements: MSYS2 UCRT64 (`C:\msys64\ucrt64`) with gcc, g++ and SDL2, and Python 3 for the generator tools.
 `lib/` is not versioned. `lib/u8g2` (https://github.com/olikraus/u8g2, needs `csrc/` and `sys/sdl/common/`) is required; `lib/minimp3` (`minimp3.h`, `minimp3_ex.h` from
@@ -93,7 +111,7 @@ oled_sim/
    │  ├─ ui_draw.c          the screens: header, lists, hand-drawn screens, synth_ui_draw()
    │  ├─ ui_internal.h      what those four share (private to the UI)
    │  ├─ ui_screen.c/.h     declarative screens: element tables, focus navigation, latch, drawing (see human_docs/UI_GUIDE.md section 8)
-   │  ├─ scr_*.c            the menu tabs as declarative screens: rack, general, samples, fx, fm (ALGORITHM / OPERATOR / ENVELOPE), keys
+   │  ├─ scr_*.c            the menu tabs as declarative screens: rack, general, samples, fx, fm (ALGORITHM: the operator tree), keys, mods (MODIFIERS)
    │  ├─ rack.c/.h          modular synth model: slots, audio chain rules, module parameters, modulator targets
    │  ├─ synth_config.c/.h  general settings (synth type, voices, volume, the FM patch copy) and the master FX settings
    │  ├─ dx7.c/.h           editable 6-operator FM patch + editing helpers
@@ -164,7 +182,7 @@ That is what lets one generic list renderer show any of them.
   followed by `AMP ENV`, `SEQUENCER`, `SEQ SETUP`. In FM mode the pages are `FM SYNTH` (Patch, Vol), `SEQUENCER`, `SEQ SETUP`.
 - **GENERAL tab**: **Type** = Modular, Mod Mono, FM, FM Mono (the Mono types: one real voice, last-note priority; the others: a copy of every voice module per voice), Patch (FM types), Voices (polyphonic types), **Glide** and **Legato** (Mono types), Vol, Out, **Spk** (built-in loudspeaker: Off, 5..100 % in 5 % steps; ESP32 only, `audio_esp32.cpp`: the MAX98357A plays the left DAC channel (`kSpeakerCh`), so the level scales that channel; on the prototype the headphones do not follow it. Off = gain 0 on that channel; it also pulls `PIN_SPK_SD` (GPIO 5) low, but that alone did not silence the speaker (2026-10-05): GPIO 5 is not proven to reach the amplifier's SD_MODE, `[SPK]` on the serial log prints what the pin reads). Only the rows that apply are shown. The default is Mod Mono (ADR-036); the voice count is real: `Engine::load(graph, nvoices)`. Test for a family with `synth_type_is_fm()` / `synth_type_is_mono()`, never `type == SYNTH_FM`.
 - **Menu** (Enter): tabs switched with Left/Right on row 0. Modular: `RACK`, `GENERAL`, `SAMPLES` (library browser), `FX RACK` (four master slots).
-  FM: `GENERAL`, `ALGORITHM`, `OPERATOR`, `ENVELOPE`, `FX RACK`. Closing the menu with structural edits
+  FM: `GENERAL`, `ALGORITHM` (Algo, Fb, Op: the operator tree; a push on Op opens that operator's page), `FX RACK`, `KEYS`, `MODIFIERS`. The FM patch is edited on main-view pages like a module's: FM SYNTH (Patch, Algo, Fb, Vol), then per operator OPn (Lvl, Crs, Fine, Fix) and OPn ENV (Pt, Lvl, Time); every row but Patch / Pt is a knob row and can be learned (`MACRO_FM` targets). The FM values are driven by the knobs exactly (`dx7_value_get / set`, 0..1): reading one for the catch never changes it. Closing the menu with structural edits
   regenerates the pages and rebuilds the graph. Effect edits are live (no rebuild).
 - **Popups** (`core/popup.h`, `app->popup`): a box over any screen. `popup_info` (goes after a time, input passes through: the Shift-knob value),
   `popup_error` (OK) and `popup_ask` (Yes / No, answer by callback) are modal and queued (4); while one is up `app_run_action` hands it the actions
@@ -315,7 +333,8 @@ Rack -> engine mapping and the master chain are described in ENGINE_DESIGN.md (A
 | `smp_convert.cpp` | every `.wav` / `.mp3` of a folder -> `.smp` (new or changed files only; shares `platform/sim/sample_convert.h` with the simulator's importer). build.ps1 builds and runs it on `samples_src/` | `build\smp_convert.exe samples_src samples [--force]` |
 | `wav2smp.py` | one WAV (8..32 bit, mono/stereo, `smpl` loops) -> cooked `.smp` sample, with `--slices` / `--loop` / `--root` options the converter has no way to give | `python tools/wav2smp.py in.wav out.smp --root 60 --slices 0 12000` |
 | `build_engine_tests.ps1` | builds and runs the engine tests; `-Matrix` for all configurations, `-Filter name` for a few | see the file header |
-| `ui_dump.c` | renders the screens to ASCII without SDL or audio (layout checks) | command at the top of the file |
+| `build_ui_tests.ps1` | builds and runs the UI tests (`tests/ui/*.c`, C: `TEST(name)` in `ui_test.h`; each test starts a fresh app with `ui_fresh()` and sends control events; `ui_stub_ramcard(true)` gives a card in RAM, `ui_board(true)` the prototype's controls); `-Filter name` for a few | see the file header |
+| `ui_dump.c` | renders the screens to ASCII without SDL or audio (layout checks); its platform stand-ins are `ui_stubs.c`, shared with the UI tests | command at the top of the file |
 | `serial_test.py` | talks to the prototype over its serial port: holds chords of 1 / 3 / 6 notes, switches oscillator engines live, prints render time, cycles per module and the memory use | `C:/.platformio/penv/Scripts/python.exe tools/serial_test.py` (see "ESP32 firmware and performance work") |
 
 The generated files are committed, so the generators are only needed when their inputs change. The FM loudness table

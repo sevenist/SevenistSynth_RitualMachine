@@ -38,15 +38,26 @@ typedef enum {
     UI_JUMP_8,
 } ui_event_t;
 
-// Knobs. Slots 0..3 drive rows 1..4 of the current page, 4..6 are the macros (right-hand knobs), 7 is the master volume.
+// Knobs. Slots 0..3 drive rows 1..4 of the current page, then one per macro (the right-hand knobs play macros 1..3), then the master volume.
 #define SYNTH_UI_COL_KNOBS    4
-#define SYNTH_UI_MACROS       3
+#define SYNTH_UI_MACROS       8
 #define SYNTH_UI_KNOB_MACRO   SYNTH_UI_COL_KNOBS
 #define SYNTH_UI_KNOB_VOLUME  (SYNTH_UI_COL_KNOBS + SYNTH_UI_MACROS)
 #define SYNTH_UI_KNOBS        (SYNTH_UI_KNOB_VOLUME + 1)
 
-typedef enum { MACRO_NONE, MACRO_MODULE, MACRO_GLOBAL, MACRO_SEQ } macro_kind_t;
-typedef struct { uint8_t kind, id, prm; } macro_t;      // MODULE: rack slot id + parameter index in slot.v[]; GLOBAL: param_id_t; SEQ: seq_param_id_t
+typedef enum { MACRO_NONE, MACRO_MODULE, MACRO_GLOBAL, MACRO_SEQ, MACRO_CFG, MACRO_FM } macro_kind_t;
+// MODULE: rack slot id + parameter index in slot.v[]; GLOBAL: param_id_t; SEQ: seq_param_id_t; CFG: cfg_param_id_t;
+// FM: id = operator 0..5 or DX7_GLOBAL_OP, prm = dx7_value_t / DXG_* (core/dx7.h)
+typedef struct { uint8_t kind, id, prm; } macro_t;
+
+// A knob's mapping onto a target (core/curves.h): the knob's travel goes through the curve, then onto Min..Max of the target's range
+// (% of it; Min > Max inverts). All zero = the whole range, linear: a cleared struct is the plain mapping. Max = 100 - max_off.
+typedef struct { macro_t t; uint8_t min, max_off, curve; } mapping_t;
+static inline int mapping_max(const mapping_t *m) { return 100 - m->max_off; }
+
+// A macro: one knob, up to SYNTH_UI_MACRO_DESTS parameters at once, each through its own mapping. Learn adds a destination.
+#define SYNTH_UI_MACRO_DESTS 8
+typedef struct { mapping_t dest[SYNTH_UI_MACRO_DESTS]; uint8_t n; } macro_def_t;
 
 // A jump slot remembers WHAT it points at, not where it was: page indexes and tab positions change when the rack or the synth type changes.
 //   a module page:  mod_id (the module's rack id, stable while it exists; never reused) + mod_type (a guard against a replaced rack) + def (which of its pages)
@@ -88,14 +99,23 @@ typedef struct {
     uint8_t pg_slot[SYNTH_UI_MAX_PAGES];   // rack slot of the module owning the page, or 255 = global page
     uint8_t pg_def[SYNTH_UI_MAX_PAGES];
     int     page_count;
-    macro_t macro[SYNTH_UI_MACROS];        // what the right-hand knobs drive
-    macro_t knob_shift[SYNTH_UI_COL_KNOBS]; // what each col knob drives while Shift is held (default: knob 0 = speaker, 1 = volume)
+    macro_def_t macro[SYNTH_UI_MACROS];    // the macros (R1..R3 play 1..3; any knob can play one through a Shift / Mod entry)
+    int     macro_cur, macro_dest;         // MACROS tab (scr_macros.c): the macro and the destination shown
+    int     curve_cur, curve_pt;           // CURVES tab (scr_curves.c): the user curve (0..7) and its selected point
+    int     led_role;                      // LEDS tab (scr_leds.c): the key role shown (led_role_t)
     int     knob_key[SYNTH_UI_KNOBS];      // what each knob last drove and where it was set (see knob_new_position)
     int     knob_pos[SYNTH_UI_KNOBS];
     int8_t  knob_catch_dir[SYNTH_UI_COL_KNOBS]; // catch state per col knob: 0 = caught, -1 = turn left to catch, +1 = turn right
     int     knob_cur[SYNTH_UI_COL_KNOBS];       // step of the driven parameter at the last catch refresh; -1 unknown, -2 the knob itself just set it
     int     knob_val[SYNTH_UI_COL_KNOBS];       // last physical position of each col knob (0..INPUT_VALUE_MAX), -1 = not moved yet
-    bool    shift_held;                         // Shift is held (set by the app): the col knobs drive knob_shift[], the page rows hide their catch arrows
+    uint8_t knob_away;                          // bit k: col knob k drives a Shift / Mod target now, not its page row (set by the app): that row hides its catch arrow
+    // MODIFIERS tab (scr_mods.c): the layer and the control shown; learn_req = a Learn button was pressed (the app closes the menu and sets
+    // learn_wait: the next push on a page row assigns that row's parameter to learn_layer + learn_ctl, or, with learn_macro >= 0, adds it to
+    // that macro as a destination: the MACROS tab's Learn)
+    int     mods_layer, mods_ctl;
+    bool    learn_req, learn_wait;
+    uint8_t learn_layer, learn_ctl;
+    int8_t  learn_macro;
     bool rebuild;          // set when the RACK page is left with edits: app must audio_build()
     int run_anim;   // gui animation id shown while the sequencer runs (owned by app.c)
     jump_slot_t jump[SYNTH_UI_JUMP_SLOTS]; // rapid-navigation slots: save with Shift+key, recall with key
@@ -113,16 +133,38 @@ bool synth_ui_handle(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t 
 
 // Knobs (value 0..INPUT_VALUE_MAX = the whole range of the parameter). All return true when a sound value changed.
 bool synth_ui_knob_row(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int row, int value);   // row 1..4 of the current page
-bool synth_ui_knob_row_shift(synth_ui_t *ui, rack_t *rack, int row, int value);                                 // Shift + col knob row 1..4
-// What Shift + col knob `row` drives, for the popup: its name, its value and the way to turn while it is not caught (-1 / +1, 0 = caught).
-// Returns false when the knob has no Shift target.
-bool synth_ui_knob_shift_describe(const synth_ui_t *ui, const rack_t *rack, int row, char *name, int nn, char *value, int nv, int *arrow);
-// Recomputes whether each col knob is in sync with what it drives now. Call after a manual change (page, row, Shift, a value edited by hand), not after a knob move.
-void synth_ui_catch_refresh(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, bool shift);
+// Parameter targets through a mapping (mapping_t: what Shift / Mod + a knob drives, core/modifiers.h; Min / Max / curve: core/curves.h).
+// A target whose module is gone does nothing (false).
+//   knob_row_target  col knob row 1..4, with the catch (in knob positions: ui->knob_catch_dir[row - 1] says the way to turn)
+//   knob_target      another absolute knob (`knob` = SYNTH_UI_KNOB_MACRO + k or SYNTH_UI_KNOB_VOLUME), no catch
+//   target_step      an encoder: n steps of the parameter (the mapping is not used)
+bool synth_ui_knob_row_target(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int row, const mapping_t *m, int value);
+bool synth_ui_knob_target(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int knob, const mapping_t *m, int value);
+bool synth_ui_target_step(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_t *m, int n);
+// The target's value as 0..1 of its range (the macro / mapping pictures); -1 when it has none.
+float synth_ui_target_norm(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_t *m);
+// The target's name ("FL1 Cut", "Vol") and value text (value NULL: the name only, params / seq unused); false when it has none
+// (MACRO_NONE, or its module was deleted).
+bool synth_ui_target_describe(const synth_params_t *params, const seq_t *seq, const rack_t *rack, const macro_t *m, char *name, int nn, char *value, int nv);
+// The parameter under the cursor as a target (a page row a knob may drive, or a GENERAL tab setting that changes live); false when none.
+bool synth_ui_target_at_cursor(const synth_ui_t *ui, const rack_t *rack, macro_t *out);
+// Recomputes whether each col knob is in sync with what it drives now. Call after a manual change (page, row, a modifier, a value edited by
+// hand), not after a knob move. `tgt`: while a modifier is held, what the 4 col knobs drive (t.kind MACRO_NONE: nothing, MACRO_PAGE_ROW: their
+// page row; a macro is given as its first destination); NULL: all drive their page rows.
+#define MACRO_PAGE_ROW 0xFF
+void synth_ui_catch_refresh(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, const mapping_t *tgt);
 bool synth_ui_set_volume(synth_ui_t *ui, rack_t *rack, int value);                                              // master volume
-bool synth_ui_macro(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int k, int value);       // macro k = 0..2
-bool synth_ui_macro_learn(synth_ui_t *ui, const rack_t *rack, int k);        // macro k takes the parameter under the cursor
-void synth_ui_macro_describe(const synth_ui_t *ui, const rack_t *rack, int k, char *out, int n);   // "R1 > FL1 Cut"
+// Macros. macro: knob `knob` (a slot as for knob_target) plays macro k (every destination, no catch); macro_row: col knob row 1..4 plays it
+// with the catch on its first destination; macro_step: an encoder, n steps of every destination.
+bool synth_ui_macro(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int knob, int k, int value);
+bool synth_ui_macro_row(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int row, int k, int value);
+bool synth_ui_macro_step(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_def_t *m, int n);
+// learn: adds the parameter under the cursor to macro k (full range, linear); false when there is none, it is already there or the macro is full.
+bool synth_ui_macro_learn(synth_ui_t *ui, const rack_t *rack, int k);
+bool synth_ui_macro_add(synth_ui_t *ui, int k, const macro_t *t);             // the same for a given target
+void synth_ui_macro_remove(synth_ui_t *ui, int k, int dest);
+void synth_ui_macro_describe(const synth_ui_t *ui, const rack_t *rack, int k, char *out, int n);   // "M1 > FL1 Cut +2"
+void synth_ui_macros_prune(synth_ui_t *ui, const rack_t *rack);               // drops destinations whose module was deleted
 
 // Jump slots (see jump_slot_t). save: the page / tab on screen goes into slot k. resolve: finds every slot's page again (called by
 // synth_ui_rebuild_pages; a slot whose module was deleted is cleared). ready: the slot can be jumped to now (its LED is bright).
@@ -132,6 +174,15 @@ bool synth_ui_jump_ready(const synth_ui_t *ui, const rack_t *rack, int k);
 
 // True while the KEYS tab of the menu is on screen (a matrix key then selects itself in the list).
 bool synth_ui_on_keys_tab(const synth_ui_t *ui, const rack_t *rack);
+// Closes the menu (as MENU does) and shows the page of `slot` (a rack slot, or GLOBAL_PAGE) with page def `def`, row 1. False when
+// no such page is shown (the main view then stays on its page).
+bool synth_ui_open_page(synth_ui_t *ui, const rack_t *rack, int slot, int def);
+// True while the MODIFIERS tab is on screen (a key or a control then selects itself; see scr_mods.c).
+bool synth_ui_on_mods_tab(const synth_ui_t *ui, const rack_t *rack);
+// True while the CURVES tab is on screen (the knobs CURVES_KNOB_X / _Y then move the selected point; see scr_curves.c).
+bool synth_ui_on_curves_tab(const synth_ui_t *ui, const rack_t *rack);
+// True while the LEDS tab is on screen (the keys of the role shown light in its Active colour; see key_leds.c).
+bool synth_ui_on_leds_tab(const synth_ui_t *ui, const rack_t *rack);
 
 // True while the sequencer page is on screen (it needs redrawing on every step).
 bool synth_ui_shows_seq(const synth_ui_t *ui);

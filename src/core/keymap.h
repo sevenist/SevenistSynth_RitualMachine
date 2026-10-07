@@ -45,6 +45,8 @@ int      keymap_fn_count(void);
 key_fn_t keymap_fn_at(int i);
 int      keymap_fn_index(key_fn_t f);                       // 0 (None) for a function not in the list
 void     keymap_fn_name(key_fn_t f, char *out, int n);      // "Shift", "Oct +", "D#5"
+void     keymap_fn_token(key_fn_t f, char *out, int n);     // the words in the files: "shift", "oct+", "note 15"
+bool     keymap_fn_parse(const char *s, key_fn_t *out);     // the reverse, from the start of `s` (false: not a function word)
 
 // The text form of keys.cfg (exposed for the tests). keymap_from_text() returns false and keeps the state when the text is not a key file.
 int  keymap_to_text(char *buf, int cap);

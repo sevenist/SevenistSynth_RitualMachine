@@ -6,39 +6,76 @@ not: state, the latest measurements and what to do next, the user's working styl
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
 `tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
-## Session todo (updated 2026-10-07)
+## Session todo (updated 2026-10-07, second session)
 
-- [x] F1 key reset after the revert: checked by the user on the board, works; popups at boot OK (done 2026-10-07). Risk kept: F1 is the Shift key, so Shift held 2 s within 4 s
-  of start resets the layout (fix if it bites: shorter window / longer hold in keymap.h, or a key combination)
-- F1 history: the board-side power-on read (`kbd_init` polled F1 for up to 2 s before the key scan, commit f714a84) held the boot too long: REVERTED 2026-10-07
-  (kbd_tca8418.* back to 0d15ed6, `input_boot_reset()` returns false on the board). What remains is the app's check: F1 pressed within 4 s of start (`KEYMAP_RESET_WINDOW_MS`), held 2 s
-  (`KEYMAP_RESET_HOLD_MS`); before f714a84 that did not fire for a key already held at power-on (the TCA reports changes only). The user compares, then decides. Also: the KEYS RESET
-  screen hides the popups now, and "Card inserted" is not shown in the first 5 s after start (`CARD_QUIET_MS`; errors and the folder ASK still show). Built, NOT flashed (from: user)
-- [ ] UI settings saved (built, host round trip tested, firmware builds, NOT flashed): `core/ui_settings.c`, `system/config/ui.cfg` next to keys.cfg (a separate text file: `knob`, `jump N page P row R` /
-  `jump N menu T row R`, `shift N cfg <label>` / `none`). Loaded at start and when a card arrives (unsaved changes are written to it instead, as keys.cfg); saved by itself 2 s after
-  a change (`settings_autosave` in app.c, no menu close needed). Board test: set Knob Direct, save two jump slots, wait 2 s, reboot: all three must come back (from: user)
-- [ ] Jump slots by identity (built, host-tested: insert in front, delete the module, FM and back, old-format conversion; NOT flashed): a slot = module id + type + page def /
-  global page / menu tab kind, resolved once per page rebuild. Module deleted -> slot cleared (LED dim); page not shown by the synth type -> waits (popup). Future rack presets must
-  save module ids, or slots into a replaced rack are dropped (never wrong: the type guard) (from: user)
-- [ ] Unformatted card: a mount that fails for lack of a file system is still "no card"; an ASK "format?" needs FATFS mkfs on the card and a decision (from: user)
-- [ ] MODIFIERS menu tab, like the KEYS tab: configure what Shift + a control does and the same for a Mod / Alt key (in the simulator: B2, Backspace), including Shift / Mod + each knob
-  (the Shift-knob targets of ui.cfg move there; today the bindings are the fixed table in bindings.c and knobs 3 / 4 have no Shift target); saved on the card (from: user)
-- [x] Shift + column knobs (volume, speaker, popup feedback): works everywhere on the board, more testing later (done 2026-10-07)
-- [x] Listen: cutoff glide, 32-bit bus on loud chords, sampler after the loop fix: OK, the filter sounds nice; a check on a good sound system later (done 2026-10-07)
-- [x] Popup widget (`core/popup.c`: INFO / ERROR / ASK, modal queue, actions routed through the bindings): checked on the board, Yes / No works (done 2026-10-06)
-- [x] Card events + folder layout (all under /system, ASK before creating, old /samples and /keys.cfg moved): checked on the board with the user's card, messages show, no bug (done 2026-10-06)
+Board unavailable this session (prototype charging): work on the simulator.
 
-Open, UI:
-- [ ] Role-based key LED colours, configurable and saved on the TF card (the jump LEDs would be one role) (from: user)
+- [ ] MODIFIERS menu tab: BUILT 2026-10-07 (sim + firmware build, scratch host test 26 checks green, NOT tried by the user in the SDL window, NOT flashed). Try it: in the
+  KEYS tab give a key the function "Mod" (User layout), then in MODIFIERS: Shift + Mod + turn K3 on a page row, Learn button, a key's Shift entry. Details below.
+  Since then: Shift and Mod symmetric, Macro 1..3 / Learn M1..3 as knob functions, board-dependent starting entries (37 checks) (from: user)
+
+FM editor and mappings (from: user, 2026-10-07; decisions asked with options, recorded here):
+- [ ] **FM like the rack**: BUILT 2026-10-07 (UI tests green, sim + firmware build, NOT tried by the user, NOT flashed). Main-view pages FM SYNTH (Patch Algo
+  Fb Vol, the tree as picture), OPn (Lvl Crs Fine Fix, the tree with OPn marked), OPn ENV (Pt Lvl Time, the envelope); the ALGORITHM tab keeps Algo / Fb and an
+  Op selector over the tree (left / right), a push opens OPn (`synth_ui_open_page`). OPERATOR / ENVELOPE tabs removed (their tab_t values stay: saved jumps).
+  The tree is the existing generated sprite (now centred, transparent), not a new drawing: say if a bigger / different tree is wanted
+- [ ] **FM parameters mappable**: BUILT with the above: `MACRO_FM` targets (op + `dx7_value_t`, ui.cfg `param fm <op> <v>`), learn / Shift / Mod / macros on
+  every FM row but Patch and Pt. FM values are driven exactly (`dx7_value_get / set` + `knob_drv_t` in ui_input.c): the walking measure would have changed
+  off-grid fine values and envelope times just by showing a page. Envelope time scale: at least 1 ms per knob position (found by the new test)
+- [x] **UI tests in the repo** (2026-10-07): `tests/ui/*.c` + `tools/build_ui_tests.ps1` (45 tests: modifiers, FM, mappings / macros, curves, LEDs; they found a parse bug: a mapping line read the range / curve of the NEXT line of ui.cfg), stubs `tools/ui_stubs.c` (RAM card, prototype
+  controls). `STORAGE_FILE_MAX` 2 -> 4 KB (ui.cfg with many layer entries could be cut; +6 KB RAM on the board, 55.5 %)
+- [ ] **Range per mapping**: BUILT 2026-10-07 (with the two items below; UI tests green, NOT tried by the user). Every mapping (a Shift / Mod knob target, each macro destination) has Min and Max as a % of the parameter's range; Min > Max inverts.
+  The knob's full turn sweeps Min..Max through the mapping's curve. Decided: % (not the parameter's unit)
+- [ ] **Response curves**: BUILT (built-ins Lin Exp Log S; user curves = the editor item). A curve per mapping = a LUT read with linear interpolation between entries (cheap). Built-in curves (at least linear, exp, log, S; to list)
+  and user curves. Catch with any curve: decided **in knob position** (the knob is caught when it crosses the position where the curve last left the value; a value
+  changed elsewhere is caught at the first knob position that maps to it)
+- [ ] **Multi-destination macros**: BUILT (MACROS tab, ui.cfg `macro K ...` lines; Shift + R knob now ADDS a destination instead of replacing). Decided **macros 1..8, up to 8 destinations each**, each destination with its own range and curve (learn adds a destination;
+  today's single-target macros = one destination). Needs a macro editor (list of destinations, remove, range, curve) and saving in ui.cfg
+- [ ] **Custom curves editor**: BUILT 2026-10-07 (UI tests green, NOT tried by the user). User decisions: 16 points max, a CURVES tab for now (may move), X / Y by two knobs set in code (`CURVES_KNOB_X / _Y`, bindings.h; default K3 / K4 so the board has them, R1 / R2 the other choice). One file `system/config/curves.cfg` instead of a folder (a new folder would make every card ask "Missing: ... Create?"); 8 curves U1..U8; table 129 entries. Firmware RAM 58.9 % (+9 KB). Was: a curve = a list of points (x, y); for **each point** the segment after it is either linear (interpolated to the next point) or
+  stepped (held until the next point). Stored on the card (`system/curves/<name>.crv`, text), turned into the LUT when loaded. To decide when started: max points,
+  LUT size, where the editor lives (a CURVES menu tab?), how a point is moved with 4 knobs on a 128 x 128 screen
+
+- [ ] **Role-based key LED colours**: BUILT 2026-10-07 (45 UI tests green, sim + firmware build, NOT on the board: the user tests it). User decisions: a LEDS menu tab, 16 named colours + brightness %, one role per key-function kind (Note / Sharp / Root / Shift / Mod / Menu / Back / Play / Octave / Jump / Nav / None), Idle + Active each ("Note held" = the note roles' Active colour, not a role of its own). The LEDS tab previews the role on the keys (Active colour). Saved in ui.cfg. The sim panel still does not draw the LEDs (from: user)
+- [ ] **Next (user, 2026-10-07)**: B = UI sprites build (tomorrow), then D = engine / board items (SD options, internal RAM). The user tests today's build on the board alone (no automated board session)
 - [ ] Quick macro UI: a button next to a mappable element, so a macro is assigned without Shift + knob (from: user)
-- [ ] Shift-knob targets are global config params only (`MACRO_GLOBAL`); knobs 3 and 4 have none. Make them assignable (from: notes)
+- [ ] **UI sprites build** (user, 2026-10-07: "the UI is in its right place but the style is still too generic"): a build step that turns every image in
+  `assets/UI_Sprites/` (created 2026-10-07, README inside) into a generated assets header (1-bit, the `gui_sprite_t` format of `core/sprites.h`), run by
+  build.ps1 and by a PlatformIO pre-build script so the sim and the firmware always use the current images; then the drawing code uses them instead of the
+  generic boxes / text. To decide with the user: image format (PNG 1-bit / threshold), naming and sub-folders, animation frames; `tools/gen_module_sprites.py`
+  (drawn in code) stays or moves to images (from: user)
 - [ ] Convert the main view (the pages) to a declarative screen: it still translates the new events to the old ones and has no latch (UI_GUIDE.md section 8) (from: debt)
-- [ ] The full list of UI/UX items from the start of this session was not copied into this file: ask the user whether anything on it (for example Shift + F1..F4 section keys, now covered by the jump keys?) is still open (from: notes)
-
-Open, engine / board:
+- [ ] Board test later (user): ui.cfg (Knob Direct + two jump slots survive a reboot) and jump slots by identity on the board; catch refresh after manual changes (from: user)
 - [ ] Integration findings for an engine-independent "audio backend" interface (own voice allocator, mono -> stereo, memory policy, measurement hooks) (from: user)
 - [ ] Decide the SD options (a)-(d) (from: notes)
 - [ ] Internal RAM for the startup patch: what stays internal with a 74 KB fast heap (reverb tank, delay, filters) or free internal RAM (IRAM code 124 KB) (from: measurements)
+- [x] ui.cfg: the catch / Knob setting is recalled properly (user, 2026-10-07)
+- [x] Shift + F1..F4 section keys: covered by the jump keys, fine for now; may change for the final hardware revision (user, 2026-10-07)
+- [x] F1 key reset after the revert: checked on the board, works (done 2026-10-07). Risk kept: F1 is the Shift key, so Shift held 2 s within 4 s of start resets the layout
+- Set aside (user, 2026-10-07): unformatted card "format?" ASK (a mount without a file system is still "no card"; needs FATFS mkfs)
+
+## Shift / Mod layers, the MODIFIERS tab (2026-10-07; built, NOT tried by the user, NOT flashed)
+
+User decisions (asked with options): **every control, keys included**, can be set per layer (I recommended knobs + encoders + joystick only: against it, see the
+decisions list); knob targets = **any parameter by learn** (module params by module id, global, sequencer, live GENERAL settings); **Mod = a new key function, on no
+built-in layout** (the user assigns it in the KEYS tab); learn by **both** the chord Shift + Mod + turn a knob and a Learn button in the tab.
+Details chosen by me (say if one is wrong): **Shift and Mod behave the same** (user, after the first try: Mod lacked Shift's popup): Default = as without
+modifier, except a column knob ("No target" popup) and a jump key (saves); Shift's old fixed behaviours (EncA pages, EncB x4, joystick octave / pages, R learn,
+K1 Spk, K2 Vol) are the Shift layer's starting entries, editable; ui.cfg stores only the differences from them (`act default` for a cleared one); Shift + Mod held = the Mod layer; the layers are global (not per key layout) and live in ui.cfg; a modifier key is never taken by a layer, and Shift / Mod
+cannot be a layer entry; the chord learns into the layer the tab shows (default Shift); with the Learn button the next Latch / Select push assigns (Back cancels);
+an absolute knob with a step action (Rows, Pages, Value, Value x4, Octave, Volume) steps once per 1/32 of its travel; a learned module param goes back to Default
+when its module is deleted (`modifiers_prune` at every page rebuild).
+- Code: `core/modifiers.c/.h` (entries, function lists, ui.cfg lines), `scr_mods.c` (tab: Layer, Ctrl, Func, Learn, Reset + the list), `app.c` (`layer_event`,
+  `control_event`, `learn`, `learn_push`, the catch targets per layer: `MACRO_PAGE_ROW`, `ui->knob_away`), `ui_input.c` (generic targets: `synth_ui_knob_row_target`,
+  `synth_ui_knob_target`, `synth_ui_target_step`, `synth_ui_target_describe`, `synth_ui_target_at_cursor`; `MACRO_CFG`), `ACT_MOD` (key function
+  "Mod"; a "Save 1..8" function was added then removed at the user's request: saving a jump = Shift / Mod + the jump key only), HAL `input_control_present()` (the board: the 7 knobs + joystick; the sim: everything). `ui->knob_shift[]` and `ACT_PAGE_KNOB_SHIFT` are gone.
+  The macro learn (Shift + R knob) now also takes GENERAL settings.
+- Verified: sim + firmware build (RAM 53.4 %); a scratch test through `app_step` (defaults, Mod + EncA = Pages, the chord, the Learn button + push, Shift + jump key
+  still saves, a key's Shift entry overrides it, ui.cfg round trip, the old `shift N cfg` format, prune); the tab drawn at 128 x 128 with `ui_dump`'s stubs.
+- Macros on any hardware (user: "parametrable so any hardware layout can accommodate the UI"): knob functions "Macro 1..3" (plays `ui->macro[k]`; on a col knob with
+  the catch) and "Learn M1..3"; the starting entries depend on the board (`input_control_present(CTL_KNOB_R1)`): without R knobs Shift + K3 / K4 = Macro 1 / 2.
+  `ui_dump` stub: `UI_DUMP_BOARD=hwv1` = the prototype's controls.
+- Func list of a knob (fixed after the user found Spk missing once unselected): Default, None, the live GENERAL settings (Vol Spk Out Glide Legato Patch Knob), the steps; other parameters only by learn.
+- Not done / limits: no LED for a key's layer function; keys with a Shift / Mod entry do not show it on their LED; the tab cannot set a knob param without learn.
 
 ## UI/UX round (2026-10-06; built, mostly confirmed by the user on the board; the user flashes)
 
@@ -254,10 +291,15 @@ engine: the build made after these numbers adds a **fast path** (steady pitch an
 The user decides and I record the reasoning and move on, without re-litigating:
 - **All signals are q15 audio-rate blocks** (ADR-010): simpler, costs CPU for slow modulators.
 - **Naive saturation** (ADR-013), **q15 block-floating-point FFT, N = 512** (ADR-016), **Dattorro plate reverb** and **fixed Juno-like chorus modes** (ADR-019 / 020), **AMY replaced outright** (ADR-027).
+- **MODIFIERS tab covers the keys too** (2026-10-07; I recommended knobs + encoders + joystick): risk = a larger tab list (~60 controls on the board) and file;
+  mitigated: Default entries keep the old behaviour, modifier keys and Menu-less lock-outs cannot happen through a layer (Shift / Mod keys are never remapped by it).
 - On the hardware (ADR-035): a **float exception** for the filters; **mono delay / reverb** and the **half-rate reverb tank** as build flags; the **5-saw supersaw**; the sample rate is **never below 44100 Hz**; modal as phasors and the additive recurrence were done before asking
   because their tests show the same sound within a stated tolerance.
 
 ## Known debt / small issues
+
+- ui.cfg is written into one `STORAGE_FILE_MAX` (4 KB) buffer: 64 macro destinations (~2.2 KB) plus many Shift / Mod key entries can pass it, and the end is
+  cut silently (the cut lines are lost at the next load). Fix if it bites: split macros into their own file, or write in chunks. Min / Max step by 5 %.
 
 - UI: the main view (pages) is not a declarative screen yet (no latch, old events); the Mono / Para GENERAL tab has 7 rows and only scrolls on a short screen; the Knob mode, jump slots and Shift-knob targets are saved in ui.cfg (2026-10-07);
   the sim's panel does not draw the key LEDs; this session's UI changes were verified on the board by the user, not by host tests (the 160 engine tests do not cover `src/core/ui_*.c`; `tools/ui_dump.c` can).

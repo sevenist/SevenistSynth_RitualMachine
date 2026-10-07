@@ -204,17 +204,15 @@ void draw_synth_info(u8g2_t *g, const gui_style_t *st, gui_rect_t box, const rac
     gui_draw_text_centered(g, gui_below(r, st->gap + 2 + 4 * rh, rh), buf);
 }
 
-// Parameter list (left) + info box (right) for the cfg parameters `ids`; selected row = ui_row (1-based).
-static void draw_cfg_list(u8g2_t *g, const gui_style_t *st, gui_rect_t list, const rack_t *rack,
-                          const int *ids, int count, int sel_row) {
-    char val[24];
-    int row_h = gui_row_h(g, st);
-    gui_rect_t row = gui_rect(list.x, list.y + st->list_top, list.w - 1, row_h);
-    for (int i = 0; i < count; i++) {
-        synth_config_format(&rack->cfg, (cfg_param_id_t)ids[i], val, sizeof val);
-        gui_draw_field(g, st, row, synth_config_label((cfg_param_id_t)ids[i]), val, sel_row == i + 1);
-        row = gui_below(row, st->gap, row_h);
-    }
+// Label and value of row `row` of an FM page (fm_page_row).
+static const char *fm_row_text(const synth_ui_t *ui, const rack_t *rack, const page_t *pg, int row, char *val, int n) {
+    fm_row_t r;
+    if (!fm_page_row(ui, pg, row, &r)) { snprintf(val, (size_t)n, "?"); return "?"; }
+    if (r.selector) { snprintf(val, (size_t)n, "%d/4", (ui->fm_pt & 3) + 1); return "Pt"; }
+    if (r.cfg >= 0) { synth_config_format(&rack->cfg, (cfg_param_id_t)r.cfg, val, (size_t)n); return synth_config_label((cfg_param_id_t)r.cfg); }
+    dx7_value_format(&rack->cfg.fm, r.op, r.v, val, (size_t)n);
+    if (pg->graph == GRAPH_FM_ENV) return r.v >= DXV_EG_T1 ? "Time" : "Lvl";
+    return dx7_value_label(r.op, r.v);
 }
 
 /* ---------------- screen ---------------- */
@@ -283,7 +281,7 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
     const rack_slot_t *ms = pg.slot != GLOBAL_PAGE ? &rack->slot[pg.slot] : NULL;
 
     gui_rect_t row = gui_rect(list.x, list.y + st->list_top, list.w - 1, row_h);
-    for (int i = 0; i < (pg.graph == GRAPH_FM ? 0 : pg.count); i++) {
+    for (int i = 0; i < pg.count; i++) {
         bool sel = ui->row == i + 1;
         const char *label;
         if (ms && (pg.params[i] == PRM_TGT || pg.params[i] == PRM_TPRM)) {
@@ -302,6 +300,8 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
             rack_mparam_format(ms, pg.params[i], val, sizeof val);
             if (pg.params[i] == rack_depth_index((module_type_t)ms->type)) rack_depth_format(rack, pg.slot, val, sizeof val);
             if (ms->type == MOD_SAMPLER && pg.params[i] == MP_SM_FILE) file_label((int)ms->v[MP_SM_FILE] - 1, val, sizeof val);
+        } else if (graph_is_fm(pg.graph)) {
+            label = fm_row_text(ui, rack, &pg, i + 1, val, sizeof val);
         } else if (pg.graph == GRAPH_SEQ_CFG) {
             label = seq_param_label((seq_param_id_t)pg.params[i]);
             seq_param_format(seq, (seq_param_id_t)pg.params[i], val, sizeof val);
@@ -311,8 +311,8 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
         }
         gui_draw_field(g, st, row, label, val, sel);
         // Catch indicator: a 3x2 px chevron at the right edge of the row when the col knob is not yet caught.
-        // Not while Shift is held: the knobs then drive their Shift targets, whose catch state the popup shows.
-        if (i < SYNTH_UI_COL_KNOBS && !ui->shift_held) {
+        // Not while a modifier sends the knob to its Shift / Mod target: the popup shows that catch state.
+        if (i < SYNTH_UI_COL_KNOBS && !(ui->knob_away & (1 << i))) {
             const int8_t cd = ui->knob_catch_dir[i];
             if (cd != 0) {
                 const int ax = gui_right(row) - 1;      // right edge of the row (inside the list width)
@@ -333,10 +333,6 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
             }
         }
         row = gui_below(row, st->gap, row_h);
-    }
-    if (pg.graph == GRAPH_FM) {                  // rows above were drawn from param_label(); redraw them from the cfg
-        gui_rect_t cl = list;
-        draw_cfg_list(g, st, cl, rack, pg.params, pg.count, ui->row);
     }
 
     // graph of the current page
@@ -372,7 +368,9 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
             break;
         case GRAPH_STR_FILTER: draw_filter(g, box, p->str.ftype, p->str.fcut, p->str.fres); break;
         case GRAPH_SEQ_CFG: draw_seq_cfg(g, st, box, seq); break;
-        case GRAPH_FM:      draw_synth_info(g, st, box, rack); break;
+        case GRAPH_FM:      draw_algo(g, box, &rack->cfg.fm, -1); break;                                   // the operator tree
+        case GRAPH_FM_OP:   draw_algo(g, box, &rack->cfg.fm, pg.def - GP_FM_OP_BASE); break;               // ... with this operator marked
+        case GRAPH_FM_ENV:  draw_eg_editor(g, box, &rack->cfg.fm.op[pg.def - GP_FM_ENV_BASE], ui->fm_pt & 3); break;
         default: break;
     }
 }

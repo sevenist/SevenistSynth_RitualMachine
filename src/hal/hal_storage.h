@@ -10,7 +10,7 @@
 extern "C" {
 #endif
 
-#define STORAGE_FILE_MAX 2048                       // the largest settings file (keys.cfg: under 1 KB)
+#define STORAGE_FILE_MAX 4096                       // the largest settings file (keys.cfg: under 1 KB; ui.cfg with many Shift / Mod entries: up to ~3 KB)
 
 // The folders of a SynthCore card, relative to its root. Parents come before their children (they are created in this order).
 #define STORAGE_DIR_SAMPLES "system/samples"         // the sample library (*.smp)

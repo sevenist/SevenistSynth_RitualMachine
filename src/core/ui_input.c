@@ -1,8 +1,10 @@
 // What events do: editing a row, the menu tabs, knobs and macros, and synth_ui_handle() (the entry point for UI events).
 #include "core/ui_screen.h"
 #include "core/synth_config.h"
+#include "core/curves.h"
 #include "hal/hal_input.h"
 #include <stdio.h>
+#include <string.h>
 
 // Sequencer rows: 1 Step (cursor), 2 Note, 3 Len, 4 Run.
 static void handle_seq(synth_ui_t *ui, seq_t *seq, int row, int dir) {
@@ -67,10 +69,16 @@ static bool page_row_step(synth_ui_t *ui, synth_params_t *params, seq_t *seq, ra
             if (sl->v[MP_SM_SLICE] > (float)slices) sl->v[MP_SM_SLICE] = (float)slices;
         }
         return changed;
-    } else if (pg->graph == GRAPH_FM) {                  // FM page: patch (reloads the voices) and volume
-        cfg_effect_t fx = synth_config_adjust(&rack->cfg, (cfg_param_id_t)pg->params[row - 1], dir);
-        if (fx == CFG_REBUILD) ui->rebuild = true;
-        return fx == CFG_LIVE;
+    } else if (graph_is_fm(pg->graph)) {                 // FM pages: the patch's values (live), the envelope point, Patch and Vol
+        fm_row_t r;
+        if (!fm_page_row(ui, pg, row, &r)) return false;
+        if (r.selector) { ui->fm_pt = (ui->fm_pt + dir + 4) % 4; return false; }
+        if (r.cfg >= 0) {
+            const cfg_effect_t fx = synth_config_adjust(&rack->cfg, (cfg_param_id_t)r.cfg, dir);
+            if (fx == CFG_REBUILD) ui->rebuild = true;
+            return fx == CFG_LIVE;
+        }
+        return dx7_value_adjust(&rack->cfg.fm, r.op, r.v, dir);
     } else if (pg->graph == GRAPH_SEQ) {
         handle_seq(ui, seq, row, dir);
         return false;
@@ -82,31 +90,49 @@ static bool page_row_step(synth_ui_t *ui, synth_params_t *params, seq_t *seq, ra
     return param_adjust(params, (param_id_t)pg->params[row - 1], dir) != 0;
 }
 
-// A knob sets a parameter by position. Parameters only know "one step up / down", so the range is measured by walking to both
-// ends (silent: the audio only sees the final value) and then walking back to the step that matches the knob position.
+// A knob sets a parameter by position. Most parameters only know "one step up / down", so the range is measured by walking to both
+// ends (silent: the audio only sees the final value) and then walking back to the step that matches the knob position. Values that can
+// be read and written as 0..1 (the FM values, dx7.h) are driven exactly instead: reading them never changes them.
 typedef bool (*step_fn)(void *ctx, int dir);
 #define KNOB_MAX_STEPS 512
 
-static void knob_set(step_fn f, void *ctx, int value) {
+typedef struct {
+    step_fn f; void *ctx;                                   // walked one step at a time ...
+    float (*get)(void *ctx); bool (*set)(void *ctx, float x); int steps;   // ... or, when get is set: 0..1 over `steps` positions
+} knob_drv_t;
+
+static int knob_index(int value, int total) {
+    const int idx = (int)((long)value * (total + 1) / (INPUT_VALUE_MAX + 1));
+    return idx > total ? total : idx;
+}
+
+static void knob_set(const knob_drv_t *d, int value) {
+    if (d->get) { if (d->steps > 0) d->set(d->ctx, (float)knob_index(value, d->steps) / (float)d->steps); return; }
     int total = 0;
-    for (int i = 0; i < KNOB_MAX_STEPS && f(ctx, -1); i++) {}
-    while (total < KNOB_MAX_STEPS && f(ctx, +1)) total++;
+    for (int i = 0; i < KNOB_MAX_STEPS && d->f(d->ctx, -1); i++) {}
+    while (total < KNOB_MAX_STEPS && d->f(d->ctx, +1)) total++;
     if (total == 0) return;
-    int idx = (int)((long)value * (total + 1) / (INPUT_VALUE_MAX + 1));
-    if (idx > total) idx = total;
-    for (int i = total; i > idx; i--) f(ctx, -1);
+    const int idx = knob_index(value, total);
+    for (int i = total; i > idx; i--) d->f(d->ctx, -1);
 }
 
 // Measures a parameter without changing it: returns its current step index (0 = min) and puts the number of steps from min to max in *total.
-// It walks to the bottom, up to the top, and back down to where it was.
-static int knob_measure(step_fn f, void *ctx, int *total) {
+// A walked parameter goes to the bottom, up to the top, and back down to where it was.
+static int knob_measure(const knob_drv_t *d, int *total) {
+    if (d->get) { *total = d->steps; return (int)(d->get(d->ctx) * (float)d->steps + 0.5f); }
     int down = 0, up = 0;
-    while (down < KNOB_MAX_STEPS && f(ctx, -1)) down++;
-    while (up < KNOB_MAX_STEPS && f(ctx, +1)) up++;
-    for (int i = up; i > down; i--) f(ctx, -1);
+    while (down < KNOB_MAX_STEPS && d->f(d->ctx, -1)) down++;
+    while (up < KNOB_MAX_STEPS && d->f(d->ctx, +1)) up++;
+    for (int i = up; i > down; i--) d->f(d->ctx, -1);
     *total = up;
     return down;
 }
+
+// An FM value (dx7.h), driven exactly.
+typedef struct { dx7_patch_t *p; int op, v; } fm_ctx_t;
+static float fm_get(void *c) { const fm_ctx_t *x = c; return dx7_value_get(x->p, x->op, x->v); }
+static bool  fm_set(void *c, float v) { const fm_ctx_t *x = c; return dx7_value_set(x->p, x->op, x->v, v); }
+static knob_drv_t fm_drv(fm_ctx_t *c) { return (knob_drv_t){NULL, c, fm_get, fm_set, dx7_value_steps(c->op, c->v)}; }
 
 // Knob bookkeeping. `key` identifies what the knob drives.
 // Returns true when the event should be applied. For col knobs (knob < SYNTH_UI_COL_KNOBS): catch mode — the knob is
@@ -123,13 +149,12 @@ static bool knob_new_position(synth_ui_t *ui, int knob, int key, int value) {
 
 // For col knobs: check catch and update knob_catch_dir. Returns true if the knob is caught and knob_set should run.
 // param_pos_out receives the current step index so knob_set can skip the re-walk when already caught.
-static bool knob_check_catch(synth_ui_t *ui, const rack_t *rack, int knob, int value, step_fn f, void *ctx) {
+static bool knob_check_catch(synth_ui_t *ui, const rack_t *rack, int knob, int value, const knob_drv_t *d) {
     if (rack->cfg.knob_mode) { ui->knob_catch_dir[knob] = 0; return true; }   // Direct mode: no catch, no arrow
     if (ui->knob_catch_dir[knob] == 0) return true;    // already caught
     int total;
-    const int cur = knob_measure(f, ctx, &total);
-    int knob_idx = (int)((long)value * (total + 1) / (INPUT_VALUE_MAX + 1));
-    if (knob_idx > total) knob_idx = total;
+    const int cur = knob_measure(d, &total);
+    const int knob_idx = knob_index(value, total);
     const int diff = knob_idx - cur;                   // > 0: the knob is above the value, so it has to be turned down
     const int dir = diff > 0 ? -1 : 1;
     // Caught on an exact hit, or when the knob has crossed the value since it was last seen (a fast turn skips the exact step).
@@ -142,9 +167,23 @@ static bool knob_check_catch(synth_ui_t *ui, const rack_t *rack, int knob, int v
 typedef struct { synth_ui_t *ui; synth_params_t *params; seq_t *seq; rack_t *rack; const page_t *pg; int row; } row_ctx_t;
 static bool row_step(void *c, int dir) { row_ctx_t *x = c; return page_row_step(x->ui, x->params, x->seq, x->rack, x->pg, x->row, dir); }
 
+// A page row's knob driver: exact for an FM value, walking otherwise.
+static knob_drv_t row_drv(row_ctx_t *rc, fm_ctx_t *fc) {
+    fm_row_t r;
+    if (graph_is_fm(rc->pg->graph) && fm_page_row(rc->ui, rc->pg, rc->row, &r) && !r.selector && r.cfg < 0) {
+        *fc = (fm_ctx_t){&rc->rack->cfg.fm, r.op, r.v};
+        return fm_drv(fc);
+    }
+    return (knob_drv_t){row_step, rc, NULL, NULL, 0};
+}
+
 // Rows a knob may drive: plain values. Not the ones that select or cycle (targets, motion / sequencer step editors, FM patch, sample file).
 static bool row_is_knobbable(const rack_t *rack, const page_t *pg, int row) {
-    if (pg->graph == GRAPH_SEQ || pg->graph == GRAPH_FM || pg->graph == GRAPH_MS_STEPS || pg->graph == GRAPH_MS_LANE) return false;
+    if (graph_is_fm(pg->graph)) {                        // not the envelope point selector, not Patch (a walk would load every patch)
+        fm_row_t r;
+        return fm_page_row(NULL, pg, row, &r) && !r.selector && r.cfg != CFGP_PATCH;
+    }
+    if (pg->graph == GRAPH_SEQ || pg->graph == GRAPH_MS_STEPS || pg->graph == GRAPH_MS_LANE) return false;
     if (pg->graph == GRAPH_EG && row == 1) return false;
     if (pg->slot == GLOBAL_PAGE) return true;
     const int prm = pg->params[row - 1];
@@ -159,8 +198,10 @@ bool synth_ui_knob_row(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_
     if (row > pg.count || !row_is_knobbable(rack, &pg, row)) return false;
     if (!knob_new_position(ui, row - 1, ui->page * 8 + row, value)) return false;
     row_ctx_t c = {ui, params, seq, rack, &pg, row};
-    if (!knob_check_catch(ui, rack, row - 1, value, row_step, &c)) return false;
-    knob_set(row_step, &c, value);
+    fm_ctx_t fc;
+    const knob_drv_t d = row_drv(&c, &fc);
+    if (!knob_check_catch(ui, rack, row - 1, value, &d)) return false;
+    knob_set(&d, value);
     ui->knob_cur[row - 1] = -2;
     return true;
 }
@@ -169,18 +210,16 @@ static bool volume_step(void *c, int dir) { return synth_config_adjust(&((rack_t
 
 bool synth_ui_set_volume(synth_ui_t *ui, rack_t *rack, int value) {
     if (!knob_new_position(ui, SYNTH_UI_KNOB_VOLUME, 0, value)) return false;
-    knob_set(volume_step, rack, value);
+    const knob_drv_t d = {volume_step, rack, NULL, NULL, 0};
+    knob_set(&d, value);
     return true;
 }
 
-/* Macros: the three right-hand knobs each drive one parameter chosen by the user. Shift + knob assigns the parameter under the
- * cursor ("learn"). A module is referred to by its id, so a macro survives inserting modules and is cleared when its module goes. */
+/* Targets: a parameter a knob drives besides the page rows (macro_t), through a mapping (mapping_t: Min / Max / curve, core/curves.h).
+ * Shift / Mod + a knob can drive one (core/modifiers.h); a macro drives up to SYNTH_UI_MACRO_DESTS of them at once. A module is referred to
+ * by its id, so a target survives inserting modules and does nothing once its module is gone. */
 
 static void macro_clear(macro_t *m) { m->kind = MACRO_NONE; m->id = 0; m->prm = 0; }
-
-static int macro_slot(const synth_ui_t *ui, const rack_t *rack, int k) {
-    return ui->macro[k].kind == MACRO_MODULE ? rack_find(rack, ui->macro[k].id) : RACK_NONE;
-}
 
 typedef struct { synth_params_t *params; seq_t *seq; rack_t *rack; macro_t m; int slot; } macro_ctx_t;
 static bool macro_step(void *c, int dir) {
@@ -191,106 +230,285 @@ static bool macro_step(void *c, int dir) {
             return rack_mparam_adjust(&x->rack->slot[x->slot], x->m.prm, dir);
         case MACRO_GLOBAL: return param_adjust(x->params, (param_id_t)x->m.prm, dir) != 0;
         case MACRO_SEQ:    return seq_param_adjust(x->seq, (seq_param_id_t)x->m.prm, dir);
+        case MACRO_CFG:    return synth_config_adjust(&x->rack->cfg, (cfg_param_id_t)x->m.prm, dir) != CFG_UNCHANGED;
+        case MACRO_FM:     return dx7_value_adjust(&x->rack->cfg.fm, x->m.id, x->m.prm, dir);
         default:           return false;
     }
 }
 
-bool synth_ui_macro(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int k, int value) {
-    if (k < 0 || k >= SYNTH_UI_MACROS || ui->macro[k].kind == MACRO_NONE) return false;
-    int slot = RACK_NONE;
-    if (ui->macro[k].kind == MACRO_MODULE && (slot = macro_slot(ui, rack, k)) == RACK_NONE) { macro_clear(&ui->macro[k]); return false; }
-    if (!knob_new_position(ui, SYNTH_UI_KNOB_MACRO + k, 0, value)) return false;
-    macro_ctx_t c = {params, seq, rack, ui->macro[k], slot};
-    knob_set(macro_step, &c, value);
+// Ready to step: the module's slot looked up. False when there is nothing to drive.
+static bool target_ctx(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_t *m, macro_ctx_t *c) {
+    *c = (macro_ctx_t){params, seq, rack, *m, RACK_NONE};
+    if (m->kind == MACRO_NONE) return false;
+    if (m->kind == MACRO_MODULE && (c->slot = rack_find(rack, m->id)) == RACK_NONE) return false;
+    if (m->kind == MACRO_FM && !dx7_value_valid(m->id, m->prm)) return false;
     return true;
 }
 
-bool synth_ui_macro_learn(synth_ui_t *ui, const rack_t *rack, int k) {
-    if (k < 0 || k >= SYNTH_UI_MACROS || ui->in_rack) return false;
+// A target's knob driver: exact for an FM value, walking otherwise.
+static knob_drv_t target_drv(macro_ctx_t *c, fm_ctx_t *fc) {
+    if (c->m.kind == MACRO_FM) { *fc = (fm_ctx_t){&c->rack->cfg.fm, c->m.id, c->m.prm}; return fm_drv(fc); }
+    return (knob_drv_t){macro_step, c, NULL, NULL, 0};
+}
+
+static int target_key(const macro_t *m) { return 0x100000 | m->kind << 16 | m->id << 8 | m->prm; }   // never a page knob's key
+
+// Sets a driven value to n (0..1 of its range): exact values directly, walked ones to the nearest step from where they are.
+static void drv_set_norm(const knob_drv_t *d, float n) {
+    if (n < 0.0f) n = 0.0f;
+    if (n > 1.0f) n = 1.0f;
+    if (d->get) { d->set(d->ctx, n); return; }
+    int total;
+    const int cur = knob_measure(d, &total);
+    const int idx = (int)(n * (float)total + 0.5f);
+    for (int i = cur; i < idx; i++) d->f(d->ctx, +1);
+    for (int i = cur; i > idx; i--) d->f(d->ctx, -1);
+}
+
+// The catch of a mapped target, in knob positions: caught when the knob's output lands on the current step, or once the knob crossed the
+// first position that maps to the current value (prev: the last way to turn, 127 = unknown). Returns the way to turn, 0 = caught.
+static int mapped_catch_dir(const mapping_t *mp, int value, int cur, int total, int prev) {
+    if (total <= 0) return 0;
+    const int out = (int)(mapping_apply(mp, (float)value / INPUT_VALUE_MAX) * (float)total + 0.5f);
+    if (out == cur) return 0;
+    const int kp = value * (MAPPING_POSITIONS - 1) / INPUT_VALUE_MAX;
+    const int tp = mapping_inverse(mp, (float)cur / (float)total);
+    const int dir = kp > tp ? -1 : 1;
+    if (prev != 127 && prev != 0 && prev != dir) return 0;
+    return dir;
+}
+
+// A col knob on a mapped target: the catch (Catch mode), then the value. False while not caught.
+static bool col_knob_mapped(synth_ui_t *ui, const rack_t *rack, int k, int value, const knob_drv_t *d, const mapping_t *mp) {
+    if (rack->cfg.knob_mode) ui->knob_catch_dir[k] = 0;
+    else if (ui->knob_catch_dir[k] != 0) {
+        int total;
+        const int cur = knob_measure(d, &total);
+        ui->knob_catch_dir[k] = (int8_t)mapped_catch_dir(mp, value, cur, total, ui->knob_catch_dir[k]);
+        if (ui->knob_catch_dir[k] != 0) return false;
+    }
+    drv_set_norm(d, mapping_apply(mp, (float)value / INPUT_VALUE_MAX));
+    ui->knob_cur[k] = -2;
+    return true;
+}
+
+bool synth_ui_knob_row_target(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int row, const mapping_t *mp, int value) {
+    if (row < 1 || row > SYNTH_UI_COL_KNOBS) return false;
+    const int k = row - 1;
+    ui->knob_val[k] = value;
+    macro_ctx_t c;
+    if (!target_ctx(params, seq, rack, &mp->t, &c)) return false;
+    if (!knob_new_position(ui, k, target_key(&mp->t), value)) return false;
+    fm_ctx_t fc;
+    const knob_drv_t d = target_drv(&c, &fc);
+    return col_knob_mapped(ui, rack, k, value, &d, mp);
+}
+
+bool synth_ui_knob_target(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int knob, const mapping_t *mp, int value) {
+    macro_ctx_t c;
+    if (knob < SYNTH_UI_COL_KNOBS || knob >= SYNTH_UI_KNOBS || !target_ctx(params, seq, rack, &mp->t, &c)) return false;
+    if (!knob_new_position(ui, knob, target_key(&mp->t), value)) return false;
+    fm_ctx_t fc;
+    const knob_drv_t d = target_drv(&c, &fc);
+    drv_set_norm(&d, mapping_apply(mp, (float)value / INPUT_VALUE_MAX));
+    return true;
+}
+
+bool synth_ui_target_step(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_t *m, int n) {
+    macro_ctx_t c;
+    if (!target_ctx(params, seq, rack, m, &c)) return false;
+    bool changed = false;
+    for (int i = 0; i < (n < 0 ? -n : n) && i < KNOB_MAX_STEPS; i++) changed |= macro_step(&c, n < 0 ? -1 : 1);
+    return changed;
+}
+
+float synth_ui_target_norm(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_t *m) {
+    macro_ctx_t c;
+    fm_ctx_t fc;
+    if (!target_ctx(params, seq, rack, m, &c)) return -1.0f;
+    const knob_drv_t d = target_drv(&c, &fc);
+    int total;
+    const int cur = knob_measure(&d, &total);
+    return total > 0 ? (float)cur / (float)total : 0.0f;
+}
+
+bool synth_ui_target_describe(const synth_params_t *params, const seq_t *seq, const rack_t *rack, const macro_t *m, char *name, int nn, char *value, int nv) {
+    switch (m->kind) {
+        case MACRO_MODULE: {
+            const int slot = rack_find(rack, m->id);
+            if (slot == RACK_NONE) return false;
+            const module_type_t t = (module_type_t)rack->slot[slot].type;
+            char nm[8];
+            rack_slot_name(rack, slot, nm, sizeof nm);
+            snprintf(name, (size_t)nn, "%s %s", nm, rack_mparam_label(t, m->prm));
+            if (!value) return true;
+            if (m->prm == rack_depth_index(t)) rack_depth_format(rack, slot, value, nv);
+            else rack_mparam_format(&rack->slot[slot], m->prm, value, nv);
+            return true;
+        }
+        case MACRO_GLOBAL:
+            snprintf(name, (size_t)nn, "%s", param_label((param_id_t)m->prm));
+            if (value) param_format(params, (param_id_t)m->prm, value, (size_t)nv);
+            return true;
+        case MACRO_SEQ:
+            snprintf(name, (size_t)nn, "%s", seq_param_label((seq_param_id_t)m->prm));
+            if (value) seq_param_format(seq, (seq_param_id_t)m->prm, value, (size_t)nv);
+            return true;
+        case MACRO_CFG:
+            snprintf(name, (size_t)nn, "%s", synth_config_label((cfg_param_id_t)m->prm));
+            if (value) synth_config_format(&rack->cfg, (cfg_param_id_t)m->prm, value, (size_t)nv);
+            return true;
+        case MACRO_FM:
+            if (!dx7_value_valid(m->id, m->prm)) return false;
+            if (m->id == DX7_GLOBAL_OP) snprintf(name, (size_t)nn, "FM %s", dx7_value_label(m->id, m->prm));
+            else                        snprintf(name, (size_t)nn, "OP%d %s", m->id + 1, dx7_value_label(m->id, m->prm));
+            if (value) dx7_value_format(&rack->cfg.fm, m->id, m->prm, value, (size_t)nv);
+            return true;
+        default: return false;
+    }
+}
+
+bool synth_ui_target_at_cursor(const synth_ui_t *ui, const rack_t *rack, macro_t *out) {
+    macro_clear(out);
+    if (ui->in_rack) {                                  // the GENERAL tab: a setting that changes live (not Type, Voices, PEnv: they rebuild)
+        if (tab_kind(rack, ui->menu_tab) != TAB_GENERAL) return false;
+        const int id = scr_general_setting(ui->row);
+        if (id < 0 || id == CFGP_TYPE || id == CFGP_VOICES || id == CFGP_PARA_ENV) return false;
+        *out = (macro_t){MACRO_CFG, 0, (uint8_t)id};
+        return true;
+    }
     page_t pg;
     get_page(ui, rack, ui->page, &pg);
     const int row = ui->row;
     if (row < 1 || row > pg.count || !row_is_knobbable(rack, &pg, row)) return false;
-    macro_t m;
-    macro_clear(&m);
-    if (pg.slot != GLOBAL_PAGE) {
-        m.kind = MACRO_MODULE; m.id = rack->slot[pg.slot].id;
-        m.prm = (uint8_t)(pg.graph == GRAPH_EG ? 3 * ui->eg_pt + (row - 2) : pg.params[row - 1]);
-    } else if (pg.graph == GRAPH_SEQ_CFG) { m.kind = MACRO_SEQ; m.prm = (uint8_t)pg.params[row - 1]; }
-    else { m.kind = MACRO_GLOBAL; m.prm = (uint8_t)pg.params[row - 1]; }
-    ui->macro[k] = m;
+    fm_row_t r;
+    if (graph_is_fm(pg.graph) && fm_page_row(ui, &pg, row, &r)) {
+        *out = r.cfg >= 0 ? (macro_t){MACRO_CFG, 0, (uint8_t)r.cfg} : (macro_t){MACRO_FM, (uint8_t)r.op, (uint8_t)r.v};
+    } else if (pg.slot != GLOBAL_PAGE) {
+        *out = (macro_t){MACRO_MODULE, rack->slot[pg.slot].id, (uint8_t)(pg.graph == GRAPH_EG ? 3 * ui->eg_pt + (row - 2) : pg.params[row - 1])};
+    } else if (pg.graph == GRAPH_SEQ_CFG) *out = (macro_t){MACRO_SEQ, 0, (uint8_t)pg.params[row - 1]};
+    else                                  *out = (macro_t){MACRO_GLOBAL, 0, (uint8_t)pg.params[row - 1]};
+    return true;
+}
+
+/* ---------------- macros: one knob, several destinations ---------------- */
+
+static bool same_target(const macro_t *a, const macro_t *b) { return a->kind == b->kind && a->id == b->id && a->prm == b->prm; }
+
+static bool macro_dest_set(synth_params_t *params, seq_t *seq, rack_t *rack, const mapping_t *mp, float knob) {
+    macro_ctx_t c;
+    fm_ctx_t fc;
+    if (!target_ctx(params, seq, rack, &mp->t, &c)) return false;
+    const knob_drv_t d = target_drv(&c, &fc);
+    drv_set_norm(&d, mapping_apply(mp, knob));
+    return true;
+}
+
+bool synth_ui_macro(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int knob, int k, int value) {
+    if (k < 0 || k >= SYNTH_UI_MACROS || ui->macro[k].n == 0) return false;
+    if (knob >= SYNTH_UI_COL_KNOBS && knob < SYNTH_UI_KNOBS && !knob_new_position(ui, knob, 0x200000 | k, value)) return false;
+    bool any = false;
+    for (int i = 0; i < ui->macro[k].n; i++) any |= macro_dest_set(params, seq, rack, &ui->macro[k].dest[i], (float)value / INPUT_VALUE_MAX);
+    return any;
+}
+
+bool synth_ui_macro_row(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int row, int k, int value) {
+    if (row < 1 || row > SYNTH_UI_COL_KNOBS || k < 0 || k >= SYNTH_UI_MACROS) return false;
+    const int kk = row - 1;
+    ui->knob_val[kk] = value;
+    const macro_def_t *md = &ui->macro[k];
+    if (md->n == 0) return false;
+    macro_ctx_t c;
+    fm_ctx_t fc;
+    if (!target_ctx(params, seq, rack, &md->dest[0].t, &c)) return false;
+    if (!knob_new_position(ui, kk, target_key(&md->dest[0].t), value)) return false;
+    const knob_drv_t d = target_drv(&c, &fc);
+    if (!col_knob_mapped(ui, rack, kk, value, &d, &md->dest[0])) return false;    // the catch follows the first destination
+    for (int i = 1; i < md->n; i++) macro_dest_set(params, seq, rack, &md->dest[i], (float)value / INPUT_VALUE_MAX);
+    return true;
+}
+
+bool synth_ui_macro_step(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_def_t *m, int n) {
+    bool any = false;
+    for (int i = 0; i < m->n; i++) any |= synth_ui_target_step(params, seq, rack, &m->dest[i].t, n);
+    return any;
+}
+
+bool synth_ui_macro_add(synth_ui_t *ui, int k, const macro_t *t) {
+    if (k < 0 || k >= SYNTH_UI_MACROS || t->kind == MACRO_NONE) return false;
+    macro_def_t *md = &ui->macro[k];
+    for (int i = 0; i < md->n; i++) if (same_target(&md->dest[i].t, t)) return false;
+    if (md->n >= SYNTH_UI_MACRO_DESTS) return false;
+    md->dest[md->n++] = (mapping_t){*t, 0, 0, 0};
     ui->knob_key[SYNTH_UI_KNOB_MACRO + k] = -1;         // the next movement applies at once
     return true;
 }
 
+bool synth_ui_macro_learn(synth_ui_t *ui, const rack_t *rack, int k) {
+    macro_t m;
+    return synth_ui_target_at_cursor(ui, rack, &m) && synth_ui_macro_add(ui, k, &m);
+}
+
+void synth_ui_macro_remove(synth_ui_t *ui, int k, int dest) {
+    if (k < 0 || k >= SYNTH_UI_MACROS) return;
+    macro_def_t *md = &ui->macro[k];
+    if (dest < 0 || dest >= md->n) return;
+    for (int i = dest; i + 1 < md->n; i++) md->dest[i] = md->dest[i + 1];
+    md->n--;
+    memset(&md->dest[md->n], 0, sizeof md->dest[md->n]);
+}
+
 void synth_ui_macro_describe(const synth_ui_t *ui, const rack_t *rack, int k, char *out, int n) {
-    const macro_t *m = &ui->macro[k];
-    const int slot = macro_slot(ui, rack, k);
-    if (m->kind == MACRO_MODULE && slot != RACK_NONE) {
-        char nm[8];
-        rack_slot_name(rack, slot, nm, sizeof nm);
-        snprintf(out, (size_t)n, "R%d > %s %s", k + 1, nm, rack_mparam_label((module_type_t)rack->slot[slot].type, m->prm));
-    } else if (m->kind == MACRO_GLOBAL) snprintf(out, (size_t)n, "R%d > %s", k + 1, param_label((param_id_t)m->prm));
-    else if (m->kind == MACRO_SEQ)      snprintf(out, (size_t)n, "R%d > %s", k + 1, seq_param_label((seq_param_id_t)m->prm));
-    else                                snprintf(out, (size_t)n, "R%d (unassigned)", k + 1);
+    char name[24];
+    const macro_def_t *md = &ui->macro[k];
+    if (md->n == 0 || !synth_ui_target_describe(NULL, NULL, rack, &md->dest[0].t, name, sizeof name, NULL, 0)) {
+        snprintf(out, (size_t)n, "M%d (unassigned)", k + 1);
+        return;
+    }
+    if (md->n > 1) snprintf(out, (size_t)n, "M%d > %s +%d", k + 1, name, md->n - 1);
+    else           snprintf(out, (size_t)n, "M%d > %s", k + 1, name);
 }
 
-typedef struct { rack_t *rack; cfg_param_id_t id; } cfg_ctx_t;
-static bool cfg_step(void *c, int dir) { cfg_ctx_t *x = c; return synth_config_adjust(&x->rack->cfg, x->id, dir) != CFG_UNCHANGED; }
-
-bool synth_ui_knob_row_shift(synth_ui_t *ui, rack_t *rack, int row, int value) {
-    if (row < 1 || row > SYNTH_UI_COL_KNOBS) return false;
-    ui->knob_val[row - 1] = value;
-    const macro_t *m = &ui->knob_shift[row - 1];
-    if (m->kind != MACRO_GLOBAL) return false;           // only global (cfg) params wired for now
-    const int knob = row - 1;
-    const int key = 0x200 + m->prm;                     // distinct key from page-knob keys
-    if (!knob_new_position(ui, knob, key, value)) return false;
-    cfg_ctx_t c = {rack, (cfg_param_id_t)m->prm};
-    if (!knob_check_catch(ui, rack, knob, value, cfg_step, &c)) return false;
-    knob_set(cfg_step, &c, value);
-    ui->knob_cur[knob] = -2;
-    return true;
+void synth_ui_macros_prune(synth_ui_t *ui, const rack_t *rack) {
+    for (int k = 0; k < SYNTH_UI_MACROS; k++)
+        for (int i = ui->macro[k].n - 1; i >= 0; i--) {
+            const macro_t *t = &ui->macro[k].dest[i].t;
+            if (t->kind == MACRO_MODULE && rack_find(rack, t->id) == RACK_NONE) synth_ui_macro_remove(ui, k, i);
+        }
 }
 
-bool synth_ui_knob_shift_describe(const synth_ui_t *ui, const rack_t *rack, int row, char *name, int nn, char *value, int nv, int *arrow) {
-    if (row < 1 || row > SYNTH_UI_COL_KNOBS || ui->knob_shift[row - 1].kind != MACRO_GLOBAL) return false;
-    const cfg_param_id_t id = (cfg_param_id_t)ui->knob_shift[row - 1].prm;
-    snprintf(name, (size_t)nn, "%s", synth_config_label(id));
-    synth_config_format(&rack->cfg, id, value, (size_t)nv);
-    const int cd = ui->knob_catch_dir[row - 1];
-    *arrow = cd == 1 || cd == -1 ? cd : 0;              // 127: not measured yet
-    return true;
-}
-
-void synth_ui_catch_refresh(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, bool shift) {
+void synth_ui_catch_refresh(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, const mapping_t *tgt) {
     page_t pg;
     if (!ui->in_rack) get_page(ui, rack, ui->page, &pg);
     for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) {
         int8_t dir = 0;
         int key = -1;
-        step_fn f = NULL;
+        bool have = false;
+        const mapping_t *mp = NULL;
+        knob_drv_t d;
         row_ctx_t rc;
-        cfg_ctx_t cc;
-        void *ctx = NULL;
+        macro_ctx_t mc;
+        fm_ctx_t fc;
         if (!ui->in_rack && ui->knob_val[k] >= 0 && !rack->cfg.knob_mode) {
-            if (shift) {
-                const macro_t *m = &ui->knob_shift[k];
-                if (m->kind == MACRO_GLOBAL) { cc = (cfg_ctx_t){rack, (cfg_param_id_t)m->prm}; f = cfg_step; ctx = &cc; key = 0x200 + m->prm; }
+            if (tgt && tgt[k].t.kind != MACRO_PAGE_ROW) {
+                if (target_ctx(params, seq, rack, &tgt[k].t, &mc)) { d = target_drv(&mc, &fc); key = target_key(&tgt[k].t); mp = &tgt[k]; have = true; }
             } else if (k + 1 <= pg.count && row_is_knobbable(rack, &pg, k + 1)) {
-                rc = (row_ctx_t){ui, params, seq, rack, &pg, k + 1}; f = row_step; ctx = &rc; key = ui->page * 8 + k + 1;
+                rc = (row_ctx_t){ui, params, seq, rack, &pg, k + 1}; d = row_drv(&rc, &fc); key = ui->page * 8 + k + 1; have = true;
             }
         }
-        if (f) {
+        if (have) {
             int total;
-            const int cur = knob_measure(f, ctx, &total);
-            int idx = (int)((long)ui->knob_val[k] * (total + 1) / (INPUT_VALUE_MAX + 1));
-            if (idx > total) idx = total;
+            const int cur = knob_measure(&d, &total);
             // A knob that set the value itself stays caught until something else changes the parameter (walking can measure it one step off).
-            // Only for the same target: Shift swaps the target, and a knob that set the page value has not caught the Shift target.
+            // Only for the same target: a modifier swaps the target, and a knob that set the page value has not caught the modifier's target.
             const bool same = ui->knob_key[k] == key;
             const bool kept = same && (ui->knob_cur[k] == -2 || (ui->knob_catch_dir[k] == 0 && ui->knob_cur[k] == cur));
-            dir = (int8_t)(kept || idx == cur ? 0 : idx > cur ? -1 : 1);
+            if (kept) dir = 0;
+            else if (mp) dir = (int8_t)mapped_catch_dir(mp, ui->knob_val[k], cur, total, 127);
+            else {
+                const int idx = knob_index(ui->knob_val[k], total);
+                dir = (int8_t)(idx == cur ? 0 : idx > cur ? -1 : 1);
+            }
             ui->knob_cur[k] = cur;
             ui->knob_key[k] = key;
         } else {
@@ -300,23 +518,19 @@ void synth_ui_catch_refresh(synth_ui_t *ui, synth_params_t *params, seq_t *seq, 
     }
 }
 
-// The macros start on the first filter's cutoff and resonance and the first LFO's rate, when the rack has them.
-// Shift-knob defaults: knob 0 = speaker level, knob 1 = master volume, knobs 2/3 unassigned.
+// The macros start on the first filter's cutoff and resonance and the first LFO's rate (one destination each), when the rack has them.
 void macros_default(synth_ui_t *ui, const rack_t *rack) {
-    for (int k = 0; k < SYNTH_UI_MACROS; k++) macro_clear(&ui->macro[k]);
+    memset(ui->macro, 0, sizeof ui->macro);
     int fl = RACK_NONE, lf = RACK_NONE;
     for (int i = 0; i < rack->count; i++) {
         if (rack->slot[i].type == MOD_FILTER && fl == RACK_NONE) fl = i;
         if (rack->slot[i].type == MOD_LFO && lf == RACK_NONE) lf = i;
     }
     if (fl != RACK_NONE) {
-        ui->macro[0] = (macro_t){MACRO_MODULE, rack->slot[fl].id, MP_FL_CUT};
-        ui->macro[1] = (macro_t){MACRO_MODULE, rack->slot[fl].id, MP_FL_RES};
+        synth_ui_macro_add(ui, 0, &(macro_t){MACRO_MODULE, rack->slot[fl].id, MP_FL_CUT});
+        synth_ui_macro_add(ui, 1, &(macro_t){MACRO_MODULE, rack->slot[fl].id, MP_FL_RES});
     }
-    if (lf != RACK_NONE) ui->macro[2] = (macro_t){MACRO_MODULE, rack->slot[lf].id, MP_LF_RATE};
-    for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) macro_clear(&ui->knob_shift[k]);
-    ui->knob_shift[0] = (macro_t){MACRO_GLOBAL, 0, CFGP_SPEAKER};
-    ui->knob_shift[1] = (macro_t){MACRO_GLOBAL, 0, CFGP_VOLUME};
+    if (lf != RACK_NONE) synth_ui_macro_add(ui, 2, &(macro_t){MACRO_MODULE, rack->slot[lf].id, MP_LF_RATE});
     for (int i = 0; i < SYNTH_UI_KNOBS; i++) { ui->knob_key[i] = -1; ui->knob_pos[i] = -1; }
     for (int i = 0; i < SYNTH_UI_COL_KNOBS; i++) { ui->knob_catch_dir[i] = 127; ui->knob_val[i] = -1; ui->knob_cur[i] = -1; }   // force catch on first touch
 }

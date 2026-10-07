@@ -33,6 +33,8 @@ static const el_def_t elements[] = {
 };
 #define N_ELEMENTS ((int)(sizeof elements / sizeof elements[0]))
 
+int scr_general_setting(int row) { return row >= 1 && row <= N_ELEMENTS ? elements[row - 1].arg : -1; }
+
 // The visible rows follow each other without gaps (a hidden row takes no room).
 static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, gui_rect_t *rect) {
     gui_rect_t slot[N_ELEMENTS];

@@ -152,3 +152,5 @@ void popup_draw(const popup_t *p, u8g2_t *g, const gui_style_t *st) {
         }
     }
 }
+
+bool popup_info_showing(const popup_t *p) { return p->info.kind != POPUP_NONE; }

@@ -134,10 +134,10 @@ bool screen_event(const screen_def_t *s, const ui_ctx_t *c, ui_event_t ev) {
         case UI_LATCH:
             if (cur < 0) return false;
             if (s->use_latch && s->el[cur].kind == EL_VALUE && el_enabled(s, c, cur)) ui->latched = !ui->latched;
-            else if (s->el[cur].kind == EL_BUTTON) activate_el(s, c, cur);
+            else if (s->el[cur].kind != EL_VALUE) activate_el(s, c, cur);          // a button, or a selector that opens what it selects
             return false;
         case UI_SELECT:
-            if (cur >= 0 && s->el[cur].kind == EL_BUTTON) activate_el(s, c, cur);
+            if (cur >= 0 && s->el[cur].kind != EL_VALUE) activate_el(s, c, cur);
             return false;
         case UI_BACK:
             if (s->back && s->back(c) && s->after_edit) s->after_edit(c);
@@ -193,9 +193,11 @@ const screen_def_t *screen_for_tab(tab_t t) {
         case TAB_SAMPLES: return &scr_samples_screen;
         case TAB_FX:      return &scr_fx_screen;
         case TAB_FM_ALGO: return &scr_fm_algo_screen;
-        case TAB_FM_OP:   return &scr_fm_op_screen;
-        case TAB_FM_ENV:  return &scr_fm_env_screen;
         case TAB_KEYS:    return &scr_keys_screen;
-        default:          return &scr_rack_screen;
+        case TAB_MODS:    return &scr_mods_screen;
+        case TAB_MACROS:  return &scr_macros_screen;
+        case TAB_CURVES:  return &scr_curves_screen;
+        case TAB_LEDS:    return &scr_leds_screen;
+        default:         return &scr_rack_screen;
     }
 }

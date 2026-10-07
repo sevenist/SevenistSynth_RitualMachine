@@ -17,56 +17,7 @@
 #include "hal/hal_leds.h"
 #include "hal/hal_storage.h"
 
-// no audio in this tool
-void audio_init(void) {}
-void audio_shutdown(void) {}
-void audio_build(const rack_t *r, const synth_params_t *p) { (void)r; (void)p; }
-void audio_set_params(const rack_t *r, const synth_params_t *p) { (void)r; (void)p; }
-int audio_sample_count(void) { return 3; }
-bool audio_sample_info(int i, audio_sample_info_t *o) {
-    if (i < 0 || i > 2) return false;
-    memset(o, 0, sizeof *o);
-    snprintf(o->name, 24, "demo%d", i);
-    o->frames = 96000; o->rate = 48000; o->root = 60; o->slices = i == 2 ? 8 : 0;
-    for (int k = 0; k < 8; k++) o->slice[k] = k * 12000;
-    for (int k = 0; k < 64; k++) o->peaks[k] = 255 - k * 3;
-    o->loop_start = 20000; o->loop_end = 70000;
-    return true;
-}
-int audio_samples_rescan(void) { return 3; }
-sd_state_t audio_sd_state(void) { return getenv("UI_DUMP_SD_SLOW") ? SD_SLOW : SD_OK; }
-uint32_t audio_sd_read_us(void) { return 81000; }
-uint32_t audio_sd_generation(void) { static int calls; return getenv("UI_DUMP_SD_SLOW") && calls++ > 0 ? 1 : 0; }   // slow card: the first call (app_init) sees 0, the card "arrives" afterwards
-bool audio_sample_prepare(int i) { (void)i; return true; }
-void audio_set_clock(int b, int s, int w, int r) { (void)b; (void)s; (void)w; (void)r; }
-void audio_motion_restart(void) {}
-void audio_note_on(int n) { (void)n; }
-void audio_note_off(int n) { (void)n; }
-uint32_t audio_millis(void) { static uint32_t t; return t += 10; }
-void audio_update(void) {}
-bool input_key_present(int row, int col) { return row > 0 || col < 4; }      // the first prototype: 4 function keys, 4 x 8 note keys
-bool input_boot_reset(void) { return false; }
-int  storage_read(const char *name, char *buf, int cap) { (void)name; (void)buf; (void)cap; return -1; }   // no card: the dump starts from the built-in layout
-bool storage_write(const char *name, const char *data, int len) { (void)name; (void)data; (void)len; return false; }
-// UI_DUMP_CARD=new|slow|part in the environment: one card event at the start (a card without folders, a slow one, one missing presets/)
-bool storage_poll_event(storage_event_t *e) {
-    static bool sent;
-    const char *c = getenv("UI_DUMP_CARD");
-    if (sent || !c) return false;
-    sent = true;
-    memset(e, 0, sizeof *e);
-    e->kind = STORAGE_EV_INSERTED;
-    e->read_limit_us = 15000;
-    e->read_us = !strcmp(c, "slow") ? 81000 : 900;
-    e->slow = !strcmp(c, "slow");
-    e->missing = !strcmp(c, "part") ? 1u << 4 : !strcmp(c, "new") ? 0x1f : 0;
-    return true;
-}
-void storage_make_folders(void) { printf("(storage_make_folders)\n"); }
-void display_send(u8g2_t *g) { (void)g; }
-bool input_pending(void) { return false; }
-void leds_set(control_id_t ctl, led_color_t color) { (void)ctl; (void)color; }
-void leds_show(void) {}
+#include "ui_stubs.c"            // the platform stand-ins (no audio, no card), shared with the UI tests
 
 static u8g2_t disp;
 
@@ -145,21 +96,25 @@ int main(int argc, char **argv) {
     feed(&app, "up right");                  // row 0, next tab
     dump("modular: GENERAL");
     feed(&app, "right");
-    dump("modular: FX 1 (chorus + delay)");
-    feed(&app, "down right right right down right right right right right");   // chorus I+II, delay mix up, time up
-    dump("modular: FX 1 after edits");
-    feed(&app, "up right");
-    dump("modular: FX 2 (reverb)");
-    feed(&app, "down right right right right down right right down left up right");
-    dump("modular: FX 2 after edits");
-    feed(&app, "up left left left");        // back to GENERAL, switch to the FM synth
-    feed(&app, "down right up");
-    dump("after Type -> FM (menu tab list changes)");
-    feed(&app, "right right right right");
-    dump("FM: tab 5 (FX 1)");
+    dump("modular: SAMPLES");
     feed(&app, "right");
-    dump("FM: tab 6 (FX 2)");
+    dump("modular: FX RACK");
+    feed(&app, "right");
+    dump("modular: KEYS");
+    feed(&app, "right");
+    dump("modular: MODIFIERS");
+    feed(&app, "left left left left");      // back to GENERAL, switch to the FM synth
+    feed(&app, "down right right up");      // Type: Mono -> Para -> FM
+    dump("after Type -> FM (menu tab list changes)");
+    feed(&app, "right");
+    dump("FM: ALGORITHM (the operator tree)");
+    feed(&app, "right");
+    dump("FM: FX RACK");
     feed(&app, "menu");
-    dump("main view in FM mode");
+    dump("main view in FM mode (FM SYNTH)");
+    feed(&app, "right");
+    dump("FM: OP1 page");
+    feed(&app, "right");
+    dump("FM: OP1 ENV page");
     return 0;
 }

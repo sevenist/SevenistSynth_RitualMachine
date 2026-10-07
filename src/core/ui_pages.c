@@ -1,6 +1,7 @@
 // The page tables: what each module / global page shows, the page list generated from the rack, and the menu tabs.
 // (Types and shared declarations: ui_internal.h.)
 #include "core/ui_screen.h"
+#include "core/modifiers.h"
 #include "hal/hal_input.h"
 #include <stdio.h>
 #include <string.h>
@@ -67,7 +68,7 @@ static const gpage_def_t global_pages[] = {
     [GP_SEQ]     = {"SEQUENCER", GRAPH_SEQ,     4, {0}},   // rows: Step, Note, Len, Run (see handle_seq)
     [GP_SEQ_CFG] = {"SEQ SETUP", GRAPH_SEQ_CFG, 4, {SQP_BPM, SQP_STEPS, SQP_TRANSPOSE, SQP_SWING}},
     [GP_AMP_CRV] = {"AMP CURVE", GRAPH_AMP_ENV, 4, {P_AMP_HOLD, P_AMP_ACV, P_AMP_DCV, P_AMP_RCV}},
-    [GP_FM]      = {"FM SYNTH",  GRAPH_FM,      2, {CFGP_PATCH, CFGP_VOLUME}},       // shown instead of the module pages in FM mode
+    [GP_FM]      = {"FM SYNTH",  GRAPH_FM,      4, {0}},       // FM mode: Patch, Algo, Fb, Vol (fm_page_row), then the operator pages
     [GP_STR_OSC]    = {"STRINGS",    GRAPH_STR_OSC,    4, {P_STR_WAVE, P_STR_OSC, P_STR_DETUNE, P_STR_MIX}},   // the Strings type (ADR-037)
     [GP_STR_TONE]   = {"STR TONE",   GRAPH_STR_OSC,    2, {P_STR_PW, P_STR_LEVEL}},
     [GP_STR_LP]     = {"VOICE LP",   GRAPH_STR_LP,     4, {P_STR_LP, P_STR_LPCUT, P_STR_LPENV, P_STR_LPKEY}},
@@ -76,7 +77,7 @@ static const gpage_def_t global_pages[] = {
 
 // Global pages shown after the module pages (modular synth) / the whole list (FM synth).
 static const uint8_t modular_globals[] = {GP_AMP_ENV, GP_AMP_CRV, GP_SEQ, GP_SEQ_CFG};
-static const uint8_t fm_globals[]      = {GP_FM, GP_SEQ, GP_SEQ_CFG};
+static const uint8_t fm_globals[]      = {GP_FM, GP_SEQ, GP_SEQ_CFG};     // the operator pages go after GP_FM
 static const uint8_t str_globals[]     = {GP_STR_OSC, GP_STR_TONE, GP_STR_LP, GP_STR_FILTER, GP_AMP_ENV, GP_SEQ, GP_SEQ_CFG};
 
 void synth_ui_rebuild_pages(synth_ui_t *ui, const rack_t *rack) {
@@ -93,11 +94,20 @@ void synth_ui_rebuild_pages(synth_ui_t *ui, const rack_t *rack) {
     int n_gl = (int)sizeof modular_globals;
     if (synth_type_is_fm(rack->cfg.type)) { gl = fm_globals; n_gl = (int)sizeof fm_globals; }
     else if (synth_type_is_strings(rack->cfg.type)) { gl = str_globals; n_gl = (int)sizeof str_globals; }
-    for (int d = 0; d < n_gl && n < SYNTH_UI_MAX_PAGES; d++) { ui->pg_slot[n] = GLOBAL_PAGE; ui->pg_def[n] = gl[d]; n++; }
+    for (int d = 0; d < n_gl && n < SYNTH_UI_MAX_PAGES; d++) {
+        ui->pg_slot[n] = GLOBAL_PAGE; ui->pg_def[n] = gl[d]; n++;
+        if (gl[d] != GP_FM) continue;
+        for (int k = 0; k < DX7_OPS && n + 1 < SYNTH_UI_MAX_PAGES; k++) {          // FM: every operator's pages, like a module's
+            ui->pg_slot[n] = GLOBAL_PAGE; ui->pg_def[n] = (uint8_t)(GP_FM_OP_BASE + k); n++;
+            ui->pg_slot[n] = GLOBAL_PAGE; ui->pg_def[n] = (uint8_t)(GP_FM_ENV_BASE + k); n++;
+        }
+    }
     ui->page_count = n;
     if (ui->page >= n) ui->page = n - 1;
     if (ui->page < 0) ui->page = 0;
     synth_ui_jump_resolve(ui, rack);
+    modifiers_prune(rack);                      // a Shift / Mod knob target whose module was deleted goes back to Default
+    synth_ui_macros_prune(ui, rack);            // ... and a macro destination is dropped
 }
 
 /* ---------------- jump slots: saved by identity, resolved once per page rebuild ---------------- */
@@ -147,7 +157,14 @@ bool synth_ui_jump_ready(const synth_ui_t *ui, const rack_t *rack, int k) {
 void get_page(const synth_ui_t *ui, const rack_t *rack, int idx, page_t *out) {
     int slot = ui->pg_slot[idx], def = ui->pg_def[idx];
     out->slot = slot; out->def = def;
-    if (slot == GLOBAL_PAGE) {
+    if (slot == GLOBAL_PAGE && def >= GP_FM_OP_BASE) {                       // an FM operator's page
+        const bool env = def >= GP_FM_ENV_BASE;
+        const int op = def - (env ? GP_FM_ENV_BASE : GP_FM_OP_BASE);
+        snprintf(out->title, sizeof out->title, env ? "OP%d ENV" : "OP%d", op + 1);
+        out->graph = env ? GRAPH_FM_ENV : GRAPH_FM_OP;
+        out->count = env ? 3 : 4;
+        for (int i = 0; i < 6; i++) out->params[i] = 0;
+    } else if (slot == GLOBAL_PAGE) {
         const gpage_def_t *g = &global_pages[def];
         snprintf(out->title, sizeof out->title, "%s", g->title);
         out->graph = g->graph; out->count = g->count;
@@ -165,6 +182,8 @@ void synth_ui_init(synth_ui_t *ui, const rack_t *rack) {
     ui->page = 0; ui->row = 0; ui->cursor = 0; ui->rack_cur = 0; ui->rack_scroll = 0; ui->rack_type = MOD_OSC;
     ui->rack_dirty = false; ui->rebuild = false; ui->in_rack = false; ui->menu_tab = 0; ui->fm_op = 0; ui->fm_pt = 0;
     ui->run_anim = GUI_ANIM_INVALID; ui->ms_lane = 0; ui->ms_step = 0; ui->smp_cur = 0; ui->smp_tgt = 0; ui->key_cur = KEY_COLS; ui->eg_pt = 0; ui->fx_slot = 0;
+    ui->mods_layer = 0; ui->mods_ctl = CTL_COL_KNOB_0; ui->learn_req = false; ui->learn_wait = false; ui->knob_away = 0;
+    ui->learn_macro = -1; ui->macro_cur = 0; ui->macro_dest = 0; ui->curve_cur = 0; ui->curve_pt = 0; ui->led_role = 0;
     for (int i = 0; i < SYNTH_UI_JUMP_SLOTS; i++) ui->jump[i].valid = false;
     synth_ui_rebuild_pages(ui, rack);
     macros_default(ui, rack);
@@ -183,28 +202,65 @@ bool synth_ui_shows_playhead(const synth_ui_t *ui, const rack_t *rack) {
 }
 
 /* ---------------- menu tabs ----------------
- * Modular synth: RACK, GENERAL, SAMPLES, FX RACK, KEYS.  FM synth: GENERAL, ALGORITHM, OPERATOR, ENVELOPE (the DX7 editor), FX RACK, KEYS.
- * Strings: GENERAL, FX RACK, KEYS (its sound is edited on the pages). */
+ * Modular synth: RACK, GENERAL, SAMPLES, FX RACK, KEYS, LEDS, MODIFIERS, MACROS, CURVES.  FM synth: GENERAL, ALGORITHM (the operator tree:
+ * a push opens the operator's page), FX RACK, KEYS, LEDS, MODIFIERS, MACROS, CURVES.  Strings: GENERAL, FX RACK, KEYS, MODIFIERS (its sound is edited on the pages). */
 
 int tab_count(const rack_t *r) {
-    if (synth_type_is_fm(r->cfg.type)) return 6;
-    return synth_type_is_strings(r->cfg.type) ? 3 : 5;
+    if (synth_type_is_fm(r->cfg.type)) return 8;
+    return synth_type_is_strings(r->cfg.type) ? 7 : 9;
 }
 
 tab_t tab_kind(const rack_t *r, int idx) {
-    static const tab_t modular[5] = {TAB_RACK, TAB_GENERAL, TAB_SAMPLES, TAB_FX, TAB_KEYS};
-    static const tab_t fm[6] = {TAB_GENERAL, TAB_FM_ALGO, TAB_FM_OP, TAB_FM_ENV, TAB_FX, TAB_KEYS};
-    static const tab_t strings[3] = {TAB_GENERAL, TAB_FX, TAB_KEYS};
-    if (synth_type_is_fm(r->cfg.type)) return fm[idx % 6];
-    return synth_type_is_strings(r->cfg.type) ? strings[idx % 3] : modular[idx % 5];
+    static const tab_t modular[9] = {TAB_RACK, TAB_GENERAL, TAB_SAMPLES, TAB_FX, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_CURVES};
+    static const tab_t fm[8] = {TAB_GENERAL, TAB_FM_ALGO, TAB_FX, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_CURVES};
+    static const tab_t strings[7] = {TAB_GENERAL, TAB_FX, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_CURVES};
+    if (synth_type_is_fm(r->cfg.type)) return fm[idx % 8];
+    return synth_type_is_strings(r->cfg.type) ? strings[idx % 7] : modular[idx % 9];
 }
 
 const char *tab_name(tab_t t) {
-    static const char *const n[] = {"RACK", "GENERAL", "ALGORITHM", "OPERATOR", "ENVELOPE", "FX RACK", "SAMPLES", "KEYS"};
+    static const char *const n[] = {"RACK", "GENERAL", "ALGORITHM", "OPERATOR", "ENVELOPE", "FX RACK", "SAMPLES", "KEYS", "MODIFIERS", "MACROS", "CURVES", "LEDS"};
     return n[t];
 }
 
+bool fm_page_row(const synth_ui_t *ui, const page_t *pg, int row, fm_row_t *out) {
+    *out = (fm_row_t){DX7_GLOBAL_OP, 0, -1, false};
+    if (row < 1 || row > pg->count) return false;
+    switch (pg->graph) {
+        case GRAPH_FM:
+            if (row == 1) out->cfg = CFGP_PATCH;
+            else if (row == 4) out->cfg = CFGP_VOLUME;
+            else out->v = row == 2 ? DXG_ALGO : DXG_FB;
+            return true;
+        case GRAPH_FM_OP:
+            out->op = pg->def - GP_FM_OP_BASE;
+            out->v = DXV_LEVEL + row - 1;
+            return true;
+        case GRAPH_FM_ENV:
+            out->op = pg->def - GP_FM_ENV_BASE;
+            if (row == 1) out->selector = true;
+            else out->v = (row == 2 ? DXV_EG_L1 : DXV_EG_T1) + (ui ? ui->fm_pt & 3 : 0);
+            return true;
+        default: return false;
+    }
+}
+
+bool synth_ui_open_page(synth_ui_t *ui, const rack_t *rack, int slot, int def) {
+    if (ui->in_rack) {                                            // leaving the menu: the same as closing it with MENU
+        ui->in_rack = false;
+        if (ui->rack_dirty) { ui->rebuild = true; ui->rack_dirty = false; synth_ui_rebuild_pages(ui, rack); }
+    }
+    ui->latched = false;
+    for (int p = 0; p < ui->page_count; p++)
+        if (ui->pg_slot[p] == slot && ui->pg_def[p] == def) { ui->page = p; ui->row = 1; return true; }
+    ui->row = 0;
+    return false;
+}
+
 bool synth_ui_on_keys_tab(const synth_ui_t *ui, const rack_t *rack) { return ui->in_rack && tab_kind(rack, ui->menu_tab) == TAB_KEYS; }
+bool synth_ui_on_mods_tab(const synth_ui_t *ui, const rack_t *rack) { return ui->in_rack && tab_kind(rack, ui->menu_tab) == TAB_MODS; }
+bool synth_ui_on_curves_tab(const synth_ui_t *ui, const rack_t *rack) { return ui->in_rack && tab_kind(rack, ui->menu_tab) == TAB_CURVES; }
+bool synth_ui_on_leds_tab(const synth_ui_t *ui, const rack_t *rack) { return ui->in_rack && tab_kind(rack, ui->menu_tab) == TAB_LEDS; }
 
 int tab_rows(tab_t t) { return screen_for_tab(t)->n; }      // every tab is a declarative screen: its rows are its elements
 

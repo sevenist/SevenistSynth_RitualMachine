@@ -432,12 +432,17 @@ void draw_fx_picture(u8g2_t *g, gui_rect_t box, const fxrack_t *fr, int sel) {
     }
 }
 
-// Algorithm diagram (generated sprite) with the selected operator inverted.
+// Algorithm diagram (generated sprite) with the selected operator inverted (sel_op < 0: none).
 void draw_algo(u8g2_t *g, gui_rect_t box, const dx7_patch_t *p, int sel_op) {
     const dx7_algo_gfx_t *a = &dx7_algo_gfx[(p->algorithm - 1) & 31];
-    u8g2_DrawBitmap(g, (u8g2_uint_t)box.x, (u8g2_uint_t)box.y, 8, DX7_ALGO_H, a->bits);
+    const int x = box.x + (box.w > DX7_ALGO_W ? (box.w - DX7_ALGO_W) / 2 : 0);    // centred in the box
+    const int y = box.y + (box.h > DX7_ALGO_H ? (box.h - DX7_ALGO_H) / 2 : 0);
+    u8g2_SetBitmapMode(g, 1);                                 // transparent: the box frame stays
+    u8g2_DrawBitmap(g, (u8g2_uint_t)x, (u8g2_uint_t)y, 8, DX7_ALGO_H, a->bits);
+    u8g2_SetBitmapMode(g, 0);
+    if (sel_op < 0 || sel_op >= DX7_OPS) return;
     u8g2_SetDrawColor(g, 2);                                  // XOR: inverts the box and its digit
-    u8g2_DrawBox(g, box.x + a->opx[sel_op], box.y + a->opy[sel_op], DX7_ALGO_BOX, DX7_ALGO_BOX);
+    u8g2_DrawBox(g, x + a->opx[sel_op], y + a->opy[sel_op], DX7_ALGO_BOX, DX7_ALGO_BOX);
     u8g2_SetDrawColor(g, 1);
 }
 

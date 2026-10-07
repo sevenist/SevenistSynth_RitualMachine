@@ -57,6 +57,7 @@ bool popup_ask(popup_t *p, const char *title, const char *text, bool default_yes
 
 bool popup_modal(const popup_t *p);                // a modal popup is up: give it the input
 bool popup_tick(popup_t *p, uint32_t now_ms);      // true when an INFO just went (redraw)
+bool popup_info_showing(const popup_t *p);         // an INFO is up (it may be hidden behind a modal one)
 
 // Input for the modal popup on screen.
 void popup_move(popup_t *p, int dir);              // dir < 0: towards Yes (left), > 0: towards No (right)

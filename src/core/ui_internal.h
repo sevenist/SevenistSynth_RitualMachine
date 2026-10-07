@@ -29,7 +29,7 @@
 static inline int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 typedef enum { GRAPH_WAVE, GRAPH_ENV, GRAPH_FILTER, GRAPH_SAT, GRAPH_AMP_ENV, GRAPH_SEQ, GRAPH_SEQ_CFG, GRAPH_FM, GRAPH_MS_STEPS, GRAPH_MS_LANE, GRAPH_SAMPLE, GRAPH_EG, GRAPH_EG_REL, GRAPH_COMB,
-               GRAPH_STR_OSC, GRAPH_STR_LP, GRAPH_STR_FILTER } graph_t;
+               GRAPH_STR_OSC, GRAPH_STR_LP, GRAPH_STR_FILTER, GRAPH_FM_OP, GRAPH_FM_ENV } graph_t;
 
 // A resolved page: what to show for ui->page right now.
 typedef struct {
@@ -47,7 +47,18 @@ typedef struct {
 #define PRM_TGT  100
 #define PRM_TPRM 101
 
-typedef enum { TAB_RACK, TAB_GENERAL, TAB_FM_ALGO, TAB_FM_OP, TAB_FM_ENV, TAB_FX, TAB_SAMPLES, TAB_KEYS } tab_t;
+// The values are saved in ui.cfg (jump slots): never reorder. TAB_FM_OP / TAB_FM_ENV are no longer shown (the operators have main-view pages).
+typedef enum { TAB_RACK, TAB_GENERAL, TAB_FM_ALGO, TAB_FM_OP, TAB_FM_ENV, TAB_FX, TAB_SAMPLES, TAB_KEYS, TAB_MODS, TAB_MACROS, TAB_CURVES, TAB_LEDS } tab_t;
+
+// FM pages (global pages, ui_pages.c): FM SYNTH (Patch, Algo, Fb, Vol), then per operator OPn (Lvl, Crs, Fine, Fix) and OPn ENV (Pt, Lvl, Time).
+// The page def of operator k: GP_FM_OP_BASE + k and GP_FM_ENV_BASE + k.
+#define GP_FM_OP_BASE  32
+#define GP_FM_ENV_BASE (GP_FM_OP_BASE + DX7_OPS)
+// What row `row` (1-based) of an FM page edits: a DX7 value (op, v: dx7.h; op = DX7_GLOBAL_OP for Algo / Fb), a GENERAL setting (cfg >= 0),
+// or the envelope point selector (selector). False for a row that is not there. ui may be NULL (the envelope rows then name point 1).
+typedef struct { int op, v, cfg; bool selector; } fm_row_t;
+bool fm_page_row(const synth_ui_t *ui, const page_t *pg, int row, fm_row_t *out);
+static inline bool graph_is_fm(graph_t g) { return g == GRAPH_FM || g == GRAPH_FM_OP || g == GRAPH_FM_ENV; }
 
 /* ---- ui_pages.c ---- */
 void get_page(const synth_ui_t *ui, const rack_t *rack, int idx, page_t *out);

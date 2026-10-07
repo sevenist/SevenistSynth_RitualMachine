@@ -1,5 +1,7 @@
 #include "core/ui_settings.h"
 #include "core/ui_internal.h"
+#include "core/modifiers.h"
+#include "core/led_roles.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -8,7 +10,9 @@
 typedef struct {
     uint8_t     knob_mode;
     jump_slot_t jump[SYNTH_UI_JUMP_SLOTS];
-    macro_t     shift[SYNTH_UI_COL_KNOBS];
+    unsigned    mods_rev;       // the modifier layers: their edit counter (core/modifiers.h)
+    unsigned    leds_rev;       // the key LED colours (core/led_roles.h)
+    macro_def_t macro[SYNTH_UI_MACROS];   // bytes only (no padding): compared with memcmp
 } saved_t;
 
 static saved_t g_saved;
@@ -21,7 +25,9 @@ static void capture(const synth_ui_t *ui, const rack_t *rack, saved_t *s) {
         const jump_slot_t *j = &ui->jump[i];          // what the slot points at; `at` is derived from it, not saved
         if (j->valid) s->jump[i] = (jump_slot_t){.valid = true, .in_rack = j->in_rack, .mod_id = j->mod_id, .mod_type = j->mod_type, .def = j->def, .tab = j->tab, .row = j->row};
     }
-    for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) s->shift[k] = ui->knob_shift[k];
+    s->mods_rev = modifiers_rev();
+    s->leds_rev = led_roles_rev();
+    memcpy(s->macro, ui->macro, sizeof s->macro);
 }
 
 static bool same(const saved_t *a, const saved_t *b) {
@@ -31,9 +37,7 @@ static bool same(const saved_t *a, const saved_t *b) {
         if (x->valid != y->valid || (x->valid && (x->in_rack != y->in_rack || x->mod_id != y->mod_id || x->mod_type != y->mod_type || x->def != y->def ||
                                                   x->tab != y->tab || x->row != y->row))) return false;
     }
-    for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++)
-        if (a->shift[k].kind != b->shift[k].kind || a->shift[k].id != b->shift[k].id || a->shift[k].prm != b->shift[k].prm) return false;
-    return true;
+    return a->mods_rev == b->mods_rev && a->leds_rev == b->leds_rev && !memcmp(a->macro, b->macro, sizeof a->macro);
 }
 
 // The word of a GENERAL setting in the file: its label in lower case ("Vol" -> "vol").
@@ -51,16 +55,14 @@ int ui_settings_to_text(const synth_ui_t *ui, const rack_t *rack, char *buf, int
         else if (!j->mod_id) n += snprintf(buf + n, (size_t)(cap - n), "jump %d global %d row %d\n", i + 1, j->def, j->row);
         else                 n += snprintf(buf + n, (size_t)(cap - n), "jump %d mod %d type %d def %d row %d\n", i + 1, j->mod_id, j->mod_type, j->def, j->row);
     }
-    for (int k = 0; k < SYNTH_UI_COL_KNOBS && n < cap; k++) {
-        const macro_t *m = &ui->knob_shift[k];
-        char tok[16];
-        if (m->kind == MACRO_GLOBAL && m->prm < CFGP_COUNT) {
-            cfg_token((cfg_param_id_t)m->prm, tok, sizeof tok);
-            n += snprintf(buf + n, (size_t)(cap - n), "shift %d cfg %s\n", k + 1, tok);
-        } else {
-            n += snprintf(buf + n, (size_t)(cap - n), "shift %d none\n", k + 1);
+    if (n < cap) n += snprintf(buf + n, (size_t)(cap - n), "macros\n");                 // macro K <target> [range MIN MAX] [curve NAME], one line per destination
+    for (int k = 0; k < SYNTH_UI_MACROS && n < cap; k++)
+        for (int i = 0; i < ui->macro[k].n && n < cap; i++) {
+            char t[64];
+            if (mapping_to_text(&ui->macro[k].dest[i], t, sizeof t)) n += snprintf(buf + n, (size_t)(cap - n), "macro %d %s\n", k + 1, t);
         }
-    }
+    if (n < cap) n += modifiers_to_text(buf + n, cap - n);
+    if (n < cap) n += led_roles_to_text(buf + n, cap - n);
     return n < cap ? n : cap - 1;
 }
 
@@ -68,13 +70,20 @@ bool ui_settings_from_text(synth_ui_t *ui, rack_t *rack, const char *txt) {
     bool any = false;
     int knob_mode = rack->cfg.knob_mode;
     jump_slot_t jump[SYNTH_UI_JUMP_SLOTS] = {{0}};
-    macro_t shift[SYNTH_UI_COL_KNOBS];
-    memcpy(shift, ui->knob_shift, sizeof shift);
+    bool mods = false, legacy = false, macros = false, leds = false;                           // the modifier layers are in the file; the first format's "shift N" lines
+    mod_entry_t old[SYNTH_UI_COL_KNOBS];
+    for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) old[k] = modifiers_get(MODL_SHIFT, (control_id_t)(CTL_COL_KNOB_0 + k));
     for (const char *line = txt; line && *line; line = strchr(line, '\n'), line = line ? line + 1 : NULL) {
         char w1[16], w2[16], w3[16];
         int a = 0, b = 0;
         const int got = sscanf(line, "%15s %15s %15s", w1, w2, w3);
-        if (got >= 2 && !strcmp(w1, "knob")) {
+        if (got >= 1 && !strcmp(w1, "modifiers")) {
+            mods = any = true;
+        } else if (got >= 1 && !strcmp(w1, "macros")) {
+            macros = any = true;
+        } else if (got >= 1 && !strcmp(w1, "leds")) {
+            leds = any = true;
+        } else if (got >= 2 && !strcmp(w1, "knob")) {
             if (!strcmp(w2, "catch")) { knob_mode = 0; any = true; }
             else if (!strcmp(w2, "direct")) { knob_mode = 1; any = true; }
         } else if (got >= 1 && !strcmp(w1, "jump")) {
@@ -107,14 +116,14 @@ bool ui_settings_from_text(synth_ui_t *ui, rack_t *rack, const char *txt) {
             jump[a - 1] = n0;
             any = true;
         } else if (got >= 3 && !strcmp(w1, "shift") && sscanf(w2, "%d", &a) == 1 && a >= 1 && a <= SYNTH_UI_COL_KNOBS) {
-            macro_t *m = &shift[a - 1];
-            if (!strcmp(w3, "none")) { *m = (macro_t){MACRO_NONE, 0, 0}; any = true; }
+            mod_entry_t *m = &old[a - 1];                            // shift N none | shift N cfg <setting>: Shift + col knob N
+            if (!strcmp(w3, "none")) { *m = (mod_entry_t){ME_DEFAULT, ACT_NONE, 0, {MACRO_NONE, 0, 0}}; legacy = any = true; }
             else if (!strcmp(w3, "cfg")) {
                 char want[16], tok[16];
                 if (sscanf(line, "%*s %*s %*s %15s", want) != 1) continue;
                 for (int id = 0; id < CFGP_COUNT; id++) {
                     cfg_token((cfg_param_id_t)id, tok, sizeof tok);
-                    if (!strcmp(tok, want)) { *m = (macro_t){MACRO_GLOBAL, 0, (uint8_t)id}; any = true; }
+                    if (!strcmp(tok, want)) { *m = (mod_entry_t){ME_PARAM, ACT_NONE, 0, {MACRO_CFG, 0, (uint8_t)id}}; legacy = any = true; }
                 }
             }
         }
@@ -122,7 +131,27 @@ bool ui_settings_from_text(synth_ui_t *ui, rack_t *rack, const char *txt) {
     if (!any) return false;                                      // not a settings file
     rack->cfg.knob_mode = (uint8_t)knob_mode;
     memcpy(ui->jump, jump, sizeof jump);
-    memcpy(ui->knob_shift, shift, sizeof shift);
+    if (leds) {                                                 // the key LED colours: the file lists the roles that differ from the defaults
+        led_roles_from_text_begin();
+        for (const char *line = txt; line && *line; line = strchr(line, '\n'), line = line ? line + 1 : NULL) led_roles_from_line(line);
+    }
+    if (macros) {                                               // the file holds the macros: they replace the defaults
+        memset(ui->macro, 0, sizeof ui->macro);
+        for (const char *line = txt; line && *line; line = strchr(line, '\n'), line = line ? line + 1 : NULL) {
+            int k = 0, at = 0;
+            mapping_t mp;
+            if (sscanf(line, "macro %d %n", &k, &at) != 1 || at == 0 || k < 1 || k > SYNTH_UI_MACROS || !mapping_parse(line + at, &mp)) continue;
+            macro_def_t *md = &ui->macro[k - 1];
+            if (md->n < SYNTH_UI_MACRO_DESTS) md->dest[md->n++] = mp;
+        }
+        synth_ui_macros_prune(ui, rack);
+    }
+    if (mods) {
+        modifiers_from_text_begin();
+        for (const char *line = txt; line && *line; line = strchr(line, '\n'), line = line ? line + 1 : NULL) modifiers_from_line(line);
+    } else if (legacy) {
+        for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) modifiers_set(MODL_SHIFT, (control_id_t)(CTL_COL_KNOB_0 + k), old[k]);
+    }
     synth_ui_jump_resolve(ui, rack);                             // finds their pages now (a slot whose module is not in this rack is dropped)
     return true;
 }

@@ -2,6 +2,9 @@
 #include "core/gui.h"
 #include "core/key_leds.h"
 #include "core/keymap.h"
+#include "core/modifiers.h"
+#include "core/curves.h"
+#include "core/led_roles.h"
 #include "core/ui_settings.h"
 #include "core/sprites.h"
 #include "hal/hal_audio.h"
@@ -26,6 +29,9 @@ void app_init(app_t *app, u8g2_t *display) {
     app->status[0] = 0;
     popup_init(&app->popup);
     keymap_init();
+    modifiers_init();
+    curves_init();
+    led_roles_init();
     keymap_load();                      // the simulator has its card at once; the board's card shows up later (check_sd)
     app->keys_notice_ms = 0;
     app->display = display;
@@ -33,7 +39,8 @@ void app_init(app_t *app, u8g2_t *display) {
     seq_init(&app->seq);
     rack_init_startup(&app->rack);
     synth_ui_init(&app->ui, &app->rack);
-    ui_settings_load(&app->ui, &app->rack);   // Knob mode, jump slots, Shift-knob targets (the board's card shows up later: check_sd)
+    curves_load();                      // before ui.cfg: its mappings name the user curves
+    ui_settings_load(&app->ui, &app->rack);   // Knob mode, jump slots, the Shift / Mod layers (the board's card shows up later: check_sd)
     app->settings_pending = false;
     audio_build(&app->rack, &app->params);
     if (input_boot_reset()) {           // the reset key was held at power-on (read by the board before its key scan started)
@@ -92,7 +99,7 @@ static void note_off(app_t *app, control_id_t ctl) {
 static bool popup_action(app_t *app, const binding_t *b, input_event_t e) {
     const int amount = e.kind == IN_DELTA ? e.value * b->arg : b->arg;
     switch (b->act) {
-        case ACT_NOTE: case ACT_SHIFT: case ACT_MASTER_VOLUME: case ACT_VOLUME_STEP:
+        case ACT_NOTE: case ACT_SHIFT: case ACT_MOD: case ACT_MASTER_VOLUME: case ACT_VOLUME_STEP:
             return false;
         case ACT_NAV:
             if (b->arg == NAV_LEFT || b->arg == NAV_RIGHT) popup_move(&app->popup, b->arg == NAV_LEFT ? -1 : 1);
@@ -112,9 +119,71 @@ static bool popup_action(app_t *app, const binding_t *b, input_event_t e) {
     return true;
 }
 
+/* ---------------- learn: a Shift / Mod knob takes the parameter under the cursor (core/modifiers.h) ---------------- */
+
+#define LEARN_INFO_MS 2500
+
+static void layer_title(int layer, control_id_t ctl, char *out, int n) {
+    char cn[8];
+    modifiers_ctl_name(ctl, cn, sizeof cn);
+    snprintf(out, (size_t)n, "%s+%s", modifiers_layer_name(layer), cn);
+}
+
+// The parameter under the cursor goes to layer + ctl. False (the popup says so) when the cursor is not on one.
+static bool learn(app_t *app, int layer, control_id_t ctl) {
+    char t[24], name[24];
+    macro_t m;
+    layer_title(layer, ctl, t, sizeof t);
+    if (!modifiers_ctl_is_knob(ctl) || !synth_ui_target_at_cursor(&app->ui, &app->rack, &m)) {
+        popup_info(&app->popup, t, "Not a parameter", 0, audio_millis(), LEARN_INFO_MS);
+        return false;
+    }
+    modifiers_set(layer, ctl, (mod_entry_t){ME_PARAM, ACT_NONE, 0, m});
+    synth_ui_target_describe(NULL, NULL, &app->rack, &m, name, sizeof name, NULL, 0);
+    popup_info(&app->popup, t, name, 0, audio_millis(), LEARN_INFO_MS);
+    app->dirty = true;
+    catch_stale = true;
+    return true;
+}
+
+// While the tab's Learn button waits: a push (Latch / Select) assigns the row under the cursor, Back gives up. True when it took the action.
+static bool learn_push(app_t *app, action_id_t act) {
+    if (act == ACT_BACK) {
+        app->ui.learn_wait = false;
+        app->ui.learn_macro = -1;
+        popup_info(&app->popup, "LEARN", "Cancelled", 0, audio_millis(), LEARN_INFO_MS);
+        app->dirty = true;
+        return true;
+    }
+    if (act != ACT_LATCH && act != ACT_SELECT) return false;
+    if (app->ui.learn_macro >= 0) {                     // the MACROS tab's Learn: the row becomes a destination of that macro
+        const int k = app->ui.learn_macro;
+        char t[24], name[24];
+        macro_t m;
+        snprintf(t, sizeof t, "MACRO %d", k + 1);
+        if (!synth_ui_target_at_cursor(&app->ui, &app->rack, &m)) { popup_info(&app->popup, t, "Not a parameter", 0, audio_millis(), LEARN_INFO_MS); return true; }
+        synth_ui_target_describe(NULL, NULL, &app->rack, &m, name, sizeof name, NULL, 0);
+        if (synth_ui_macro_add(&app->ui, k, &m)) {
+            char x[40];
+            snprintf(x, sizeof x, "+ %s (%d of %d)", name, app->ui.macro[k].n, SYNTH_UI_MACRO_DESTS);
+            popup_info(&app->popup, t, x, 0, audio_millis(), LEARN_INFO_MS);
+            app->ui.macro_dest = app->ui.macro[k].n - 1;
+        } else {
+            popup_info(&app->popup, t, app->ui.macro[k].n >= SYNTH_UI_MACRO_DESTS ? "Full (8 destinations)" : "Already in it", 0, audio_millis(), LEARN_INFO_MS);
+        }
+        app->ui.learn_wait = false;
+        app->ui.learn_macro = -1;
+        app->dirty = true;
+        return true;
+    }
+    if (learn(app, app->ui.learn_layer, (control_id_t)app->ui.learn_ctl)) app->ui.learn_wait = false;
+    return true;
+}
+
 // Runs one binding for one event. `e.kind` is IN_RELEASE only for hold actions.
 static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
     if (popup_modal(&app->popup) && popup_action(app, b, e)) return;
+    if (app->ui.learn_wait && e.kind != IN_RELEASE && learn_push(app, b->act)) return;
     const int amount = e.kind == IN_DELTA ? e.value : 1;
     const int n = amount * b->arg;
     bool changed;
@@ -137,11 +206,14 @@ static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
         case ACT_SHIFT:
             app->in.shift = e.kind != IN_RELEASE;
             break;
+        case ACT_MOD:
+            app->in.mod = e.kind != IN_RELEASE;
+            break;
         case ACT_NOTE:
             if (e.kind == IN_RELEASE) note_off(app, b->ctl); else note_on(app, b->ctl, b->arg);
             break;
         case ACT_OCTAVE:
-            app->in.octave += b->arg;
+            app->in.octave += n;
             if (app->in.octave < KEYBOARD_OCTAVE_MIN) app->in.octave = KEYBOARD_OCTAVE_MIN;
             if (app->in.octave > KEYBOARD_OCTAVE_MAX) app->in.octave = KEYBOARD_OCTAVE_MAX;
             snprintf(app->status, sizeof app->status, "Octave %+d", app->in.octave);
@@ -150,24 +222,10 @@ static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             changed = synth_ui_knob_row(&app->ui, &app->params, &app->seq, &app->rack, b->arg, e.value);
             if (changed) { audio_set_params(&app->rack, &app->params); app->dirty = true; }
             break;
-        case ACT_PAGE_KNOB_SHIFT: {
-            changed = synth_ui_knob_row_shift(&app->ui, &app->rack, b->arg, e.value);
-            if (changed) audio_set_params(&app->rack, &app->params);
-            char name[16], val[16], title[24];                  // the popup says what the knob drives now and, while it is not caught, the way to turn
-            int arrow;
-            if (synth_ui_knob_shift_describe(&app->ui, &app->rack, b->arg, name, sizeof name, val, sizeof val, &arrow)) {
-                popup_info(&app->popup, name, val, arrow, audio_millis(), POPUP_INFO_MS);
-            } else {
-                snprintf(title, sizeof title, "Knob %d", b->arg);
-                popup_info(&app->popup, title, "No Shift target", 0, audio_millis(), POPUP_INFO_MS);
-            }
-            app->dirty = true;
-            break;
-        }
         case ACT_JUMP: {
             const int slot = b->arg;
             if (slot < 0 || slot >= SYNTH_UI_JUMP_SLOTS) break;
-            if (app->in.shift) {
+            if (app->in.shift || app->in.mod) {               // Shift / Mod + jump key saves (when its layer entry is Default)
                 synth_ui_jump_save(&app->ui, &app->rack, slot);
                 snprintf(app->status, sizeof app->status, "Saved jump %d", slot + 1);
                 app->dirty = true;
@@ -184,14 +242,26 @@ static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             break;
         }
         case ACT_MACRO:
-            changed = synth_ui_macro(&app->ui, &app->params, &app->seq, &app->rack, b->arg, e.value);
+            changed = synth_ui_macro(&app->ui, &app->params, &app->seq, &app->rack, SYNTH_UI_KNOB_MACRO + (b->arg % SYNTH_UI_MACROS), b->arg, e.value);
             if (changed) { audio_set_params(&app->rack, &app->params); app->dirty = true; catch_stale = true; }
             synth_ui_macro_describe(&app->ui, &app->rack, b->arg, app->status, (int)sizeof app->status);
             break;
-        case ACT_MACRO_LEARN:
-            synth_ui_macro_learn(&app->ui, &app->rack, b->arg);
+        case ACT_MACRO_LEARN: {                             // adds the row under the cursor to the macro
+            char t[24], name[24], x[40];
+            macro_t m;
+            bool repeat = false;                            // a knob sends many events per turn: "Already in it" only once it was not just added
+            snprintf(t, sizeof t, "MACRO %d", b->arg + 1);
+            if (!synth_ui_target_at_cursor(&app->ui, &app->rack, &m)) snprintf(x, sizeof x, "Not a parameter");
+            else {
+                synth_ui_target_describe(NULL, NULL, &app->rack, &m, name, sizeof name, NULL, 0);
+                if (synth_ui_macro_add(&app->ui, b->arg, &m)) snprintf(x, sizeof x, "+ %s (%d of %d)", name, app->ui.macro[b->arg].n, SYNTH_UI_MACRO_DESTS);
+                else { snprintf(x, sizeof x, "%s", app->ui.macro[b->arg].n >= SYNTH_UI_MACRO_DESTS ? "Full (8 destinations)" : "Already in it"); repeat = e.kind == IN_VALUE; }
+            }
+            if (!repeat || !popup_info_showing(&app->popup)) popup_info(&app->popup, t, x, 0, audio_millis(), LEARN_INFO_MS);
             synth_ui_macro_describe(&app->ui, &app->rack, b->arg, app->status, (int)sizeof app->status);
+            app->dirty = true;
             break;
+        }
         case ACT_MASTER_VOLUME:
             if (synth_ui_set_volume(&app->ui, &app->rack, e.value)) { audio_set_params(&app->rack, &app->params); app->dirty = true; }
             break;
@@ -206,9 +276,10 @@ static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
     }
 }
 
-// Looks the event up in the binding table and runs every row that matches.
+// Looks the event up in the binding table and runs every row that matches. The table is always used as without a modifier: Shift and
+// Mod are the layers (only a control whose layer entry is Default gets here).
 static void app_dispatch(app_t *app, input_event_t e) {
-    const uint8_t mods = app->in.shift ? MODS_SHIFT : MODS_NONE;
+    const uint8_t mods = MODS_NONE;
     for (int i = 0; i < bindings_count; i++) {
         const binding_t *b = &bindings[i];
         if (b->ctl != e.ctl) continue;
@@ -220,6 +291,131 @@ static void app_dispatch(app_t *app, input_event_t e) {
     }
 }
 
+/* ---------------- the Shift / Mod layers (core/modifiers.h) ---------------- */
+
+static int active_layer(const app_t *app) { return app->in.mod ? MODL_MOD : app->in.shift ? MODL_SHIFT : -1; }
+
+static bool is_col_knob(control_id_t c) { return c >= CTL_COL_KNOB_0 && c <= CTL_COL_KNOB_3; }
+
+// A Param entry: the knob drives its target; a popup says what it is, its value and, for a col knob that has not caught it, the way to turn.
+// The knob slot of an absolute knob that is not a col knob (the volume knob or R1..R3) for the bookkeeping of synth_ui_knob_target.
+static int other_knob_slot(control_id_t c) { return c == CTL_VOLUME ? SYNTH_UI_KNOB_VOLUME : SYNTH_UI_KNOB_MACRO + (c - CTL_KNOB_R1); }
+
+// A Param entry (through its mapping) or a macro (macro >= 0: all its destinations; the popup shows the first). A popup says what it
+// drives, its value and, for a col knob that has not caught it, the way to turn.
+static void run_param(app_t *app, int layer, const mod_entry_t *me, int macro, input_event_t e) {
+    bool changed = false;
+    int arrow = 0;
+    const mapping_t mp = macro >= 0 ? app->ui.macro[macro].dest[0] : modifiers_mapping(me);
+    if (is_col_knob(e.ctl) && e.kind == IN_VALUE) {
+        const int row = e.ctl - CTL_COL_KNOB_0 + 1;
+        changed = macro >= 0 ? synth_ui_macro_row(&app->ui, &app->params, &app->seq, &app->rack, row, macro, e.value)
+                             : synth_ui_knob_row_target(&app->ui, &app->params, &app->seq, &app->rack, row, &mp, e.value);
+        const int cd = app->ui.knob_catch_dir[row - 1];
+        arrow = cd == 1 || cd == -1 ? cd : 0;               // 127: not measured yet
+    } else if (e.kind == IN_VALUE) {
+        changed = macro >= 0 ? synth_ui_macro(&app->ui, &app->params, &app->seq, &app->rack, other_knob_slot(e.ctl), macro, e.value)
+                             : synth_ui_knob_target(&app->ui, &app->params, &app->seq, &app->rack, other_knob_slot(e.ctl), &mp, e.value);
+        catch_stale |= changed;
+    } else if (e.kind == IN_DELTA) {
+        changed = macro >= 0 ? synth_ui_macro_step(&app->params, &app->seq, &app->rack, &app->ui.macro[macro], e.value)
+                             : synth_ui_target_step(&app->params, &app->seq, &app->rack, &mp.t, e.value);
+        catch_stale |= changed;
+    }
+    if (changed) audio_set_params(&app->rack, &app->params);
+    char name[24], val[16], t[24];
+    if (synth_ui_target_describe(&app->params, &app->seq, &app->rack, &mp.t, name, sizeof name, val, sizeof val)) {
+        popup_info(&app->popup, name, val, arrow, audio_millis(), POPUP_INFO_MS);
+    } else {
+        layer_title(layer, e.ctl, t, sizeof t);
+        popup_info(&app->popup, t, "Its module is gone", 0, audio_millis(), POPUP_INFO_MS);
+    }
+    app->dirty = true;
+}
+
+// An Action entry. An absolute knob turns its travel into steps of INPUT_VALUE_MAX / 32 for the step actions.
+static void run_layer_action(app_t *app, const mod_entry_t *me, input_event_t e) {
+    if (me->act == ACT_NONE) return;
+    if (e.kind == IN_VALUE && me->act != ACT_MACRO_LEARN) {
+        int16_t *last = &app->in.knob_last[e.ctl];
+        const int was = *last - 1;
+        *last = (int16_t)(e.value + 1);
+        if (was < 0) return;                                 // the first position seen: nothing to step from
+        const int d = e.value / 32 - was / 32;
+        if (d == 0) return;
+        e = (input_event_t){e.ctl, IN_DELTA, d, false};
+    }
+    const binding_t b = {e.ctl, e.kind, MODS_ANY, (action_id_t)me->act, me->arg};
+    app_run_action(app, &b, e);
+}
+
+// Shift / Mod + a control. Returns true when the layer took the event; false: the base (table or key layout) handles it.
+static bool layer_event(app_t *app, input_event_t e) {
+    const bool turn = e.kind == IN_VALUE || e.kind == IN_DELTA;
+    if (is_col_knob(e.ctl) && e.kind == IN_VALUE) app->ui.knob_val[e.ctl - CTL_COL_KNOB_0] = e.value;
+    if (app->in.shift && app->in.mod && turn && modifiers_ctl_is_knob(e.ctl)) {      // the learn chord, for the layer the MODIFIERS tab shows
+        learn(app, app->ui.mods_layer, e.ctl);
+        return true;
+    }
+    const int layer = active_layer(app);
+    if (layer < 0) return false;
+    const mod_entry_t me = modifiers_get(layer, e.ctl);
+    if (me.kind == ME_PARAM) { if (turn) run_param(app, layer, &me, -1, e); return true; }
+    if (me.kind == ME_ACTION && me.act == ACT_MACRO && me.arg >= 0 && me.arg < SYNTH_UI_MACROS) {   // a macro: its destinations, like a Param
+        if (turn) {
+            if (app->ui.macro[me.arg].n == 0) {
+                char t[24], x[24];
+                layer_title(layer, e.ctl, t, sizeof t);
+                snprintf(x, sizeof x, "Macro %d: no target", me.arg + 1);
+                popup_info(&app->popup, t, x, 0, audio_millis(), POPUP_INFO_MS);
+                app->dirty = true;
+            } else run_param(app, layer, &me, me.arg, e);
+        }
+        return true;
+    }
+    if (me.kind == ME_ACTION) { run_layer_action(app, &me, e); return true; }
+    if (is_col_knob(e.ctl) && e.kind == IN_VALUE) {                          // Default on a col knob with a modifier: nothing to drive
+        char t[24];
+        layer_title(layer, e.ctl, t, sizeof t);
+        popup_info(&app->popup, t, "No target", 0, audio_millis(), POPUP_INFO_MS);
+        app->dirty = true;
+        return true;
+    }
+    return false;
+}
+
+// On the MODIFIERS tab a key press or a turn of a knob that does not navigate the tab (col knobs, R1..R3) selects that control in the
+// tab; with Shift or Mod held, the tab shows that layer. Returns true when the event was used for that.
+static bool mods_tab_select(app_t *app, input_event_t e) {
+    if (!synth_ui_on_mods_tab(&app->ui, &app->rack) || modifiers_ctl_index(e.ctl) < 0) return false;
+    const bool key = e.ctl >= CTL_KEY_FIRST && e.ctl <= CTL_KEY_LAST;
+    const bool knob = (is_col_knob(e.ctl) || (e.ctl >= CTL_KNOB_R1 && e.ctl <= CTL_KNOB_R3)) && e.kind == IN_VALUE;
+    if (!(key && e.kind == IN_PRESS) && !knob) return false;
+    app->ui.mods_ctl = e.ctl;
+    if (active_layer(app) >= 0) app->ui.mods_layer = active_layer(app);
+    app->dirty = true;
+    return true;
+}
+
+// Every control but the matrix keys and the joystick axes.
+// On the CURVES tab the knobs CURVES_KNOB_X / _Y (bindings.h) move the selected point, absolute over their travel.
+static bool curves_tab_knob(app_t *app, input_event_t e) {
+    if (e.kind != IN_VALUE || (e.ctl != CURVES_KNOB_X && e.ctl != CURVES_KNOB_Y) || !synth_ui_on_curves_tab(&app->ui, &app->rack)) return false;
+    const int k = app->ui.curve_cur % CURVE_USER_MAX, i = app->ui.curve_pt;
+    const user_curve_t *u = curve_user(k);
+    if (!u || !u->used || i < 0 || i >= u->n) return true;
+    const int v = (e.value * 100 + INPUT_VALUE_MAX / 2) / INPUT_VALUE_MAX;
+    curve_user_set_point(k, i, e.ctl == CURVES_KNOB_X ? v : u->pt[i].x, e.ctl == CURVES_KNOB_Y ? v : u->pt[i].y);
+    app->dirty = true;
+    return true;
+}
+
+static void control_event(app_t *app, input_event_t e) {
+    if (e.kind == IN_RELEASE) { note_off(app, e.ctl); app_dispatch(app, e); return; }   // a layer may have started a note on it
+    if (curves_tab_knob(app, e) || mods_tab_select(app, e) || layer_event(app, e)) return;
+    app_dispatch(app, e);
+}
+
 /* ---------------- the matrix keys: their function comes from the key layout (core/keymap.h) ---------------- */
 
 static void key_event(app_t *app, input_event_t e, uint32_t now) {
@@ -227,18 +423,23 @@ static void key_event(app_t *app, input_event_t e, uint32_t now) {
     if (e.kind == IN_RELEASE) {
         note_off(app, e.ctl);
         if (app->in.shift_key == e.ctl) { app->in.shift = false; app->in.shift_key = CTL_NONE; }
+        if (app->in.mod_key == e.ctl)   { app->in.mod = false;   app->in.mod_key = CTL_NONE; }
         if (e.ctl == KEYMAP_RESET_KEY) app->reset_held = false;
         return;
     }
     if (e.kind != IN_PRESS) return;
     if (e.ctl == KEYMAP_RESET_KEY && now - app->boot_ms < KEYMAP_RESET_WINDOW_MS) { app->reset_held = true; app->reset_since = now; }
     const key_fn_t f = keymap_get(key);
-    if (synth_ui_on_keys_tab(&app->ui, &app->rack)) {       // the KEYS tab: a key selects itself in the list; only notes, Shift and Menu still act
+    const bool modifier = f.act == ACT_SHIFT || f.act == ACT_MOD;      // a modifier key is always itself (a layer never takes it)
+    if (synth_ui_on_keys_tab(&app->ui, &app->rack)) {       // the KEYS tab: a key selects itself in the list; only notes, the modifiers and Menu still act
         app->ui.key_cur = key;
         app->dirty = true;
-        if (f.act != ACT_NOTE && f.act != ACT_SHIFT && f.act != ACT_MENU) return;
+        if (f.act != ACT_NOTE && !modifier && f.act != ACT_MENU) return;
     }
+    if (!modifier && f.act != ACT_MENU && mods_tab_select(app, e) && f.act != ACT_NOTE) return;   // the MODIFIERS tab: the same
     if (f.act == ACT_SHIFT) app->in.shift_key = e.ctl;
+    if (f.act == ACT_MOD)   app->in.mod_key = e.ctl;
+    if (!modifier && layer_event(app, e)) return;
     const binding_t b = {e.ctl, IN_PRESS, MODS_ANY, (action_id_t)f.act, f.arg};
     app_run_action(app, &b, e);
 }
@@ -268,17 +469,17 @@ static control_id_t joy_direction(const input_state_t *in) {
 static void joy_update(app_t *app, uint32_t now) {
     const control_id_t dir = joy_direction(&app->in);
     if (dir == app->in.joy_dir) return;
-    if (app->in.joy_dir != CTL_NONE) app_dispatch(app, (input_event_t){app->in.joy_dir, IN_RELEASE, 0, false});
+    if (app->in.joy_dir != CTL_NONE) control_event(app, (input_event_t){app->in.joy_dir, IN_RELEASE, 0, false});
     app->in.joy_dir = dir;
     if (dir != CTL_NONE) {
-        app_dispatch(app, (input_event_t){dir, IN_PRESS, 0, false});
+        control_event(app, (input_event_t){dir, IN_PRESS, 0, false});
         app->in.joy_next_ms = now + JOY_REPEAT_FIRST_MS;
     }
 }
 
 static void joy_repeat(app_t *app, uint32_t now) {
     if (app->in.joy_dir == CTL_NONE || (int32_t)(now - app->in.joy_next_ms) < 0) return;
-    app_dispatch(app, (input_event_t){app->in.joy_dir, IN_PRESS, 0, false});
+    control_event(app, (input_event_t){app->in.joy_dir, IN_PRESS, 0, false});
     app->in.joy_next_ms = now + JOY_REPEAT_MS;
 }
 
@@ -324,6 +525,7 @@ static void check_sd(app_t *app) {
     app->sd_gen = gen;
     if (audio_sd_state() != SD_NONE) {
         if (keymap_dirty()) keymap_save(); else keymap_load();
+        if (curves_changed()) curves_save(); else curves_load();
         if (ui_settings_changed(&app->ui, &app->rack)) ui_settings_save(&app->ui, &app->rack); else ui_settings_load(&app->ui, &app->rack);
     }
     audio_build(&app->rack, &app->params);
@@ -335,10 +537,12 @@ static void check_sd(app_t *app) {
 #define SETTINGS_SAVE_MS 2000           // after the first change: a few edits in a row make one write
 
 static void settings_autosave(app_t *app, uint32_t now) {
-    if (!ui_settings_changed(&app->ui, &app->rack)) { app->settings_pending = false; return; }
+    const bool ui = ui_settings_changed(&app->ui, &app->rack), cv = curves_changed();      // ui.cfg and curves.cfg
+    if (!ui && !cv) { app->settings_pending = false; return; }
     if (!app->settings_pending) { app->settings_pending = true; app->settings_ms = now; return; }
     if (now - app->settings_ms < SETTINGS_SAVE_MS || audio_sd_state() == SD_NONE) return;   // no card: saved when one shows up (check_sd)
-    if (ui_settings_save(&app->ui, &app->rack)) app->settings_pending = false;
+    const bool ok = (!cv || curves_save()) & (!ui || ui_settings_save(&app->ui, &app->rack));
+    if (ok) app->settings_pending = false;
     else app->settings_ms = now;                                    // try again a bit later
 }
 
@@ -412,7 +616,7 @@ bool app_step(app_t *app, input_event_t e) {
         } else if (e.ctl >= CTL_KEY_FIRST && e.ctl <= CTL_KEY_LAST) {
             key_event(app, e, now);
         } else {
-            app_dispatch(app, e);
+            control_event(app, e);
         }
     }
     joy_repeat(app, now);
@@ -428,10 +632,43 @@ bool app_step(app_t *app, input_event_t e) {
         audio_build(&app->rack, &app->params);
     }
 
-    static bool last_shift;
-    if (app->in.shift != last_shift) { last_shift = app->in.shift; app->ui.shift_held = app->in.shift; app->dirty = true; catch_stale = true; }   // Shift swaps what the col knobs drive
+    if (app->ui.learn_req) {            // a Learn button (MODIFIERS, or MACROS with learn_macro set): back to the pages, the next push on a row assigns it
+        app->ui.learn_req = false;
+        app->ui.learn_wait = true;
+        app->ui.learn_layer = (uint8_t)app->ui.mods_layer;
+        app->ui.learn_ctl = (uint8_t)app->ui.mods_ctl;
+        if (app->ui.in_rack) ui_event(app, UI_MENU);
+        char t[24];
+        if (app->ui.learn_macro >= 0) snprintf(t, sizeof t, "MACRO %d", app->ui.learn_macro + 1);
+        else layer_title(app->ui.learn_layer, (control_id_t)app->ui.learn_ctl, t, sizeof t);
+        popup_info(&app->popup, t, "Push on a row (Back: cancel)", 0, now, 3 * LEARN_INFO_MS);
+    }
+
+    // A modifier swaps what the col knobs drive: the catch is measured again against the new targets.
+    static int last_layer = -1;
+    static unsigned last_rev;
+    const int layer = active_layer(app);
+    if (layer != last_layer || (layer >= 0 && modifiers_rev() != last_rev)) {
+        last_layer = layer; last_rev = modifiers_rev();
+        app->dirty = true; catch_stale = true;
+    }
     if (popup_tick(&app->popup, now)) app->dirty = true;
-    if (catch_stale) { catch_stale = false; synth_ui_catch_refresh(&app->ui, &app->params, &app->seq, &app->rack, app->in.shift); }
+    if (catch_stale) {
+        catch_stale = false;
+        mapping_t tgt[SYNTH_UI_COL_KNOBS];
+        app->ui.knob_away = 0;
+        for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) {
+            const mod_entry_t me = modifiers_get(layer, (control_id_t)(CTL_COL_KNOB_0 + k));
+            const bool page_row = layer < 0;
+            const bool macro = me.kind == ME_ACTION && me.act == ACT_MACRO && me.arg >= 0 && me.arg < SYNTH_UI_MACROS;
+            memset(&tgt[k], 0, sizeof tgt[k]);
+            if (page_row) tgt[k].t.kind = MACRO_PAGE_ROW;
+            else if (me.kind == ME_PARAM) tgt[k] = modifiers_mapping(&me);
+            else if (macro && app->ui.macro[me.arg].n) tgt[k] = app->ui.macro[me.arg].dest[0];     // the catch follows the first destination
+            if (!page_row) app->ui.knob_away |= (uint8_t)(1 << k);
+        }
+        synth_ui_catch_refresh(&app->ui, &app->params, &app->seq, &app->rack, tgt);
+    }
 
     audio_update();
 

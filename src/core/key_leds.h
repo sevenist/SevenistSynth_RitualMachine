@@ -1,10 +1,8 @@
 #pragma once
-// The LEDs under the keys (hal_leds.h): play feedback. Each key shows what the key layout (keymap.h) gives it:
-//   note keys   piano colours (C teal, other naturals dim white, sharps dim blue), bright orange while held
-//   Shift       yellow, bright while Shift is on          Menu    blue, bright while the menu is open
-//   Back        red                                        Play    green, bright while the sequencer runs
-//   Octave +/-  violet, bright when the keyboard is shifted that way      navigation keys  dim white; unused keys off
-// Colours are full-scale here; the LED driver applies the global brightness (capped on the prototype, see board_pins.h).
+// The LEDs under the keys (hal_leds.h): play feedback. Each key shows the colour of its role (core/led_roles.h: from its function in the key
+// layout): the Idle colour, or the Active one while a note is held, Shift / Mod is held, the menu is open, the sequencer runs, the keyboard
+// is shifted that way (Octave) or a jump slot is saved. The colours are edited in the LEDS tab; while it is on screen the keys of the role
+// shown light in its Active colour. The LED driver applies the global brightness (capped on the prototype, see board_pins.h).
 #include <stdbool.h>
 #include <stdint.h>
 #include "core/app.h"

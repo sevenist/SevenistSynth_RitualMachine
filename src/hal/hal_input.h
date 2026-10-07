@@ -70,6 +70,8 @@ bool input_pending(void);                           // more events are queued: t
 
 // Whether the board has the key CTL_KEY(row, col): the KEYS menu tab lists only the keys that exist.
 bool input_key_present(int row, int col);
+// Whether the board has a control that is not a matrix key (the MODIFIERS menu tab lists only those).
+bool input_control_present(control_id_t c);
 
 // The top-left function key CTL_KEY(0, 0) was held at power-on (for about 2 s, read before the key scan starts: a key that is already down
 // makes no press event). The application resets the key layout. Platforms without it return false.

@@ -57,6 +57,23 @@ bool dx7_algorithm_adjust(dx7_patch_t *p, int dir);   // 1..32
 bool dx7_feedback_adjust(dx7_patch_t *p, int dir);    // 0..1 in steps of 0.02
 void dx7_feedback_format(const dx7_patch_t *p, char *out, size_t n);
 
+/* ---- every editable value under one code (pages, knob targets, macros) ----
+ * op 0..5 with v = dx7_value_t (the operator's parameters, then its envelope levels and times by point), or op = DX7_GLOBAL_OP with
+ * v = DXG_* (patch-wide). get / set work on 0..1 without walking steps, so reading a value never changes it (the knob catch measures
+ * with get); set returns true when the value changed. steps = the positions a knob tells apart over the range. */
+typedef enum { DXV_LEVEL, DXV_COARSE, DXV_FINE, DXV_FIXED, DXV_EG_L1, DXV_EG_L2, DXV_EG_L3, DXV_EG_L4, DXV_EG_T1, DXV_EG_T2, DXV_EG_T3, DXV_EG_T4,
+               DXV_COUNT } dx7_value_t;
+enum { DX7_GLOBAL_OP = DX7_OPS };
+enum { DXG_ALGO, DXG_FB, DXG_COUNT };
+
+bool        dx7_value_valid(int op, int v);
+bool        dx7_value_adjust(dx7_patch_t *p, int op, int v, int dir);
+void        dx7_value_format(const dx7_patch_t *p, int op, int v, char *out, size_t n);
+const char *dx7_value_label(int op, int v);                 // "Lvl", "Crs", "Fine", "Fix", "L1".."L4", "T1".."T4", "Algo", "Fb"
+float       dx7_value_get(const dx7_patch_t *p, int op, int v);
+bool        dx7_value_set(dx7_patch_t *p, int op, int v, float x);
+int         dx7_value_steps(int op, int v);
+
 // Level (0..99) -> linear amplitude (2 at 99, halving every 8 steps) and envelope value.
 float dx7_amp(int level);
 float dx7_env_value(int level);

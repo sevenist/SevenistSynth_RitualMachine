@@ -177,6 +177,11 @@ void input_esp32_init(void) {
 }
 
 extern "C" bool input_key_present(int row, int col) { return row >= 0 && row < KEY_ROWS && col >= 0 && col < KEY_COLS && HWV1_KEY_PRESENT(row, col); }
+// The 7 knobs (kHwv1Knobs) and the joystick; no encoder pushes, no Play / B1..B3 buttons, no right-hand knobs.
+extern "C" bool input_control_present(control_id_t c) {
+    for (int i = 0; i < HWV1_KNOB_COUNT; i++) if (kHwv1Knobs[i].ctl == c) return true;
+    return c == CTL_JOY_SW || c == CTL_JOY_LEFT || c == CTL_JOY_RIGHT || c == CTL_JOY_UP || c == CTL_JOY_DOWN;
+}
 extern "C" bool input_boot_reset(void) { return false; }   // the power-on key read was reverted (2026-10-07): the app's own check (F1 within 4 s of start, held 2 s) is the reset
 
 extern "C" bool input_pending(void) { return head != tail; }   // a racy read is fine: a hint for the redraw
@@ -194,6 +199,7 @@ void input_esp32_init(void) {}
 extern "C" input_event_t input_poll(void) { return input_event_t{CTL_NONE, IN_NONE, 0, false}; }
 extern "C" bool input_pending(void) { return false; }
 extern "C" bool input_key_present(int, int) { return false; }
+extern "C" bool input_control_present(control_id_t) { return false; }
 extern "C" bool input_boot_reset(void) { return false; }
 #endif // HWV1
 #endif // ARDUINO_ARCH_ESP32

@@ -14,6 +14,14 @@
 //    An OSC is always a source in the chain. Given a target, its own output (at its own pitch)
 //    also modulates that parameter (FM, AM, ...); its Mute switch silences it in the chain
 //    while the modulation stays intact.
+//
+// Lanes and Sum points (ADR-040):
+//  - Every module sits on one of RACK_LANES parallel lanes (slot.lane). Each lane is a chain as above: a source adds to its lane, a
+//    processor processes what is to its left in its lane. The slot array keeps one global order; a lane is that order filtered by lane.
+//  - A Sum (MOD_SUM, at most one per lane) sums its lane over the voices: modules left of it run per voice, right of it once (stereo).
+//    A lane without a Sum is summed at the output (an implicit Sum: rack_t.lane_lvl / lane_pan). A Sum holds its lane's level and pan.
+//  - The cheap FX (rack_fx_voice_ok) may sit anywhere; the heavy ones (rack_type_global_only) only after their lane's Sum.
+//  - The lanes meet at the output, then the master FX rack (cfg.fxr) follows.
 #include <stdbool.h>
 #include <stdint.h>
 #include "core/synth_config.h"
@@ -22,12 +30,19 @@
 extern "C" {
 #endif
 
-#define RACK_MAX 10                 // slots (the rack strip of the UI scrolls sideways, see RACK_VIS in ui_internal.h)
+#define RACK_MAX 16                 // slots, shared by the lanes (the rack strip of the UI scrolls sideways, see RACK_VIS in ui_internal.h)
+#define RACK_LANES 3
 #define RACK_OUT (-2)               // returned by rack_audio_next(): goes to the output
 #define RACK_NONE (-1)
 
-// Order must match MODULES in tools/gen_module_sprites.py.
-typedef enum { MOD_OSC, MOD_FILTER, MOD_SAT, MOD_LFO, MOD_MSEQ, MOD_ENV, MOD_SAMPLER, MOD_EG, MOD_COMB, MOD_TYPE_COUNT } module_type_t;
+// Order must match MODULES in tools/gen_module_sprites.py. New types are appended (the order is the meaning of slot.type).
+typedef enum {
+    MOD_OSC, MOD_FILTER, MOD_SAT, MOD_LFO, MOD_MSEQ, MOD_ENV, MOD_SAMPLER, MOD_EG, MOD_COMB,
+    MOD_SUM,                                                                                  // a lane's Sum point (ADR-040)
+    MOD_TREM, MOD_EQ, MOD_RING, MOD_PHASER, MOD_FLANGER, MOD_COMP,                            // FX: per voice before a Sum, once after it
+    MOD_DELAY, MOD_REVERB, MOD_CHORUS, MOD_SPECTRAL, MOD_CAB, MOD_ENSEMBLE,                   // FX: only after a Sum (global)
+    MOD_TYPE_COUNT
+} module_type_t;
 
 #define MOD_PARAM_MAX 20    // editable parameters per module (floats; enums store their index)
 
@@ -45,6 +60,19 @@ enum { MP_EN_A, MP_EN_D, MP_EN_S, MP_EN_DEPTH, MP_EN_R, MP_EN_HOLD, MP_EN_START,
 enum { MP_EG_SUS = 12, MP_EG_REL, MP_EG_RCV, MP_EG_ONE, MP_EG_DEPTH };
 enum { MP_RS_TUNE, MP_RS_FB, MP_RS_DAMP, MP_RS_INT, MP_RS_MIX };    // RS (tuned resonator): Crs st, Fb %, Dmp Hz, Int st, Mix
 enum { MP_MS_POOL };    // MS: index into rack_t.ms (not editable)
+enum { MP_SU_LEVEL, MP_SU_PAN };                                            // Sum: the lane's level (0..1) and pan (-100..100 %)
+// FX modules: the parameters of the FX rack effect of the same name (fxrack.c), in the rack's units
+enum { MP_TR_RATE, MP_TR_DEPTH, MP_TR_SHAPE, MP_TR_MODE };
+enum { MP_EQ_LOW, MP_EQ_MID, MP_EQ_MIDF, MP_EQ_HIGH };
+enum { MP_RG_MODE, MP_RG_FREQ, MP_RG_MIX };
+enum { MP_PH_RATE, MP_PH_DEPTH, MP_PH_FB, MP_PH_MIX };                     // also the flanger (MP_PH_* = MP_FG_*)
+enum { MP_CP_THR, MP_CP_RATIO, MP_CP_REL, MP_CP_GAIN };
+enum { MP_DL_TIME, MP_DL_FB, MP_DL_MIX, MP_DL_PONG };
+enum { MP_RV_MIX, MP_RV_DEC, MP_RV_SIZE, MP_RV_DAMP };
+enum { MP_CH_MODE, MP_CH_MIX };
+enum { MP_SP_MODE, MP_SP_SHIFT, MP_SP_AMT, MP_SP_MIX, MP_SP_HOLD, MP_SP_LO, MP_SP_HI };
+enum { MP_CB_IR, MP_CB_LEN, MP_CB_MIX, MP_CB_LEVEL };
+enum { MP_ES_RATE, MP_ES_DEPTH, MP_ES_SHIM, MP_ES_MIX };
 // SM (sampler): File = catalog index + 1 (0 = none), Slc 0 = whole sample / n = slice n, Out values are indexes of the enums in rack.c
 enum { MP_SM_FILE, MP_SM_LEVEL, MP_SM_COARSE, MP_SM_FINE, MP_SM_LOOP, MP_SM_REV, MP_SM_START, MP_SM_TRACK, MP_SM_SLICE, MP_SM_SMODE };    // MS: index into rack_t.ms (not editable)
 
@@ -71,6 +99,7 @@ typedef struct {
     uint8_t id;          // unique, stable while the module exists (slot index changes)
     uint8_t tgt_id;      // modulators: id of the targeted module, 0 = none
     uint8_t tgt_param;   // modulators: parameter index in the target (see rack_param_name)
+    uint8_t lane;        // 0..RACK_LANES-1 (a modulator's lane is only where the editor shows it)
     float   v[MOD_PARAM_MAX];   // the module's own parameter values (see rack_mparam_*)
 } rack_slot_t;
 
@@ -78,6 +107,7 @@ typedef struct {
     rack_slot_t slot[RACK_MAX];
     int         count;
     uint8_t     next_id;   // ids start at 1
+    float       lane_lvl[RACK_LANES], lane_pan[RACK_LANES];   // the implicit Sum of a lane without a Sum module (pan -100..100); a Sum copies them
     synth_config_t cfg;    // general settings (synth type, voices, volume): the GENERAL tab
     ms_pattern_t ms[MS_POOL];   // motion sequencer patterns (see ms_lane_t)
 } rack_t;
@@ -87,9 +117,20 @@ void rack_init_sampler(rack_t *r, int file, int loop);   // dev / measurement pa
 void rack_init_startup(rack_t *r);   // the patch the device starts with: four oscillator engines into a filter, delay and reverb on
 void rack_clear(rack_t *r);   // no modules, default general settings
 
-// Edits. Return false when impossible (full / bad position).
-bool rack_insert(rack_t *r, int pos, module_type_t type);   // shifts slots >= pos to the right
-bool rack_delete(rack_t *r, int pos);                       // clears modulators that targeted it
+// Edits. Return false when impossible (full / bad position / against the lane rules).
+bool rack_insert(rack_t *r, int pos, module_type_t type);   // shifts slots >= pos to the right; lane 0
+bool rack_insert_lane(rack_t *r, int pos, int lane, module_type_t type);   // the same on `lane`, with the lane rules (rack_can_insert)
+bool rack_delete(rack_t *r, int pos);                       // clears modulators that targeted it; a Sum that global-only FX follow cannot go
+bool rack_set_lane(rack_t *r, int slot, int lane);          // moves a module to another lane (same slot order), with the lane rules
+
+// Lanes and Sum points (ADR-040)
+bool rack_type_global_only(module_type_t t);     // the heavy FX: only after a Sum
+bool rack_is_fx(module_type_t t);                // an FX module (voice-capable or global-only)
+int  rack_lane_sum(const rack_t *r, int lane);   // slot of the lane's Sum, RACK_NONE without one
+bool rack_slot_is_global(const rack_t *r, int slot);           // after its lane's Sum: runs once, stereo
+bool rack_can_insert(const rack_t *r, int pos, int lane, module_type_t t);   // what rack_insert_lane checks
+float *rack_lane_level(rack_t *r, int lane);     // the lane's level and pan: its Sum's values, else the implicit ones
+float *rack_lane_pan(rack_t *r, int lane);
 
 // Module type info
 const char *rack_type_code(module_type_t t);     // "OC"

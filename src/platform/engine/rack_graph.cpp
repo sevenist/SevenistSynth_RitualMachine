@@ -149,7 +149,7 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
     } else {
         // ---- audio chain
         int n_sources = 0;
-        for (int i = 0; i < rack.count; i++) if (rack.slot[i].type == MOD_OSC || rack.slot[i].type == MOD_SAMPLER) n_sources++;
+        for (int i = 0; i < rack.count; i++) if ((rack.slot[i].type == MOD_OSC || rack.slot[i].type == MOD_SAMPLER) && rack.slot[i].lane == 0) n_sources++;
         const double lvl_scale = n_sources > 1 ? 1.0 / std::sqrt(static_cast<double>(n_sources)) : 1.0;
 
         Target tgt[RACK_MAX];                                        // where a modulator aimed at slot i lands
@@ -180,7 +180,7 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
         int order[RACK_MAX], n_order = 0, split_at = rack.count;
         if (para) {
             for (int i = 0; i < rack.count; i++)
-                if (rack.slot[i].type == MOD_FILTER && rack_slot_is_audio(&rack, i) && static_cast<int>(rack.slot[i].v[MP_FL_TYPE]) != FILT_OFF) { split_at = i; break; }
+                if (rack.slot[i].type == MOD_FILTER && rack.slot[i].lane == 0 && rack_slot_is_audio(&rack, i) && static_cast<int>(rack.slot[i].v[MP_FL_TYPE]) != FILT_OFF) { split_at = i; break; }
             for (int i = 0; i < split_at; i++) order[n_order++] = i;
             for (int i = split_at; i < rack.count; i++) if (is_source(rack.slot[i].type)) order[n_order++] = i;
             for (int i = split_at; i < rack.count; i++) if (!is_source(rack.slot[i].type)) order[n_order++] = i;
@@ -224,6 +224,7 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
             const int i = order[oi];
             if (!rack_slot_is_audio(&rack, i)) continue;
             const rack_slot_t &s = rack.slot[i];
+            if (s.lane != 0 || s.type >= MOD_SUM) continue;          // ADR-040 stage 1: only lane 1 sounds; Sum passes through, FX modules not built yet
             if (para && !global && i >= split_at && !is_source(s.type)) split();
             const int id = node_of(s.id), aux = id + 1;
             if (s.type == MOD_OSC) {

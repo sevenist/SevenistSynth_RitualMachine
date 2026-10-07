@@ -30,7 +30,7 @@
 static inline int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 typedef enum { GRAPH_WAVE, GRAPH_ENV, GRAPH_FILTER, GRAPH_SAT, GRAPH_AMP_ENV, GRAPH_SEQ, GRAPH_SEQ_CFG, GRAPH_FM, GRAPH_MS_STEPS, GRAPH_MS_LANE, GRAPH_SAMPLE, GRAPH_EG, GRAPH_EG_REL, GRAPH_COMB,
-               GRAPH_STR_OSC, GRAPH_STR_LP, GRAPH_STR_FILTER, GRAPH_FM_OP, GRAPH_FM_ENV } graph_t;
+               GRAPH_STR_OSC, GRAPH_STR_LP, GRAPH_STR_FILTER, GRAPH_FM_OP, GRAPH_FM_ENV, GRAPH_FX } graph_t;
 
 // A resolved page: what to show for ui->page right now.
 typedef struct {
@@ -102,6 +102,7 @@ void draw_comp_graph(u8g2_t *g, gui_rect_t box, int thr, int ratio, int gain);
 void draw_eq_graph(u8g2_t *g, gui_rect_t box, int low, int mid, int midf, int high);
 void draw_fx_chain(u8g2_t *g, gui_rect_t box, const fxrack_t *fr, int sel);
 void draw_fx_picture(u8g2_t *g, gui_rect_t box, const fxrack_t *fr, int sel);
+void draw_fx_module(u8g2_t *g, gui_rect_t box, const rack_slot_t *ms);   // a Sum / FX rack module (ADR-040): the FX tab's sketch, else its name
 void draw_algo(u8g2_t *g, gui_rect_t box, const dx7_patch_t *p, int sel_op);
 void draw_eg_editor(u8g2_t *g, gui_rect_t box, const dx7_op_t *o, int sel);
 

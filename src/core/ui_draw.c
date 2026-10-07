@@ -404,6 +404,7 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
         case GRAPH_ENV:     { env_params_t e = module_env(ms); draw_env(g, box, &e); } break;
         case GRAPH_EG_REL:  draw_eg_graph(g, box, ms, -1); break;
         case GRAPH_COMB:    draw_comb(g, box, ms->v[MP_RS_FB], ms->v[MP_RS_MIX]); break;
+        case GRAPH_FX:      draw_fx_module(g, box, ms); break;
         case GRAPH_SAMPLE: {
             audio_sample_info_t in;
             const bool have = audio_sample_info((int)ms->v[MP_SM_FILE] - 1, &in);

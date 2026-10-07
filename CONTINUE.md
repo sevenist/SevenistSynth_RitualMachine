@@ -67,6 +67,16 @@ time, message it before building (memory feedback-shared-tree-builds). Confirmed
 - [x] Role-based key LED colours: LEDS tab, preview by role, GRB order, default colours: checked by the user on the board (done 2026-10-07)
 - Set aside (user, 2026-10-07): unformatted card "format?" ASK (a mount without a file system is still "no card"; needs FATFS mkfs)
 
+## Rack lanes, Sum points, FX modules (ADR-040; stage 1 built 2026-10-08, host only, NOT seen by the user)
+
+- User decisions (four rounds of options, recorded in ENGINE_DESIGN.md ADR-040): Sum point per lane, 3 parallel lanes, cheap FX per voice /
+  heavy only after a Sum, 16 slots, master FX tab kept, one module per effect, level / pan on the lane's Sum, Sum = the Para split generalised,
+  RACK tab = **lanes + push menu**.
+- Stage 1 done: model + rules + pages + the RACK tab (3 lanes, popup menu) + placeholder icons; tests `tests/ui/test_lanes.c`. Lanes B / C and
+  the Sum / FX modules are **silent until stage 2** (the mapper builds lane A only).
+- Next: the user tries the RACK tab in the simulator (navigation, the menu, links across lanes); then stage 2 (engine: 3 voice buses,
+  per-voice FX `<Scope>` templates, the mapper per lane, lane mix into the master FX), then stage 3 (board, listening).
+
 ## FFT, STFT and the Spectral FX on the ESP32-S3 (2026-10-07; board session: flashed and measured by Claude; listened to by the user: Thru clean, Pitch / Freeze OK; Gate / Robot / Whisper not reported)
 
 - The C FFT measured 173-205k cycles per 512 transform on the board: an STFT hop needed more than a core, so SpectralFx / Vocoder could never have run there.

@@ -50,7 +50,7 @@ Declared in `synth_ui.h`. The fields that matter:
 | `page` | index into the generated page list (main view) |
 | `in_rack` | true while the **menu** is open (the name is historical: it was the rack editor); then `menu_tab` is the tab |
 | `menu_tab` | which tab of the menu: RACK, GENERAL, SAMPLES, FX RACK (modular synth), or GENERAL, ALGORITHM, FX RACK, KEYS, MODIFIERS (FM synth; the operators have main-view pages: OPn, OPn ENV) |
-| `rack_cur`, `rack_scroll`, `rack_type` | RACK tab: selected cell (a slot, or the empty one after the last), first visible cell, module type Insert will add |
+| `rack_cur`, `rack_scroll`, `rack_type`, `rack_lane`, `rack_col[]`, `rack_menu` | RACK tab: the selected module's slot (past the end on + / out), first visible column (all lanes), module type Insert will add, the lane the menu acts on, each lane's cell, the menu is open |
 | `cursor` | selected step of the step sequencer |
 | `fm_op`, `fm_pt`, `ms_lane`, `ms_step`, `eg_pt`, `fx_slot`, `smp_cur`, `smp_tgt` | per-screen sub-selections (operator, envelope point, lane, step, sample...) |
 | `pg_slot[]`, `pg_def[]`, `page_count` | the generated page list (section 3) |
@@ -184,7 +184,7 @@ The three kinds and how the controls act on them (`screen_event`):
 | Kind | Joystick | Joystick push | Encoder B | Example |
 | --- | --- | --- | --- | --- |
 | `EL_VALUE` | moves the focus to the neighbour; with no neighbour on that side, changes the value (RACK tab: once latched, changes the value) | latch / release (`use_latch` screens only) | changes the value | Type, Tgt, Voices, Algo |
-| `EL_DIRECT` | left / right change it, up / down move the focus | nothing | changes it | the module strip of the RACK tab |
+| `EL_DIRECT` | left / right change it, up / down move the focus | runs `activate()` if set | changes it | the lanes of the RACK tab (push: the menu) |
 | `EL_BUTTON` | moves the focus | activates | its push (`UI_SELECT`) activates | Insert, Delete, Assign, Scan |
 
 Focus moves spatially with the joystick (`nav`: the nearest element in that direction, by grid position) and linearly with encoder A (`linear`, header included). A disabled element is skipped by
@@ -195,7 +195,7 @@ The tabs and their files:
 
 | Tab | File | Elements | Picture / extra |
 | --- | --- | --- | --- |
-| RACK | `scr_rack.c` | module strip, Type, Insert, Tgt, Prm, Dpth, Delete | the strip itself, connection lanes, a description line |
+| RACK | `scr_rack.c` | three lanes; the push menu: Type, Insert, Tgt, Prm, Dpth, Lane, Lvl, Pan, Delete | the lanes, their links, a description line |
 | GENERAL | `scr_general.c` | Type, Patch, Voices, Vol | info box (`draw_synth_info`) |
 | SAMPLES | `scr_samples.c` | File, Tgt, Assign, Scan | overview of the highlighted file, its length and root note |
 | FX RACK | `scr_fx.c` | Slot, Type, the effect's parameters (names from `fxr_label`, unused ones hidden) | sketch of the effect (`draw_fx_picture`) |
@@ -204,22 +204,26 @@ The tabs and their files:
 Edits that change the structure (module insert / delete, target, type, voices, the FM patch) set `rack_dirty` or `rebuild`; the audio graph is rebuilt when the menu closes. Edits that are live
 (volume, effect parameters, FM operator values) return `true` so the app pushes them to the audio side at once.
 
-### The RACK tab (`scr_rack.c`)
+### The RACK tab (`scr_rack.c`, lanes since ADR-040)
 
 ```text
-[ < RACK > ]                                    header: up from the strip
-[ strip: modules as 25 x 25 sprites ]           EL_DIRECT: joystick left / right select the slot and scroll; the selected slot has a frame
-( connection lanes: audio chain, modulator links )   (doubled while the strip has the focus) and an arrow above it
-  description of the selected module            only when it fits the screen height
-[Type]  [Insert]                                Type: what Insert adds
-[Tgt]   [Prm]                                   a modulator's target module and parameter
-[Dpth                ]                          modulation depth in the target's unit
-[Delete              ]                          buttons Insert / Delete; Back (button 2) also deletes
+[ < RACK > ]                                    header: up from lane A
+[ lane A: its modules, +, its output ]          3 EL_DIRECT rows (one per lane): left / right select the cell, up / down the lane; the selected
+[ lane B ]                                      cell has a frame (doubled while its lane or its menu has the focus); push opens the menu;
+[ lane C ]                                      Back deletes the selected module
+  description of the selection ("B OC2 Oscillator")
+menu (a popup over the lanes, only the rows that apply): Type, Insert, Tgt, Prm, Dpth, Lane, Lvl, Pan, Delete;  Back closes it
 ```
 
-The strip shows `RACK_VIS` cells (derived from `DISPLAY_WIDTH`: four 32 px cells on 128 px) and scrolls over the 10 slots plus OUT; arrows at its ends show that more cells are hidden. `RACK_PITCH` in
-`ui_internal.h` is the sprite width + one 8 px grid cell and a `_Static_assert` in `scr_rack.c` checks it against `MODULE_SPRITE_W`; the sprite size itself is set in `tools/gen_module_sprites.py`.
-The screen sits on the 8 px grid (rows in `scr_rack.c`: frame room, icons, the audio and mod lanes, description, four 16 px field rows); links join the icons' fixed connectors (assets/UI_Sprites/README.md).
+A lane's cells are its modules in slot order, a `+` cell (while the rack has fewer than `RACK_MAX` = 16 modules) and its output cell (the
+implicit Sum: Lvl / Pan when the lane has no Sum module). Insert puts the Type before the selected module, or at the lane's end on the `+` cell,
+and is disabled (n/a) where the lane rules forbid it (one Sum per lane; Delay, Reverb, Chorus, Spectral, Cab, Ensemble only after the lane's
+Sum: `rack_can_insert`). Lane moves the module to another lane that accepts it (`rack_set_lane`); a Sum that global-only FX still need cannot be
+deleted or moved. The menu rows are elements that are enabled only while `ui->rack_menu` is set; `layout()` stacks the enabled ones into the
+popup and `menu_item_draw` clears and frames it. The three lanes share one horizontal scroll (`rack_scroll`) so columns line up;
+`ui->rack_col[]` keeps each lane's cell, `ui->rack_lane` the lane the menu acts on, `ui->rack_cur` the selected module's slot (for the code
+that still uses it). Links: each lane's audio chain inside its row (neighbours through the gap, skips along the row's bottom line);
+modulation links (dotted) may cross lanes. `RACK_PITCH` = sprite width + one 8 px grid cell (checked against `MODULE_SPRITE_W`).
 
 ### Adding or converting a screen
 

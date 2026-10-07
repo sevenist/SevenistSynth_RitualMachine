@@ -44,6 +44,20 @@ static const mpage_def_t sm_pages[] = {
     {"SMP %d LOOP",  GRAPH_SAMPLE, 4, {MP_SM_LOOP, MP_SM_REV, MP_SM_START, MP_SM_TRACK}},
     {"SMP %d SLICE", GRAPH_SAMPLE, 2, {MP_SM_SLICE, MP_SM_SMODE}},
 };
+// Sum and FX modules (ADR-040): one page each; Spectral's last three rows sit behind its cog (mod_hidden)
+static const mpage_def_t su_pages[] = {{"SUM %d",      GRAPH_FX, 2, {MP_SU_LEVEL, MP_SU_PAN}}};
+static const mpage_def_t tr_pages[] = {{"TREM %d",     GRAPH_FX, 4, {MP_TR_RATE, MP_TR_DEPTH, MP_TR_SHAPE, MP_TR_MODE}}};
+static const mpage_def_t eq_pages[] = {{"EQ %d",       GRAPH_FX, 4, {MP_EQ_LOW, MP_EQ_MID, MP_EQ_MIDF, MP_EQ_HIGH}}};
+static const mpage_def_t rg_pages[] = {{"RING %d",     GRAPH_FX, 3, {MP_RG_MODE, MP_RG_FREQ, MP_RG_MIX}}};
+static const mpage_def_t ph_pages[] = {{"PHASER %d",   GRAPH_FX, 4, {MP_PH_RATE, MP_PH_DEPTH, MP_PH_FB, MP_PH_MIX}}};
+static const mpage_def_t fg_pages[] = {{"FLANGER %d",  GRAPH_FX, 4, {MP_PH_RATE, MP_PH_DEPTH, MP_PH_FB, MP_PH_MIX}}};
+static const mpage_def_t cp_pages[] = {{"COMP %d",     GRAPH_FX, 4, {MP_CP_THR, MP_CP_RATIO, MP_CP_REL, MP_CP_GAIN}}};
+static const mpage_def_t dl_pages[] = {{"DELAY %d",    GRAPH_FX, 4, {MP_DL_TIME, MP_DL_FB, MP_DL_MIX, MP_DL_PONG}}};
+static const mpage_def_t rv_pages[] = {{"REVERB %d",   GRAPH_FX, 4, {MP_RV_MIX, MP_RV_DEC, MP_RV_SIZE, MP_RV_DAMP}}};
+static const mpage_def_t ch_pages[] = {{"CHORUS %d",   GRAPH_FX, 2, {MP_CH_MODE, MP_CH_MIX}}};
+static const mpage_def_t sp_pages[] = {{"SPECTRAL %d", GRAPH_FX, 4, {MP_SP_MODE, MP_SP_SHIFT, MP_SP_AMT, MP_SP_MIX}}};
+static const mpage_def_t cb_pages[] = {{"CAB %d",      GRAPH_FX, 4, {MP_CB_IR, MP_CB_LEN, MP_CB_MIX, MP_CB_LEVEL}}};
+static const mpage_def_t es_pages[] = {{"ENSEMBLE %d", GRAPH_FX, 4, {MP_ES_RATE, MP_ES_DEPTH, MP_ES_SHIM, MP_ES_MIX}}};
 static const mpage_def_t ms_pages[] = {
     {"MOTION %d",  GRAPH_MS_STEPS, 4, {0}},
     {"MS %d LANE", GRAPH_MS_LANE,  5, {0}},
@@ -59,12 +73,17 @@ static const struct { const mpage_def_t *defs; int n; } mod_pages[MOD_TYPE_COUNT
     [MOD_EG]     = {eg_pages, 3},
     [MOD_COMB]   = {rs_pages, 1},
     [MOD_SAMPLER] = {sm_pages, 3},
+    [MOD_SUM]      = {su_pages, 1}, [MOD_TREM]    = {tr_pages, 1}, [MOD_EQ]     = {eq_pages, 1}, [MOD_RING]     = {rg_pages, 1},
+    [MOD_PHASER]   = {ph_pages, 1}, [MOD_FLANGER] = {fg_pages, 1}, [MOD_COMP]   = {cp_pages, 1}, [MOD_DELAY]    = {dl_pages, 1},
+    [MOD_REVERB]   = {rv_pages, 1}, [MOD_CHORUS]  = {ch_pages, 1}, [MOD_SPECTRAL] = {sp_pages, 1}, [MOD_CAB]    = {cb_pages, 1},
+    [MOD_ENSEMBLE] = {es_pages, 1},
 };
 
 // The hidden settings of a module: rarely used rows, shown in place of its first page's rows while its cog is open (ui->cog_page).
 // A module without any has no cog.
 static const struct { int n; int p[4]; } mod_hidden[MOD_TYPE_COUNT] = {
     [MOD_OSC] = {3, {MP_OC_QUAL, MP_OC_MUTE, MP_OC_HARM}},   // Harm: the MI models' third control
+    [MOD_SPECTRAL] = {3, {MP_SP_HOLD, MP_SP_LO, MP_SP_HI}},   // ADR-040: Freeze's hold, the Gate band
 };
 
 int module_hidden_count(int type) { return type >= 0 && type < MOD_TYPE_COUNT ? mod_hidden[type].n : 0; }
@@ -200,6 +219,8 @@ void get_page(const synth_ui_t *ui, const rack_t *rack, int idx, page_t *out) {
 
 void synth_ui_init(synth_ui_t *ui, const rack_t *rack) {
     ui->page = 0; ui->row = 0; ui->cursor = 0; ui->rack_cur = 0; ui->rack_scroll = 0; ui->rack_type = MOD_OSC;
+    ui->rack_lane = 0; ui->rack_menu = false;
+    for (int l = 0; l < RACK_LANES; l++) ui->rack_col[l] = 0;
     ui->rack_dirty = false; ui->rebuild = false; ui->in_rack = false; ui->menu_tab = 0; ui->fm_op = 0; ui->fm_pt = 0;
     ui->cog_page = -1;
     ui->run_anim = GUI_ANIM_INVALID; ui->ms_lane = 0; ui->ms_step = 0; ui->smp_cur = 0; ui->smp_tgt = 0; ui->key_cur = KEY_COLS; ui->eg_pt = 0; ui->fx_slot = 0;

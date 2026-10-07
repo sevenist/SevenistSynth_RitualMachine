@@ -55,6 +55,10 @@ CLEAR, OFF, LIT = (0, 0), (0, 255), (255, 255)   # (luminance, alpha) per pixel
 MODULES = {
     "osc": ("OC", "io"), "filter": ("FL", "io"), "sat": ("SA", "io"), "lfo": ("LF", "o"), "mseq": ("MS", "o"),
     "env": ("EN", "o"), "sampler": ("SM", "io"), "eg": ("EG", "o"), "comb": ("RS", "io"),
+    # ADR-040: the Sum and the FX modules (codes as in rack.c: FG / RG / ES where the FX rack's would clash)
+    "sum": ("SU", "io"), "trem": ("TR", "io"), "eq": ("EQ", "io"), "ring": ("RG", "io"), "phaser": ("PH", "io"), "flanger": ("FG", "io"),
+    "comp": ("CP", "io"), "delay": ("DL", "io"), "reverb": ("RV", "io"), "chorus": ("CH", "io"), "spectral": ("SP", "io"), "cab": ("CB", "io"),
+    "ensemble": ("ES", "io"),
 }
 # menu tab -> code (the names of tab_icon() in ui_pages.c)
 # oscillator waves and engines (wave_names in core/rack.c, Wav values 0..14) -> a drawn shape, or a 3-letter code for an engine

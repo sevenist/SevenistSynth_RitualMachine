@@ -91,7 +91,7 @@ TEST(rack_sources_are_summed_by_the_plan_not_by_mixer_nodes) {
 TEST(rack_more_sources_than_fan_in_fold_into_one_mixer) {
     DspRig rig;
     rack_t r; synth_params_t p;
-    make_rack(r, p, RACK_MAX - 1);                                   // 9 oscillators + the filter
+    make_rack(r, p, 9);                                              // 9 oscillators + the filter: one more than a fan-in
     RackGraph rg;
     CHECK(rack_graph_build(r, p, rig.eng.registry(), rg));
     CHECK_EQ(count_type(rg, T_MIX4_V), 1);

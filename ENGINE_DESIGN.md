@@ -559,7 +559,7 @@ listening loop (serial `mi`).
 - Tests (`test_mi_osc.cpp`, all six configurations): every model sounds, finite, below full scale; 11 pitched models periodic at the note (3 notes); the struck
   ones decay; the rack's Wav names follow the model order; host cost table.
 
-### ADR-040: Rack lanes, Sum points and FX modules in the rack (Accepted; user choices of 2026-10-07; nothing built yet)
+### ADR-040: Rack lanes, Sum points and FX modules in the rack (Accepted; user choices of 2026-10-07; stage 1 built 2026-10-08, host only)
 User decisions (asked with options, all recommendations taken except the scope rule):
 1. **FX in the rack, scope by a Sum point** (user's choice over "cheap per voice, heavy at the end"): a **Sum** module in a lane; modules left of it
    run per voice, right of it once on that lane's summed voices (stereo). A lane without a Sum is summed at the output.
@@ -580,6 +580,14 @@ Proposed by me and confirmed by the user:
   `Filter`; the lane outputs mix (level, pan) into the master FX chain.
 Stages: (1) model + rules + editor (lane per slot, Sum, FX modules, placement rules, 16 slots, the 3-row rack strip), host UI tests; (2) engine (buses,
 per-voice FX, mapper per lane), host tests in the six configurations; (3) board: cost per lane / per voice FX, listening.
+**Stage 1 as built (2026-10-08; 65 UI tests incl. `tests/ui/test_lanes.c`, 169 engine tests, the simulator builds; NOT seen by the user):**
+`rack_slot_t.lane`, `RACK_MAX` 16, `rack_t.lane_lvl / lane_pan` (the implicit Sums), types MOD_SUM .. MOD_ENSEMBLE appended (codes SU TR EQ RG PH FG CP
+DL RV CH SP CB ES), their parameter tables (FX rack ranges in rack units), pages (`GRAPH_FX`: the FX tab's sketch or the name) and Spectral's cog
+(Hold / Lo / Hi); rules `rack_can_insert / rack_insert_lane / rack_set_lane / rack_delete`; lane-aware `rack_audio_prev / next`, `rack_has_signal`.
+RACK tab (user choice, third round: **lanes + push menu** over "selected lane big" / "lanes view + fields view" / "16 px icons"): 3 lane rows, a
+description line, a popup menu Type / Insert / Tgt / Prm / Dpth / Lane / Lvl / Pan / Delete (only the rows that apply). Moving a module to another
+lane is the menu's Lane row (my choice: Shift + up / down is taken by the Shift layer). Placeholder icons `24/mod_<name>` for the user to paint.
+**Until stage 2 the mapper builds lane A only** and skips Sum / FX modules (lanes B / C are editable but silent).
 Risks: per-voice FX cost x voices (a 4-voice Phaser = 4 Phasers); 3 lanes x Sum x global FX can exceed the budget (the cost display must show it);
 the rack strip gets 3 rows on 128 x 128 (with the 8 x 8 grid: 16 px bar + 3 x 32 px rows = 112 px).
 

@@ -82,6 +82,9 @@ typedef struct {
     int rack_cur;   // selected rack slot (== rack.count: the empty slot at the end)
     int rack_scroll; // first visible cell of the rack strip
     int rack_type;  // module type that Insert will add
+    int rack_lane;  // RACK tab (ADR-040): the lane whose cell is selected (the menu acts on it)
+    int rack_col[RACK_LANES];   // the selected column of each lane (its modules, then the + cell, then its output)
+    bool rack_menu; // the push menu of the selected cell is open
     int  fm_op;            // FM editor: selected operator 0..5
     int  fm_pt;            // FM editor: selected envelope point 0..3
     int  cog_page;         // the page whose cog is open (its module's hidden settings shown in place of its rows), -1 = none

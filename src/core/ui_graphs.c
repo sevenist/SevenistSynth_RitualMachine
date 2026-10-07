@@ -485,6 +485,25 @@ void draw_fx_picture(u8g2_t *g, gui_rect_t box, const fxrack_t *fr, int sel) {
     }
 }
 
+// A Sum / FX rack module's picture: the FX tab's sketch when the effect has one (its values converted to the FX tab's screen units), else its
+// name in a frame.
+void draw_fx_module(u8g2_t *g, gui_rect_t box, const rack_slot_t *ms) {
+    const float *v = ms->v;
+    const int pct = 100;
+    switch (ms->type) {
+        case MOD_CHORUS: draw_chorus_graph(g, box, (int)v[MP_CH_MODE], (int)lroundf(v[MP_CH_MIX] * pct)); return;
+        case MOD_DELAY:  draw_delay_graph(g, box, (int)lroundf(v[MP_DL_MIX] * pct), (int)v[MP_DL_TIME], (int)lroundf(v[MP_DL_FB] * pct)); return;
+        case MOD_REVERB: draw_reverb_graph(g, box, (int)lroundf(v[MP_RV_MIX] * pct), (int)lroundf(v[MP_RV_DEC] * pct), (int)lroundf(v[MP_RV_SIZE] * pct),
+                                           (int)lroundf(v[MP_RV_DAMP] * pct)); return;
+        case MOD_COMP:   draw_comp_graph(g, box, (int)v[MP_CP_THR], (int)v[MP_CP_RATIO], (int)v[MP_CP_GAIN]); return;
+        case MOD_EQ:     draw_eq_graph(g, box, (int)v[MP_EQ_LOW], (int)v[MP_EQ_MID], (int)lroundf(69.0f + 12.0f * log2f(v[MP_EQ_MIDF] / 440.0f)),
+                                       (int)v[MP_EQ_HIGH]); return;
+        default: break;
+    }
+    u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
+    gui_draw_text_centered(g, gui_rect(box.x, box.y + box.h / 2 - 4, box.w, 9), rack_type_name((module_type_t)ms->type));
+}
+
 // Algorithm diagram (generated sprite) with the selected operator inverted (sel_op < 0: none).
 void draw_algo(u8g2_t *g, gui_rect_t box, const dx7_patch_t *p, int sel_op) {
     const dx7_algo_gfx_t *a = &dx7_algo_gfx[(p->algorithm - 1) & 31];

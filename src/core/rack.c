@@ -113,6 +113,93 @@ static const mp_t sm_mp[] = {
     [MP_SM_SMODE]  = {"Mode",  K_ENUM, 0, 1, 1, 0, "", 0, smode_names},
 };
 
+// Sum and FX modules (ADR-040): the FX use the ranges of the FX rack (fxrack.c) in the rack's units (0..1 for %, Hz, ms, dB).
+static const char *const tr_shapes[]  = {"Sine", "Tri", "Square"};
+static const char *const tr_modes[]   = {"Trem", "Pan"};
+static const char *const rg_modes[]   = {"Ring", "Up", "Down"};
+static const char *const off_on[]     = {"Off", "On"};
+static const char *const ch_modes[]   = {"Off", "I", "II", "I+II"};
+static const char *const sp_modes[]   = {"Thru", "Freeze", "Gate", "Robot", "Whisp", "Pitch"};
+static const char *const cb_names[]   = {"1x12", "4x12", "Bright", "Dark", "Acoust", "Violin", "Drum", "Phone"};
+
+static const mp_t su_mp[] = {
+    [MP_SU_LEVEL] = {"Lvl", K_LIN, 0, 1, 0.05f, 1, "", 2, 0},
+    [MP_SU_PAN]   = {"Pan", K_LIN, -100, 100, 5, 0, "%", 0, 0},
+};
+static const mp_t tr_mp[] = {
+    [MP_TR_RATE]  = {"Rate", K_LOG, 0.05f, 20, 1.2f, 4, "Hz", 2, 0},
+    [MP_TR_DEPTH] = {"Dpth", K_LIN, 0, 1, 0.05f, 0.6f, "", 2, 0},
+    [MP_TR_SHAPE] = {"Shp",  K_ENUM, 0, 2, 1, 0, "", 0, tr_shapes},
+    [MP_TR_MODE]  = {"Mode", K_ENUM, 0, 1, 1, 0, "", 0, tr_modes},
+};
+static const mp_t eq_mp[] = {
+    [MP_EQ_LOW]  = {"Low",  K_LIN, -15, 15, 1, 0, "dB", 0, 0},
+    [MP_EQ_MID]  = {"Mid",  K_LIN, -15, 15, 1, 0, "dB", 0, 0},
+    [MP_EQ_MIDF] = {"MidF", K_LOG, 65, 8400, 1.12f, 1000, "Hz", 0, 0},
+    [MP_EQ_HIGH] = {"High", K_LIN, -15, 15, 1, 0, "dB", 0, 0},
+};
+static const mp_t rg_mp[] = {
+    [MP_RG_MODE] = {"Mode", K_ENUM, 0, 2, 1, 0, "", 0, rg_modes},
+    [MP_RG_FREQ] = {"Freq", K_LOG, 1, 5000, 1.12f, 440, "Hz", 0, 0},
+    [MP_RG_MIX]  = {"Mix",  K_LIN, 0, 1, 0.05f, 0.5f, "", 2, 0},
+};
+static const mp_t ph_mp[] = {
+    [MP_PH_RATE]  = {"Rate", K_LOG, 0.05f, 20, 1.2f, 0.4f, "Hz", 2, 0},
+    [MP_PH_DEPTH] = {"Dpth", K_LIN, 0, 1, 0.05f, 0.6f, "", 2, 0},
+    [MP_PH_FB]    = {"Fb",   K_LIN, -95, 95, 5, 40, "%", 0, 0},
+    [MP_PH_MIX]   = {"Mix",  K_LIN, 0, 1, 0.05f, 0.5f, "", 2, 0},
+};
+static const mp_t fg_mp[] = {
+    [MP_PH_RATE]  = {"Rate", K_LOG, 0.05f, 20, 1.2f, 0.3f, "Hz", 2, 0},
+    [MP_PH_DEPTH] = {"Dpth", K_LIN, 0, 1, 0.05f, 0.6f, "", 2, 0},
+    [MP_PH_FB]    = {"Fb",   K_LIN, -95, 95, 5, 40, "%", 0, 0},
+    [MP_PH_MIX]   = {"Mix",  K_LIN, 0, 1, 0.05f, 0.6f, "", 2, 0},
+};
+static const mp_t cp_mp[] = {
+    [MP_CP_THR]   = {"Thr",  K_LIN, -60, 0, 2, -18, "dB", 0, 0},
+    [MP_CP_RATIO] = {"Rat",  K_LIN, 1, 20, 1, 4, "", 0, 0},
+    [MP_CP_REL]   = {"Rel",  K_LOG, 10, 1000, 1.2f, 150, "ms", 0, 0},
+    [MP_CP_GAIN]  = {"Gain", K_LIN, 0, 24, 1, 0, "dB", 0, 0},
+};
+static const mp_t dl_mp[] = {
+    [MP_DL_TIME] = {"Time", K_LIN, 20, 1000, 10, 350, "ms", 0, 0},
+    [MP_DL_FB]   = {"Fb",   K_LIN, 0, 0.95f, 0.05f, 0.4f, "", 2, 0},
+    [MP_DL_MIX]  = {"Mix",  K_LIN, 0, 1, 0.05f, 0.3f, "", 2, 0},
+    [MP_DL_PONG] = {"Pong", K_ENUM, 0, 1, 1, 0, "", 0, off_on},
+};
+static const mp_t rv_mp[] = {
+    [MP_RV_MIX]  = {"Mix",  K_LIN, 0, 1, 0.05f, 0.3f, "", 2, 0},
+    [MP_RV_DEC]  = {"Dec",  K_LIN, 0, 0.98f, 0.02f, 0.6f, "", 2, 0},
+    [MP_RV_SIZE] = {"Size", K_LIN, 0, 1, 0.05f, 0.6f, "", 2, 0},
+    [MP_RV_DAMP] = {"Damp", K_LIN, 0, 1, 0.05f, 0.5f, "", 2, 0},
+};
+static const mp_t ch_mp[] = {
+    [MP_CH_MODE] = {"Mode", K_ENUM, 0, 3, 1, 1, "", 0, ch_modes},
+    [MP_CH_MIX]  = {"Mix",  K_LIN, 0, 1, 0.05f, 0.75f, "", 2, 0},
+};
+static const mp_t sp_mp[] = {
+    [MP_SP_MODE]  = {"Mode", K_ENUM, 0, 5, 1, 0, "", 0, sp_modes},
+    [MP_SP_SHIFT] = {"Shft", K_LIN, -24, 24, 1, 0, "st", 0, 0},
+    [MP_SP_AMT]   = {"Amt",  K_LIN, 0, 1, 0.01f, 0.12f, "", 2, 0},
+    [MP_SP_MIX]   = {"Mix",  K_LIN, 0, 1, 0.05f, 1, "", 2, 0},
+    [MP_SP_HOLD]  = {"Hold", K_ENUM, 0, 1, 1, 0, "", 0, off_on},
+    [MP_SP_LO]    = {"Lo",   K_LOG, 20, 20000, 1.12f, 20, "Hz", 0, 0},
+    [MP_SP_HI]    = {"Hi",   K_LOG, 20, 20000, 1.12f, 20000, "Hz", 0, 0},
+};
+static const mp_t cb_mp[] = {
+    [MP_CB_IR]    = {"IR",   K_ENUM, 0, 7, 1, 0, "", 0, cb_names},
+    [MP_CB_LEN]   = {"Len",  K_LIN, 64, 512, 32, 256, "", 0, 0},
+    [MP_CB_MIX]   = {"Mix",  K_LIN, 0, 1, 0.05f, 1, "", 2, 0},
+    [MP_CB_LEVEL] = {"Lvl",  K_LIN, 0, 1, 0.05f, 0.5f, "", 2, 0},
+};
+static const mp_t es_mp[] = {
+    [MP_ES_RATE]  = {"Rate", K_LOG, 0.05f, 5, 1.2f, 0.6f, "Hz", 2, 0},
+    [MP_ES_DEPTH] = {"Dpth", K_LIN, 0, 1, 0.05f, 0.7f, "", 2, 0},
+    [MP_ES_SHIM]  = {"Shim", K_LIN, 0, 1, 0.05f, 0.35f, "", 2, 0},
+    [MP_ES_MIX]   = {"Mix",  K_LIN, 0, 1, 0.05f, 0.7f, "", 2, 0},
+};
+#define NMP(a) ((int)(sizeof a / sizeof a[0]))
+
 typedef struct {
     const char *code, *name;
     bool audio, modulator;
@@ -131,9 +218,24 @@ static const type_info_t info[MOD_TYPE_COUNT] = {
     [MOD_SAMPLER]= {"SM", "Sampler",    true,  false, 1, {"Pit"},               {"Pitch"}, sm_mp, 10},
     [MOD_COMB]   = {"RS", "Resonator",  true,  false, 1, {"Mix"},               {"Mix"}, rs_mp, 5},
     [MOD_EG]     = {"EG", "Multi Env",  false, true,  1, {"Dpth"},              {"Depth"}, eg_mp, 17},
+    // ADR-040. Codes differ from the FX rack's where those mean another rack module (FL, RS, EN): FG, RG, ES.
+    [MOD_SUM]      = {"SU", "Sum",         true, false, 2, {"Lvl", "Pan"},  {"Level", "Pan"}, su_mp, NMP(su_mp)},
+    [MOD_TREM]     = {"TR", "Trem / Pan",  true, false, 1, {"Dpth"},        {"Depth"}, tr_mp, NMP(tr_mp)},
+    [MOD_EQ]       = {"EQ", "EQ 3-band",   true, false, 1, {"Mid"},         {"Mid gain"}, eq_mp, NMP(eq_mp)},
+    [MOD_RING]     = {"RG", "Ring / Shift", true, false, 2, {"Freq", "Mix"}, {"Frequency", "Mix"}, rg_mp, NMP(rg_mp)},
+    [MOD_PHASER]   = {"PH", "Phaser",      true, false, 1, {"Mix"},         {"Mix"}, ph_mp, NMP(ph_mp)},
+    [MOD_FLANGER]  = {"FG", "Flanger",     true, false, 1, {"Mix"},         {"Mix"}, fg_mp, NMP(fg_mp)},
+    [MOD_COMP]     = {"CP", "Compressor",  true, false, 1, {"Thr"},         {"Threshold"}, cp_mp, NMP(cp_mp)},
+    [MOD_DELAY]    = {"DL", "Delay",       true, false, 1, {"Mix"},         {"Mix"}, dl_mp, NMP(dl_mp)},
+    [MOD_REVERB]   = {"RV", "Reverb",      true, false, 1, {"Mix"},         {"Mix"}, rv_mp, NMP(rv_mp)},
+    [MOD_CHORUS]   = {"CH", "Chorus",      true, false, 1, {"Mix"},         {"Mix"}, ch_mp, NMP(ch_mp)},
+    [MOD_SPECTRAL] = {"SP", "Spectral",    true, false, 1, {"Mix"},         {"Mix"}, sp_mp, NMP(sp_mp)},
+    [MOD_CAB]      = {"CB", "Cab / Body",  true, false, 1, {"Mix"},         {"Mix"}, cb_mp, NMP(cb_mp)},
+    [MOD_ENSEMBLE] = {"ES", "Ensemble",    true, false, 1, {"Mix"},         {"Mix"}, es_mp, NMP(es_mp)},
 };
 
 static void depth_reset(rack_t *r, int slot);
+static bool global_fx_after_sum(const rack_t *r, int lane, int sum_at, int skip);
 
 const char *rack_type_code(module_type_t t) { return info[t].code; }
 const char *rack_type_name(module_type_t t) { return info[t].name; }
@@ -147,6 +249,7 @@ const char *rack_param_long(module_type_t t, int p) { return info[t].plong[p]; }
 void rack_clear(rack_t *r) {
     memset(r, 0, sizeof *r);
     r->next_id = 1;
+    for (int l = 0; l < RACK_LANES; l++) r->lane_lvl[l] = 1.0f;     // implicit Sums: full level, centre
     synth_config_init(&r->cfg);
 }
 
@@ -210,21 +313,14 @@ static int ms_pool_free(const rack_t *r) {
     return -1;
 }
 
-bool rack_insert(rack_t *r, int pos, module_type_t type) {
-    if (r->count >= RACK_MAX || pos < 0 || pos > r->count || type >= MOD_TYPE_COUNT) return false;
-    int pool = -1;
-    if (type == MOD_MSEQ && (pool = ms_pool_free(r)) < 0) return false;      // both motion sequencers are in use
-    for (int i = r->count; i > pos; i--) r->slot[i] = r->slot[i - 1];
-    r->slot[pos] = (rack_slot_t){.type = (uint8_t)type, .id = r->next_id++};
-    for (int i = 0; i < info[type].nmp; i++) r->slot[pos].v[i] = info[type].mp[i].def;
-    if (pool >= 0) { r->slot[pos].v[MP_MS_POOL] = (float)pool; ms_pattern_default(&r->ms[pool]); }
-    if (r->next_id == 0) r->next_id = 1;
-    r->count++;
-    return true;
-}
-
 bool rack_delete(rack_t *r, int pos) {
     if (pos < 0 || pos >= r->count) return false;
+    if (r->slot[pos].type == MOD_SUM) {
+        const int lane = r->slot[pos].lane;
+        if (!global_fx_after_sum(r, lane, RACK_NONE, RACK_NONE)) return false;  // global-only FX still need it
+        r->lane_lvl[lane] = r->slot[pos].v[MP_SU_LEVEL];                         // the implicit Sum keeps its level and pan
+        r->lane_pan[lane] = r->slot[pos].v[MP_SU_PAN];
+    }
     uint8_t id = r->slot[pos].id;
     for (int i = pos; i < r->count - 1; i++) r->slot[i] = r->slot[i + 1];
     r->count--;
@@ -256,18 +352,94 @@ bool rack_slot_is_audio(const rack_t *r, int slot) {
     return info[r->slot[slot].type].audio;                       // an OSC with a target stays in the chain (it can be muted there)
 }
 
+// The chain helpers stay inside the slot's lane.
 int rack_audio_prev(const rack_t *r, int slot) {
-    for (int i = slot - 1; i >= 0; i--) if (rack_slot_is_audio(r, i)) return i;
+    for (int i = slot - 1; i >= 0; i--) if (rack_slot_is_audio(r, i) && r->slot[i].lane == r->slot[slot].lane) return i;
     return RACK_NONE;
 }
 
 int rack_audio_next(const rack_t *r, int slot) {
-    for (int i = slot + 1; i < r->count; i++) if (rack_slot_is_audio(r, i)) return i;
+    for (int i = slot + 1; i < r->count; i++) if (rack_slot_is_audio(r, i) && r->slot[i].lane == r->slot[slot].lane) return i;
     return RACK_OUT;
+}
+
+/* ---------------- lanes and Sum points (ADR-040) ---------------- */
+
+bool rack_type_global_only(module_type_t t) { return t >= MOD_DELAY && t <= MOD_ENSEMBLE; }
+bool rack_is_fx(module_type_t t)            { return t >= MOD_TREM && t <= MOD_ENSEMBLE; }
+
+int rack_lane_sum(const rack_t *r, int lane) {
+    for (int i = 0; i < r->count; i++) if (r->slot[i].type == MOD_SUM && r->slot[i].lane == lane) return i;
+    return RACK_NONE;
+}
+
+bool rack_slot_is_global(const rack_t *r, int slot) {
+    const int s = rack_lane_sum(r, r->slot[slot].lane);
+    return s != RACK_NONE && s < slot;
+}
+
+float *rack_lane_level(rack_t *r, int lane) { const int s = rack_lane_sum(r, lane); return s != RACK_NONE ? &r->slot[s].v[MP_SU_LEVEL] : &r->lane_lvl[lane]; }
+float *rack_lane_pan(rack_t *r, int lane)   { const int s = rack_lane_sum(r, lane); return s != RACK_NONE ? &r->slot[s].v[MP_SU_PAN] : &r->lane_pan[lane]; }
+
+// A global-only FX of `lane` placed at slot index `at` (in the order after the edit) needs the lane's Sum before it.
+static bool global_fx_after_sum(const rack_t *r, int lane, int sum_at, int skip) {
+    for (int i = 0; i < r->count; i++) {
+        if (i == skip || r->slot[i].lane != lane || !rack_type_global_only((module_type_t)r->slot[i].type)) continue;
+        if (sum_at == RACK_NONE || i < sum_at) return false;
+    }
+    return true;
+}
+
+bool rack_can_insert(const rack_t *r, int pos, int lane, module_type_t t) {
+    if (r->count >= RACK_MAX || pos < 0 || pos > r->count || t >= MOD_TYPE_COUNT || lane < 0 || lane >= RACK_LANES) return false;
+    if (t == MOD_MSEQ && ms_pool_free(r) < 0) return false;
+    const int s = rack_lane_sum(r, lane);
+    if (t == MOD_SUM) return s == RACK_NONE;                                     // one Sum per lane (no global-only FX can precede it: they need one)
+    if (rack_type_global_only(t)) return s != RACK_NONE && s < pos;              // the heavy FX only after the lane's Sum
+    return true;
+}
+
+static bool insert_raw(rack_t *r, int pos, int lane, module_type_t type) {
+    if (r->count >= RACK_MAX || pos < 0 || pos > r->count || type >= MOD_TYPE_COUNT) return false;
+    int pool = -1;
+    if (type == MOD_MSEQ && (pool = ms_pool_free(r)) < 0) return false;      // both motion sequencers are in use
+    for (int i = r->count; i > pos; i--) r->slot[i] = r->slot[i - 1];
+    r->slot[pos] = (rack_slot_t){.type = (uint8_t)type, .id = r->next_id++, .lane = (uint8_t)lane};
+    for (int i = 0; i < info[type].nmp; i++) r->slot[pos].v[i] = info[type].mp[i].def;
+    if (pool >= 0) { r->slot[pos].v[MP_MS_POOL] = (float)pool; ms_pattern_default(&r->ms[pool]); }
+    if (type == MOD_SUM) { r->slot[pos].v[MP_SU_LEVEL] = r->lane_lvl[lane]; r->slot[pos].v[MP_SU_PAN] = r->lane_pan[lane]; }   // takes over the implicit Sum
+    if (r->next_id == 0) r->next_id = 1;
+    r->count++;
+    return true;
+}
+
+bool rack_insert(rack_t *r, int pos, module_type_t type) { return insert_raw(r, pos, 0, type); }
+
+bool rack_insert_lane(rack_t *r, int pos, int lane, module_type_t type) {
+    return rack_can_insert(r, pos, lane, type) && insert_raw(r, pos, lane, type);
+}
+
+bool rack_set_lane(rack_t *r, int slot, int lane) {
+    if (slot < 0 || slot >= r->count || lane < 0 || lane >= RACK_LANES) return false;
+    rack_slot_t *s = &r->slot[slot];
+    const int from = s->lane;
+    if (from == lane) return true;
+    const module_type_t t = (module_type_t)s->type;
+    if (t == MOD_SUM) {
+        if (rack_lane_sum(r, lane) != RACK_NONE) return false;                   // the other lane has its own
+        if (!global_fx_after_sum(r, from, RACK_NONE, RACK_NONE)) return false;   // global-only FX still need it here
+        r->lane_lvl[from] = s->v[MP_SU_LEVEL]; r->lane_pan[from] = s->v[MP_SU_PAN];
+    } else if (rack_type_global_only(t)) {
+        const int sum = rack_lane_sum(r, lane);
+        if (sum == RACK_NONE || sum > slot) return false;
+    }
+    s->lane = (uint8_t)lane;
+    return true;
 }
 
 bool rack_has_signal(const rack_t *r, int slot) {
     for (int i = 0; i <= slot; i++) {
+        if (r->slot[i].lane != r->slot[slot].lane) continue;
         if (r->slot[i].type == MOD_OSC && !(r->slot[i].tgt_id && r->slot[i].v[MP_OC_MUTE] > 0.5f)) return true;
         if (r->slot[i].type == MOD_SAMPLER && r->slot[i].v[MP_SM_FILE] > 0.5f) return true;
     }

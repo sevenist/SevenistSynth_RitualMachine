@@ -37,6 +37,10 @@ constexpr size_t kBulkMaxBytes = 1600 * 1024;      // PSRAM: delay lines, the pr
 static_assert(DEV_OUTPUT_GAIN_PCT >= 0 && DEV_OUTPUT_GAIN_PCT <= 100, "DEV_OUTPUT_GAIN_PCT is a percentage, 0..100");
 constexpr int32_t kOutGainQ15 = DEV_OUTPUT_GAIN_PCT * 32768 / 100;
 constexpr int kFrames = 64;                        // frames per I2S write (the engine renders its own block size inside)
+#ifdef HWV1_DEBUG_AUDIO
+volatile uint32_t g_dma_underruns = 0;              // I2S "send queue overflow" events: the DMA re-sent a buffer the task had not refilled
+bool IRAM_ATTR dma_underrun_cb(i2s_chan_handle_t, i2s_event_data_t *, void *) { g_dma_underruns = g_dma_underruns + 1; return false; }
+#endif
 
 i2s_chan_handle_t tx;
 TaskHandle_t audio_task;
@@ -119,6 +123,8 @@ void audio_task_main(void *) {
         if (millis() - t_report >= 1000 && Serial.availableForWrite() > 160) {      // skip the report rather than block when the port is not being read
             Serial.printf("[AUDIO] render avg %u us, worst %u us, budget %u us per %d frames, %u blocks over budget of %u, graph builds %u (last: %s)\n", (unsigned)(total / blocks),
                           (unsigned)worst, (unsigned)budget_us, kFrames, (unsigned)late, (unsigned)blocks, engine_synth_build_count(), engine_synth_build_reason());
+            Serial.printf("[AUDIO] DMA underruns %u in the last second\n", (unsigned)g_dma_underruns);
+            g_dma_underruns = 0;
 #ifdef ENGINE_PROFILE
             {   // CPU cycles per rendered block, per module type; the block budget is cpu_hz * block / sample_rate
                 struct Row { const char *name; uint32_t cyc, calls; };
@@ -141,6 +147,9 @@ void audio_task_main(void *) {
                                   (unsigned)(g_sec_prof[0] / nblocks), (unsigned)(g_sec_prof[1] / nblocks), (unsigned)(g_sec_prof[2] / nblocks), (unsigned)(g_sec_prof[3] / nblocks),
                                   (unsigned)(g_sec_prof[4] / nblocks), (unsigned)(g_sec_prof[5] / nblocks), (unsigned)(g_sec_prof[8] / nblocks), (unsigned)(g_sec_prof[9] / nblocks),
                                   (unsigned)(g_sec_prof[10] / nblocks), (unsigned)(g_sec_prof[11] / nblocks));
+                    if (g_sec_prof[14])                                                     // SpectralFx (stereo, the FX rack): 12..14
+                        Serial.printf("[SEC] spectral: stft + frame work %u, analysis %u, resynthesis %u\n", (unsigned)(g_sec_prof[14] / nblocks),
+                                      (unsigned)(g_sec_prof[12] / nblocks), (unsigned)(g_sec_prof[13] / nblocks));
                     for (auto &v : g_sec_prof) v = 0;
                     static const char *const names[sc::OSCX_ENGINES] = {"karp", "modal", "fm2", "fold", "ssaw", "vowel", "add", "dust", "str"};
                     {
@@ -204,6 +213,13 @@ extern "C" void audio_init(void) {
     chan.dma_desc_num = 6;
     chan.dma_frame_num = kFrames;
     if (i2s_new_channel(&chan, &tx, nullptr) != ESP_OK) { Serial.println("[AUDIO] i2s_new_channel failed"); return; }
+#ifdef HWV1_DEBUG_AUDIO
+    {   // count the real underruns: the DMA ring ran empty and re-sent old data (a render over its budget alone is not one: the ring absorbs it)
+        i2s_event_callbacks_t cbs = {};
+        cbs.on_send_q_ovf = dma_underrun_cb;
+        i2s_channel_register_event_callback(tx, &cbs, nullptr);
+    }
+#endif
     i2s_std_config_t cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(static_cast<uint32_t>(engine_synth_sample_rate())),
         .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),

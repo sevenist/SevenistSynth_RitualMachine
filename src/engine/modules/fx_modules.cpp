@@ -166,7 +166,9 @@ public:
         if (stereo_ && p.in[1] && p.out[1]) {
             q15 mono[kBlock];
             for (int i = 0; i < ctx.frames; i++) mono[i] = static_cast<q15>((static_cast<int32_t>(p.in[0][i]) + p.in[1][i]) >> 1);
+            SEC_BEGIN();
             stft_.process(mono, nullptr, wet, ctx.frames, [this](StftFrame &f) { on_frame(f); });
+            SEC_MARK(14);                                               // the whole STFT including the effect's frame work
             for (int i = 0; i < ctx.frames; i++) {
                 const q15 dl = dry_.read(Stft::latency()), dr = dry_r_.read(Stft::latency());
                 dry_.write(p.in[0][i]);
@@ -192,14 +194,12 @@ private:
 
     // Phase-vocoder analysis: magnitude and unwrapped phase advance per hop for every bin.
     void analyse(const StftFrame &f) {
-        for (int k = 0; k < NB; k++) {
-            uint32_t ph, mg;
-            cordic_polar(f.re[k], f.im[k], ph, mg);
+        cordic_polar_bins(f.re, f.im, NB, [this](int k, uint32_t ph, uint32_t mg) {
             const int32_t dev = static_cast<int32_t>(ph - prev_[k] - (static_cast<uint32_t>(k) << 30));   // deviation from the bin centre, +-pi
             adv_[k] = (static_cast<int64_t>(k) << 30) + dev;
             prev_[k] = ph;
             mag_[k] = mg;
-        }
+        });
     }
     // Resynthesis with an optional frequency ratio: output bin j takes the nearest source bin j / ratio.
     // `advance` = false on the frame that starts a new run (mode / ratio change, freeze capture): the output
@@ -236,19 +236,10 @@ private:
                 break;
             }
             case SPXM_ROBOT:
-                for (int k = 0; k < NB; k++) {
-                    uint32_t ph, mg;
-                    cordic_polar(f.re[k], f.im[k], ph, mg);
-                    f.re[k] = sat16(static_cast<int32_t>(mg));
-                    f.im[k] = 0;
-                }
+                cordic_polar_bins(f.re, f.im, NB, [&f](int k, uint32_t, uint32_t mg) { f.re[k] = sat16(static_cast<int32_t>(mg)); f.im[k] = 0; });
                 break;
             case SPXM_WHISPER:
-                for (int k = 0; k < NB; k++) {
-                    uint32_t ph, mg;
-                    cordic_polar(f.re[k], f.im[k], ph, mg);
-                    polar_to_rect(mg, rng_.next_u32(), f.re[k], f.im[k]);
-                }
+                cordic_polar_bins(f.re, f.im, NB, [this, &f](int k, uint32_t, uint32_t mg) { polar_to_rect(mg, rng_.next_u32(), f.re[k], f.im[k]); });
                 break;
             case SPXM_FREEZE:
             case SPXM_PITCH:
@@ -264,9 +255,12 @@ private:
                     synthesise(f, hmag_, hadv_, true);
                 } else {
                     if (have_hold_) { have_hold_ = false; synced_ = false; }
+                    SEC_BEGIN();
                     analyse(f);
+                    SEC_MARK(12);                                       // [SEC] spectral: analysis (CORDIC per bin)
                     if (ratio_ == 65536) synced_ = false;               // identity: always follow the analysis phase
                     synthesise(f, mag_, adv_, true);
+                    SEC_MARK(13);                                       // resynthesis
                 }
                 break;
         }

@@ -67,20 +67,28 @@ time, message it before building (memory feedback-shared-tree-builds). Confirmed
 - [x] Role-based key LED colours: LEDS tab, preview by role, GRB order, default colours: checked by the user on the board (done 2026-10-07)
 - Set aside (user, 2026-10-07): unformatted card "format?" ASK (a mount without a file system is still "no card"; needs FATFS mkfs)
 
-## FFT on the ESP32-S3: own PIE kernel (2026-10-07; flashed and measured with the boot bench, NOT listened to: no patch can use the spectral effects yet)
+## FFT, STFT and the Spectral FX on the ESP32-S3 (2026-10-07; board session: flashed and measured by Claude; listened to by the user: Thru clean, Pitch / Freeze OK; Gate / Robot / Whisper not reported)
 
 - The C FFT measured 173-205k cycles per 512 transform on the board: an STFT hop needed more than a core, so SpectralFx / Vocoder could never have run there.
   User choice (asked with options; I recommended ESP-DSP float + a real-FFT trick): **own PIE block-float kernel**. Details and all measured candidates: ENGINE_DESIGN.md ADR-016 addendum.
-- Built: `dsp/fft_s3.S` (PIE stages, pack, min / max) + the driver in `fft.cpp` (`SC_FFT_PIE` on the S3; `fft_q15_c` = the portable C version elsewhere);
-  the C version got an exact speed-up too (bit-identical, test `fft_is_bit_identical_to_the_reference`, reference copy `fft_ref.h`); Stft overlap-add without
-  64-bit maths (checksum-identical). Credit: THIRD_PARTY_NOTICES.md (ESP-DSP structure).
-- Board (`HWV1_BENCH`, `[BENCH] FFT` / `[BENCH] Stft` lines): FFT 16.0k cycles (was 173k), SNR 63 / 64 / 63 dB loud / quiet / very quiet (C: 67 / 60 / 37);
-  Stft mono identity frame **517 cycles per sample** (9.5 % of a core; was ~3050 estimated), identity SNR 71.6 dB.
-- Next (to decide with the user): put SpectralFx / Vocoder (or new spectral effects) in the FX rack to measure and listen to them; remaining scalar parts:
-  window + overlap-add (~31k per frame), bit-reversal unpack (4.7k per transform); a real-FFT trick would roughly halve the mono case.
-- Trap found: a build flag passed by `PLATFORMIO_BUILD_FLAGS` is lost when the user uploads (`pio run -t upload` rebuilds without it). When the user flashes
-  a measurement build, put the flag in `platformio.ini` for that flash and comment it out after.
-- The bench times the fastest of several runs: at boot the bench task is preempted (outliers of 1M cycles); averages were 1.5-3x too high.
+- PIE kernels in `dsp/fft_s3.S` (S3 only, `SC_FFT_PIE`; every other target keeps the C code, which the host tests run): FFT stages + pack + min / max, the STFT window
+  (`pie_vmul_s16`), the overlap-add (`pie_ola_shl / _shr`, bit-identical to C, checked by the boot bench), the CORDIC of the phase vocoder (`pie_cordic`, bit-identical).
+  `ee.vmul.s16` truncates and wraps (measured). Exact C speed-ups too: FFT scan folded (test `fft_is_bit_identical_to_the_reference`), Stft overlap-add in 32 bits.
+  A fully unrolled scalar CORDIC measured SLOWER (19.6k -> 26k per block: code from flash); reverted.
+- Board: FFT 16.0k cycles (was 173k), SNR 63 / 64 / 63 dB loud / quiet / very quiet (C: 67 / 60 / 37); Stft frame 63.6k -> 40.4k; Stft mono 333 cycles per sample.
+- **FX rack type Spectral** (`FX_SPECTRAL`, "SP", appended): rows Mode / Shft / Amt / Mix, behind a **cog** (new on the FX RACK tab, `ui->fx_cog`): Hold / Lo / Hi
+  (user: all 7 parameters, the rest behind the cog; `FXR_PARAMS` 4 -> 8, `FXR_ROWS` 4; the rack is not saved, no file format changed). Engine: SpectralFx `stereo` = 1:
+  STFT on (L + R) / 2, each channel keeps its own delayed dry (user choice "mono sum, dry stereo"); test `spectral_stereo_keeps_each_dry_channel_and_shares_the_wet`.
+  Serial: `fx K T [values]` (SERIAL_COMMANDS.md).
+- Board, startup patch + Spectral in slot 4, 3 notes (budget 174k per 64 frames): empty 65k; Thru 88k; Freeze (Hold) 104k; **Pitch +7 114k (66 %), 0 DMA underruns**
+  (SpectralFx 43k per block: STFT ~18k, analysis 8.5k (CORDIC was 19.6k), resynthesis 10.9k). Pitch shows ~190 renders over budget but no real dropout: the frame
+  lands on every other 64-frame write and the 6 x 64 DMA ring absorbs it. New `[AUDIO] DMA underruns` (HWV1_DEBUG_AUDIO) + column in `serial_test.py`: validated
+  (0 with one shifter, 260-340 per second with four, ~10 per graph rebuild). User had also chosen fewer CORDIC iterations, block 128 and a frame split: not done,
+  no longer needed (the CORDIC is 8.5k now; block 128 / split only add latency). Say so if they still want them.
+- Next: Gate / Robot / Whisper not reported by the user yet; then maybe the Vocoder (needs a modulator source) and more spectral effects.
+  Remaining STFT cost: the FFT itself (2 x 16k per frame), resynthesis 21k per frame (sine lookups), bit-reversal unpack 4.7k per transform.
+- Traps: a flag passed by `PLATFORMIO_BUILD_FLAGS` is lost when the user uploads (put it in `platformio.ini` for that flash); the boot bench must time the fastest
+  run (preemption outliers of 1M cycles); scripted edits lose one backslash level (`\n` in printf, again twice).
 
 ## Fine steps, continuous knobs (2026-10-07; fine steps tried by the user: work; knob hysteresis not tuned yet)
 

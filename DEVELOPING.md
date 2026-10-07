@@ -404,7 +404,7 @@ C:\.platformio\penv\Scripts\python.exe tools\serial_test.py   # measure on COM8 
 | `HWV1_SD_FREQ_KHZ=N` | SPI clock of the card once initialised (default 20000) | keep / tune |
 | `HWV1_SD_IO_PRIO=N` | priority of the card I/O task (default 5) | keep |
 | `HWV1_SD_IDF` | use ESP-IDF's sdspi host instead of the own SPI driver: on HWV1 it costs about 40 ms before EVERY command, kept for comparison only | do not use |
-| `HWV1_DEBUG_AUDIO`, `ENGINE_PROFILE` | once a second: `[AUDIO]` render time / blocks over budget / graph builds, `[PROF]` cycles per module, `[SEC]`, `[OSC]`, `[HEAP]` | remove |
+| `HWV1_DEBUG_AUDIO`, `ENGINE_PROFILE` | once a second: `[AUDIO]` render time / blocks over budget / graph builds / DMA underruns (the real dropouts), `[PROF]` cycles per module, `[SEC]`, `[OSC]`, `[HEAP]` | remove |
 | `HWV1_DEBUG_INPUT`, `HWV1_BENCH`, `HWV1_TEST_TONE` | raw key log; boot benchmark; 440 Hz test tone instead of the engine | remove |
 | `ENGINE_FX_MONO=1` | delay and reverb compute one channel (user choice) | decision |
 | `ENGINE_REVERB_HALF=1` | reverb tank at half rate (user choice) | decision |

@@ -13,6 +13,7 @@
 #include "engine/dsp/fft.h"
 #include "engine/dsp/fft_ref.h"
 #include "engine/dsp/stft.h"
+#include "engine/dsp/cordic.h"
 #include "engine/core/heap.h"
 #include "platform/esp32/bench_esp32.h"
 #include <cmath>
@@ -214,6 +215,32 @@ void bench_fft() {
                 }
             }
             Serial.printf("[BENCH] PIE overlap-add vs C: %d of %d accumulators differ (shifts 16 .. -30, saturation included)\n", bad, cases);
+            // the PIE CORDIC (cordic_polar_bins) against the scalar cordic_polar, extremes included; and its cost per bin
+            alignas(16) static int16_t cre[260], cim[260];
+            int cbad = 0;
+            uint32_t ct_pie = UINT32_MAX, ct_c = UINT32_MAX;
+            const int16_t ext[] = {-32768, -32767, -1, 0, 1, 32767};
+            for (int rep = 0; rep < 40; rep++) {
+                for (int i = 0; i < 260; i++) {
+                    cre[i] = rep == 0 ? ext[i % 6] : rnd(rep & 1 ? 32767 : 300);
+                    cim[i] = rep == 0 ? ext[(i / 6) % 6] : rnd(rep & 1 ? 32767 : 300);
+                }
+                uint32_t t0 = esp_cpu_get_cycle_count();
+                sc::cordic_polar_bins(cre, cim, 257, [&](int k, uint32_t ph, uint32_t mg) {
+                    uint32_t p2, m2;
+                    sc::cordic_polar(cre[k], cim[k], p2, m2);
+                    cbad += ph != p2 || mg != m2;
+                });
+                const uint32_t t_both = esp_cpu_get_cycle_count() - t0;
+                t0 = esp_cpu_get_cycle_count();
+                uint32_t sink2 = 0;
+                for (int k = 0; k < 257; k++) { uint32_t p2, m2; sc::cordic_polar(cre[k], cim[k], p2, m2); sink2 += p2 + m2; }
+                const uint32_t t_c = esp_cpu_get_cycle_count() - t0;
+                sink = static_cast<int32_t>(sink2);
+                if (t_c < ct_c) ct_c = t_c;
+                if (t_both - t_c < ct_pie) ct_pie = t_both - t_c;
+            }
+            Serial.printf("[BENCH] PIE CORDIC vs cordic_polar: %d of %d bins differ; 257 bins: PIE %u cycles, scalar %u\n", cbad, 40 * 257, (unsigned)ct_pie, (unsigned)ct_c);
         }
         uint8_t *hm = static_cast<uint8_t *>(heap_caps_aligned_alloc(16, kHeap, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
         sc::q15 *x = static_cast<sc::q15 *>(heap_caps_malloc(kTotal * 2, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));

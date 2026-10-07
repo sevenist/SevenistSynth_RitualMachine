@@ -270,6 +270,70 @@ pie_ola_shr:
 .Lshr_end:
     retw.n
 
+// void pie_cordic(const PieCordicArgs *a)   { const int16_t *re, *im; int32_t *xo, *ao; const uint32_t *atan; int n, iters; }
+// The vectoring CORDIC of cordic.h (cordic_polar) on 4 bins at a time, bit-identical: per bin xo = the final x (before the
+// 1/K scaling) and ao = the accumulated angle (without the half-turn for x < 0, which the caller adds). n multiple of 4;
+// re / im 8-byte aligned, xo / ao 16-byte aligned. "if (y >= 0) add else subtract" = add (v ^ s) - s with s = y >> 31.
+    .align 4
+    .global pie_cordic
+    .type pie_cordic, @function
+pie_cordic:
+    entry       a1, 32
+    l32i.n      a3, a2, 4               // im
+    l32i.n      a4, a2, 8               // xo
+    l32i.n      a5, a2, 12              // ao
+    l32i.n      a7, a2, 16              // atan table
+    l32i.n      a10, a2, 20             // n
+    l32i.n      a12, a2, 24             // iterations
+    l32i.n      a2, a2, 0               // re
+    srli        a10, a10, 2             // groups of 4 bins
+    movi.n      a13, 31
+    movi.n      a14, 4
+    beqz        a10, .Lcd_end
+.Lcd_group:
+    ee.zero.q   q2
+    ee.zero.q   q3
+    ee.vld.l.64.ip q0, a2, 8            // re0..3
+    ee.vld.l.64.ip q1, a3, 8            // im0..3
+    ee.vzip.16  q2, q0                  // the 16-bit values in the high halves of 32-bit lanes
+    ee.vzip.16  q3, q1
+    wsr.sar     a14
+    ee.vsr.32   q2, q2                  // x * 4096
+    ee.vsr.32   q3, q3                  // y * 4096
+    wsr.sar     a13
+    ee.vsr.32   q5, q2                  // -1 where x < 0: turn by half a turn (x, y negated)
+    ee.xorq     q2, q2, q5
+    ee.vsubs.s32 q2, q2, q5
+    ee.xorq     q3, q3, q5
+    ee.vsubs.s32 q3, q3, q5
+    ee.zero.q   q4                      // angle
+    mov.n       a9, a7
+    movi.n      a11, 0                  // i
+    loopnez     a12, .Lcd_iter_end
+    wsr.sar     a13
+    ee.vsr.32   q5, q3                  // s = -1 where y < 0
+    wsr.sar     a11
+    ee.vsr.32   q6, q3                  // dx = y >> i
+    ee.vsr.32   q7, q2                  // dy = x >> i
+    ee.vldbc.32.ip q1, a9, 4            // atan(2^-i)
+    ee.xorq     q6, q6, q5
+    ee.vsubs.s32 q6, q6, q5
+    ee.vadds.s32 q2, q2, q6             // x += s ? -dx : dx
+    ee.xorq     q7, q7, q5
+    ee.vsubs.s32 q7, q7, q5
+    ee.vsubs.s32 q3, q3, q7             // y -= s ? -dy : dy
+    ee.xorq     q1, q1, q5
+    ee.vsubs.s32 q1, q1, q5
+    ee.vadds.s32 q4, q4, q1             // angle += s ? -atan : atan
+    addi.n      a11, a11, 1
+.Lcd_iter_end:
+    ee.vst.128.ip q2, a4, 16
+    ee.vst.128.ip q4, a5, 16
+    addi.n      a10, a10, -1
+    bnez        a10, .Lcd_group
+.Lcd_end:
+    retw.n
+
     .align 4
     .global fft_s3_pack
     .type fft_s3_pack, @function

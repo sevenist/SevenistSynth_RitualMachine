@@ -153,6 +153,11 @@ checksum-identical). Stft mono with an identity frame: **517 cycles per sample**
 a frame 62.7k = 32k FFTs + 31k window / mirror / overlap-add). Remaining: the window and overlap-add loops and the
 bit-reversal unpack (4.7k per transform) are scalar. Risk: PIE assembly is S3-only and checked by the boot bench, not
 by the host tests (the host runs the C path).
+Later the same day: the window (`pie_vmul_s16`), the overlap-add (`pie_ola_*`, bit-identical) and the phase vocoder's CORDIC
+(`pie_cordic`, bit-identical; analysis 39k -> 17k per frame) went to PIE as well: Stft frame 40.4k, 333 cycles per sample.
+`ee.vmul.s16` truncates and wraps (measured). SpectralFx is in the FX rack (type Spectral, stereo mode: STFT on the mono sum,
+dry per channel). Startup patch + Pitch +7: 66 % of the budget and **0 DMA underruns**; ~190 renders per 4 s exceed the
+64-frame budget because a frame lands on every other write, but the 6 x 64 DMA ring absorbs them (`[AUDIO] DMA underruns`).
 CORDIC (`dsp/cordic.h`, 16 iterations): phase error 0.0017 deg, magnitude within output rounding.
 
 ### ADR-017: Two memory classes (Accepted, `Memory{fast, bulk}` in `core/module.h`)
@@ -174,9 +179,9 @@ state from `fast`. Both pointers may alias on the desktop. Sample caches (stage 
 - **Vocoder** (dual STFT): the modulator's band energy (bands of 2..32 bins) scales the carrier's spectrum; both
   inputs go through one FFT. A 1 kHz modulator on white noise puts 58 dB more energy near 1 kHz than at 3 to 8 kHz.
 - Budget: the estimate here (80k per hop) was 10x low: the C FFT alone was 2 x 173k per hop. Measured on the S3 with
-  the PIE FFT (ADR-016 addendum): the STFT frame engine costs 517 cycles per sample (62.7k per hop); SpectralFx's own
-  frame work (CORDIC, phase vocoder) comes on top and is not measured yet. SpectralFx and Vocoder are not in the FX
-  rack, so no patch on the board uses them.
+  the PIE FFT (ADR-016 addendum): the STFT frame engine costs 333 cycles per sample (40.4k per hop). In the FX rack
+  (stereo mode), per 64-frame block: Thru ~20k, Freeze ~33k, Pitch ~43k (analysis 8.5k, resynthesis 10.9k). The
+  Vocoder is not in the rack (it needs a modulator signal).
 
 ### ADR-019: Chorus = fixed Juno-like modes (Accepted; user choice over my multi-voice recommendation)
 `Chorus` (stereo): modes OFF, I (0.513 Hz), II (0.863 Hz), I+II (9.75 Hz, shallow). One Hermite-read line per
@@ -553,6 +558,30 @@ listening loop (serial `mi`).
   loudness calibration between models (Braids is near full scale, Plaits about -6 dB; to set with the listening loop).
 - Tests (`test_mi_osc.cpp`, all six configurations): every model sounds, finite, below full scale; 11 pitched models periodic at the note (3 notes); the struck
   ones decay; the rack's Wav names follow the model order; host cost table.
+
+### ADR-040: Rack lanes, Sum points and FX modules in the rack (Accepted; user choices of 2026-10-07; nothing built yet)
+User decisions (asked with options, all recommendations taken except the scope rule):
+1. **FX in the rack, scope by a Sum point** (user's choice over "cheap per voice, heavy at the end"): a **Sum** module in a lane; modules left of it
+   run per voice, right of it once on that lane's summed voices (stereo). A lane without a Sum is summed at the output.
+2. **Parallel lanes**: every audio module has a lane (**3 lanes**); a lane is today's serial chain (sources add, processors process what is to their left
+   in that lane). **One Sum per lane**: each lane is summed over the voices on its own and stays separate after its Sum; lanes meet only at the output,
+   with a level and a pan each. Global FX cost once per lane that uses them.
+3. **Before a Sum (per voice, mono) only the cheap FX**: Tremolo, EQ, Ring / Shift, Phaser, Flanger, Compressor (plus the existing Saturator and Comb) get
+   per-voice versions; Delay, Reverb, Chorus, Spectral, Cab, Ensemble are global-only (the editor allows them only after a Sum).
+4. **16 slots in total**, shared by the lanes (was 10).
+5. **The FX RACK tab stays** as the master section after the lanes.
+Second round (2026-10-07): **one rack module per effect** (user's choice over one FX module with a Type: own icons, ~12 more entries in the add
+list); **three rows** in the rack editor (up / down between lanes, a new module goes on the cursor's lane, Shift + up / down moves a module to another
+lane); **level and pan on the lane's Sum** (a lane without a Sum shows an implicit one at its end, 100 %, centre, editable); and the Para rule below.
+Proposed by me and confirmed by the user:
+- A Sum generalises the Mod Para split: modules after a Sum are global like Para's shared half (filter / envelopes driven by `GateIn`, the newest key);
+  in Mod Para a lane without a Sum keeps the implicit split at its first filter. Modulators that feed a post-Sum module are global (the ADR-036 rule).
+- Engine: 3 voice buses (`VoiceOut` / `BusIn` get a lane parameter; `ProcessCtx` carries 3 pairs of 32-bit buses); per-voice FX as `<Scope>` templates like
+  `Filter`; the lane outputs mix (level, pan) into the master FX chain.
+Stages: (1) model + rules + editor (lane per slot, Sum, FX modules, placement rules, 16 slots, the 3-row rack strip), host UI tests; (2) engine (buses,
+per-voice FX, mapper per lane), host tests in the six configurations; (3) board: cost per lane / per voice FX, listening.
+Risks: per-voice FX cost x voices (a 4-voice Phaser = 4 Phasers); 3 lanes x Sum x global FX can exceed the budget (the cost display must show it);
+the rack strip gets 3 rows on 128 x 128 (with the 8 x 8 grid: 16 px bar + 3 x 32 px rows = 112 px).
 
 ## Known limits and ideas for later
 

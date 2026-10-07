@@ -86,7 +86,9 @@ C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --cmd "chord 3" --ra
 
 | Line | When | Says |
 | --- | --- | --- |
-| `[AUDIO] render avg ... worst ... budget ... blocks over budget ...` | every second (`HWV1_DEBUG_AUDIO`) | render time per block; **any block over budget is an audible dropout** |
+| `[AUDIO] render avg ... worst ... budget ... blocks over budget ...` | every second (`HWV1_DEBUG_AUDIO`) | render time per block; a block over budget is a dropout only if the DMA ring runs dry: see the next line |
+| `[AUDIO] DMA underruns N in the last second` | every second (`HWV1_DEBUG_AUDIO`) | **the real dropouts**: the I2S DMA ring (6 x 64 frames) ran empty and re-sent old data. Peaky loads (an STFT frame every 128 samples) can be over budget with 0 underruns; each graph rebuild gives about 10 |
+| `[SEC] spectral: stft + frame work, analysis, resynthesis` | every second with `ENGINE_PROFILE`, while a Spectral FX slot runs | cycles per block inside SpectralFx (stereo / FX rack) |
 | `[PROF] cycles per block (budget ...), total ...: Module=cycles(xinstances) ...` | every second (`ENGINE_PROFILE`) | cost per module type, summed over voices |
 | `[OSC]` / `[SEC]` | every second | oscillator engines / reverb and delay stages, in cycles |
 | `[HEAP] fast heap ... spilled ...` | every second | engine memory; "spilled" = module data that fell into the slower PSRAM |

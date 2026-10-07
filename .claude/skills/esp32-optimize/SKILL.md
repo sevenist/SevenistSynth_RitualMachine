@@ -36,7 +36,8 @@ C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --engines "0,1,4,6;2
 C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --raw --seconds 3     # just read the board (also a safe way to see which firmware runs)
 ```
 
-Budget: 160000 cycles per 32-frame block at 240 MHz / 48 kHz (`[PROF] ... budget`). The render line says `blocks over budget`: any > 0 is an audible dropout.
+Budget: 160000 cycles per 32-frame block at 240 MHz / 48 kHz (`[PROF] ... budget`). The render line says `blocks over budget` (a 64-frame render slower than real time), and `[AUDIO] DMA underruns` counts the **real dropouts** (the I2S ring of 6 x 64 frames ran empty).
+A steady load over budget gives both; a peaky load (an STFT frame every 128 samples) can show hundreds of slow renders and 0 underruns, because the ring absorbs them (measured 2026-10-07: 1 pitch shifter 0, 4 of them 260-340 per second). Judge by the underruns; every graph rebuild gives about 10.
 
 **Check the build is the one flashed** before believing a comparison: the `[HEAP]` / `[OSC]` line formats change when you add instrumentation, and per-engine numbers that are identical to the previous run mean the old binary is still running.
 This was wrong once in this project (the user said "flashed" about a build that was not). Ask, or compare a number that must change.

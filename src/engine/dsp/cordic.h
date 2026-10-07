@@ -3,6 +3,7 @@
 // no atan2): about 6 cycles per iteration. Phase is a uint32 turn fraction (2^32 = 2 pi), the same unit as the
 // oscillator phase, so it feeds sine() directly and phase differences wrap for free.
 #include <cstdint>
+#include "engine/dsp/fft.h"
 #include "engine/dsp/phase.h"
 #include "engine/dsp/q.h"
 #include "engine/dsp/tables.h"
@@ -24,6 +25,29 @@ inline void cordic_polar(int32_t x, int32_t y, uint32_t &phase, uint32_t &mag) {
     }
     phase = base + ang;
     mag = static_cast<uint32_t>((((static_cast<uint64_t>(static_cast<uint32_t>(xi)) * 2608131496ull) >> 32) + 2048) >> 12);   // x 0.6072529 (1/K), undo prescale, rounded
+}
+
+#if SC_FFT_PIE
+struct PieCordicArgs { const int16_t *re, *im; int32_t *xo, *ao; const uint32_t *atan; int n, iters; };
+extern "C" void pie_cordic(const PieCordicArgs *a);       // fft_s3.S
+#endif
+
+// cordic_polar of bins 0..n-1 (n <= 260): fn(k, phase, mag) for each, the same values. On the S3 the iterations run on PIE,
+// 4 bins at a time (re / im 16-byte aligned, as the Stft frame is).
+template <typename Fn>
+inline void cordic_polar_bins(const int16_t *re, const int16_t *im, int n, Fn &&fn) {
+#if SC_FFT_PIE
+    alignas(16) static int32_t xo[260], ao[260];             // the audio task only
+    const PieCordicArgs a{re, im, xo, ao, kCordicAtan, (n + 3) & ~3, kCordicUse};
+    pie_cordic(&a);
+    for (int k = 0; k < n; k++) {
+        const uint32_t phase = (re[k] < 0 ? 0x80000000u : 0u) + static_cast<uint32_t>(ao[k]);
+        const uint32_t mag = static_cast<uint32_t>((((static_cast<uint64_t>(static_cast<uint32_t>(xo[k])) * 2608131496ull) >> 32) + 2048) >> 12);
+        fn(k, phase, mag);
+    }
+#else
+    for (int k = 0; k < n; k++) { uint32_t phase, mag; cordic_polar(re[k], im[k], phase, mag); fn(k, phase, mag); }
+#endif
 }
 
 // Inverse: mag * (cos phase, sin phase), saturated to int16.

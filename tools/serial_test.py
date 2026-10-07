@@ -26,6 +26,7 @@ AUDIO_RE = re.compile(r"render avg (\d+) us, worst (\d+) us, budget (\d+) us per
 PROF_RE = re.compile(r"\[PROF\] cycles per block \(budget (\d+)\), total (\d+):(.*)")
 MOD_RE = re.compile(r"(\w+)=(\d+)\(x(\d+)\)")
 SEC_RE = re.compile(r"\[SEC\] (.*)")
+UNDER_RE = re.compile(r"\[AUDIO\] DMA underruns (\d+)")   # real dropouts: the I2S DMA ring ran empty (HWV1_DEBUG_AUDIO)
 OSC_RE = re.compile(r"\[OSC\] [^:]*:(.*)")
 SD_RE = re.compile(r"\[SD\] (\d+) reads in (\d+) ms: (\d+) KB/s, avg (\d+) us, worst ever (\d+) us; opens (\d+), seeks (\d+), errors (\d+) \| \[SMP\] stream blocks \+(\d+), underruns (\d+) \(\+(\d+)\)")
 ENGINE_NAMES = ["karp", "modal", "fm2", "fold", "ssaw", "vowel", "add", "dust"]
@@ -97,7 +98,7 @@ def wait_for(port, needle, timeout):
 
 def summarize(lines):
     """Mean / max of the numbers in the [AUDIO] and [PROF] lines of one phase."""
-    a_avg, a_worst, over, blocks, builds, reason = [], [], 0, 0, None, ""
+    a_avg, a_worst, over, blocks, builds, reason, dma = [], [], 0, 0, None, "", None
     totals, budget, mods, sec, osc = [], 0, {}, None, {}
     sd = dict(reads=0, ms=0, kbs=[], avg=[], worst=0, errors=0, blocks=0, under=0, seen=0)
     for _, x in lines:
@@ -109,6 +110,9 @@ def summarize(lines):
             blocks += int(m.group(6))
             if m.group(7):
                 builds, reason = int(m.group(7)), m.group(8)
+        m = UNDER_RE.search(x)
+        if m:
+            dma = (dma or 0) + int(m.group(1))
         m = PROF_RE.search(x)
         if m:
             budget = int(m.group(1))
@@ -130,7 +134,7 @@ def summarize(lines):
             mb = re.search(r"inside the engine switch: (\d+)", x)
             if mb:
                 osc.setdefault("switch", []).append(int(mb.group(1)))
-    return dict(osc=osc, a_avg=a_avg, a_worst=a_worst, over=over, blocks=blocks, builds=builds, reason=reason, totals=totals, budget=budget, mods=mods, sec=sec, sd=sd)
+    return dict(osc=osc, a_avg=a_avg, a_worst=a_worst, over=over, dma=dma, blocks=blocks, builds=builds, reason=reason, totals=totals, budget=budget, mods=mods, sec=sec, sd=sd)
 
 
 def mean(v):
@@ -143,7 +147,7 @@ def report(name, s):
         out.append("   no [AUDIO] lines received in this phase")
         return "\n".join(out)
     pct = 100.0 * mean(s["totals"]) / s["budget"] if s["budget"] and s["totals"] else 0.0
-    out.append(f"   render: avg {mean(s['a_avg']):.0f} us, worst {max(s['a_worst'])} us (budget 1333 us per 64 frames); blocks over budget {s['over']} of {s['blocks']}")
+    out.append(f"   render: avg {mean(s['a_avg']):.0f} us, worst {max(s['a_worst'])} us (budget 1333 us per 64 frames); blocks over budget {s['over']} of {s['blocks']}" + (f"; DMA underruns {s['dma']} (real dropouts)" if s['dma'] is not None else ""))
     if s["totals"]:
         out.append(f"   cycles per engine block: {mean(s['totals']):.0f} of {s['budget']} ({pct:.0f} %)   [{len(s['totals'])} reports]")
         top = sorted(((mean(v), k) for k, v in s["mods"].items()), reverse=True)
@@ -241,12 +245,12 @@ def main():
         port.send("release")
 
         print("== summary: cycles per engine block (budget %d) ==" % (next((r["budget"] for r in results.values() if r["budget"]), 0)))
-        print("   held   cycles   %budget   render avg us   worst us   blocks over")
+        print("   held   cycles   %budget   render avg us   worst us   blocks over   DMA underruns")
         for k, r in results.items():
             if not r["a_avg"]:
                 print(f"   {k:>4}   (no data)")
                 continue
-            print(f"   {k:>4}   {mean(r['totals']):>6.0f}   {100.0 * mean(r['totals']) / r['budget'] if r['budget'] and r['totals'] else 0:>6.0f}%   {mean(r['a_avg']):>13.0f}   {max(r['a_worst']):>8}   {r['over']:>5} / {r['blocks']}")
+            print(f"   {k:>4}   {mean(r['totals']):>6.0f}   {100.0 * mean(r['totals']) / r['budget'] if r['budget'] and r['totals'] else 0:>6.0f}%   {mean(r['a_avg']):>13.0f}   {max(r['a_worst']):>8}   {r['over']:>5} / {r['blocks']}   {r['dma'] if r['dma'] is not None else '-':>6}")
     finally:
         try:
             port.send("release")

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <vector>
 #include "rig.h"
+#include "rack_m.h"
 #include "platform/engine/engine_synth.h"
 
 extern "C" {
@@ -29,10 +30,10 @@ struct ParaApp {
         rack.slot[0].v[MP_OC_WAVE] = 0;                             // a sine: one clear line per key
         rack.slot[1].v[MP_FL_CUT] = 12000;
         rack.slot[1].v[MP_FL_ENVAMT] = 0;
-        rack.cfg.type = SYNTH_MOD_PARA;
+        CHECK(rack_set_para(&rack, 1, true));                       // Para on the filter (ADR-041; was the Mod Para type)
+        rack.slot[1].penv = static_cast<uint8_t>(policy);
         rack.cfg.voices = 4;
-        rack.cfg.para_env = static_cast<uint8_t>(policy);
-        for (int k = 0; k < FXR_SLOTS; k++) fxr_set_type(&rack.cfg.fxr.slot[k], FX_NONE);
+        rack_m_clear(rack);                                         // no effects
         params.amp_env.attack_ms = 1; params.amp_env.decay_ms = 1; params.amp_env.sustain = 1.0f; params.amp_env.release_ms = 400;
         params.amp_env.a_curve = params.amp_env.d_curve = params.amp_env.r_curve = 0;
     }

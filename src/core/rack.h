@@ -15,13 +15,16 @@
 //    also modulates that parameter (FM, AM, ...); its Mute switch silences it in the chain
 //    while the modulation stays intact.
 //
-// Lanes and Sum points (ADR-040):
-//  - Every module sits on one of RACK_LANES parallel lanes (slot.lane). Each lane is a chain as above: a source adds to its lane, a
-//    processor processes what is to its left in its lane. The slot array keeps one global order; a lane is that order filtered by lane.
-//  - A Sum (MOD_SUM, at most one per lane) sums its lane over the voices: modules left of it run per voice, right of it once (stereo).
-//    A lane without a Sum is summed at the output (an implicit Sum: rack_t.lane_lvl / lane_pan). A Sum holds its lane's level and pan.
-//  - The cheap FX (rack_fx_voice_ok) may sit anywhere; the heavy ones (rack_type_global_only) only after their lane's Sum.
-//  - The lanes meet at the output, then the master FX rack (cfg.fxr) follows.
+// Rows (ADR-041): two branches and row M.
+//  - Every module sits on one of RACK_ROWS rows (slot.row). Rows 0 and 1 are two parallel branches: the same notes and voices, each a
+//    chain as above (a source adds to its row, a processor processes what is to its left in its row). Row M (ROW_M) is a chain on the sum
+//    of both branches (the MIX: rack_t.br_lvl / br_pan, level and pan of each branch); it runs once (shared), then the output.
+//    The slot array keeps one global order; a row is that order filtered by row. A modulator's row is only where the editor shows it.
+//  - Para: a processor of a branch with slot.para on runs once on the sum of the branch's voices, and so does everything after it in
+//    that branch (rack_shared_start). The heavy FX (rack_type_shared_only) always run shared, so they start the shared part too.
+//    One way only: a module that must run per voice (rack_type_voice_only: sources, the resonator) cannot follow the shared start of its
+//    branch, nor sit in row M. The shared start's slot.penv says how the shared envelopes follow the keys (para_env_t).
+//  - FM and Strings have no branches: their voices feed row M.
 #include <stdbool.h>
 #include <stdint.h>
 #include "core/synth_config.h"
@@ -30,17 +33,18 @@
 extern "C" {
 #endif
 
-#define RACK_MAX 16                 // slots, shared by the lanes (the rack strip of the UI scrolls sideways, see RACK_VIS in ui_internal.h)
-#define RACK_LANES 3
-#define RACK_OUT (-2)               // returned by rack_audio_next(): goes to the output
+#define RACK_MAX 16                 // slots, shared by the rows (the rack strip of the UI scrolls sideways, see RACK_VIS in ui_internal.h)
+#define RACK_ROWS 3
+#define RACK_BRANCHES 2             // rows 0 and 1
+#define ROW_M 2                     // the chain on the sum of the branches
+#define RACK_OUT (-2)               // returned by rack_audio_next(): goes to the output (a branch: to the MIX of row M)
 #define RACK_NONE (-1)
 
 // Order must match MODULES in tools/gen_module_sprites.py. New types are appended (the order is the meaning of slot.type).
 typedef enum {
     MOD_OSC, MOD_FILTER, MOD_SAT, MOD_LFO, MOD_MSEQ, MOD_ENV, MOD_SAMPLER, MOD_EG, MOD_COMB,
-    MOD_SUM,                                                                                  // a lane's Sum point (ADR-040)
-    MOD_TREM, MOD_EQ, MOD_RING, MOD_PHASER, MOD_FLANGER, MOD_COMP,                            // FX: per voice before a Sum, once after it
-    MOD_DELAY, MOD_REVERB, MOD_CHORUS, MOD_SPECTRAL, MOD_CAB, MOD_ENSEMBLE,                   // FX: only after a Sum (global)
+    MOD_TREM, MOD_EQ, MOD_RING, MOD_PHASER, MOD_FLANGER, MOD_COMP,                            // FX: per voice, or shared after a Para point / in row M
+    MOD_DELAY, MOD_REVERB, MOD_CHORUS, MOD_SPECTRAL, MOD_CAB, MOD_ENSEMBLE,                   // FX: always shared (rack_type_shared_only)
     MOD_TYPE_COUNT
 } module_type_t;
 
@@ -60,8 +64,7 @@ enum { MP_EN_A, MP_EN_D, MP_EN_S, MP_EN_DEPTH, MP_EN_R, MP_EN_HOLD, MP_EN_START,
 enum { MP_EG_SUS = 12, MP_EG_REL, MP_EG_RCV, MP_EG_ONE, MP_EG_DEPTH };
 enum { MP_RS_TUNE, MP_RS_FB, MP_RS_DAMP, MP_RS_INT, MP_RS_MIX };    // RS (tuned resonator): Crs st, Fb %, Dmp Hz, Int st, Mix
 enum { MP_MS_POOL };    // MS: index into rack_t.ms (not editable)
-enum { MP_SU_LEVEL, MP_SU_PAN };                                            // Sum: the lane's level (0..1) and pan (-100..100 %)
-// FX modules: the parameters of the FX rack effect of the same name (fxrack.c), in the rack's units
+// FX modules: the parameters of the effect (the former FX rack's), in the rack's units
 enum { MP_TR_RATE, MP_TR_DEPTH, MP_TR_SHAPE, MP_TR_MODE };
 enum { MP_EQ_LOW, MP_EQ_MID, MP_EQ_MIDF, MP_EQ_HIGH };
 enum { MP_RG_MODE, MP_RG_FREQ, MP_RG_MIX };
@@ -99,7 +102,9 @@ typedef struct {
     uint8_t id;          // unique, stable while the module exists (slot index changes)
     uint8_t tgt_id;      // modulators: id of the targeted module, 0 = none
     uint8_t tgt_param;   // modulators: parameter index in the target (see rack_param_name)
-    uint8_t lane;        // 0..RACK_LANES-1 (a modulator's lane is only where the editor shows it)
+    uint8_t row;         // 0..RACK_ROWS-1: branch 1, branch 2, ROW_M (a modulator's row is only where the editor shows it)
+    uint8_t para;        // a branch processor: 1 = from here on the branch runs once on the sum of its voices (rack_set_para)
+    uint8_t penv;        // para_env_t: how the shared envelopes follow the keys, read on the branch's shared start (rack_shared_start)
     float   v[MOD_PARAM_MAX];   // the module's own parameter values (see rack_mparam_*)
 } rack_slot_t;
 
@@ -107,30 +112,33 @@ typedef struct {
     rack_slot_t slot[RACK_MAX];
     int         count;
     uint8_t     next_id;   // ids start at 1
-    float       lane_lvl[RACK_LANES], lane_pan[RACK_LANES];   // the implicit Sum of a lane without a Sum module (pan -100..100); a Sum copies them
+    float       br_lvl[RACK_BRANCHES], br_pan[RACK_BRANCHES];   // the MIX at the start of row M: each branch's level (0..1) and pan (-100..100 %)
     synth_config_t cfg;    // general settings (synth type, voices, volume): the GENERAL tab
     ms_pattern_t ms[MS_POOL];   // motion sequencer patterns (see ms_lane_t)
 } rack_t;
 
-void rack_init(rack_t *r);    // small demo rack (osc, filter, saturator, LFO; the tests build on it)
-void rack_init_sampler(rack_t *r, int file, int loop);   // dev / measurement patch: one sampler (catalog index `file`, loop mode 0 file / 1 off / 2 fwd / 3 ping-pong) into one filter, every effect off
-void rack_init_startup(rack_t *r);   // the patch the device starts with: four oscillator engines into a filter, delay and reverb on
+void rack_init(rack_t *r);    // small demo rack (osc, filter, saturator, LFO; delay and reverb in row M; the tests build on it)
+void rack_init_sampler(rack_t *r, int file, int loop);   // dev / measurement patch: one sampler (catalog index `file`, loop mode 0 file / 1 off / 2 fwd / 3 ping-pong) into one filter, no effects
+void rack_init_startup(rack_t *r);   // the patch the device starts with: four oscillator engines into a filter, delay and reverb in row M
 void rack_clear(rack_t *r);   // no modules, default general settings
 
-// Edits. Return false when impossible (full / bad position / against the lane rules).
-bool rack_insert(rack_t *r, int pos, module_type_t type);   // shifts slots >= pos to the right; lane 0
-bool rack_insert_lane(rack_t *r, int pos, int lane, module_type_t type);   // the same on `lane`, with the lane rules (rack_can_insert)
-bool rack_delete(rack_t *r, int pos);                       // clears modulators that targeted it; a Sum that global-only FX follow cannot go
-bool rack_set_lane(rack_t *r, int slot, int lane);          // moves a module to another lane (same slot order), with the lane rules
+// Edits. Return false when impossible (full / bad position / against the row rules).
+bool rack_insert(rack_t *r, int pos, module_type_t type);   // shifts slots >= pos to the right; row 0 (branch 1), no rule checks
+bool rack_insert_row(rack_t *r, int pos, int row, module_type_t type);    // the same on `row`, with the row rules (rack_can_insert)
+bool rack_delete(rack_t *r, int pos);                       // clears modulators that targeted it
+bool rack_set_row(rack_t *r, int slot, int row);            // moves a module to another row (same slot order), with the row rules
+int  rack_add_m(rack_t *r, module_type_t type);             // appends a module to row M (patch setup); its slot, RACK_NONE when refused
 
-// Lanes and Sum points (ADR-040)
-bool rack_type_global_only(module_type_t t);     // the heavy FX: only after a Sum
-bool rack_is_fx(module_type_t t);                // an FX module (voice-capable or global-only)
-int  rack_lane_sum(const rack_t *r, int lane);   // slot of the lane's Sum, RACK_NONE without one
-bool rack_slot_is_global(const rack_t *r, int slot);           // after its lane's Sum: runs once, stereo
-bool rack_can_insert(const rack_t *r, int pos, int lane, module_type_t t);   // what rack_insert_lane checks
-float *rack_lane_level(rack_t *r, int lane);     // the lane's level and pan: its Sum's values, else the implicit ones
-float *rack_lane_pan(rack_t *r, int lane);
+// Rows, Para (ADR-041)
+bool rack_is_fx(module_type_t t);                // an FX module
+bool rack_type_shared_only(module_type_t t);     // the heavy FX: always shared (they start their branch's shared part)
+bool rack_type_voice_only(module_type_t t);      // follows the key, so per voice only: the sources and the resonator
+bool rack_is_processor(module_type_t t);         // an audio module that processes the chain (not a source)
+bool rack_can_para(const rack_t *r, int slot);   // a branch processor that may carry the Para switch (not a heavy FX: always shared)
+bool rack_set_para(rack_t *r, int slot, bool on);   // false when refused (a per-voice module after it in the branch)
+int  rack_shared_start(const rack_t *r, int row);   // a branch's first shared slot (Para on, or a heavy FX), RACK_NONE: all per voice
+bool rack_slot_is_shared(const rack_t *r, int slot);   // runs once: row M, from its branch's shared start on; a modulator: its target's
+bool rack_can_insert(const rack_t *r, int pos, int row, module_type_t t);   // what rack_insert_row checks
 
 // Module type info
 const char *rack_type_code(module_type_t t);     // "OC"
@@ -158,7 +166,7 @@ int  rack_find(const rack_t *r, int id);                   // slot index or RACK
 int  rack_instance(const rack_t *r, int slot);             // 1-based count of this type so far
 int  rack_audio_prev(const rack_t *r, int slot);           // previous audio slot or RACK_NONE
 int  rack_audio_next(const rack_t *r, int slot);           // next audio slot or RACK_OUT
-bool rack_has_signal(const rack_t *r, int slot);           // a source exists at or before slot
+bool rack_has_signal(const rack_t *r, int slot);           // a source exists at or before slot (row M: a branch has one, or FM / Strings)
 bool rack_slot_is_mod(const rack_t *r, int slot);          // modulator type, or an OSC that has a target (it is also in the audio chain)
 bool rack_slot_is_audio(const rack_t *r, int slot);        // in the audio chain (OSC, FILTER, SAT)
 

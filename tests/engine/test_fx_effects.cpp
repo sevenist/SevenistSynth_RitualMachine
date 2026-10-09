@@ -145,9 +145,19 @@ TEST(shifter_moves_a_sine_by_the_shift_and_rings_at_the_carrier) {
     CHECK(lower > 30.0 * (orig + 1.0) && upper > 30.0 * (orig + 1.0));
 }
 
+// The mapper's way of giving a Convolver its IR: the taps in chunks (fx2_modules.h).
+void send_ir(DspRig &rig, int node, const int16_t *taps, int n) {
+    ConvBlob b[5];
+    const int k = conv_blobs(taps, n, b);
+    for (int i = 0; i < k; i++) rig.eng.set_blob(node, &b[i], sizeof b[i]);
+}
+
 TEST(convolver_shapes_the_spectrum_like_a_cabinet_and_takes_a_custom_ir) {
     FxBench b(T_CONV, true);
-    b.set(CNV_IR, CNVIR_CAB_1X12); b.set(CNV_LENGTH, 256); b.set(CNV_MIX, 32767); b.set(CNV_LEVEL, 16384);
+    int16_t cab[kConvMaxTaps];
+    conv_builtin_ir(CNVIR_CAB_1X12, 256, cab);
+    send_ir(b.rig, 2, cab, 256);
+    b.set(CNV_MIX, 32767); b.set(CNV_LEVEL, 16384);
     std::vector<double> l;
     b.run(0.6, &l);
     const double mid = band_db(l, 8192, 4096, 1500, 3000), high = band_db(l, 8192, 4096, 9000, 15000), low = band_db(l, 8192, 4096, 20, 50);
@@ -156,16 +166,51 @@ TEST(convolver_shapes_the_spectrum_like_a_cabinet_and_takes_a_custom_ir) {
     CHECK(mid - low > 6.0);                                                      // (256 taps resolve about 190 Hz: the low cut is gentle)
     // custom IR: one tap of 0.5 at position 10 = the input delayed by 10 samples at half level (level 0.5 = unity of the normalised IR)
     FxBench c(T_CONV, false, 440.0, 0.5);
-    ConvBlob blob{};
-    blob.start = 0; blob.count = 16;
-    blob.tap[10] = 16384;
-    c.rig.eng.set_blob(2, &blob, sizeof blob);
-    c.set(CNV_MIX, 32767); c.set(CNV_LEVEL, 16384); c.set(CNV_LENGTH, 64);
+    int16_t one[64] = {};
+    one[10] = 16384;
+    send_ir(c.rig, 2, one, 64);
+    c.set(CNV_MIX, 32767); c.set(CNV_LEVEL, 16384);
     std::vector<double> y;
     c.run(0.2, &y);
     const double expect = 0.5 * 0.5 * 32767.0 / std::sqrt(2.0);                  // half the input level (input amplitude 0.5)
     CHECK(rms_w(y, S(0.05), S(0.15)) > 0.8 * expect);
     CHECK(rms_w(y, S(0.05), S(0.15)) < 1.2 * expect);
+}
+
+// The aligned layout (8 shifted tap copies, linear history moved per block) against a plain direct convolution of the same input, sample for
+// sample: lengths that are not multiples of 8, the IR switched mid-run (the new one applies from the next block), several block boundaries.
+TEST(convolver_is_bit_identical_to_a_direct_convolution) {
+    for (int len : {16, 61, 128, 255, 512}) {
+        FxBench dry(T_CONV, true, 1000.0, 0.4);                                  // mix 0: the input (under half scale: the MasterOut gain leaves it exact)
+        dry.set(CNV_MIX, 0);
+        std::vector<double> xl, xr;
+        dry.run(0.1, &xl, &xr);
+        CHECK(rms(xl) > 1000.0);                                                 // (a silent input would pass trivially)
+        FxBench w(T_CONV, true, 1000.0, 0.4);
+        auto master = [](int32_t v) { return sat16((v * static_cast<int32_t>(kUnity) + (1 << 14)) >> 15); };   // what the bench's MasterOut does
+        int16_t a[kConvMaxTaps], b[kConvMaxTaps];
+        for (int i = 0; i < len; i++) { a[i] = static_cast<int16_t>((i * 7919 % 65535) - 32767); b[i] = static_cast<int16_t>(len - 2 * i); }
+        send_ir(w.rig, 2, a, len);
+        w.set(CNV_MIX, 30000); w.set(CNV_LEVEL, 9000);
+        const size_t half = static_cast<size_t>(DspRig::blocks_for(0.05)) * kBlock;
+        std::vector<double> yl, yr, yl2, yr2;
+        w.rig.run2(static_cast<int>(half / kBlock), &yl, &yr);
+        send_ir(w.rig, 2, b, len);
+        w.rig.run2(static_cast<int>((xl.size() - half) / kBlock), &yl2, &yr2);
+        yl.insert(yl.end(), yl2.begin(), yl2.end()); yr.insert(yr.end(), yr2.begin(), yr2.end());
+        int bad = 0;
+        for (size_t i = 0; i < yl.size() && i < xl.size(); i++) {
+            const int16_t *t = i < half ? a : b;
+            int64_t sl = 0, sr = 0;
+            for (int k = 0; k < len && k <= static_cast<int>(i); k++) { sl += t[k] * static_cast<int32_t>(xl[i - k]); sr += t[k] * static_cast<int32_t>(xr[i - k]); }
+            const int32_t l = static_cast<int32_t>(xl[i]), r = static_cast<int32_t>(xr[i]);
+            const int32_t cl = static_cast<int32_t>((sl >> 15) * 9000 >> 14), cr = static_cast<int32_t>((sr >> 15) * 9000 >> 14);
+            bad += yl[i] != master(sat16(l + (((sat16(cl) - l) * 30000) >> 15)));
+            bad += yr[i] != master(sat16(r + (((sat16(cr) - r) * 30000) >> 15)));
+        }
+        std::printf("    %3d taps: %d of %zu samples differ\n", len, bad, 2 * yl.size());
+        CHECK_EQ(bad, 0);
+    }
 }
 
 TEST(comb_follows_the_key_and_rings_at_the_harmonics) {

@@ -458,34 +458,7 @@ void draw_eq_graph(u8g2_t *g, gui_rect_t box, int low, int mid, int midf, int hi
     }
 }
 
-// The four slots as a chain (type code in a box, the selected one inverted), for effects without a picture of their own.
-void draw_fx_chain(u8g2_t *g, gui_rect_t box, const fxrack_t *fr, int sel) {
-    u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
-    const int cell_h = (box.h - 4) / FXR_SLOTS;
-    for (int k = 0; k < FXR_SLOTS; k++) {
-        const int y = box.y + 2 + k * cell_h;
-        char t[8];
-        snprintf(t, sizeof t, "%d %s", k + 1, fr->slot[k].type == FX_NONE ? "--" : fxr_type_code(fr->slot[k].type));
-        if (k == sel) { u8g2_DrawBox(g, box.x + 2, y, box.w - 4, cell_h - 1); u8g2_SetDrawColor(g, 0); }
-        u8g2_DrawStr(g, box.x + 5, y + cell_h - 3, t);
-        u8g2_SetDrawColor(g, 1);
-    }
-}
-
-void draw_fx_picture(u8g2_t *g, gui_rect_t box, const fxrack_t *fr, int sel) {
-    const fx_slot_t *s = &fr->slot[sel];
-    switch (s->type) {
-        case FX_DRIVE:  u8g2_DrawFrame(g, box.x, box.y, box.w, box.h); draw_sat(g, box, s->v[0], powf(2.0f, (float)s->v[1] / 4.0f), (float)s->v[2] / 100.0f); break;
-        case FX_CHORUS: draw_chorus_graph(g, box, s->v[0], s->v[1]); break;
-        case FX_DELAY:  draw_delay_graph(g, box, s->v[2], s->v[0], s->v[1]); break;
-        case FX_REVERB: draw_reverb_graph(g, box, s->v[0], s->v[1], s->v[2], s->v[3]); break;
-        case FX_COMP:   draw_comp_graph(g, box, s->v[0], s->v[1], s->v[3]); break;
-        case FX_EQ:     draw_eq_graph(g, box, s->v[0], s->v[1], s->v[2], s->v[3]); break;
-        default:        draw_fx_chain(g, box, fr, sel); break;
-    }
-}
-
-// A Sum / FX rack module's picture: the FX tab's sketch when the effect has one (its values converted to the FX tab's screen units), else its
+// An FX rack module's picture: its effect's sketch when it has one (the values converted to the sketches' units: %, MIDI note), else its
 // name in a frame.
 void draw_fx_module(u8g2_t *g, gui_rect_t box, const rack_slot_t *ms) {
     const float *v = ms->v;

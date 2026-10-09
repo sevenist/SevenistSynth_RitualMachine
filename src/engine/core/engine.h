@@ -93,6 +93,7 @@ private:
     CommandRing<ENGINE_CMD_RING> cmd_;
     std::atomic<Plan *> retired_{nullptr};              // lock-free stack: pushed by the audio thread, taken whole by gc()
     alignas(16) int32_t bus_l_[kBlock] = {}, bus_r_[kBlock] = {};     // the voice sum, 32 bits: saturated once when read (BusIn)
+    alignas(16) int32_t bus2_l_[kBlock] = {}, bus2_r_[kBlock] = {};   // the second voice bus (branch 2 of the rack, ADR-041)
     std::atomic<uint64_t> time_{0};
 #ifdef ENGINE_PROFILE
     ProfEntry prof_[kProfMax] = {};

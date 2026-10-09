@@ -1,6 +1,6 @@
 // Dev check of the simulator's sample folder: lists the library, converts every pending .wav / .mp3 and prints what came out.
 //   g++ -std=c++17 -O1 -DPLATFORM_SIM -Isrc -Ilib/minimp3 tools/sample_sim_check.cpp src/platform/sim/sample_sim.cpp src/platform/engine/engine_synth.cpp \
-//       <engine objects> src/core/{rack,synth_config,synth_params,dx7,dx7_factory,fxrack}.o -pthread -o build/sample_sim_check.exe
+//       <engine objects> src/core/{rack,synth_config,synth_params,dx7,dx7_factory}.o -pthread -o build/sample_sim_check.exe
 #include <cstdio>
 #include <cstdlib>
 #include "platform/engine/engine_synth.h"

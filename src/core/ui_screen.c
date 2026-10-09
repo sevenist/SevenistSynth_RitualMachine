@@ -191,7 +191,6 @@ const screen_def_t *screen_for_tab(tab_t t) {
     switch (t) {
         case TAB_GENERAL: return &scr_general_screen;
         case TAB_SAMPLES: return &scr_samples_screen;
-        case TAB_FX:      return &scr_fx_screen;
         case TAB_FM_ALGO: return &scr_fm_algo_screen;
         case TAB_KEYS:    return &scr_keys_screen;
         case TAB_MODS:    return &scr_mods_screen;

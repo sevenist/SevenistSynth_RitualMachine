@@ -13,19 +13,16 @@ static bool cfg_adjust(const ui_ctx_t *c, int dir) {
     return fx == CFG_LIVE;
 }
 
-// Only the rows that apply are shown: Patch for the FM types; Voices for the polyphonic ones; Glide and Legato for the Mono ones.
+// Only the rows that apply are shown: Patch for FM; Glide and Legato when it plays mono (Voices = 1, ADR-041).
 static bool en_fm(const ui_ctx_t *c)     { return synth_type_is_fm(c->rack->cfg.type); }
-static bool en_voices(const ui_ctx_t *c) { return !synth_type_is_mono(c->rack->cfg.type); }
-static bool en_mono(const ui_ctx_t *c)   { return synth_type_is_mono(c->rack->cfg.type); }
-static bool en_para(const ui_ctx_t *c)   { return synth_type_is_para(c->rack->cfg.type); }
+static bool en_mono(const ui_ctx_t *c)   { return synth_config_is_mono(&c->rack->cfg); }
 
 static const el_def_t elements[] = {
     {"Type",   EL_VALUE, 0, 0, 1, cfg_value, cfg_adjust, NULL, NULL, NULL,      cfg_label, CFGP_TYPE,   0},
     {"Patch",  EL_VALUE, 1, 0, 1, cfg_value, cfg_adjust, NULL, NULL, en_fm,     cfg_label, CFGP_PATCH,  EF_HIDE_WHEN_DISABLED},
-    {"Voices", EL_VALUE, 2, 0, 1, cfg_value, cfg_adjust, NULL, NULL, en_voices, cfg_label, CFGP_VOICES, EF_HIDE_WHEN_DISABLED},
+    {"Voices", EL_VALUE, 2, 0, 1, cfg_value, cfg_adjust, NULL, NULL, NULL,      cfg_label, CFGP_VOICES, 0},
     {"Glide",  EL_VALUE, 3, 0, 1, cfg_value, cfg_adjust, NULL, NULL, en_mono,   cfg_label, CFGP_GLIDE,  EF_HIDE_WHEN_DISABLED},
     {"Legato", EL_VALUE, 4, 0, 1, cfg_value, cfg_adjust, NULL, NULL, en_mono,   cfg_label, CFGP_LEGATO, EF_HIDE_WHEN_DISABLED},
-    {"PEnv",   EL_VALUE, 3, 0, 1, cfg_value, cfg_adjust, NULL, NULL, en_para,   cfg_label, CFGP_PARA_ENV, EF_HIDE_WHEN_DISABLED},   // shares Glide's row (never both)
     {"Vol",    EL_VALUE, 5, 0, 1, cfg_value, cfg_adjust, NULL, NULL, NULL,      cfg_label, CFGP_VOLUME, 0},
     {"Out",    EL_VALUE, 6, 0, 1, cfg_value, cfg_adjust, NULL, NULL, NULL,      cfg_label, CFGP_OUTPUT, 0},
     {"Spk",    EL_VALUE, 7, 0, 1, cfg_value, cfg_adjust, NULL, NULL, NULL,      cfg_label, CFGP_SPEAKER, 0},

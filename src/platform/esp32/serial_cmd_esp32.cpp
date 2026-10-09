@@ -6,6 +6,9 @@
 #include "hal/hal_audio.h"
 #include "platform/engine/engine_synth.h"
 #include "engine/modules/mi_osc.h"
+#include "engine/dsp/fft.h"
+#include <esp_cpu.h>
+#include <esp_heap_caps.h>
 #include "core/ui_settings.h"
 #include "platform/esp32/serial_cmd_esp32.h"
 #ifdef HWV1
@@ -36,6 +39,10 @@ void use_rack() {
     g_app->dirty = true;
 }
 
+void clear_row_m() {                                                // every module of row M goes (the effects of every synth type, ADR-041)
+    for (int i = g_app->rack.count - 1; i >= 0; i--) if (g_app->rack.slot[i].row == ROW_M) rack_delete(&g_app->rack, i);
+}
+
 void run(char *line) {
     char *arg = strchr(line, ' ');
     if (arg) { *arg++ = 0; while (*arg == ' ') arg++; }
@@ -63,6 +70,39 @@ void run(char *line) {
         Serial.printf("[CMD] eng set for %d oscillators\n", idx);
         return;
     }
+    if (!strcmp(line, "pieconv")) {                       // pieconv: the Convolver's PIE dot products (pie_conv2_s16) against the C sums, and their cost
+        int16_t *xl = static_cast<int16_t *>(heap_caps_aligned_alloc(16, 3 * 520 * sizeof(int16_t), MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT));
+        if (!xl) { Serial.println("[CMD] pieconv: no memory"); return; }
+        int16_t *xr = xl + 520, *t = xr + 520;
+        uint32_t seed = 12345;
+        auto rnd = [&seed]() { seed = seed * 1664525u + 1013904223u; return static_cast<int16_t>(seed >> 16); };
+        int bad = 0, cases = 0;
+        uint32_t cyc = UINT32_MAX;
+        for (int rep = 0; rep < 6; rep++) {
+            for (int i = 0; i < 520; i++) {                   // full scale both ways first (taps never -32768: the module clamps them), then random
+                xl[i] = rep == 0 ? -32768 : rep == 1 ? 32767 : rnd();
+                xr[i] = rep == 0 ? 32767 : rep == 1 ? -32768 : rnd();
+                t[i] = rep == 0 ? 32767 : rep == 1 ? -32767 : rnd();
+                if (t[i] == -32768) t[i] = -32767;
+            }
+            for (int nv = 1; nv <= 64; nv++) {                // up to the module's 512 taps (a full-scale sum of more would pass 40 bits)
+                alignas(16) int32_t acc[4];
+                const uint32_t t0 = esp_cpu_get_cycle_count();
+                pie_conv2_s16(xl, xr, t, nv, acc);
+                const uint32_t dt = esp_cpu_get_cycle_count() - t0;
+                if (nv == 16 && dt < cyc) cyc = dt;
+                int64_t cl = 0, cr = 0;
+                for (int j = 0; j < 8 * nv; j++) { cl += static_cast<int32_t>(t[j]) * xl[j]; cr += static_cast<int32_t>(t[j]) * xr[j]; }
+                const int64_t pl = static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(static_cast<int8_t>(acc[1] & 0xff))) << 32 | static_cast<uint32_t>(acc[0]));
+                const int64_t pr = static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(static_cast<int8_t>(acc[3] & 0xff))) << 32 | static_cast<uint32_t>(acc[2]));
+                bad += (pl != cl) + (pr != cr);
+                cases += 2;
+            }
+        }
+        heap_caps_free(xl);
+        Serial.printf("[CMD] pieconv: %d of %d sums differ from C (full scale, 1..64 vectors); 128 taps x 2 channels: %u cycles\n", bad, cases, (unsigned)cyc);
+        return;
+    }
     if (!strcmp(line, "samples")) {
         audio_sample_info_t in;
         const int n = audio_sample_count();
@@ -77,7 +117,7 @@ void run(char *line) {
         if (!strcmp(name, "startup")) rack_init_startup(&g_app->rack);
         else if (!strcmp(name, "sampler")) rack_init_sampler(&g_app->rack, a, b);
         else if (!strcmp(name, "strings")) g_app->rack.cfg.type = SYNTH_STRINGS;          // the Strings type, current pages and effects (ADR-037)
-        else if (!strcmp(name, "para")) {                 // patch para N V: N Strng oscillators (spread in detune / octave) into one filter, Mod Para, V voices
+        else if (!strcmp(name, "para")) {                 // patch para N V: N Strng oscillators (spread in detune / octave) into one filter with Para on, V voices
             const int n = a < 1 ? 4 : (a > 8 ? 8 : a);
             rack_clear(&g_app->rack);
             for (int i = 0; i < n; i++) {
@@ -90,7 +130,7 @@ void run(char *line) {
                 s.v[MP_OC_QUAL] = 1;                                         // Mip
             }
             rack_insert(&g_app->rack, n, MOD_FILTER);
-            g_app->rack.cfg.type = SYNTH_MOD_PARA;
+            rack_set_para(&g_app->rack, n, true);
             g_app->rack.cfg.voices = (uint8_t)(b < 1 ? 4 : (b > SYNTH_MAX_VOICES ? SYNTH_MAX_VOICES : b));
         }
         else { Serial.printf("[CMD] unknown patch '%s'\n", name); return; }
@@ -98,14 +138,21 @@ void run(char *line) {
         Serial.printf("[CMD] patch %s %d %d\n", name, a, b);
         return;
     }
-    if (!strcmp(line, "mode") && g_app) {                 // mode mono | poly [glide_index] [legato 0/1]: the Mono or Poly type of the current synth (a rebuild)
+    if (!strcmp(line, "mode") && g_app) {                 // mode mono | poly [glide_index] [legato 0/1] | para [env]: Voices 1 / several (ADR-041), or Para on branch 1's first filter (a rebuild)
         char name[8] = {};
         int glide = g_app->rack.cfg.glide, legato = g_app->rack.cfg.legato;
         sscanf(arg ? arg : "", "%7s %d %d", name, &glide, &legato);
-        const bool fm = synth_type_is_fm(g_app->rack.cfg.type);
-        if (!strcmp(name, "mono")) g_app->rack.cfg.type = fm ? SYNTH_FM_MONO : SYNTH_MOD_MONO;
-        else if (!strcmp(name, "poly")) g_app->rack.cfg.type = fm ? SYNTH_FM : SYNTH_MODULAR;
-        else if (!strcmp(name, "para")) { g_app->rack.cfg.type = SYNTH_MOD_PARA; g_app->rack.cfg.para_env = (uint8_t)(glide < 0 || glide > 2 ? 0 : glide); }   // mode para [env 0 legato / 1 retrig / 2 voice]
+        rack_t &rk = g_app->rack;
+        if (!strcmp(name, "mono")) rk.cfg.voices = 1;
+        else if (!strcmp(name, "poly")) { if (rk.cfg.voices < 2) rk.cfg.voices = SYNTH_MAX_VOICES; }
+        else if (!strcmp(name, "para")) {                 // mode para [env 0 legato / 1 retrig / 2 voice]
+            int f = RACK_NONE;
+            for (int i = 0; i < rk.count && f == RACK_NONE; i++) if (rk.slot[i].type == MOD_FILTER && rk.slot[i].row == 0) f = i;
+            if (f == RACK_NONE || !rack_set_para(&rk, f, true)) { Serial.println("[CMD] mode para: no filter in branch 1 that takes Para"); return; }
+            rk.slot[f].penv = (uint8_t)(glide < 0 || glide > 2 ? 0 : glide);
+            glide = rk.cfg.glide;
+            if (rk.cfg.voices < 2) rk.cfg.voices = SYNTH_MAX_VOICES;
+        }
         else { Serial.printf("[CMD] mode mono|poly [glide 0-6] [legato 0|1] | para [env 0-2]\n"); return; }
         g_app->rack.cfg.glide = (uint8_t)glide;
         g_app->rack.cfg.legato = (uint8_t)legato;
@@ -179,25 +226,30 @@ void run(char *line) {
         else if (!strcmp(f, "lvl")) s.level = x;
         else if (!strcmp(f, "lp")) s.lp_on = (uint8_t)x;
         else if (!strcmp(f, "ftype")) s.ftype = (uint8_t)x;
-        else if (!strcmp(f, "fx")) { for (int k = 0; k < FXR_SLOTS; k++) fxr_set_type(&g_app->rack.cfg.fxr.slot[k], FX_NONE); }
+        else if (!strcmp(f, "fx")) clear_row_m();
         else { Serial.println("[CMD] str wave|osc|det|mix|lvl|lp|ftype|fx <value>"); return; }
         audio_build(&g_app->rack, &g_app->params);
         Serial.printf("[CMD] str %s %g\n", f, (double)x);
         return;
     }
-    if (!strcmp(line, "fx") && g_app) {                   // fx <slot 1-4> <type> [v0 .. v7]: an FX rack slot (type = fx_type_t number; values in screen units, missing = default)
-        int k = 0, t = 0, n = 0, used = 0;
+    if (!strcmp(line, "fx") && g_app) {                   // fx clear | fx <code> [v0 .. v7]: append an FX module to row M (code as on the RACK tab: DL RV CH ...; values in the module's units, missing = default)
+        char code[8] = {};
+        int used = 0;
         const char *s = arg ? arg : "";
-        if (sscanf(s, "%d %d%n", &k, &t, &used) < 2 || k < 1 || k > FXR_SLOTS || t < 0 || t >= FX_TYPE_COUNT) {
-            Serial.println("[CMD] fx <slot 1-4> <type 0-13> [values...]");
-            return;
-        }
-        fx_slot_t &fs = g_app->rack.cfg.fxr.slot[k - 1];
-        fxr_set_type(&fs, t);
+        if (sscanf(s, "%7s%n", code, &used) < 1) { Serial.println("[CMD] fx clear | fx <code> [values...]"); return; }
+        if (!strcmp(code, "clear")) { clear_row_m(); audio_build(&g_app->rack, &g_app->params); Serial.println("[CMD] fx clear"); return; }
+        int t = MOD_TYPE_COUNT;
+        for (int k = 0; k < MOD_TYPE_COUNT; k++) if (!strcasecmp(code, rack_type_code((module_type_t)k)) && rack_is_processor((module_type_t)k)) t = k;
+        const int slot = t < MOD_TYPE_COUNT ? rack_add_m(&g_app->rack, (module_type_t)t) : RACK_NONE;
+        if (slot == RACK_NONE) { Serial.printf("[CMD] fx: '%s' is not a row M module, or the rack is full\n", code); return; }
         s += used;
-        for (int i = 0, x = 0; i < FXR_PARAMS && sscanf(s, "%d%n", &x, &n) == 1; i++, s += n) fs.v[i] = (int16_t)x;
+        float x = 0;
+        int n = 0;
+        for (int i = 0; i < rack_mparam_count((module_type_t)t) && sscanf(s, "%f%n", &x, &n) == 1; i++, s += n) g_app->rack.slot[slot].v[i] = x;
         audio_build(&g_app->rack, &g_app->params);
-        Serial.printf("[CMD] fx %d %s %d %d %d %d %d %d %d\n", k, fxr_type_name(t), fs.v[0], fs.v[1], fs.v[2], fs.v[3], fs.v[4], fs.v[5], fs.v[6]);
+        char desc[32];
+        rack_describe(&g_app->rack, slot, desc, sizeof desc);
+        Serial.printf("[CMD] fx %s in row M\n", desc);
         return;
     }
 #ifdef HWV1

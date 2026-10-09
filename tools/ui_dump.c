@@ -92,24 +92,22 @@ int main(int argc, char **argv) {
 
     dump("main view");
     feed(&app, "menu");
-    dump("modular: RACK");
+    dump("modular: RACK (branches 1 and 2, row M)");
     feed(&app, "up right");                  // row 0, next tab
     dump("modular: GENERAL");
     feed(&app, "right");
     dump("modular: SAMPLES");
     feed(&app, "right");
-    dump("modular: FX RACK");
-    feed(&app, "right");
     dump("modular: KEYS");
     feed(&app, "right");
-    dump("modular: MODIFIERS");
-    feed(&app, "left left left left");      // back to GENERAL, switch to the FM synth
-    feed(&app, "down right right up");      // Type: Mono -> Para -> FM
+    dump("modular: LEDS");
+    feed(&app, "left left left");           // back to GENERAL, switch to the FM synth
+    feed(&app, "down right up");            // Type: Modular -> FM
     dump("after Type -> FM (menu tab list changes)");
     feed(&app, "right");
     dump("FM: ALGORITHM (the operator tree)");
-    feed(&app, "right");
-    dump("FM: FX RACK");
+    feed(&app, "left left");
+    dump("FM: RACK (row M only)");
     feed(&app, "menu");
     dump("main view in FM mode (FM SYNTH)");
     feed(&app, "right");

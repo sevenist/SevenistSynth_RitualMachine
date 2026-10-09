@@ -92,16 +92,28 @@ bool same_structure(const GraphDesc &a, const GraphDesc &b) {
 // Note handling of the synth type: Mono (one voice, last-note priority, legato, glide) or Poly. Posted like a note; cheap enough to resend.
 void send_voice_mode(const rack_t &rack) {
     Synth &s = s_synth;
-    const bool mono = synth_type_is_mono(rack.cfg.type);
+    const bool mono = synth_config_is_mono(&rack.cfg);
     const int glide = synth_config_glide_ms(&rack.cfg);
     const int legato = mono && rack.cfg.legato ? 1 : 0;
     s.eng.set_voice_mode(mono ? VoiceMode::Mono : VoiceMode::Poly, legato != 0, glide);
     s.last_mono = mono; s.last_glide = glide; s.last_legato = legato;
 }
 
+// The impulse response of Convolver k: computed here (control thread; only when its IR or length changed) and sent in chunks; the module
+// switches when the last one arrives.
+void send_conv(const RackGraph &r, int k) {
+    ConvBlob b[(kConvMaxTaps + kConvChunk - 1) / kConvChunk];
+    const int len = r.conv_len[k] < 16 ? 16 : (r.conv_len[k] > kConvMaxTaps ? kConvMaxTaps : r.conv_len[k]);
+    int16_t taps[kConvMaxTaps];
+    conv_builtin_ir(r.conv_ir[k], len, taps);
+    const int n = conv_blobs(taps, len, b);
+    for (int i = 0; i < n; i++) s_synth.eng.set_blob(r.conv_node[k], &b[i], sizeof(ConvBlob));
+}
+
 void send_blob(const RackGraph &r) {
     if (r.fm) s_synth.eng.set_blob(r.dx7_node, &r.fm_patch, sizeof r.fm_patch);
     for (int i = 0; i < r.ms_count; i++) s_synth.eng.set_blob(r.ms_node[i], &r.ms_blob[i], sizeof(MotionBlob));
+    for (int k = 0; k < r.conv_count; k++) send_conv(r, k);
 }
 
 void send_clock(const RackGraph &r) {                 // the motion sequencers' timing (not part of the rack: it follows the note sequencer)
@@ -228,10 +240,12 @@ void engine_synth_set_params(const rack_t *rack, const synth_params_t *params) {
             if (n.param[p] != o.param[p]) s.eng.set_param(n.id, p, n.param[p]);
     }
     if (s.cur.fm && std::memcmp(&s.cur.fm_patch, &s.last.fm_patch, sizeof(Dx7Patch)) != 0) send_blob(s.cur);
-    if (synth_type_is_mono(rack->cfg.type) != s.last_mono || synth_config_glide_ms(&rack->cfg) != s.last_glide ||
+    if (synth_config_is_mono(&rack->cfg) != s.last_mono || synth_config_glide_ms(&rack->cfg) != s.last_glide ||
         (s.last_mono && (rack->cfg.legato ? 1 : 0) != s.last_legato)) send_voice_mode(*rack);
     for (int i = 0; i < s.cur.ms_count; i++)
         if (std::memcmp(&s.cur.ms_blob[i], &s.last.ms_blob[i], sizeof(MotionBlob)) != 0) s.eng.set_blob(s.cur.ms_node[i], &s.cur.ms_blob[i], sizeof(MotionBlob));
+    for (int k = 0; k < s.cur.conv_count; k++)                         // (same graph: the same Convolver nodes in the same order)
+        if (s.cur.conv_ir[k] != s.last.conv_ir[k] || s.cur.conv_len[k] != s.last.conv_len[k]) send_conv(s.cur, k);
     s.last = s.cur;
 }
 

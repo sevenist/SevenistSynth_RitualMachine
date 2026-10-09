@@ -4,6 +4,7 @@
 #include <cmath>
 #include <vector>
 #include "rig.h"
+#include "rack_m.h"
 #include "platform/engine/engine_synth.h"
 #include "platform/engine/rack_graph.h"
 
@@ -32,7 +33,7 @@ void make_rack(rack_t &r, synth_params_t &p, int n) {
     r.slot[n].v[MP_FL_ENVAMT] = 0;
     r.cfg.type = SYNTH_MODULAR;
     r.cfg.voices = 2;
-    for (int k = 0; k < FXR_SLOTS; k++) fxr_set_type(&r.cfg.fxr.slot[k], FX_NONE);
+    rack_m_clear(r);
     p.amp_env.attack_ms = 1; p.amp_env.decay_ms = 1; p.amp_env.sustain = 1.0f; p.amp_env.release_ms = 50;
     p.amp_env.a_curve = p.amp_env.d_curve = p.amp_env.r_curve = 0;
 }

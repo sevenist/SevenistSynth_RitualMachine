@@ -403,10 +403,10 @@ bool synth_ui_target_describe(const synth_params_t *params, const seq_t *seq, co
 
 bool synth_ui_target_at_cursor(const synth_ui_t *ui, const rack_t *rack, macro_t *out) {
     macro_clear(out);
-    if (ui->in_rack) {                                  // the GENERAL tab: a setting that changes live (not Type, Voices, PEnv: they rebuild)
+    if (ui->in_rack) {                                  // the GENERAL tab: a setting that changes live (not Type, Voices: they rebuild)
         if (tab_kind(rack, ui->menu_tab) != TAB_GENERAL) return false;
         const int id = scr_general_setting(ui->row);
-        if (id < 0 || id == CFGP_TYPE || id == CFGP_VOICES || id == CFGP_PARA_ENV) return false;
+        if (id < 0 || id == CFGP_TYPE || id == CFGP_VOICES) return false;
         *out = (macro_t){MACRO_CFG, 0, (uint8_t)id};
         return true;
     }

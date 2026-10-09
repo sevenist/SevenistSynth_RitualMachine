@@ -82,16 +82,14 @@ typedef struct {
     int rack_cur;   // selected rack slot (== rack.count: the empty slot at the end)
     int rack_scroll; // first visible cell of the rack strip
     int rack_type;  // module type that Insert will add
-    int rack_lane;  // RACK tab (ADR-040): the lane whose cell is selected (the menu acts on it)
-    int rack_col[RACK_LANES];   // the selected column of each lane (its modules, then the + cell, then its output)
+    int rack_row;   // RACK tab (ADR-041): the row whose cell is selected (the menu acts on it)
+    int rack_col[RACK_ROWS];    // the selected column of each row (row M: the MIX, its modules, the + cell, the OUT; a branch: its modules, the + cell)
     bool rack_menu; // the push menu of the selected cell is open
     int  fm_op;            // FM editor: selected operator 0..5
     int  fm_pt;            // FM editor: selected envelope point 0..3
     int  cog_page;         // the page whose cog is open (its module's hidden settings shown in place of its rows), -1 = none
     int  ms_lane;          // motion sequencer pages: selected lane 0..3 and step
     int  ms_step;
-    int  fx_slot;          // FX RACK tab: selected slot 0..3
-    bool fx_cog;           // FX RACK tab: the slot's cog is open (its parameters FXR_ROWS.. shown in place of the first ones)
     int  eg_pt;            // EG page: selected point 0..3
     int  smp_cur;          // SAMPLES tab: highlighted file (catalog index) and the target (0 = a new sampler, k = the k-th sampler of the rack)
     int  smp_tgt;

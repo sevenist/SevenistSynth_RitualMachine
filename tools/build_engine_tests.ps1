@@ -16,7 +16,7 @@ $cpp = @((Get-ChildItem tests/engine/*.cpp).FullName) +
 $coreObj = @()
 New-Item -ItemType Directory -Force build/tobj | Out-Null
 $newestHeader = (Get-ChildItem src/core/*.h | Sort-Object LastWriteTime | Select-Object -Last 1).LastWriteTime
-foreach ($f in "rack", "synth_config", "synth_params", "dx7", "dx7_factory", "seq", "fxrack") {
+foreach ($f in "rack", "synth_config", "synth_params", "dx7", "dx7_factory", "seq") {
     $o = "build/tobj/$f.o"
     if (-not (Test-Path $o) -or (Get-Item "src/core/$f.c").LastWriteTime -gt (Get-Item $o).LastWriteTime -or $newestHeader -gt (Get-Item $o).LastWriteTime) { & gcc -c -O2 -w -Isrc "src/core/$f.c" -o $o }
     $coreObj += $o

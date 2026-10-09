@@ -7,6 +7,7 @@ extern "C" {
 #endif
 
 extern const gui_sprite_t spr8_ui_cog;
+extern const gui_sprite_t spr8_ui_para;
 extern const gui_sprite_t spr8_ui_xy;
 extern const gui_sprite_t spr16_tab_algorithm;
 extern const gui_sprite_t spr16_tab_curves;
@@ -41,7 +42,6 @@ extern const gui_sprite_t spr24_mod_ring;
 extern const gui_sprite_t spr24_mod_sampler;
 extern const gui_sprite_t spr24_mod_sat;
 extern const gui_sprite_t spr24_mod_spectral;
-extern const gui_sprite_t spr24_mod_sum;
 extern const gui_sprite_t spr24_mod_trem;
 extern const gui_sprite_t spr24_osc_3ring;
 extern const gui_sprite_t spr24_osc_3saw;
@@ -106,6 +106,7 @@ extern const gui_sprite_t spr24_osc_zhp;
 extern const gui_sprite_t spr24_osc_zlp;
 extern const gui_sprite_t spr24_osc_zpk;
 extern const gui_sprite_t spr24_slot_empty;
+extern const gui_sprite_t spr24_slot_mix;
 extern const gui_sprite_t spr24_slot_out;
 
 // The sprite of an image by its path without .png and frame number ("24/mod_osc"); NULL when there is no such image (the caller then

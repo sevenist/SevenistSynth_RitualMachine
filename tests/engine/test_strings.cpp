@@ -4,6 +4,7 @@
 #include <complex>
 #include <vector>
 #include "rig.h"
+#include "rack_m.h"
 #include "engine/dsp/wavetables.h"
 #include "platform/engine/engine_synth.h"
 
@@ -28,7 +29,7 @@ struct StrApp {
         rack_init(&rack);
         rack.cfg.type = SYNTH_STRINGS;
         rack.cfg.mono = 0;
-        for (int k = 0; k < FXR_SLOTS; k++) fxr_set_type(&rack.cfg.fxr.slot[k], FX_NONE);   // dry unless a test adds an effect
+        rack_m_clear(rack);                                         // dry unless a test adds an effect (row M)
         params.str.ftype = FILT_OFF;
         params.amp_env.attack_ms = 1; params.amp_env.decay_ms = 1; params.amp_env.sustain = 1.0f; params.amp_env.release_ms = 50;
     }
@@ -183,7 +184,7 @@ TEST(strings_shared_filter_and_ensemble) {
     for (size_t i = 0; i < l.size(); i++) diff = std::fmax(diff, std::fabs(l[i] - r[i]));
     CHECK(rms(l) > 100.0);
     CHECK(diff == 0.0);                                                     // no ensemble: both channels identical
-    fxr_set_type(&a.rack.cfg.fxr.slot[0], FX_ENSEMBLE);
+    CHECK(rack_add_m(&a.rack, MOD_ENSEMBLE) != RACK_NONE);
     a.build();
     std::vector<double> r2, l2 = a.run(0.6, &r2);
     double c = 0, el = 0, er = 0;

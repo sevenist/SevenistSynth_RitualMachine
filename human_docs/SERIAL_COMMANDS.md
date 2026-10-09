@@ -40,12 +40,12 @@ C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --cmd "chord 3" --ra
 | --- | --- |
 | `patch startup` | the default patch: four oscillator engines (Karplus, Modal, Supersaw, Additive) into one filter, delay and reverb |
 | `patch sampler F L` | one sampler into one filter, every effect off. F = file index from `samples`; L = loop mode: 0 as in the file, 1 off, 2 forward, 3 ping-pong |
-| `patch para N V` | N Strng oscillators (1..8, saw, detuned, every third one an octave up) into one filter, type Mod Para, V voices (1..8). Defaults: 4 and 4 |
-| `patch strings` | switches the current synth to the Strings type (keeps its pages and effects) |
-| `mode mono [G] [L]` | Mono type of the current synth (Mod Mono, or FM Mono on an FM synth). G = glide index 0..6 (Off, 25, 50, 100, 200, 400, 800 ms), L = legato 0 / 1. Omitted values stay as they are |
-| `mode poly` | Poly type (Modular, or FM on an FM synth) |
-| `mode para [E]` | Mod Para type. E = envelope policy: 0 Legato, 1 Retrig, 2 Voice |
-| `voices N` | voice count of Modular / FM / Para, 1..8 (Strings has its own 1..32, set on its GENERAL page) |
+| `patch para N V` | N Strng oscillators (1..8, saw, detuned, every third one an octave up) into one filter with Para on (ADR-041), V voices (1..8). Defaults: 4 and 4 |
+| `patch strings` | switches the current synth to the Strings type (keeps its pages and row M's effects) |
+| `mode mono [G] [L]` | Voices 1 = mono (Modular or FM, ADR-041). G = glide index 0..6 (Off, 25, 50, 100, 200, 400, 800 ms), L = legato 0 / 1. Omitted values stay as they are |
+| `mode poly` | 8 voices when the synth was mono (a voice count above 1 stays) |
+| `mode para [E]` | Para on the first filter of branch 1 (8 voices if it was mono). E = envelope policy of that Para point: 0 Legato, 1 Retrig, 2 Voice |
+| `voices N` | voice count of Modular / FM, 1..8 (1 = mono; Strings has its own 1..32, set on its GENERAL page) |
 
 ### Sound settings (live, no rebuild unless noted)
 
@@ -53,8 +53,8 @@ C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --cmd "chord 3" --ra
 | --- | --- |
 | `flt T` | type of every FL module in the rack: 0 Off, 1 LP, 2 BP, 3 HP, 4 LP24, 5 Notch, 6 LP6, 7 Ladr, 8 ChLP |
 | `eng a b c d` | engines of the first 1..4 oscillators that already use an engine (Wav set to an engine): 0 Karplus, 1 Modal, 2 FM2, 3 Fold, 4 Supersaw, 5 Vowel, 6 Additive, 7 Dust, 8 Strng. Plain-wave oscillators are skipped |
-| `str F V` | Strings settings (rebuilds): `wave` 0 Saw / 1 Pulse / 2 Tri, `osc` 0 Naive / 1 Mip, `det` cents, `mix` 0..1, `lvl` 0..1, `lp` 0 / 1 (voice low-pass), `ftype` 0..8 (shared filter, same numbers as `flt`), `fx 0` = every FX rack slot None |
-| `fx K T [v0 .. v7]` | FX rack slot K (1..4) becomes type T with its values in screen units (missing ones = the type's defaults; rebuilds). T: 0 None, 1 Drive, 2 Chorus, 3 Phaser, 4 Flanger, 5 Trem, 6 Comp, 7 EQ, 8 Ring / Shift, 9 Delay, 10 Reverb, 11 Cab, 12 Ensemble, 13 Spectral. Spectral values: Mode (0 Thru, 1 Freeze, 2 Gate, 3 Robot, 4 Whisper, 5 Pitch), Shift (semitones), Amt (%), Mix (%), Hold (0 / 1), Lo, Hi (MIDI notes). Example: `fx 4 13 5 7` = slot 4 pitches up a fifth |
+| `str F V` | Strings settings (rebuilds): `wave` 0 Saw / 1 Pulse / 2 Tri, `osc` 0 Naive / 1 Mip, `det` cents, `mix` 0..1, `lvl` 0..1, `lp` 0 / 1 (voice low-pass), `ftype` 0..8 (shared filter, same numbers as `flt`), `fx 0` = row M emptied (no effects) |
+| `fx C [v0 .. v7]` | appends module C to row M (ADR-041: the effects are rack modules) with its values in the module's own units, as its page shows them (missing ones = defaults; rebuilds). C = the RACK tab's code: SA, FL, TR, EQ, RG (Ring / Shift), PH, FG (Flanger), CP, DL, RV, CH, SP (Spectral), CB (Cab), ES (Ensemble). Spectral values: Mode (0 Thru, 1 Freeze, 2 Gate, 3 Robot, 4 Whisper, 5 Pitch), Shft (semitones), Amt (0..1), Mix (0..1), Hold (0 / 1), Lo, Hi (Hz). Example: `fx SP 5 7` = a Spectral module pitching up a fifth. `fx clear` empties row M |
 
 ### Information and measurement
 
@@ -62,6 +62,7 @@ C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --cmd "chord 3" --ra
 | --- | --- |
 | `ping` | answers `[CMD] pong`: the board runs a firmware with commands |
 | `status` | notes held by `chord`, uptime, free heap |
+| `pieconv` | checks the Convolver's PIE dot products (`pie_conv2_s16`) against the C sums at full scale, 1..64 vectors, and prints the cost of a 128-tap call for both channels |
 | `samples` | the sample catalog of the TF card: index, name, frames, rate, root note, loop points and mode (the index is the F of `patch sampler`) |
 | `dump N` | captures the next N output samples (1..16384, before the dev output gain) and prints them as `[DUMP] @index v v v ...` lines, 32 per line, between `[DUMP] begin` and `[DUMP] end`. For offline spectrum checks |
 

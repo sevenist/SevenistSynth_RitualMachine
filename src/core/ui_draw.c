@@ -174,9 +174,6 @@ static void draw_eg_page(u8g2_t *g, const gui_style_t *st, gui_rect_t list, gui_
 
 /* ---------------- samples ---------------- */
 
-/* ---------------- master effects: a sketch of what the settings do ---------------- */
-
-// FX RACK tab: Slot, Type and the four parameters of the effect in that slot, next to its picture.
 /* ---------------- general settings ---------------- */
 
 // Info box next to the general parameters: which engine builds the sound.
@@ -198,9 +195,10 @@ void draw_synth_info(u8g2_t *g, const gui_style_t *st, gui_rect_t box, const rac
     } else {
         snprintf(buf, sizeof buf, "%d modules", rack->count);
         gui_draw_text_centered(g, gui_below(r, st->gap + 2, rh), buf);
-        gui_draw_text_centered(g, gui_below(r, st->gap + 2 + 2 * rh, rh), synth_type_is_para(rack->cfg.type) ? "paraphonic" : "rack synth");
+        gui_draw_text_centered(g, gui_below(r, st->gap + 2 + 2 * rh, rh),
+                               rack_shared_start(rack, 0) != RACK_NONE || rack_shared_start(rack, 1) != RACK_NONE ? "paraphonic" : "rack synth");
     }
-    if (synth_type_is_mono(rack->cfg.type)) snprintf(buf, sizeof buf, "mono");
+    if (synth_config_is_mono(&rack->cfg)) snprintf(buf, sizeof buf, "mono");
     else snprintf(buf, sizeof buf, "%d voices", synth_config_voices(&rack->cfg));
     gui_draw_text_centered(g, gui_below(r, st->gap + 2 + 4 * rh, rh), buf);
 }

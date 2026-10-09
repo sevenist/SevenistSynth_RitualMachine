@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <vector>
 #include "rig.h"
+#include "rack_m.h"
 #include "platform/engine/engine_synth.h"
 
 extern "C" {
@@ -25,8 +26,7 @@ struct App {
         CHECK_EQ(engine_synth_init(fast.data(), fast.size(), bulk.data(), bulk.size()), 0);
         synth_params_default(&params);
         rack_init(&rack);
-        rack.cfg.fxr.slot[1].v[2] = 0;          // the startup patch has delay and reverb on; these tests start dry
-        rack.cfg.fxr.slot[2].v[0] = 0;
+        rack_m_dry(rack);                       // the demo patch has delay and reverb on (row M); these tests start dry
     }
     ~App() { engine_synth_shutdown(); }
     void build() { engine_synth_build(&rack, &params); }
@@ -162,10 +162,12 @@ TEST(master_effects_add_a_tail_an_echo_and_stereo_width) {
     auto render = [](int rvb, int dly, int chorus, std::vector<double> *l, std::vector<double> *r) {
         App a;
         a.params.amp_env.attack_ms = 2; a.params.amp_env.decay_ms = 60; a.params.amp_env.sustain = 0; a.params.amp_env.release_ms = 30;
-        a.rack.cfg.fxr.slot[2].v[0] = static_cast<int16_t>(rvb);                 // slot 3 = reverb: Mix
-        a.rack.cfg.fxr.slot[1].v[2] = static_cast<int16_t>(dly);                 // slot 2 = delay: Mix, Time
-        a.rack.cfg.fxr.slot[1].v[0] = 250;
-        a.rack.cfg.fxr.slot[0].v[0] = static_cast<int16_t>(chorus);              // slot 1 = chorus: Mode
+        rack_m_clear(a.rack);                                                    // row M: chorus -> delay -> reverb
+        const int ch = rack_add_m(&a.rack, MOD_CHORUS), dl = rack_add_m(&a.rack, MOD_DELAY), rv = rack_add_m(&a.rack, MOD_REVERB);
+        a.rack.slot[ch].v[MP_CH_MODE] = static_cast<float>(chorus);
+        a.rack.slot[dl].v[MP_DL_MIX] = static_cast<float>(dly) / 100.0f;
+        a.rack.slot[dl].v[MP_DL_TIME] = 250;
+        a.rack.slot[rv].v[MP_RV_MIX] = static_cast<float>(rvb) / 100.0f;
         a.rack.cfg.mono = 0;                                                     // stereo output: the test looks at the width
         a.build();
         engine_synth_note_on(55);
@@ -286,7 +288,7 @@ double freq_between(const std::vector<double> &y, double t0, double t1) {
 TEST(changing_a_modulation_depth_does_not_rebuild_the_graph) {
     App a;
     rack_init(&a.rack);                                                     // demo rack: osc, filter, saturator, LFO -> cutoff
-    a.rack.cfg.fxr.slot[1].v[2] = 0; a.rack.cfg.fxr.slot[2].v[0] = 0;
+    rack_m_dry(a.rack);
     rack_insert(&a.rack, 4, MOD_ENV);
     rack_slot_t &env = a.rack.slot[4];
     env.tgt_id = a.rack.slot[1].id; env.tgt_param = 0;                      // envelope -> filter cutoff
@@ -305,7 +307,7 @@ TEST(changing_a_modulation_depth_does_not_rebuild_the_graph) {
 
 TEST(the_mono_type_rebuilds_the_voices_but_glide_and_legato_are_live) {
     App a;
-    a.rack.cfg.type = SYNTH_MOD_MONO;
+    a.rack.cfg.voices = 1;                                                  // Voices 1 = mono (ADR-041)
     a.build();
     a.run(0.01);
     unsigned before = engine_synth_build_count();
@@ -315,7 +317,7 @@ TEST(the_mono_type_rebuilds_the_voices_but_glide_and_legato_are_live) {
     a.rack.cfg.glide = 0; a.rack.cfg.legato = 0;
     engine_synth_set_params(&a.rack, &a.params);
     CHECK_EQ(engine_synth_build_count(), before);
-    a.rack.cfg.type = SYNTH_MODULAR;                                        // 1 voice -> 8: the voice modules are built again
+    a.rack.cfg.voices = 8;                                                  // 1 voice -> 8: the voice modules are built again
     engine_synth_set_params(&a.rack, &a.params);
     CHECK_EQ(engine_synth_build_count(), before + 1);
     a.run(0.01);
@@ -329,10 +331,12 @@ TEST(the_mono_type_rebuilds_the_voices_but_glide_and_legato_are_live) {
 }
 
 TEST(mono_plays_one_note_of_two_and_poly_plays_both_through_the_production_path) {
-    for (int type : {SYNTH_MOD_MONO, SYNTH_MODULAR, SYNTH_FM_MONO, SYNTH_FM}) {
+    for (int k = 0; k < 4; k++) {
+        const int type = k < 2 ? SYNTH_MODULAR : SYNTH_FM;
         App a;
         a.rack.cfg.type = static_cast<uint8_t>(type);
-        const bool mono = synth_type_is_mono(a.rack.cfg.type);
+        a.rack.cfg.voices = static_cast<uint8_t>(k % 2 ? 8 : 1);            // Voices 1 = mono
+        const bool mono = synth_config_is_mono(&a.rack.cfg);
         a.build();
         a.run(0.05);
         engine_synth_note_on(60);
@@ -340,7 +344,7 @@ TEST(mono_plays_one_note_of_two_and_poly_plays_both_through_the_production_path)
         a.run(0.2);
         std::vector<double> x = a.run(0.3);
         const double c4 = tone_power(x, 261.63), g4 = tone_power(x, 392.0);
-        std::printf("    %s: power at C4 %.3g, at G4 %.3g\n", synth_type_name(static_cast<synth_type_t>(type)), c4, g4);
+        std::printf("    %s %s: power at C4 %.3g, at G4 %.3g\n", synth_type_name(static_cast<synth_type_t>(type)), mono ? "mono" : "poly", c4, g4);
         if (mono) CHECK(c4 < g4 * 0.02);                                    // only the last key sounds
         else CHECK(c4 > g4 * 0.01 && g4 > c4 * 0.01);                       // both (a DX7 patch's fundamentals are less even than the rack's: 4 % apart)
         engine_synth_note_off(67);
@@ -353,7 +357,7 @@ TEST(mono_plays_one_note_of_two_and_poly_plays_both_through_the_production_path)
 TEST(the_filters_own_envelope_amount_never_rebuilds_the_graph) {
     App a;
     rack_init(&a.rack);                                                     // demo rack: slot 1 is the filter
-    a.rack.cfg.fxr.slot[1].v[2] = 0; a.rack.cfg.fxr.slot[2].v[0] = 0;
+    rack_m_dry(a.rack);
     a.rack.slot[1].v[MP_FL_ENVAMT] = 0.0f;
     a.build();
     a.run(0.01);
@@ -422,26 +426,24 @@ TEST(rack_oscillator_engines_play_and_follow_the_keyboard) {
 }
 
 TEST(fx_rack_slots_run_in_order_and_edit_live) {
+    constexpr int kNone = -1;
     auto render = [](int t0, int t1, int t2, std::vector<double> *out) {
         App a;
         rack_clear(&a.rack);
         rack_insert(&a.rack, 0, MOD_OSC);
         a.rack.slot[0].v[MP_OC_WAVE] = 3;                                     // SawUp
         a.params.amp_env.attack_ms = 2; a.params.amp_env.sustain = 1.0f;
-        fxr_set_type(&a.rack.cfg.fxr.slot[0], t0);
-        fxr_set_type(&a.rack.cfg.fxr.slot[1], t1);
-        fxr_set_type(&a.rack.cfg.fxr.slot[2], t2);
-        fxr_set_type(&a.rack.cfg.fxr.slot[3], FX_NONE);
+        for (int t : {t0, t1, t2}) if (t != kNone) CHECK(rack_add_m(&a.rack, static_cast<module_type_t>(t)) != RACK_NONE);   // row M in order
         a.build();
         engine_synth_note_on(48);
         *out = a.run(0.5);
         return rms(std::vector<double>(out->begin() + 8000, out->end()));
     };
     std::vector<double> clean, driven, cab, both;
-    const double r0 = render(FX_NONE, FX_NONE, FX_NONE, &clean);
-    const double r1 = render(FX_DRIVE, FX_NONE, FX_NONE, &driven);
-    const double r2 = render(FX_CAB, FX_NONE, FX_NONE, &cab);
-    const double r3 = render(FX_DRIVE, FX_CAB, FX_COMP, &both);
+    const double r0 = render(kNone, kNone, kNone, &clean);
+    const double r1 = render(MOD_SAT, kNone, kNone, &driven);
+    const double r2 = render(MOD_CAB, kNone, kNone, &cab);
+    const double r3 = render(MOD_SAT, MOD_CAB, MOD_COMP, &both);
     std::printf("    rms: clean %.0f, drive %.0f, cab %.0f, drive + cab + comp %.0f\n", r0, r1, r2, r3);
     CHECK(r0 > 500.0 && r1 > 500.0 && r2 > 200.0 && r3 > 200.0);
     CHECK(roughness(driven, 8000, driven.size()) != roughness(clean, 8000, clean.size()));
@@ -452,14 +454,14 @@ TEST(fx_rack_slots_run_in_order_and_edit_live) {
     rack_clear(&a.rack);
     rack_insert(&a.rack, 0, MOD_OSC);
     a.params.amp_env.attack_ms = 2; a.params.amp_env.decay_ms = 40; a.params.amp_env.sustain = 0; a.params.amp_env.release_ms = 20;
-    fxr_set_type(&a.rack.cfg.fxr.slot[0], FX_DELAY);
-    a.rack.cfg.fxr.slot[0].v[0] = 200; a.rack.cfg.fxr.slot[0].v[2] = 0;
+    const int dl = rack_add_m(&a.rack, MOD_DELAY);
+    a.rack.slot[dl].v[MP_DL_TIME] = 200; a.rack.slot[dl].v[MP_DL_MIX] = 0;
     a.build();
     engine_synth_note_on(60);
     a.run(0.15);
     engine_synth_note_off(60);
     std::vector<double> before = a.run(0.5);
-    a.rack.cfg.fxr.slot[0].v[2] = 80;
+    a.rack.slot[dl].v[MP_DL_MIX] = 0.8f;
     engine_synth_set_params(&a.rack, &a.params);
     engine_synth_note_on(60);
     a.run(0.15);
@@ -487,4 +489,56 @@ TEST(resonator_module_rings_at_the_played_pitch) {
     std::printf("    resonator on noise at A3: autocorrelation %.2f at lag %zu (period %zu)\n", best, best_lag, period);
     CHECK(best > 0.3);
     CHECK(autocorr(y, period * 3 / 2, 6000, 14000) < best - 0.15);
+}
+
+// ADR-041 phase 1: row M after the voices of every synth type, its modules in slot order; the MIX level of branch 1 is a live change.
+TEST(row_m_builds_every_effect_module_after_the_voices) {
+    for (int t = MOD_FILTER; t < MOD_TYPE_COUNT; t++) {
+        if (!rack_is_processor(static_cast<module_type_t>(t)) || rack_type_voice_only(static_cast<module_type_t>(t))) continue;
+        App a;
+        rack_m_clear(a.rack);
+        CHECK(rack_add_m(&a.rack, static_cast<module_type_t>(t)) != RACK_NONE);
+        a.build();
+        engine_synth_note_on(57);
+        std::vector<double> y = a.run(0.4);
+        const double r = rms(std::vector<double>(y.begin() + 4000, y.end())), p = peak_of(y);
+        std::printf("    row M %s: rms %.0f, peak %.0f\n", rack_type_code(static_cast<module_type_t>(t)), r, p);
+        CHECK(r > 30.0);
+        CHECK(p <= 32767.0);
+    }
+}
+
+TEST(fm_voices_feed_row_m) {
+    auto tail = [](bool reverb) {
+        App a;
+        a.rack.cfg.type = SYNTH_FM;
+        a.rack.cfg.voices = 8;
+        rack_m_clear(a.rack);
+        if (reverb) { const int k = rack_add_m(&a.rack, MOD_REVERB); a.rack.slot[k].v[MP_RV_MIX] = 0.6f; a.rack.slot[k].v[MP_RV_DEC] = 0.9f; }
+        a.build();
+        engine_synth_note_on(60);
+        a.run(0.1);
+        engine_synth_note_off(60);
+        a.run(0.6);                                                         // the patch's own release has ended
+        return rms(a.run(0.3));
+    };
+    const double dry = tail(false), wet = tail(true);
+    std::printf("    FM tail 0.7..1.0 s after the key: dry %.1f, reverb in row M %.1f\n", dry, wet);
+    CHECK(wet > 4.0 * (dry + 1.0));
+}
+
+TEST(mix_level_of_branch_one_is_live) {
+    App a;
+    a.build();
+    engine_synth_note_on(57);
+    a.run(0.3);
+    const double full = rms(a.run(0.2));
+    const unsigned before = engine_synth_build_count();
+    a.rack.br_lvl[0] = 0.5f;
+    engine_synth_set_params(&a.rack, &a.params);
+    a.run(0.05);
+    const double half = rms(a.run(0.2));
+    std::printf("    branch 1 level 100 %% rms %.0f, 50 %% rms %.0f\n", full, half);
+    CHECK_EQ(engine_synth_build_count(), before);
+    CHECK(half > full * 0.4 && half < full * 0.6);
 }

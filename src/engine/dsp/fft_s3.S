@@ -356,4 +356,37 @@ fft_s3_pack:
 .Lpk_end:
     retw.n
 
+// void pie_conv2_s16(const int16_t *xl, const int16_t *xr, const int16_t *t, int nvec, int32_t *acc)
+// The Convolver's two dot products (fx2_modules.cpp): sum of t[j] * xl[j], then of t[j] * xr[j], j < 8 * nvec, 8 lanes per
+// ee.vmulas.s16.accx into the 40-bit ACCX (exact: the module's taps are at most 32767 in size, 512 of them). acc[0] / acc[1] = the low
+// 32 / high 8 bits of the left sum, acc[2] / acc[3] the right one. Everything 16-byte aligned, nvec >= 1; reads exactly 8 * nvec values.
+    .align 4
+    .global pie_conv2_s16
+    .type pie_conv2_s16, @function
+pie_conv2_s16:
+    entry       a1, 32
+    ee.zero.accx
+    mov.n       a8, a4
+    loopnez     a5, .Lcv_l
+    ee.vld.128.ip q0, a2, 16
+    ee.vld.128.ip q1, a8, 16
+    ee.vmulas.s16.accx q0, q1
+.Lcv_l:
+    rur.accx_0  a10
+    rur.accx_1  a11
+    s32i.n      a10, a6, 0
+    s32i.n      a11, a6, 4
+    ee.zero.accx
+    mov.n       a8, a4
+    loopnez     a5, .Lcv_r
+    ee.vld.128.ip q0, a3, 16
+    ee.vld.128.ip q1, a8, 16
+    ee.vmulas.s16.accx q0, q1
+.Lcv_r:
+    rur.accx_0  a10
+    rur.accx_1  a11
+    s32i.n      a10, a6, 8
+    s32i.n      a11, a6, 12
+    retw.n
+
 #endif

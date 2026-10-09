@@ -114,7 +114,7 @@ oled_sim/
    │  ├─ ui_screen.c/.h     declarative screens: element tables, focus navigation, latch, drawing (see human_docs/UI_GUIDE.md section 8)
    │  ├─ scr_*.c            the menu tabs as declarative screens: rack, general, samples, fx, fm (ALGORITHM: the operator tree), keys, mods (MODIFIERS)
    │  ├─ rack.c/.h          modular synth model: slots, audio chain rules, module parameters, modulator targets
-   │  ├─ synth_config.c/.h  general settings (synth type, voices, volume, the FM patch copy) and the master FX settings
+   │  ├─ synth_config.c/.h  general settings (synth type, voices, volume, the FM patch copy); the effects are row M of the rack (ADR-041)
    │  ├─ dx7.c/.h           editable 6-operator FM patch + editing helpers
    │  ├─ dx7_factory.c      GENERATED: the 128 factory DX7 patches as dx7_patch_t
    │  ├─ dx7_algos.c/.h     GENERATED: 32 algorithm diagrams (+ operator box positions)
@@ -127,7 +127,7 @@ oled_sim/
    │  ├─ dsp/               q15/q31 math, tables (GENERATED), phase/pitch, oscillators, SVF, FFT/STFT, delay, smoothing, CORDIC
    │  ├─ core/              module API, graph description, plan compiler, engine (voices, command queue), heap
    │  ├─ modules/           builtin, synth (Osc Env Lfo Filter Vca Mix Mult Shaper Const), fx (Delay Spectral Vocoder Chorus
-   │  │                     Reverb), dx7_voice (FM), sampler_modules (Sampler Granular), strings_modules (Strings voice, Ensemble), para_modules (GateIn, ParaGate: Mod Para)
+   │  │                     Reverb), dx7_voice (FM), sampler_modules (Sampler Granular), strings_modules (Strings voice, Ensemble), para_modules (GateIn, ParaGate: the Para switch)
    │  └─ sampler/           .smp format, storage interface, sample bank, streaming loader
    └─ platform/
       ├─ engine/            shared by desktop and ESP32: rack -> graph mapper, DX7 patch conversion, the C API
@@ -167,7 +167,7 @@ The data the UI edits (all fixed-size, no malloc):
 | Data | Where | What it holds |
 | --- | --- | --- |
 | `rack_t` | `core/rack.h` | the modular synth: up to 10 slots (the rack strip scrolls, 8 cells visible) (module type, id, own parameters `v[]`, modulator target) and `cfg` |
-| `synth_config_t` (`rack.cfg`) | `core/synth_config.h` | synth type (Modular/FM), voices, master volume, the FM patch being edited (`dx7_patch_t fm`), the master FX values |
+| `synth_config_t` (`rack.cfg`) | `core/synth_config.h` | synth type (Modular / FM / Strings), voices (1 = mono), master volume, the FM patch being edited (`dx7_patch_t fm`) |
 | `synth_params_t` | `core/synth_params.h` | the global amp envelope (end of the modular voice) |
 | `seq_t` | `core/seq.h` | pattern notes/lengths + BPM, steps, transpose, swing, held notes |
 | `synth_ui_t` | `core/synth_ui.h` | cursor state, the generated page list, menu tab, FM editor selection |
@@ -181,9 +181,9 @@ That is what lets one generic list renderer show any of them.
   (`synth_ui_rebuild_pages`): in Modular mode every rack module contributes its own pages (OC: `OSC n` + `OSC n TUNE` + `OSC n DEST`; every modulator (OC, LFO, ENV, EG) has a `... DEST` page with Tgt / Prm / Dpth, same as the RACK tab; FL: `FILTER n` + `FILT n ENV`; SA: `SAT n`; LFO: `LFO n`; ENV: `ENV n` + `ENV n CRV` (curves, hold, start); EG: `EG n` (the selected point) + `EG n REL`; RS: `RES n`; FL also has `FILT n CRV`; the global `AMP ENV` is followed by `AMP CURVE`;
   MS: `MOTION n` + `MS n LANE`; SM: `SMP n`, `SMP n LOOP`, `SMP n SLICE`)
   followed by `AMP ENV`, `SEQUENCER`, `SEQ SETUP`. In FM mode the pages are `FM SYNTH` (Patch, Vol), `SEQUENCER`, `SEQ SETUP`.
-- **GENERAL tab**: **Type** = Modular, Mod Mono, FM, FM Mono (the Mono types: one real voice, last-note priority; the others: a copy of every voice module per voice), Patch (FM types), Voices (polyphonic types), **Glide** and **Legato** (Mono types), Vol, Out, **Spk** (built-in loudspeaker: Off, 5..100 % in 5 % steps; ESP32 only, `audio_esp32.cpp`: the MAX98357A plays the left DAC channel (`kSpeakerCh`), so the level scales that channel; on the prototype the headphones do not follow it. Off = gain 0 on that channel; it also pulls `PIN_SPK_SD` (GPIO 5) low, but that alone did not silence the speaker (2026-10-05): GPIO 5 is not proven to reach the amplifier's SD_MODE, `[SPK]` on the serial log prints what the pin reads). Only the rows that apply are shown. The default is Mod Mono (ADR-036); the voice count is real: `Engine::load(graph, nvoices)`. Test for a family with `synth_type_is_fm()` / `synth_type_is_mono()`, never `type == SYNTH_FM`.
-- **Menu** (Enter): tabs switched with Left/Right on row 0. Modular: `RACK`, `GENERAL`, `SAMPLES` (library browser), `FX RACK` (four master slots).
-  FM: `GENERAL`, `ALGORITHM` (Algo, Fb, Op: the operator tree; a push on Op opens that operator's page), `FX RACK`, `KEYS`, `MODIFIERS`. The FM patch is edited on main-view pages like a module's: FM SYNTH (Patch, Algo, Fb, Vol), then per operator OPn (Lvl, Crs, Fine, Fix) and OPn ENV (Pt, Lvl, Time); every row but Patch / Pt is a knob row and can be learned (`MACRO_FM` targets). The FM values are driven by the knobs exactly (`dx7_value_get / set`, 0..1): reading one for the catch never changes it. Closing the menu with structural edits
+- **GENERAL tab**: **Type** = Modular, FM, Strings (ADR-041; a copy of every voice module per voice), Patch (FM), Voices (**1 = mono**: one real voice, last-note priority; Modular / FM), **Glide** and **Legato** (shown with Voices 1), Vol, Out, **Spk** (built-in loudspeaker: Off, 5..100 % in 5 % steps; ESP32 only, `audio_esp32.cpp`: the MAX98357A plays the left DAC channel (`kSpeakerCh`), so the level scales that channel; on the prototype the headphones do not follow it. Off = gain 0 on that channel; it also pulls `PIN_SPK_SD` (GPIO 5) low, but that alone did not silence the speaker (2026-10-05): GPIO 5 is not proven to reach the amplifier's SD_MODE, `[SPK]` on the serial log prints what the pin reads). Only the rows that apply are shown. The default is Modular with 1 voice (mono, ADR-036); the voice count is real: `Engine::load(graph, nvoices)`. Test with `synth_type_is_fm()` / `synth_type_is_rack()` / `synth_config_is_mono()`. Paraphonic is the Para switch on a rack module (RACK tab).
+- **Menu** (Enter): tabs switched with Left/Right on row 0. Modular: `RACK` (branches 1 and 2, row M = the effects on their sum), `GENERAL`, `SAMPLES` (library browser), `KEYS` ...
+  FM: `RACK` (row M only), `GENERAL`, `ALGORITHM` (Algo, Fb, Op: the operator tree; a push on Op opens that operator's page), `KEYS`, `MODIFIERS` ... Row M's effects have their pages after the FM / Strings pages. The FM patch is edited on main-view pages like a module's: FM SYNTH (Patch, Algo, Fb, Vol), then per operator OPn (Lvl, Crs, Fine, Fix) and OPn ENV (Pt, Lvl, Time); every row but Patch / Pt is a knob row and can be learned (`MACRO_FM` targets). The FM values are driven by the knobs exactly (`dx7_value_get / set`, 0..1): reading one for the catch never changes it. Closing the menu with structural edits
   regenerates the pages and rebuilds the graph. Effect edits are live (no rebuild).
 - **Popups** (`core/popup.h`, `app->popup`): a box over any screen. `popup_info` (goes after a time, input passes through: the Shift-knob value),
   `popup_error` (OK) and `popup_ask` (Yes / No, answer by callback) are modal and queued (4); while one is up `app_run_action` hands it the actions
@@ -213,12 +213,13 @@ Module pages: extend the `*_pages[]` tables in `ui_pages.c`. Global pages: `glob
 `fm_globals` lists. A new graph type = a `GRAPH_*` value, a `draw_*` function (the graph box is `gui_default_style.graph`)
 and a `case` in `synth_ui_draw()`.
 
-### Add a general or master-effect setting
+### Add a general setting or an effect
 
-`core/synth_config.[ch]`: general values have a `cfg_param_id_t` and cases in `synth_config_adjust/format/label`; effect
-values are a row in `fx_table` (label, min, max, step, default, unit) plus an id in the FX range. Show it in the
-GENERAL tab, or list it in the FX RACK tab (`scr_fx.c`, the parameters come from `fxrack.c`), and use it in `rack_graph.cpp`. Return `CFG_LIVE` for
-values applied immediately, `CFG_REBUILD` for structural ones.
+`core/synth_config.[ch]`: general values have a `cfg_param_id_t` and cases in `synth_config_adjust/format/label`; show it in the GENERAL tab
+and use it in `rack_graph.cpp`. Return `CFG_LIVE` for values applied immediately, `CFG_REBUILD` for structural ones. An effect is a rack module
+(ADR-041): a type in `rack.h` (appended; `tools/gen_module_sprites.py` and `make_placeholder_sprites.py` follow the order), its parameter table
+and `info[]` row in `rack.c`, a page in `ui_pages.c`, and its engine node in `fx_type` / `fx_params` of `rack_graph.cpp` (a cheap effect also needs a per-voice mono
+version: the `template <int CH>` pattern of `fx2_modules.cpp`).
 
 ### Write an engine module
 

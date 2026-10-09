@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstring>
 #include "engine/dsp/block.h"
+#include "engine/dsp/fft.h"
 #include "engine/dsp/delay.h"
 #include "engine/dsp/interp.h"
 #include "engine/dsp/phase.h"
@@ -26,10 +27,12 @@ ModuleType type_of() { static T probe; return {&probe.info(), &create_module<T>}
 
 /* ------------------------------------------------------------------ Phaser */
 
+// The cheap effects are templates on their channel count: CH 2 = the global stereo module, CH 1 = the per-voice mono one (ADR-041).
+template <int CH>
 class Phaser : public Module {
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"Phaser", Scope::Global, 2, 2, PHS_N, false, {"L", "R"}, {"L", "R"},
+        static const ModuleInfo i = {CH == 2 ? "Phaser" : "PhaserV", CH == 2 ? Scope::Global : Scope::Voice, CH, CH, PHS_N, false, {"L", "R"}, {"L", "R"},
             {{"rate", 12 * kSemi * (-1), -6 * 12 * kSemi, 8 * 12 * kSemi}, {"depth", 20000, 0, kUnity}, {"center", 79 * kSemi, 36 * kSemi, 110 * kSemi},
              {"feedback", 16000, -31000, 31000}, {"stages", 3, 1, 4}, {"mix", 16384, 0, kUnity}}};
         return i;
@@ -54,7 +57,7 @@ public:
         const int64_t al = coef(center_ + scaled(static_cast<q15>(tl), scaled(depth_, sweep))), ar = coef(center_ + scaled(static_cast<q15>(tr), scaled(depth_, sweep)));
         for (int i = 0; i < n; i++) {
             p.out[0][i] = run(p.in[0][i], al, zl_, fl_);
-            p.out[1][i] = run(p.in[1][i], ar, zr_, fr_);
+            if constexpr (CH == 2) p.out[1][i] = run(p.in[1][i], ar, zr_, fr_);
         }
         ph_ += inc * static_cast<uint32_t>(n);
     }
@@ -86,10 +89,11 @@ private:
 
 /* ------------------------------------------------------------------ Flanger */
 
+template <int CH>
 class Flanger : public Module {
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"Flanger", Scope::Global, 2, 2, FLG_N, false, {"L", "R"}, {"L", "R"},
+        static const ModuleInfo i = {CH == 2 ? "Flanger" : "FlangerV", CH == 2 ? Scope::Global : Scope::Voice, CH, CH, FLG_N, false, {"L", "R"}, {"L", "R"},
             {{"rate", -12 * kSemi, -6 * 12 * kSemi, 8 * 12 * kSemi}, {"depth", 20000, 0, kUnity}, {"delay", 32, 8, 160},
              {"feedback", 16000, -31000, 31000}, {"mix", 20000, 0, kUnity}}};
         return i;
@@ -97,9 +101,9 @@ public:
     bool init(Memory &m) override {
         one_hz_ = hz_to_inc(1.0f);
         const int room = static_cast<int>(0.022 * kSampleRate) + 8;
-        return l_.init(*m.fast, room) && r_.init(*m.fast, room);
+        return l_.init(*m.fast, room) && (CH == 1 || r_.init(*m.fast, room));
     }
-    void reset() override { l_.clear(); r_.clear(); ph_ = 0; fl_ = fr_ = 0; }
+    void reset() override { l_.clear(); if constexpr (CH == 2) r_.clear(); ph_ = 0; fl_ = fr_ = 0; }
     void set_param(int idx, int32_t v) override {
         switch (idx) {
             case FLG_RATE: rate_ = v; break;
@@ -112,6 +116,16 @@ public:
     void process(const ProcessCtx &ctx, const Ports &p) override {
         const uint32_t inc = lfo_inc(rate_, one_hz_);
         const int64_t centre = (static_cast<int64_t>(delay_) * kSampleRate / 16000) << 16;             // Q16 samples
+        if constexpr (CH == 1) {                                                                // per voice: the left channel's path
+            for (int i = 0; i < ctx.frames; i++) {
+                ph_ += inc;
+                const int64_t dl = centre + ((centre * depth_ >> 15) * tri_q15(ph_) >> 15);
+                const q15 inl = p.in[0][i], wl = l_.read_hermite(static_cast<uint32_t>(dl < (3 << 16) ? (3 << 16) : dl));
+                l_.write(sat16(inl + mul15(wl, fb_)));
+                p.out[0][i] = sat16(inl + mul15(wl, mix_));
+            }
+            return;
+        }
         for (int i = 0; i < ctx.frames; i++) {
             ph_ += inc;
             const int64_t dl = centre + ((centre * depth_ >> 15) * tri_q15(ph_) >> 15), dr = centre + ((centre * depth_ >> 15) * tri_q15(ph_ + 0x40000000u) >> 15);
@@ -133,10 +147,11 @@ private:
 
 /* ------------------------------------------------------------------ Tremolo / auto-pan */
 
-class Tremolo : public Module {
+template <int CH>
+class Tremolo : public Module {                     // per voice (CH 1) the Pan mode is a plain tremolo: one channel
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"Tremolo", Scope::Global, 2, 2, TRM_N, false, {"L", "R"}, {"L", "R"},
+        static const ModuleInfo i = {CH == 2 ? "Tremolo" : "TremoloV", CH == 2 ? Scope::Global : Scope::Voice, CH, CH, TRM_N, false, {"L", "R"}, {"L", "R"},
             {{"rate", 2 * 12 * kSemi + 3 * kSemi, -6 * 12 * kSemi, 8 * 12 * kSemi}, {"depth", 20000, 0, kUnity}, {"shape", 0, 0, 2}, {"mode", 0, 0, 1}}};
         return i;
     }
@@ -164,7 +179,7 @@ public:
             const int32_t gl = 32767 - ((up * depth_) >> 15);
             const int32_t gr = mode_ ? 32767 - (((32767 - up) * depth_) >> 15) : gl;
             p.out[0][i] = mul15(p.in[0][i], static_cast<q15>(gl));
-            p.out[1][i] = mul15(p.in[1][i], static_cast<q15>(gr));
+            if constexpr (CH == 2) p.out[1][i] = mul15(p.in[1][i], static_cast<q15>(gr));
         }
     }
 private:
@@ -189,10 +204,11 @@ private:
     int32_t t_[257];
 };
 
+template <int CH>
 class Compressor : public Module {
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"Compressor", Scope::Global, 2, 2, CMP_N, false, {"L", "R"}, {"L", "R"},
+        static const ModuleInfo i = {CH == 2 ? "Compressor" : "CompressorV", CH == 2 ? Scope::Global : Scope::Voice, CH, CH, CMP_N, false, {"L", "R"}, {"L", "R"},
             {{"threshold", -18, -60, 0}, {"ratio", 40, 10, 200}, {"attack", 8, 1, 200}, {"release", 150, 10, 2000}, {"makeup", 6, 0, 24}, {"mix", kUnity, 0, kUnity}}};
         return i;
     }
@@ -211,7 +227,7 @@ public:
     }
     void process(const ProcessCtx &ctx, const Ports &p) override {
         for (int i = 0; i < ctx.frames; i++) {
-            const q15 l = p.in[0][i], r = p.in[1][i];
+            const q15 l = p.in[0][i], r = CH == 2 ? p.in[1][i] : l;
             const int32_t a = (l < 0 ? -static_cast<int32_t>(l) : l), b = (r < 0 ? -static_cast<int32_t>(r) : r);
             const int64_t x = static_cast<int64_t>(a > b ? a : b) << 16;                       // Q31 peak
             env_ += ((x - env_) * (x > env_ ? ka_ : kr_)) >> 31;
@@ -222,7 +238,7 @@ public:
             const int64_t g = (static_cast<int64_t>(gain) * makeup_) >> 12;                    // Q31 * Q12 -> Q31 (makeup 1.0 = 4096)
             const int32_t cl = sat16(static_cast<int32_t>((l * g) >> 31)), cr = sat16(static_cast<int32_t>((r * g) >> 31));
             p.out[0][i] = sat16(l + (((cl - l) * mix_) >> 15));
-            p.out[1][i] = sat16(r + (((cr - r) * mix_) >> 15));
+            if constexpr (CH == 2) p.out[1][i] = sat16(r + (((cr - r) * mix_) >> 15));
         }
     }
 private:
@@ -274,10 +290,11 @@ struct Biquad {                                                              // 
     void reset() { z1 = z2 = 0; }
 };
 
+template <int CH>
 class Eq3 : public Module {
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"Eq3", Scope::Global, 2, 2, EQ_N, false, {"L", "R"}, {"L", "R"},
+        static const ModuleInfo i = {CH == 2 ? "Eq3" : "Eq3V", CH == 2 ? Scope::Global : Scope::Voice, CH, CH, EQ_N, false, {"L", "R"}, {"L", "R"},
             {{"low", 0, -150, 150}, {"mid", 0, -150, 150}, {"midf", 84 * kSemi, 36 * kSemi, 120 * kSemi}, {"high", 0, -150, 150}}};
         return i;
     }
@@ -293,6 +310,14 @@ public:
         update();
     }
     void process(const ProcessCtx &ctx, const Ports &p) override {
+        if constexpr (CH == 1) {
+            for (int i = 0; i < ctx.frames; i++) {
+                q15 l = p.in[0][i];
+                for (int s = 0; s < 3; s++) l = bq_[s].tick(l);
+                p.out[0][i] = l;
+            }
+            return;
+        }
         for (int i = 0; i < ctx.frames; i++) {
             q15 l = p.in[0][i], r = p.in[1][i];
             for (int s = 0; s < 3; s++) { l = bq_[s].tick(l); r = bq_[3 + s].tick(r); }
@@ -315,10 +340,11 @@ private:
 
 /* ------------------------------------------------------------------ Ring modulator / frequency shifter */
 
+template <int CH>
 class Shifter : public Module {
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"Shifter", Scope::Global, 2, 2, SFT_N, false, {"L", "R"}, {"L", "R"},
+        static const ModuleInfo i = {CH == 2 ? "Shifter" : "ShifterV", CH == 2 ? Scope::Global : Scope::Voice, CH, CH, SFT_N, false, {"L", "R"}, {"L", "R"},
             {{"mode", 0, 0, 2}, {"freq", 12 * kSemi * 7 + 5 * kSemi, -6 * 12 * kSemi, 14 * 12 * kSemi}, {"mix", 16384, 0, kUnity}}};
         return i;
     }
@@ -345,7 +371,7 @@ public:
         for (int i = 0; i < ctx.frames; i++) {
             ph_ += inc;
             const int32_t c = sine(ph_ + 0x40000000u), s = sine(ph_);
-            for (int ch = 0; ch < 2; ch++) {
+            for (int ch = 0; ch < CH; ch++) {
                 const q15 x = p.in[ch][i];
                 int32_t y;
                 if (mode_ == 0) {
@@ -421,6 +447,35 @@ void make_ir(int which, int taps, double *out) {
     for (int i = 0; i < taps; i++) out[i] *= norm;
 }
 
+// The IR as q15 taps (what the Convolver plays): make_ir, clamped and rounded. -32768 is never produced, so a sum of 512 products always
+// fits the 40-bit accumulator of the S3's PIE.
+void ir_q15(int which, int len, int16_t *out) {
+    double d[kConvMaxTaps];
+    make_ir(which, len, d);
+    for (int i = 0; i < kConvMaxTaps; i++) out[i] = i < len ? static_cast<int16_t>(std::lround(std::fmax(-1.0, std::fmin(1.0, d[i])) * 32767.0)) : 0;
+}
+
+// sl / sr = the sums of t[j] * xl[j] / xr[j], j < 8 * nvec (all 16-byte aligned). The PIE kernel gives the same integers as the C loop.
+#if SC_FFT_PIE
+inline int64_t accx40(int32_t lo, int32_t hi) { return static_cast<int64_t>(static_cast<uint64_t>(static_cast<int64_t>(static_cast<int8_t>(hi & 0xff))) << 32 | static_cast<uint32_t>(lo)); }
+inline void conv_dot2(const int16_t *xl, const int16_t *xr, const int16_t *t, int nvec, int64_t &sl, int64_t &sr) {
+    alignas(16) int32_t acc[4];
+    pie_conv2_s16(xl, xr, t, nvec, acc);
+    sl = accx40(acc[0], acc[1]);
+    sr = accx40(acc[2], acc[3]);
+}
+#else
+inline void conv_dot2(const int16_t *xl, const int16_t *xr, const int16_t *t, int nvec, int64_t &sl, int64_t &sr) {
+    int64_t a = 0, b = 0;
+    for (int j = 0; j < 8 * nvec; j++) { a += static_cast<int32_t>(t[j]) * xl[j]; b += static_cast<int32_t>(t[j]) * xr[j]; }
+    sl = a; sr = b;
+}
+#endif
+
+// Direct-form convolution laid out for 16-byte aligned 8-lane loads: the input history of each channel is linear (blocks are written at an
+// advancing position; when the buffer is full, the last kPre samples move to its front: once every kRun / frames blocks, because a move per
+// block cost ~30k cycles with the buffers in PSRAM), and the taps are stored reversed in 8 copies, copy `off` shifted right by `off` with
+// zeros around. Output i reads its window from the 8-sample boundary at or before its first sample, with the copy that matches the offset.
 class Convolver : public Module {
 public:
     const ModuleInfo &info() const override {
@@ -428,53 +483,68 @@ public:
             {{"ir", CNVIR_CAB_1X12, 0, CNVIR_COUNT - 1}, {"length", 256, 16, kConvMaxTaps}, {"mix", kUnity, 0, kUnity}, {"level", 16384, 0, kUnity}}};
         return i;
     }
-    bool init(Memory &) override { load(CNVIR_CAB_1X12); return true; }
-    void reset() override { std::memset(hl_, 0, sizeof hl_); std::memset(hr_, 0, sizeof hr_); w_ = 0; }
+    bool init(Memory &m) override {                         // control time: the default IR may be computed here
+        ph_ = m.fast->alloc_array<int16_t>(8 * kPh);
+        hl_ = m.fast->alloc_array<int16_t>(kHist);
+        hr_ = m.fast->alloc_array<int16_t>(kHist);
+        if (!ph_ || !hl_ || !hr_) return false;
+        ir_q15(CNVIR_CAB_1X12, 256, pend_);
+        commit(256);
+        return true;
+    }
+    void reset() override { std::memset(hl_, 0, kHist * sizeof(int16_t)); std::memset(hr_, 0, kHist * sizeof(int16_t)); wp_ = kPre; }
     void set_param(int idx, int32_t v) override {
         switch (idx) {
-            case CNV_IR: if (v != ir_) load(v); break;
-            case CNV_LENGTH: len_ = clampi(v, 16, kConvMaxTaps); if (ir_ != CNVIR_CUSTOM) load(ir_, true); break;
             case CNV_MIX: mix_ = static_cast<q15>(v); break;
             case CNV_LEVEL: level_ = static_cast<q15>(v); break;
+            default: break;                                  // IR and length arrive as taps (set_blob)
         }
     }
     void set_blob(const void *data, size_t bytes) override {
-        if (bytes < 4) return;
+        if (bytes < sizeof(ConvBlob) - sizeof(ConvBlob::tap)) return;
         const ConvBlob *b = static_cast<const ConvBlob *>(data);
-        if (b->start >= kConvMaxTaps) return;
-        if (b->start == 0 && ir_ != CNVIR_CUSTOM) { ir_ = CNVIR_CUSTOM; std::memset(tap_, 0, sizeof tap_); }
-        for (int i = 0; i < b->count && b->start + i < kConvMaxTaps && i < kConvChunk; i++) tap_[b->start + i] = b->tap[i];
+        const int total = b->total, start = b->start;
+        if (total < 1 || total > kConvMaxTaps || start >= total) return;
+        const int count = b->count < kConvChunk ? b->count : kConvChunk;
+        for (int i = 0; i < count && start + i < total; i++) pend_[start + i] = b->tap[i] == -32768 ? -32767 : b->tap[i];   // (40-bit sums)
+        if (start + count >= total) commit(total);
     }
     void process(const ProcessCtx &ctx, const Ports &p) override {
-        const int n = len_;
-        for (int i = 0; i < ctx.frames; i++) {
-            const q15 l = p.in[0][i], r = p.in[1][i];
-            hl_[w_] = l; hr_[w_] = r;
-            int64_t sl = 0, sr = 0;
-            for (int k = 0; k < n; k++) {
-                const int idx = (w_ - k) & (kHist - 1);
-                sl += static_cast<int32_t>(tap_[k]) * hl_[idx];
-                sr += static_cast<int32_t>(tap_[k]) * hr_[idx];
-            }
-            w_ = (w_ + 1) & (kHist - 1);
+        const int n = ctx.frames, len = len_;
+        if (wp_ + n > kPre + kRun) {                             // full: the last kPre samples go to the front
+            std::memmove(hl_, hl_ + wp_ - kPre, kPre * sizeof(int16_t));
+            std::memmove(hr_, hr_ + wp_ - kPre, kPre * sizeof(int16_t));
+            wp_ = kPre;
+        }
+        const int w = wp_;
+        std::memcpy(hl_ + w, p.in[0], n * sizeof(int16_t));
+        std::memcpy(hr_ + w, p.in[1], n * sizeof(int16_t));
+        for (int i = 0; i < n; i++) {
+            const int s = w + i - len + 1, a = s & ~7, off = s & 7;
+            int64_t sl, sr;
+            conv_dot2(hl_ + a, hr_ + a, ph_ + off * kPh, (off + len + 7) >> 3, sl, sr);
+            const int32_t l = hl_[w + i], r = hr_[w + i];
             const int32_t cl = static_cast<int32_t>((sl >> 15) * level_ >> 14), cr = static_cast<int32_t>((sr >> 15) * level_ >> 14);   // level 0.5 = x1
             p.out[0][i] = sat16(l + (((sat16(cl) - l) * mix_) >> 15));
             p.out[1][i] = sat16(r + (((sat16(cr) - r) * mix_) >> 15));
         }
+        wp_ = w + n;
     }
 private:
-    static constexpr int kHist = 1024;
-    void load(int which, bool length_only = false) {
-        (void)length_only;
-        ir_ = clampi(which, 0, CNVIR_CUSTOM);
-        if (ir_ == CNVIR_CUSTOM) return;
-        double d[kConvMaxTaps];
-        make_ir(ir_, len_, d);
-        for (int i = 0; i < kConvMaxTaps; i++) tap_[i] = i < len_ ? static_cast<int16_t>(std::lround(std::fmax(-1.0, std::fmin(1.0, d[i])) * 32767.0)) : 0;
+    static constexpr int kPre = kConvMaxTaps;               // history kept when the buffer wraps (a multiple of 8)
+    static constexpr int kRun = 1024 > 4 * kBlock ? 1024 : 4 * kBlock;   // room for new blocks before the next move (a multiple of 8)
+    static constexpr int kHist = kPre + kRun + 8;           // + the zero-tap overrun of the last window
+    static constexpr int kPh = kConvMaxTaps + 8;            // one shifted copy of the taps (a multiple of 8)
+    // The pending IR becomes the played one: the 8 shifted, reversed copies. ~10k cycles on the audio thread, once per IR change.
+    void commit(int len) {
+        std::memset(ph_, 0, 8 * kPh * sizeof(int16_t));
+        for (int off = 0; off < 8; off++)
+            for (int j = 0; j < len; j++) ph_[off * kPh + off + j] = pend_[len - 1 - j];
+        len_ = len;
     }
-    int16_t tap_[kConvMaxTaps] = {};
-    q15 hl_[kHist] = {}, hr_[kHist] = {};
-    int w_ = 0, ir_ = -1, len_ = 256;
+    int16_t *ph_ = nullptr, *hl_ = nullptr, *hr_ = nullptr;
+    int16_t pend_[kConvMaxTaps] = {};
+    int len_ = 256, wp_ = kPre;                              // wp_: where the next block is written (history before it)
     q15 mix_ = kUnity, level_ = 16384;
 };
 
@@ -544,13 +614,35 @@ private:
 
 }  // namespace
 
+void conv_builtin_ir(int which, int len, int16_t *out) { ir_q15(clampi(which, 0, CNVIR_CUSTOM - 1), clampi(len, 16, kConvMaxTaps), out); }
+
+int conv_blobs(const int16_t *taps, int n, ConvBlob *out) {
+    n = clampi(n, 1, kConvMaxTaps);
+    int k = 0;
+    for (int start = 0; start < n; start += kConvChunk, k++) {
+        ConvBlob &b = out[k];
+        b = ConvBlob{};
+        b.start = static_cast<uint16_t>(start);
+        b.count = static_cast<uint16_t>(n - start < kConvChunk ? n - start : kConvChunk);
+        b.total = static_cast<uint16_t>(n);
+        std::memcpy(b.tap, taps + start, b.count * sizeof(int16_t));
+    }
+    return k;
+}
+
 void register_fx2_modules(Registry &r) {
-    r.add(T_PHASER, type_of<Phaser>());
-    r.add(T_FLANGER, type_of<Flanger>());
-    r.add(T_TREMOLO, type_of<Tremolo>());
-    r.add(T_COMP, type_of<Compressor>());
-    r.add(T_EQ3, type_of<Eq3>());
-    r.add(T_SHIFTER, type_of<Shifter>());
+    r.add(T_PHASER, type_of<Phaser<2>>());
+    r.add(T_FLANGER, type_of<Flanger<2>>());
+    r.add(T_TREMOLO, type_of<Tremolo<2>>());
+    r.add(T_COMP, type_of<Compressor<2>>());
+    r.add(T_EQ3, type_of<Eq3<2>>());
+    r.add(T_SHIFTER, type_of<Shifter<2>>());
+    r.add(T_PHASER_V, type_of<Phaser<1>>());
+    r.add(T_FLANGER_V, type_of<Flanger<1>>());
+    r.add(T_TREMOLO_V, type_of<Tremolo<1>>());
+    r.add(T_COMP_V, type_of<Compressor<1>>());
+    r.add(T_EQ3_V, type_of<Eq3<1>>());
+    r.add(T_SHIFTER_V, type_of<Shifter<1>>());
     r.add(T_CONV, type_of<Convolver>());
     r.add(T_COMB, type_of<TunedComb>());
 }

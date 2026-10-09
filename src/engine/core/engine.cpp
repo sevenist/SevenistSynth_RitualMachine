@@ -397,7 +397,7 @@ void Engine::render(q15 *l, q15 *r) {
 
     block_clear(l);
     block_clear(r);
-    for (int i = 0; i < kBlock; i++) { bus_l_[i] = 0; bus_r_[i] = 0; }
+    for (int i = 0; i < kBlock; i++) { bus_l_[i] = 0; bus_r_[i] = 0; bus2_l_[i] = 0; bus2_r_[i] = 0; }
     const uint64_t t = time_.fetch_add(1, std::memory_order_relaxed) + 1;
 #ifdef ENGINE_PROFILE
     prof_blocks_++;
@@ -415,6 +415,7 @@ void Engine::render(q15 *l, q15 *r) {
         }
     }
     ProcessCtx ctx{kBlock, t, nullptr, bus_l_, bus_r_, l, r};
+    ctx.bus2_l = bus2_l_; ctx.bus2_r = bus2_r_;
     ctx.voices = voices_;
     ctx.nvoices = nvoices_;
     for (int v = 0; v < nvoices_; v++) ctx.keys_held += voices_[v].active && voices_[v].gate;

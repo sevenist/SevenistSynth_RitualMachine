@@ -45,7 +45,6 @@ static const mpage_def_t sm_pages[] = {
     {"SMP %d SLICE", GRAPH_SAMPLE, 2, {MP_SM_SLICE, MP_SM_SMODE}},
 };
 // Sum and FX modules (ADR-040): one page each; Spectral's last three rows sit behind its cog (mod_hidden)
-static const mpage_def_t su_pages[] = {{"SUM %d",      GRAPH_FX, 2, {MP_SU_LEVEL, MP_SU_PAN}}};
 static const mpage_def_t tr_pages[] = {{"TREM %d",     GRAPH_FX, 4, {MP_TR_RATE, MP_TR_DEPTH, MP_TR_SHAPE, MP_TR_MODE}}};
 static const mpage_def_t eq_pages[] = {{"EQ %d",       GRAPH_FX, 4, {MP_EQ_LOW, MP_EQ_MID, MP_EQ_MIDF, MP_EQ_HIGH}}};
 static const mpage_def_t rg_pages[] = {{"RING %d",     GRAPH_FX, 3, {MP_RG_MODE, MP_RG_FREQ, MP_RG_MIX}}};
@@ -73,7 +72,7 @@ static const struct { const mpage_def_t *defs; int n; } mod_pages[MOD_TYPE_COUNT
     [MOD_EG]     = {eg_pages, 3},
     [MOD_COMB]   = {rs_pages, 1},
     [MOD_SAMPLER] = {sm_pages, 3},
-    [MOD_SUM]      = {su_pages, 1}, [MOD_TREM]    = {tr_pages, 1}, [MOD_EQ]     = {eq_pages, 1}, [MOD_RING]     = {rg_pages, 1},
+    [MOD_TREM]    = {tr_pages, 1}, [MOD_EQ]     = {eq_pages, 1}, [MOD_RING]     = {rg_pages, 1},
     [MOD_PHASER]   = {ph_pages, 1}, [MOD_FLANGER] = {fg_pages, 1}, [MOD_COMP]   = {cp_pages, 1}, [MOD_DELAY]    = {dl_pages, 1},
     [MOD_REVERB]   = {rv_pages, 1}, [MOD_CHORUS]  = {ch_pages, 1}, [MOD_SPECTRAL] = {sp_pages, 1}, [MOD_CAB]    = {cb_pages, 1},
     [MOD_ENSEMBLE] = {es_pages, 1},
@@ -111,16 +110,25 @@ static const uint8_t modular_globals[] = {GP_AMP_ENV, GP_AMP_CRV, GP_SEQ, GP_SEQ
 static const uint8_t fm_globals[]      = {GP_FM, GP_SEQ, GP_SEQ_CFG};     // the operator pages go after GP_FM
 static const uint8_t str_globals[]     = {GP_STR_OSC, GP_STR_TONE, GP_STR_LP, GP_STR_FILTER, GP_AMP_ENV, GP_SEQ, GP_SEQ_CFG};
 
-void synth_ui_rebuild_pages(synth_ui_t *ui, const rack_t *rack) {
-    int n = 0;
+// The pages of the rack's modules, appended at n. FM / Strings: only row M's effects (their own sound has no rack, ADR-041).
+static int add_module_pages(synth_ui_t *ui, const rack_t *rack, int n) {
     const bool rack_type = synth_type_is_rack(rack->cfg.type);
-    for (int i = 0; i < (rack_type ? rack->count : 0); i++) {
+    for (int i = 0; i < rack->count; i++) {
         int t = rack->slot[i].type;
+        if (!rack_type && (rack->slot[i].row != ROW_M || !rack_is_processor((module_type_t)t))) continue;
         for (int d = 0; d < mod_pages[t].n && n < SYNTH_UI_MAX_PAGES; d++) {
             if (mod_pages[t].defs[d].needs_mod && !rack_slot_is_mod(rack, i)) continue;
             ui->pg_slot[n] = (uint8_t)i; ui->pg_def[n] = (uint8_t)d; n++;
         }
     }
+    return n;
+}
+
+// Modular: the modules' pages, then the global ones. FM / Strings: their global pages first, then row M's effects.
+void synth_ui_rebuild_pages(synth_ui_t *ui, const rack_t *rack) {
+    int n = 0;
+    const bool rack_type = synth_type_is_rack(rack->cfg.type);
+    if (rack_type) n = add_module_pages(ui, rack, n);
     const uint8_t *gl = modular_globals;
     int n_gl = (int)sizeof modular_globals;
     if (synth_type_is_fm(rack->cfg.type)) { gl = fm_globals; n_gl = (int)sizeof fm_globals; }
@@ -133,6 +141,7 @@ void synth_ui_rebuild_pages(synth_ui_t *ui, const rack_t *rack) {
             ui->pg_slot[n] = GLOBAL_PAGE; ui->pg_def[n] = (uint8_t)(GP_FM_ENV_BASE + k); n++;
         }
     }
+    if (!rack_type) n = add_module_pages(ui, rack, n);
     ui->page_count = n;
     ui->cog_page = -1;
     if (ui->page >= n) ui->page = n - 1;
@@ -219,11 +228,11 @@ void get_page(const synth_ui_t *ui, const rack_t *rack, int idx, page_t *out) {
 
 void synth_ui_init(synth_ui_t *ui, const rack_t *rack) {
     ui->page = 0; ui->row = 0; ui->cursor = 0; ui->rack_cur = 0; ui->rack_scroll = 0; ui->rack_type = MOD_OSC;
-    ui->rack_lane = 0; ui->rack_menu = false;
-    for (int l = 0; l < RACK_LANES; l++) ui->rack_col[l] = 0;
+    ui->rack_row = synth_type_is_rack(rack->cfg.type) ? 0 : ROW_M; ui->rack_menu = false;
+    for (int l = 0; l < RACK_ROWS; l++) ui->rack_col[l] = 0;
     ui->rack_dirty = false; ui->rebuild = false; ui->in_rack = false; ui->menu_tab = 0; ui->fm_op = 0; ui->fm_pt = 0;
     ui->cog_page = -1;
-    ui->run_anim = GUI_ANIM_INVALID; ui->ms_lane = 0; ui->ms_step = 0; ui->smp_cur = 0; ui->smp_tgt = 0; ui->key_cur = KEY_COLS; ui->eg_pt = 0; ui->fx_slot = 0;
+    ui->run_anim = GUI_ANIM_INVALID; ui->ms_lane = 0; ui->ms_step = 0; ui->smp_cur = 0; ui->smp_tgt = 0; ui->key_cur = KEY_COLS; ui->eg_pt = 0;
     ui->mods_layer = 0; ui->mods_ctl = CTL_COL_KNOB_0; ui->learn_req = false; ui->learn_wait = false; ui->knob_away = 0;
     ui->learn_macro = -1; ui->macro_cur = 0; ui->macro_dest = 0; ui->curve_cur = 0; ui->curve_pt = 0; ui->led_role = 0;
     memset(ui->joy, 0, sizeof ui->joy); memset(ui->joy_prev, 0, sizeof ui->joy_prev);
@@ -247,20 +256,21 @@ bool synth_ui_shows_playhead(const synth_ui_t *ui, const rack_t *rack) {
 }
 
 /* ---------------- menu tabs ----------------
- * Modular synth: RACK, GENERAL, SAMPLES, FX RACK, KEYS, LEDS, MODIFIERS, MACROS, JOY, CURVES.  FM synth: GENERAL, ALGORITHM (the operator tree:
- * a push opens the operator's page), FX RACK, KEYS, LEDS, MODIFIERS, MACROS, JOY, CURVES.  Strings: the FM list without ALGORITHM (its sound is edited on the pages). */
+ * Modular synth: RACK, GENERAL, SAMPLES, KEYS, LEDS, MODIFIERS, MACROS, JOY, CURVES.  FM synth: RACK (row M only, ADR-041), GENERAL, ALGORITHM
+ * (the operator tree: a push opens the operator's page), KEYS, LEDS, MODIFIERS, MACROS, JOY, CURVES.  Strings: the FM list without ALGORITHM
+ * (its sound is edited on the pages). */
 
 int tab_count(const rack_t *r) {
     if (synth_type_is_fm(r->cfg.type)) return 9;
-    return synth_type_is_strings(r->cfg.type) ? 8 : 10;
+    return 9 - (synth_type_is_strings(r->cfg.type) ? 1 : 0);
 }
 
 tab_t tab_kind(const rack_t *r, int idx) {
-    static const tab_t modular[10] = {TAB_RACK, TAB_GENERAL, TAB_SAMPLES, TAB_FX, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
-    static const tab_t fm[9] = {TAB_GENERAL, TAB_FM_ALGO, TAB_FX, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
-    static const tab_t strings[8] = {TAB_GENERAL, TAB_FX, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
+    static const tab_t modular[9] = {TAB_RACK, TAB_GENERAL, TAB_SAMPLES, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
+    static const tab_t fm[9] = {TAB_RACK, TAB_GENERAL, TAB_FM_ALGO, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
+    static const tab_t strings[8] = {TAB_RACK, TAB_GENERAL, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
     if (synth_type_is_fm(r->cfg.type)) return fm[idx % 9];
-    return synth_type_is_strings(r->cfg.type) ? strings[idx % 8] : modular[idx % 10];
+    return synth_type_is_strings(r->cfg.type) ? strings[idx % 8] : modular[idx % 9];
 }
 
 const char *tab_name(tab_t t) {

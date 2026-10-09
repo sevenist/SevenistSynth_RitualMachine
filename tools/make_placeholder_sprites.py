@@ -55,8 +55,8 @@ CLEAR, OFF, LIT = (0, 0), (0, 255), (255, 255)   # (luminance, alpha) per pixel
 MODULES = {
     "osc": ("OC", "io"), "filter": ("FL", "io"), "sat": ("SA", "io"), "lfo": ("LF", "o"), "mseq": ("MS", "o"),
     "env": ("EN", "o"), "sampler": ("SM", "io"), "eg": ("EG", "o"), "comb": ("RS", "io"),
-    # ADR-040: the Sum and the FX modules (codes as in rack.c: FG / RG / ES where the FX rack's would clash)
-    "sum": ("SU", "io"), "trem": ("TR", "io"), "eq": ("EQ", "io"), "ring": ("RG", "io"), "phaser": ("PH", "io"), "flanger": ("FG", "io"),
+    # ADR-040 / 041: the FX modules (codes as in rack.c: FG / RG / ES where the old FX rack's would clash)
+    "trem": ("TR", "io"), "eq": ("EQ", "io"), "ring": ("RG", "io"), "phaser": ("PH", "io"), "flanger": ("FG", "io"),
     "comp": ("CP", "io"), "delay": ("DL", "io"), "reverb": ("RV", "io"), "chorus": ("CH", "io"), "spectral": ("SP", "io"), "cab": ("CB", "io"),
     "ensemble": ("ES", "io"),
 }
@@ -177,6 +177,25 @@ COG = ["  #  #  ",              # '#' lit, 'o' off (drawn black), ' ' transparen
        "  #  #  "]
 
 
+PARA = ["########",              # the Para badge on a branch's shared start (ADR-041)
+        "#o###oo#",
+        "#o#oo#o#",
+        "#o###oo#",
+        "#o#oooo#",
+        "#o#oooo#",
+        "#oooooo#",
+        "########"]
+
+
+def slot_mix():
+    """Row M's MIX cell: the sum of the two branches; its output at (23, 18)."""
+    px = canvas(24)
+    box(px, 1, 1, 22, 22)
+    text(px, "MIX", 12, 12)
+    px[18][23] = LIT
+    return px
+
+
 def from_art(art):
     return [[LIT if c == "#" else OFF if c == "o" else CLEAR for c in row] for row in art]
 
@@ -206,12 +225,12 @@ def main():
     if "--convert" in sys.argv: convert(); return
     force = "--force" in sys.argv
     jobs = [("24/mod_%s" % n, module(c, k)) for n, (c, k) in MODULES.items()]
-    jobs += [("24/slot_empty", slot_empty()), ("24/slot_out", slot_out())]
+    jobs += [("24/slot_empty", slot_empty()), ("24/slot_out", slot_out()), ("24/slot_mix", slot_mix())]
     jobs += [("24/osc_%s" % n, osc_wave(n)) for n in OSC_WAVES]
     jobs += [("24/osc_%s" % n, osc_engine(c)) for n, c in OSC_ENGINES.items()]
     jobs += [("24/osc_%s" % n, osc_engine(c)) for n, c in MI_MODELS.items()]
     jobs += [("16/tab_%s" % n, tab_icon(c)) for n, c in TABS.items()]
-    jobs += [("8/ui_cog", from_art(COG))]
+    jobs += [("8/ui_cog", from_art(COG)), ("8/ui_para", from_art(PARA))]
     wrote = kept = 0
     for name, px in jobs:
         path = os.path.join(ASSETS, name + ".png")

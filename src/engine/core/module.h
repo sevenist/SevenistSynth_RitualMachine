@@ -64,6 +64,7 @@ struct ProcessCtx {
     const VoiceState *voices = nullptr;
     int nvoices = 0;
     int keys_held = 0;          // voices whose key is down
+    int32_t *bus2_l = nullptr, *bus2_r = nullptr;   // the second voice bus (VoiceOut's input 2, BusIn with bus 1): the rack's branch 2 (ADR-041)
 };
 
 struct Ports {

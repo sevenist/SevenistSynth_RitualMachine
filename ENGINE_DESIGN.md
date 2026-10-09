@@ -383,6 +383,17 @@ rebuild. Costs: KS 4 KB per voice; aliasing is naive like the shaper (ADR-013); 
   Defaults: chorus (off), delay (dry), reverb (dry), empty (audibly neutral like before).
 - Risks: the convolver costs `taps x 2` MACs per sample (a 256-tap cab is about 25 MMAC/s: measure on the S3); the compressor and the shifter are not
   measured against a reference beyond the tests; IRs from the card are possible through the chunk API but not wired to the library yet.
+- **Convolver on the S3 (2026-10-09, user request: "unusable from the start, make it run at 128")**. Measured before: 25 cycles per tap per frame
+  (a wrap mask, two 16-bit multiplies and two 64-bit adds per tap, 23 instructions): 64 taps 52k, 128 taps 100k (57 %), 256 taps ~195k cycles per
+  32-frame block (112 %, 400-570 DMA underruns per second). The IR was also regenerated in **double** on the audio thread (soft float on the S3, 4 KB
+  of stack) on every IR / Length change. Exact rework (user choice "PIE kernel + IR off the audio thread"): linear history written at an advancing
+  position (moved once per kRun / frames blocks: a move per block cost ~30k cycles with the buffers in PSRAM), taps reversed in 8 shifted copies so
+  every 128-bit load is aligned, the dot products in `pie_conv2_s16` (`fft_s3.S`, `ee.vmulas.s16.accx`, 40-bit exact; serial `pieconv`: 0 of 768
+  sums differ from C, 161 cycles for 128 taps x 2 channels) and the same layout in C on the host (`convolver_is_bit_identical_to_a_direct_convolution`).
+  The IR is computed by engine_synth on the control thread (`conv_builtin_ir`) only when IR / Length change, sent as `ConvBlob` chunks; the module
+  switches IR and length together on the last chunk (rebuilding its 8 copies, ~10k cycles estimated, not measured). Measured after (cycles per block):
+  **64 taps 7.9k, 128 taps 10.0k, 256 taps 14.2k, 512 taps 22.3k**, 0 underruns; about 5.8k fixed + 32 per tap. Memory: ~14 KB per Convolver (was
+  5 KB), in the fast heap, which is in PSRAM on the board at the moment (see CONTINUE.md, internal RAM).
 
 ### ADR-022 addendum: ring slots are chosen by the loader, the overview lives in the header (Accepted; found on the board)
 
@@ -559,7 +570,7 @@ listening loop (serial `mi`).
 - Tests (`test_mi_osc.cpp`, all six configurations): every model sounds, finite, below full scale; 11 pitched models periodic at the note (3 notes); the struck
   ones decay; the rack's Wav names follow the model order; host cost table.
 
-### ADR-040: Rack lanes, Sum points and FX modules in the rack (Accepted; user choices of 2026-10-07; stage 1 built 2026-10-08, host only)
+### ADR-040: Rack lanes, Sum points and FX modules in the rack (**Superseded by ADR-041** on 2026-10-09; stage 1 code of 2026-10-08 to be reworked, not extended)
 User decisions (asked with options, all recommendations taken except the scope rule):
 1. **FX in the rack, scope by a Sum point** (user's choice over "cheap per voice, heavy at the end"): a **Sum** module in a lane; modules left of it
    run per voice, right of it once on that lane's summed voices (stereo). A lane without a Sum is summed at the output.
@@ -590,6 +601,98 @@ lane is the menu's Lane row (my choice: Shift + up / down is taken by the Shift 
 **Until stage 2 the mapper builds lane A only** and skips Sum / FX modules (lanes B / C are editable but silent).
 Risks: per-voice FX cost x voices (a 4-voice Phaser = 4 Phasers); 3 lanes x Sum x global FX can exceed the budget (the cost display must show it);
 the rack strip gets 3 rows on 128 x 128 (with the 8 x 8 grid: 16 px bar + 3 x 32 px rows = 112 px).
+
+### ADR-041: Two branches + row M, a Para switch, Synth and Pads sections (Accepted; user choices of 2026-10-09; phases 1 and 2 built 2026-10-09)
+**Why.** The user's real need behind ADR-040 was (osc 1 -> filter 1) + (osc 2 -> filter 2), each filter per voice or paraphonic, plus a sampling and
+production loop (synth -> capture -> pads). Three lanes with Sum modules were more than that and made the scope of every module hard to read.
+The full plan, phases and open questions: `PLAN_WORKFLOW.md`; the user's brief with screen sketches: https://claude.ai/artifact/HiSWqALbydqwbo8ibHp8nA.
+
+**Decisions taken by the user** (recorded, not to be re-litigated):
+1. **No lanes in the engine, no Sum module.** Rows exist only on the RACK page; there are no separate note streams.
+2. **Rows 1 and 2 are two parallel branches**: same notes, same voices, summed at the output. **Row M** is a chain on the sum of both branches,
+   always shared (once, not per voice). Oscillators side by side in a branch are summed, as today.
+3. **Para is a switch on any processor**: from that module on, the branch runs once on the sum of its voices. Heavy FX (Delay, Reverb, Chorus,
+   Spectral, Cab, Ensemble) always run shared, so a branch becomes shared at the first of them. One way only: a shared module never feeds a
+   per-voice one. Per-voice modules are drawn as a small stack, shared ones flat.
+4. **Row M replaces the master FX tab.**
+5. **One synth plus a separate Pads section** (SP-404 style); two workflows, the user works in one or the other. A pad = a sample per key with
+   start / end, loop, tail, start on grid (off / beat / bar), play mode (one-shot / gate / toggle), root + tune + zone stretch, choke group,
+   level / pan / filter. Short samples in PSRAM, long ones streamed from the card.
+6. **Step sequencer for the synth** (notes on the grid, MIDI input recorded into it); **capture** by a global shortcut from any page, modes manual /
+   threshold / N bars on the grid / auto-sampler; capturing a sequenced pattern gives an on-grid sample, a live capture is not quantized.
+7. **Clock**: internal, MIDI clock in and out. **One settings page** (LEDs, keys, clock, MIDI) reachable from both sections.
+8. **No saved data to keep**: no sound design exists yet; old patches are deleted and file formats change freely, no migration code.
+Hardware: prototype 1 (PCM5102A) is output only, no MIDI, so capture = resampling the device's own output; prototype 2 (ES8388) adds line / mic in and MIDI.
+
+**Engine sketch** (phase 2): the voice bus carries both branches; each branch's Para point (explicit, or the first heavy FX) sums its voices into a
+shared chain; the two branch outputs mix, then row M, then the output. The ADR-040 per-voice FX (`<Scope>` templates of Trem, EQ, Ring / Shift,
+Phaser, Flanger, Comp) and the FX module types / pages of stage 1 are kept. Modulators that feed a shared module are global (ADR-036 rule).
+
+**Risks / known:** per-voice FX cost x voices; two Para branches = two shared chains (cost once each); the RACK tab must fit 3 rows on 128 x 128
+(16 px bar + 3 x 32 px = 112 px); the sprite count depends on the module list (the user draws them, so the grid / sprite work waits for phase 1).
+
+**Phase 0 answers (user, 2026-10-09; options with pros / cons were offered):**
+9. **Row M for every synth type**: FM and Strings get a RACK tab with row M only (no branch rows). The old FX tab, `fxrack` and its engine path
+   are deleted; the FX parameter tables move to the row-M modules.
+10. **Synth types = Modular, FM, Strings** (against my recommendation "drop Mod Para only"): Mod Para, Mod Mono and FM Mono go. **Voices = 1 is
+   mono**: last-note priority, Glide and Legato appear only then (ADR-036 decision 5 replaced). Para is the switch on a processor.
+   Risk: going from 1 to 2 voices silently loses the mono behaviour (legato, glide, note stack); with 1 voice the Para switch does nothing audible.
+11. **Branch level / pan in one MIX cell at the start of row M** (against my recommendation "on each row's OUT cell"): a fixed cell, not
+   deletable, with Lvl / Pan of branch 1 and branch 2. Risk: a special cell in row M, and it is less obvious which row its values belong to;
+   for FM / Strings (one source) it is hidden or holds a single level.
+12. **The Para envelope (Legato / Retrig / Voice) is set per Para point** (a row of the module where Para is on; each branch its own). Leaves GENERAL.
+13. **16 slots shared by the three rows** (as built for lanes); the MIX cell does not take a slot.
+
+**Phase 1 as built (2026-10-09; 71 UI tests incl. `tests/ui/test_rows.c`, 172 engine tests, simulator builds; NOT seen by the user):**
+- Model (`rack.h/.c`): `slot.row` (0, 1 = branches, `ROW_M`), `slot.para`, `slot.penv` (para_env_t), `rack_t.br_lvl / br_pan` (the MIX); `MOD_SUM`
+  removed (the type list shifted: no saved data). Rules: `rack_can_insert`, `rack_set_row`, `rack_set_para` (checked in place, undone when
+  refused); `rack_shared_start` (Para on, or the first heavy FX), `rack_slot_is_shared` (a modulator: its target's), `rack_type_voice_only`
+  (sources + resonator), `rack_type_shared_only`, `rack_add_m`. FM / Strings take processors in row M only.
+- Types (`synth_config`): Modular / FM / Strings; `synth_config_is_mono` (Voices 1, not Strings); default Modular with 1 voice (as the old
+  default Mod Mono). `cfg.para_env`, `cfg.fxr`, `fxrack.c/.h`, `scr_fx.c`, the FX tab (`TAB_FX` value kept: jump slots) are gone.
+- RACK tab (`scr_rack.c`): rows 1 / 2 / M (FM / Strings: M only, and RACK is their first tab), MIX cell first in row M (generated sprite +
+  `24/slot_mix` placeholder), OUT at the end of every row, menu rows Row / Para / PEnv / Lvl1 / Pan1 / Lvl2 / Pan2; per-voice modules
+  stacked when Voices > 1, the Para badge (`8/ui_para` placeholder) on a branch's shared start. FM / Strings: row M's effect pages come after
+  their own pages.
+- Engine bridge (`rack_graph.cpp`): branch 1 as before, its Para split at `rack_shared_start(0)` with that slot's `penv` (was: the first filter
+  of Mod Para); branch 1's level / pan from the MIX on `VoiceOut` (pan only without Para: the shared bus reads its left side); row M built
+  after BusIn for every type (FX nodes from the rack's units, SA / FL as a pair of global nodes per channel, the filter without its envelope).
+  **Not yet (phase 2)**: branch 2, FX modules inside a branch (they still start its shared part), a Para point in branch 2, modulators aimed
+  at row M, row M's filter envelope, branch 2's MIX values.
+- Serial (`serial_cmd_esp32.cpp`): `mode mono|poly|para`, `patch para`, `fx <code> [values]` / `fx clear` reworked (SERIAL_COMMANDS.md).
+
+**Phase 2, step 1 as built (2026-10-09, user report "the second lane has no sound"; host-tested in the 6 configurations, simulator +
+firmware built, NOT flashed, NOT listened to):** both branches sound.
+- Engine: a **second voice bus** (`ProcessCtx::bus2_l / bus2_r`, `Engine::bus2_*`, cleared per block); `VoiceOut` has a second input
+  (`VO_IN2` = 1 when it is used) that accumulates into it, and keeps the voice alive while either input sounds; `BusIn` reads bus 0 or 1
+  (`BUS_SEL`).
+- Mapper: one pass per branch (a branch without a source is not built), each with its Para split (`rack_shared_start(br)`, PEnv of that
+  slot), its amp VCA / ParaGate / shared amp (`RN_*2` node ids for branch 2), into VoiceOut input `br` and its own BusIn. The per-voice amp
+  envelope (AMP ENV page) and GateIn are shared by the branches. A global envelope aimed at a shared module follows its branch's PEnv.
+- MIX: each branch's output (Para: mono, else its bus in stereo) goes to row M (or MasterOut) through cables whose gains are the MIX level
+  x linear pan (`qd`: never exactly unity, so a MIX change is a live gain write, not a rebuild). The running signal of row M is a list of
+  cables per channel (no mixer node).
+- Tests `tests/engine/test_branches.cpp`: both branches audible and independent, branch 2 alone plays and frees its voice, MIX level / pan
+  live (no rebuild), Para none / 1 / 2 / both (shared filters are global nodes, both keys on both branches, everything stops after the release).
+- Step 1 tried by the user on the prototype: works ("very cool", 2026-10-09).
+
+**Phase 2, step 2 as built (2026-10-09; host-tested in the 6 configurations, simulator + firmware built, NOT flashed, NOT listened to):**
+- Per-voice effects: Phaser, Flanger, Tremolo, Compressor, Eq3, Shifter are templates on their channel count (`fx2_modules.cpp`):
+  CH 2 = the global stereo module (unchanged code path), CH 1 = a mono voice-scope version (`T_PHASER_V` .. `T_SHIFTER_V`, ids 74-79).
+  Per voice, Trem's Pan mode is a plain tremolo. A cheap effect before a branch's Para point uses it.
+- One builder (`shared` in `rack_graph.cpp`) for a branch's shared part (after its Para point / first heavy effect) and for row M: the
+  running signal is a list of cables per channel, **mono until a stereo effect**, then a filter / saturator becomes a pair (a node per
+  channel; a modulator cables into both, `Target::node2`), and so does the branch's shared amp (`RN_PARA_AMP_VCA_R`). Existing patches keep
+  their mono shared chain and its cost. A filter in a shared part or in row M has its envelope (`T_ENV_G`, gated by GateIn: the branch's
+  PEnv, legato in row M; a pair's envelope is node `RN_EXTRA + slot`).
+- Modulators are built after row M, so an LFO / ENV aimed at a row-M (or shared) module becomes global and reaches it; GateIn is created
+  whenever something needs it. Row M's saturator now has its drive modulation range (`SHP_DRIVE_MOD`).
+- Tests (`test_branches.cpp`): the phaser before the Para point runs per voice; a reverb in a branch starts its shared part, the filter
+  after it is a pair (stereo out); a tremolo after a Para point runs once; an LFO aimed at row M's filter is global and cabled into both
+  channels; row M's filter envelope opens and closes the filter.
+- Costs: per-voice effects multiply by the voice count (a 4-voice phaser = 4 phasers; a per-voice flanger takes a 2 KB line per voice);
+  after a stereo effect the branch's shared filter costs twice. +2 KB static RAM (the probes of the six new module types). Not measured
+  on the board. Flashed and tried by the user 2026-10-09: Osc -> Phaser -> Filter (per-voice phaser) and the modulators work.
 
 ## Known limits and ideas for later
 
@@ -637,6 +740,7 @@ the rack strip gets 3 rows on 128 x 128 (with the 8 x 8 grid: 16 px bar + 3 x 32
 | Reverb (Dattorro, 48 kHz) | | full rate 91 KB fast + 19 KB bulk, 38k cycles per block; half-rate tank 49 KB fast + 9 KB bulk, 20.5k cycles |
 | SpectralFx (STFT 512) | | about 20 KB fast per instance |
 | Delay (1 s) | | stereo 192 KB bulk, 12.4k cycles per block; mono 96 KB, 8.4k |
+| Convolver (Cab / Body, stereo) | | ~14 KB fast; 7.9k / 10.0k / 14.2k / 22.3k cycles per block at 64 / 128 / 256 / 512 taps (PIE kernel, 2026-10-09) |
 | Sampler | | per voice 32 KB ring (bulk) + per sample about 16 KB head + 12 KB per slice head + tail |
 
 ## Open questions

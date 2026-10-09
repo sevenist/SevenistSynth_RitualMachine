@@ -33,6 +33,7 @@ extern uint32_t g_stft_prof[7];             // HWV1_BENCH builds: Stft frame pie
 extern "C" void pie_vmul_s16(const int16_t *a, const int16_t *b, int16_t *out, int n, int sar);   // fft_s3.S
 extern "C" void pie_ola_shl(const int16_t *re, const int16_t *win, int32_t *acc, int n, int s);  // the Stft overlap-add, 0 <= s <= 16
 extern "C" void pie_ola_shr(const int16_t *re, const int16_t *win, int32_t *acc, int n, int r);  // and with a right shift, 1 <= r <= 30
+extern "C" void pie_conv2_s16(const int16_t *xl, const int16_t *xr, const int16_t *t, int nvec, int32_t *acc);   // the Convolver's dot products
 #endif
 
 namespace sc {

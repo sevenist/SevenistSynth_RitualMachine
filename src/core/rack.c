@@ -113,7 +113,7 @@ static const mp_t sm_mp[] = {
     [MP_SM_SMODE]  = {"Mode",  K_ENUM, 0, 1, 1, 0, "", 0, smode_names},
 };
 
-// Sum and FX modules (ADR-040): the FX use the ranges of the FX rack (fxrack.c) in the rack's units (0..1 for %, Hz, ms, dB).
+// FX modules (ADR-040 / 041): the ranges of the former FX rack, in the rack's units (0..1 for %, Hz, ms, dB).
 static const char *const tr_shapes[]  = {"Sine", "Tri", "Square"};
 static const char *const tr_modes[]   = {"Trem", "Pan"};
 static const char *const rg_modes[]   = {"Ring", "Up", "Down"};
@@ -122,10 +122,6 @@ static const char *const ch_modes[]   = {"Off", "I", "II", "I+II"};
 static const char *const sp_modes[]   = {"Thru", "Freeze", "Gate", "Robot", "Whisp", "Pitch"};
 static const char *const cb_names[]   = {"1x12", "4x12", "Bright", "Dark", "Acoust", "Violin", "Drum", "Phone"};
 
-static const mp_t su_mp[] = {
-    [MP_SU_LEVEL] = {"Lvl", K_LIN, 0, 1, 0.05f, 1, "", 2, 0},
-    [MP_SU_PAN]   = {"Pan", K_LIN, -100, 100, 5, 0, "%", 0, 0},
-};
 static const mp_t tr_mp[] = {
     [MP_TR_RATE]  = {"Rate", K_LOG, 0.05f, 20, 1.2f, 4, "Hz", 2, 0},
     [MP_TR_DEPTH] = {"Dpth", K_LIN, 0, 1, 0.05f, 0.6f, "", 2, 0},
@@ -218,8 +214,7 @@ static const type_info_t info[MOD_TYPE_COUNT] = {
     [MOD_SAMPLER]= {"SM", "Sampler",    true,  false, 1, {"Pit"},               {"Pitch"}, sm_mp, 10},
     [MOD_COMB]   = {"RS", "Resonator",  true,  false, 1, {"Mix"},               {"Mix"}, rs_mp, 5},
     [MOD_EG]     = {"EG", "Multi Env",  false, true,  1, {"Dpth"},              {"Depth"}, eg_mp, 17},
-    // ADR-040. Codes differ from the FX rack's where those mean another rack module (FL, RS, EN): FG, RG, ES.
-    [MOD_SUM]      = {"SU", "Sum",         true, false, 2, {"Lvl", "Pan"},  {"Level", "Pan"}, su_mp, NMP(su_mp)},
+    // ADR-040 / 041. Codes differ from the old FX rack's where those mean another rack module (FL, RS, EN): FG, RG, ES.
     [MOD_TREM]     = {"TR", "Trem / Pan",  true, false, 1, {"Dpth"},        {"Depth"}, tr_mp, NMP(tr_mp)},
     [MOD_EQ]       = {"EQ", "EQ 3-band",   true, false, 1, {"Mid"},         {"Mid gain"}, eq_mp, NMP(eq_mp)},
     [MOD_RING]     = {"RG", "Ring / Shift", true, false, 2, {"Freq", "Mix"}, {"Frequency", "Mix"}, rg_mp, NMP(rg_mp)},
@@ -235,7 +230,6 @@ static const type_info_t info[MOD_TYPE_COUNT] = {
 };
 
 static void depth_reset(rack_t *r, int slot);
-static bool global_fx_after_sum(const rack_t *r, int lane, int sum_at, int skip);
 
 const char *rack_type_code(module_type_t t) { return info[t].code; }
 const char *rack_type_name(module_type_t t) { return info[t].name; }
@@ -249,8 +243,16 @@ const char *rack_param_long(module_type_t t, int p) { return info[t].plong[p]; }
 void rack_clear(rack_t *r) {
     memset(r, 0, sizeof *r);
     r->next_id = 1;
-    for (int l = 0; l < RACK_LANES; l++) r->lane_lvl[l] = 1.0f;     // implicit Sums: full level, centre
+    for (int b = 0; b < RACK_BRANCHES; b++) r->br_lvl[b] = 1.0f;   // the MIX: both branches at full level, centre
     synth_config_init(&r->cfg);
+}
+
+// Row M of the demo and startup patches: delay 1000 ms at 40 % mix, reverb at 40 % mix.
+static void add_delay_reverb(rack_t *r) {
+    int k = rack_add_m(r, MOD_DELAY);
+    if (k != RACK_NONE) { r->slot[k].v[MP_DL_TIME] = 1000; r->slot[k].v[MP_DL_MIX] = 0.4f; }
+    k = rack_add_m(r, MOD_REVERB);
+    if (k != RACK_NONE) r->slot[k].v[MP_RV_MIX] = 0.4f;
 }
 
 void rack_init(rack_t *r) {
@@ -262,9 +264,7 @@ void rack_init(rack_t *r) {
     r->slot[3].tgt_id = r->slot[1].id;      // LFO -> filter cutoff
     r->slot[3].tgt_param = 0;
     r->slot[3].v[MP_LF_DEPTH] = 1.5f;       // octaves of cutoff
-    r->cfg.fxr.slot[1].v[0] = 1000;         // startup patch: delay 1000 ms, 40 % mix; reverb 40 % mix (the FX type defaults stay dry)
-    r->cfg.fxr.slot[1].v[2] = 40;
-    r->cfg.fxr.slot[2].v[0] = 40;
+    add_delay_reverb(r);
 }
 
 // The startup patch: four oscillators, each a different engine (Karplus string, Modal, Supersaw, Additive), into one filter; the delay and the
@@ -279,12 +279,10 @@ void rack_init_startup(rack_t *r) {
         r->slot[i].v[MP_OC_COARSE] = (float)coarse[i];
     }
     rack_insert(r, 4, MOD_FILTER);
-    r->cfg.fxr.slot[1].v[0] = 1000;         // delay 1000 ms, 40 % mix; reverb 40 % mix (the FX type defaults stay dry)
-    r->cfg.fxr.slot[1].v[2] = 40;
-    r->cfg.fxr.slot[2].v[0] = 40;
+    add_delay_reverb(r);
 }
 
-// Measurement patch for the sampler: nothing but a sampler and one filter (wide open), every master effect dry, so what is measured or heard is the sampler path.
+// Measurement patch for the sampler: nothing but a sampler and one filter (wide open), no effects, so what is measured or heard is the sampler path.
 void rack_init_sampler(rack_t *r, int file, int loop) {
     rack_clear(r);
     rack_insert(r, 0, MOD_SAMPLER);
@@ -315,12 +313,6 @@ static int ms_pool_free(const rack_t *r) {
 
 bool rack_delete(rack_t *r, int pos) {
     if (pos < 0 || pos >= r->count) return false;
-    if (r->slot[pos].type == MOD_SUM) {
-        const int lane = r->slot[pos].lane;
-        if (!global_fx_after_sum(r, lane, RACK_NONE, RACK_NONE)) return false;  // global-only FX still need it
-        r->lane_lvl[lane] = r->slot[pos].v[MP_SU_LEVEL];                         // the implicit Sum keeps its level and pan
-        r->lane_pan[lane] = r->slot[pos].v[MP_SU_PAN];
-    }
     uint8_t id = r->slot[pos].id;
     for (int i = pos; i < r->count - 1; i++) r->slot[i] = r->slot[i + 1];
     r->count--;
@@ -352,62 +344,96 @@ bool rack_slot_is_audio(const rack_t *r, int slot) {
     return info[r->slot[slot].type].audio;                       // an OSC with a target stays in the chain (it can be muted there)
 }
 
-// The chain helpers stay inside the slot's lane.
+// The chain helpers stay inside the slot's row.
 int rack_audio_prev(const rack_t *r, int slot) {
-    for (int i = slot - 1; i >= 0; i--) if (rack_slot_is_audio(r, i) && r->slot[i].lane == r->slot[slot].lane) return i;
+    for (int i = slot - 1; i >= 0; i--) if (rack_slot_is_audio(r, i) && r->slot[i].row == r->slot[slot].row) return i;
     return RACK_NONE;
 }
 
 int rack_audio_next(const rack_t *r, int slot) {
-    for (int i = slot + 1; i < r->count; i++) if (rack_slot_is_audio(r, i) && r->slot[i].lane == r->slot[slot].lane) return i;
+    for (int i = slot + 1; i < r->count; i++) if (rack_slot_is_audio(r, i) && r->slot[i].row == r->slot[slot].row) return i;
     return RACK_OUT;
 }
 
-/* ---------------- lanes and Sum points (ADR-040) ---------------- */
+/* ---------------- rows and Para (ADR-041) ---------------- */
 
-bool rack_type_global_only(module_type_t t) { return t >= MOD_DELAY && t <= MOD_ENSEMBLE; }
-bool rack_is_fx(module_type_t t)            { return t >= MOD_TREM && t <= MOD_ENSEMBLE; }
+static bool is_source(module_type_t t)        { return t == MOD_OSC || t == MOD_SAMPLER; }
+bool rack_is_fx(module_type_t t)              { return t >= MOD_TREM && t <= MOD_ENSEMBLE; }
+bool rack_type_shared_only(module_type_t t)   { return t >= MOD_DELAY && t <= MOD_ENSEMBLE; }
+bool rack_type_voice_only(module_type_t t)    { return is_source(t) || t == MOD_COMB; }
+bool rack_is_processor(module_type_t t)       { return t < MOD_TYPE_COUNT && info[t].audio && !is_source(t); }
 
-int rack_lane_sum(const rack_t *r, int lane) {
-    for (int i = 0; i < r->count; i++) if (r->slot[i].type == MOD_SUM && r->slot[i].lane == lane) return i;
+// A slot that starts its branch's shared part: Para on (a processor that may carry it), or a heavy FX.
+static bool starts_shared(const rack_slot_t *s) {
+    const module_type_t t = (module_type_t)s->type;
+    return rack_type_shared_only(t) || (s->para && rack_is_processor(t) && !rack_type_voice_only(t));
+}
+
+int rack_shared_start(const rack_t *r, int row) {
+    if (row < 0 || row >= RACK_BRANCHES) return RACK_NONE;
+    for (int i = 0; i < r->count; i++) if (r->slot[i].row == row && starts_shared(&r->slot[i])) return i;
     return RACK_NONE;
 }
 
-bool rack_slot_is_global(const rack_t *r, int slot) {
-    const int s = rack_lane_sum(r, r->slot[slot].lane);
-    return s != RACK_NONE && s < slot;
+bool rack_slot_is_shared(const rack_t *r, int slot) {
+    const rack_slot_t *s = &r->slot[slot];
+    if (!info[s->type].audio) {                                                 // a modulator runs where its target runs
+        const int ti = s->tgt_id ? rack_find(r, s->tgt_id) : RACK_NONE;
+        return ti != RACK_NONE && ti != slot && info[r->slot[ti].type].audio && rack_slot_is_shared(r, ti);
+    }
+    if (s->row >= ROW_M) return true;
+    const int ss = rack_shared_start(r, s->row);
+    return ss != RACK_NONE && slot >= ss;
 }
 
-float *rack_lane_level(rack_t *r, int lane) { const int s = rack_lane_sum(r, lane); return s != RACK_NONE ? &r->slot[s].v[MP_SU_LEVEL] : &r->lane_lvl[lane]; }
-float *rack_lane_pan(rack_t *r, int lane)   { const int s = rack_lane_sum(r, lane); return s != RACK_NONE ? &r->slot[s].v[MP_SU_PAN] : &r->lane_pan[lane]; }
+bool rack_can_para(const rack_t *r, int slot) {
+    if (slot < 0 || slot >= r->count) return false;
+    const module_type_t t = (module_type_t)r->slot[slot].type;
+    return r->slot[slot].row < RACK_BRANCHES && rack_is_processor(t) && !rack_type_voice_only(t) && !rack_type_shared_only(t);
+}
 
-// A global-only FX of `lane` placed at slot index `at` (in the order after the edit) needs the lane's Sum before it.
-static bool global_fx_after_sum(const rack_t *r, int lane, int sum_at, int skip) {
+// The one-way rule: no per-voice-only module in row M, nor after its branch's shared start.
+static bool rows_ok(const rack_t *r) {
     for (int i = 0; i < r->count; i++) {
-        if (i == skip || r->slot[i].lane != lane || !rack_type_global_only((module_type_t)r->slot[i].type)) continue;
-        if (sum_at == RACK_NONE || i < sum_at) return false;
+        const rack_slot_t *s = &r->slot[i];
+        if (!rack_type_voice_only((module_type_t)s->type)) continue;
+        if (s->row >= ROW_M) return false;
+        const int ss = rack_shared_start(r, s->row);
+        if (ss != RACK_NONE && ss < i) return false;
     }
     return true;
 }
 
-bool rack_can_insert(const rack_t *r, int pos, int lane, module_type_t t) {
-    if (r->count >= RACK_MAX || pos < 0 || pos > r->count || t >= MOD_TYPE_COUNT || lane < 0 || lane >= RACK_LANES) return false;
+bool rack_set_para(rack_t *r, int slot, bool on) {
+    if (!rack_can_para(r, slot)) return false;
+    const uint8_t old = r->slot[slot].para;
+    r->slot[slot].para = on ? 1 : 0;
+    if (rows_ok(r)) return true;
+    r->slot[slot].para = old;                                                // a per-voice module follows it in the branch
+    return false;
+}
+
+bool rack_can_insert(const rack_t *r, int pos, int row, module_type_t t) {
+    if (r->count >= RACK_MAX || pos < 0 || pos > r->count || t >= MOD_TYPE_COUNT || row < 0 || row >= RACK_ROWS) return false;
     if (t == MOD_MSEQ && ms_pool_free(r) < 0) return false;
-    const int s = rack_lane_sum(r, lane);
-    if (t == MOD_SUM) return s == RACK_NONE;                                     // one Sum per lane (no global-only FX can precede it: they need one)
-    if (rack_type_global_only(t)) return s != RACK_NONE && s < pos;              // the heavy FX only after the lane's Sum
+    if (!synth_type_is_rack(r->cfg.type) && (row != ROW_M || !rack_is_processor(t))) return false;   // FM / Strings: effects in row M only
+    if (rack_type_voice_only(t)) {
+        if (row >= ROW_M) return false;
+        for (int i = 0; i < pos; i++) if (r->slot[i].row == row && starts_shared(&r->slot[i])) return false;   // after the shared start
+    } else if (rack_type_shared_only(t) && row < ROW_M) {
+        for (int i = pos; i < r->count; i++) if (r->slot[i].row == row && rack_type_voice_only((module_type_t)r->slot[i].type)) return false;
+    }
     return true;
 }
 
-static bool insert_raw(rack_t *r, int pos, int lane, module_type_t type) {
+static bool insert_raw(rack_t *r, int pos, int row, module_type_t type) {
     if (r->count >= RACK_MAX || pos < 0 || pos > r->count || type >= MOD_TYPE_COUNT) return false;
     int pool = -1;
     if (type == MOD_MSEQ && (pool = ms_pool_free(r)) < 0) return false;      // both motion sequencers are in use
     for (int i = r->count; i > pos; i--) r->slot[i] = r->slot[i - 1];
-    r->slot[pos] = (rack_slot_t){.type = (uint8_t)type, .id = r->next_id++, .lane = (uint8_t)lane};
+    r->slot[pos] = (rack_slot_t){.type = (uint8_t)type, .id = r->next_id++, .row = (uint8_t)row, .penv = PARA_ENV_LEGATO};
     for (int i = 0; i < info[type].nmp; i++) r->slot[pos].v[i] = info[type].mp[i].def;
     if (pool >= 0) { r->slot[pos].v[MP_MS_POOL] = (float)pool; ms_pattern_default(&r->ms[pool]); }
-    if (type == MOD_SUM) { r->slot[pos].v[MP_SU_LEVEL] = r->lane_lvl[lane]; r->slot[pos].v[MP_SU_PAN] = r->lane_pan[lane]; }   // takes over the implicit Sum
     if (r->next_id == 0) r->next_id = 1;
     r->count++;
     return true;
@@ -415,31 +441,30 @@ static bool insert_raw(rack_t *r, int pos, int lane, module_type_t type) {
 
 bool rack_insert(rack_t *r, int pos, module_type_t type) { return insert_raw(r, pos, 0, type); }
 
-bool rack_insert_lane(rack_t *r, int pos, int lane, module_type_t type) {
-    return rack_can_insert(r, pos, lane, type) && insert_raw(r, pos, lane, type);
+bool rack_insert_row(rack_t *r, int pos, int row, module_type_t type) {
+    return rack_can_insert(r, pos, row, type) && insert_raw(r, pos, row, type);
 }
 
-bool rack_set_lane(rack_t *r, int slot, int lane) {
-    if (slot < 0 || slot >= r->count || lane < 0 || lane >= RACK_LANES) return false;
+int rack_add_m(rack_t *r, module_type_t type) { return rack_insert_row(r, r->count, ROW_M, type) ? r->count - 1 : RACK_NONE; }
+
+bool rack_set_row(rack_t *r, int slot, int row) {
+    if (slot < 0 || slot >= r->count || row < 0 || row >= RACK_ROWS) return false;
     rack_slot_t *s = &r->slot[slot];
-    const int from = s->lane;
-    if (from == lane) return true;
-    const module_type_t t = (module_type_t)s->type;
-    if (t == MOD_SUM) {
-        if (rack_lane_sum(r, lane) != RACK_NONE) return false;                   // the other lane has its own
-        if (!global_fx_after_sum(r, from, RACK_NONE, RACK_NONE)) return false;   // global-only FX still need it here
-        r->lane_lvl[from] = s->v[MP_SU_LEVEL]; r->lane_pan[from] = s->v[MP_SU_PAN];
-    } else if (rack_type_global_only(t)) {
-        const int sum = rack_lane_sum(r, lane);
-        if (sum == RACK_NONE || sum > slot) return false;
-    }
-    s->lane = (uint8_t)lane;
-    return true;
+    const uint8_t from = s->row;
+    if (from == row) return true;
+    if (!synth_type_is_rack(r->cfg.type)) return false;                      // FM / Strings: row M only
+    s->row = (uint8_t)row;
+    if (rows_ok(r)) return true;
+    s->row = from;
+    return false;
 }
 
 bool rack_has_signal(const rack_t *r, int slot) {
-    for (int i = 0; i <= slot; i++) {
-        if (r->slot[i].lane != r->slot[slot].lane) continue;
+    const int row = r->slot[slot].row;
+    if (row >= ROW_M && !synth_type_is_rack(r->cfg.type)) return true;      // FM / Strings voices feed row M
+    for (int i = 0; i < r->count; i++) {
+        if (row < ROW_M && (i > slot || r->slot[i].row != row)) continue;   // a branch: its own sources up to the slot; row M: any branch's
+        if (row >= ROW_M && r->slot[i].row >= ROW_M) continue;
         if (r->slot[i].type == MOD_OSC && !(r->slot[i].tgt_id && r->slot[i].v[MP_OC_MUTE] > 0.5f)) return true;
         if (r->slot[i].type == MOD_SAMPLER && r->slot[i].v[MP_SM_FILE] > 0.5f) return true;
     }

@@ -6,68 +6,71 @@ not: state, the latest measurements and what to do next, the user's working styl
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
 `tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
-## Session todo (updated 2026-10-07, fourth session, ended)
+## Session todo (updated 2026-10-09)
 
-Next session starts here. NOT committed since 848fbf8 (the user's mid-work snapshot, which still has the deleted src/engine/mi/stmlib): this
-session's work (grid step 1, module pages + cog, AP filter, MI oscillators) and another session's FFT / spectral work share the tree; ask before
-committing, and commit this session's files apart from the FFT ones. Verified at the end: 168 engine tests (6 configurations earlier, 44.1/64 last),
-59 UI tests, sim + firmware build. Open questions to the user: commit; turn on ENGINE_PROFILE + HWV1_DEBUG_AUDIO for the MI performance test
-(1 / 3 / 6 voices Mod Para + filter + delay + reverb, `patch para N V` + `mi <model>`). Another session may be flashing COM8: one pio build at a
-time, message it before building (memory feedback-shared-tree-builds). Confirmed by the user on the board: joystick XY, fine steps, LED roles.
+Order chosen by Claude (user: "I let you choose the order"). The user has made no sound design yet: **no saved patch or data to keep, old
+patches can be deleted, no migration code** (user, 2026-10-09). The workflow plan is `PLAN_WORKFLOW.md` (untracked; commit when asked).
 
-- [ ] **8 x 8 grid layout** (user, 2026-10-07): every placement on an 8 px grid, the top bar 16 px high (one row); rack cells 32 px (24 icon + 8),
-  four across; then the links drawn to the fixed connectors. Touches every screen (from: user).
-  **Step 1 BUILT 2026-10-07** (option A, 56 UI tests green, sim + firmware build, NOT flashed, NOT seen by the user): `GUI_GRID` / `GUI_BAR_H` (gui.h);
-  the top bar is 16 px (rule = its row 15; every screen now starts at y 16, `graph.y` 16) with a menu tab's `16/tab_<name>` icon at the left;
-  RACK tab: `RACK_PITCH` 32, 4 cells, icons centred, the selection arrow removed (the frame shows it). Connectors (user, 2026-10-07):
-  mix in (0, 6), mod in (0, 18), one output (23, 18) = mix out or mod out (user confirmed the shared point); mix links via the gap (neighbours)
-  or the audio lane, mod links via the mod lane up into the mod in (row 0 above the icons is now only frame room); description row at y 56,
-  fields in 16 px rows from y 64. Placeholders: `tools/make_placeholder_sprites.py` wrote 39 PNGs (9 modules, 2 slots, 15 osc waves / engines `osc_*` (not wired:
-  asked where to show them), 13 tabs), indexed 3-colour PNGs (transparent / black / white, user request; `--convert` rewrites any PNG), for the user to paint over. Next: the other screens (list rows of 9 px are not on the grid; the parameter pages lost 5 px to the bar)
-- [ ] **Module first page + cog** (user, 2026-10-07; asked with options: rows left / icon right, infos name + tuning + quality, the cog opens
-  hidden settings, every module's first page): BUILT (59 UI tests green incl. `tests/ui/test_cog.c`, sim + firmware build, NOT flashed, NOT seen
-  by the user). A module's first page: 8 px rows at x 0..63 / y 16..63, the right half: icon (`ui_module_sprite`: OSC = `24/osc_<wave>`) at
-  (72, 16), 3 info lines at y 40 / 48 / 56 (OSC: wave, "+Nst +Nct", "Q <q>"; others: the module's name only), the cog `8/ui_cog` at (120, 16);
-  the preview (graph) at x 0..127 / y 64..127. The cog is the row after the last one (encoder A / joystick to it); a push (or left / right)
-  swaps the rows for the hidden settings (title "<page> SET"), a second push or Back closes; leaving the page closes it (`ui->cog_page`).
-  Hidden settings (`mod_hidden`, ui_pages.c): OSC = Q (left OSC TUNE) + Mute (left OSC DEST); other modules: none yet, so no cog (to ask).
-  EG and MOTION first pages are drawn by hand: old layout. User 2026-10-07: the same layout on every module page (TUNE, DEST, ENV ...: the
-  cog only on the first page) and one cycle in the wave / engine previews (`draw_wave`, `draw_engine_preview`; LFO and Strings use draw_wave too).
-  Hidden settings of the other modules: the user decides later (from: user)
-- [ ] **UI sprites build**: pipeline BUILT 2026-10-07 (56 UI tests green incl. `tests/ui/test_sprites.c`, sim + firmware build). Format decided with the
-  user, written in `assets/UI_Sprites/README.md`: folders by size (8 / 16 / 24 / 64), PNG white = lit, black = off (drawn), alpha < 50 % = transparent
-  (a mask plane, `gui_sprite_t.mask`), frames `_00 _01 ...`, module connectors by a fixed convention (changed 2026-10-07: mix in (0, 6), mod in (0, 18), output (23, 18);
-  see the grid item), modules 24x24 (the generated fallback too; RACK_PITCH 29 -> 28). Converter `tools/gen_ui_sprites.py` (plain
-  Python + zlib, no Pillow), run by build.ps1 and `extra_scripts = pre:tools/pio_gen_sprites.py`; lookup `ui_sprite("24/mod_osc")`, NULL = fallback.
-  Wired so far: modules + slot cells (scr_rack.c), the XY mark (`8/ui_xy`, a placeholder I drew: redraw it). The user draws the art. NOT flashed (from: user)
-- [ ] **Knob hysteresis on the board**: continuous knobs are in (fine steps confirmed); tune `HWV1_ABS_START` / `_STEP` / `_IDLE_MS` (hwv1_layout.h):
-  raise START if a knob at rest jitters, lower STEP if fine moves feel steppy (from: notes)
-- [ ] **Shift + note = latch**, Shift + Back = release all: built and in b913afa, not confirmed by the user yet (from: notes).
-  Latch details (user, 2026-10-07; toggle per note, not a sustain pedal; Shift only, Mod + note plays normally): app.c `ACT_NOTE`, `input_state_t.latched[]`;
-  test `modifiers_shift_note_latches_until_pressed_again`. The next press of the key (with or without Shift) releases it; only when the key's Shift entry is
-  Default. Shift + Back: popup "LATCH / Released N". Limits: a latched key whose function is changed in KEYS keeps its note until a panic / restart
-- [ ] **Mutable Instruments oscillators (ADR-039)** (user, 2026-10-07): tiers 1 + 2 BUILT (47 models: Wav 15..61; 168 engine tests x 6
-  configurations, 59 UI tests, sim build; firmware: see below; NOT flashed, NOT listened to). No stmlib (`src/engine/dsp/fdsp*`); vendored code
-  `src/engine/mi` (`VENDOR.md`: commit, local changes). User's next step: test them all in a heavy patch (1, 3, then 6 voices in Mod Para + filter + delay
-  + reverb) for sound and performance: `patch para N V`, then `mi <name|next|prev|list> [timbre morph harm]`; `serial_test.py` with ENGINE_PROFILE +
-  HWV1_DEBUG_AUDIO prints `[MI]` cycles per model. To decide after: loudness per model, denormals on the board (Plaits analog drums), IRAM for the models,
-  Harm placement (now behind the OSC cog), the set-aside models vs ours, tier 3 (from: user)
-- [ ] **All-pass filter type "AP"** (user, 2026-10-07): BUILT (161 engine tests green incl. `filter_allpass_is_flat`: worst 0.03 dB, 59 UI
-  tests, sim + firmware build, NOT flashed, NOT listened to). `FILT_AP` appended (saved values keep their meaning), engine `FLTM_AP` = the SVF's
-  x - 2k bp (one multiply-add over an LP section), 1 section, Res = Q (how fast the phase turns); also in STR FILTER; serial `flt 9`. The preview
-  shows the phase (0 top, -180 at the cutoff, -360 bottom). Alone it only shifts phase (inaudible on a static sound): a phaser needs it mixed
-  with the dry signal (no mix on the filter: to ask the user) (from: user)
-- [ ] Then "D" = engine / board items: decide the SD options (a)-(d); internal RAM for the startup patch (what stays internal with a 74 KB fast heap: reverb tank, delay, filters; or free internal RAM, IRAM code 124 KB) (from: user + measurements)
-- [ ] Quick macro UI: a button next to a mappable element, so a macro is assigned without Shift + knob (from: user)
-- [ ] Board test later (user): ui.cfg (Knob Direct + two jump slots survive a reboot) and jump slots by identity on the board; catch refresh after manual changes (from: user)
-- [ ] Convert the main view (the pages) to a declarative screen: it still translates the new events to the old ones and has no latch (UI_GUIDE.md section 8) (from: debt)
-- [ ] Integration findings for an engine-independent "audio backend" interface (own voice allocator, mono -> stereo, memory policy, measurement hooks) (from: user)
-- [x] Joystick XY controller: tried by the user on the board, works (done 2026-10-07)
-- [x] Fine steps: tried by the user on the board, work (done 2026-10-07)
-- [x] Role-based key LED colours: LEDS tab, preview by role, GRB order, default colours: checked by the user on the board (done 2026-10-07)
+- [ ] **Workflow plan phase 1: the user tries the RACK tab in the simulator**: BUILT 2026-10-09 (ADR-041 "Phase 1 as built"; 71 UI tests
+  incl. `tests/ui/test_rows.c`, 172 engine tests in the 6 configurations, simulator built; NOT seen by the user, NOT committed). Rows 1 / 2 / M,
+  Para + PEnv in the push menu, the MIX cell (Lvl1 / Pan1 / Lvl2 / Pan2), stacks for per-voice modules, the Para badge; types Modular / FM /
+  Strings, Voices 1 = mono; FX tab + `fxrack` deleted, the effects are row M modules (FM / Strings too: RACK is their first tab). Sound: branch 1
+  and row M only until phase 2 (branch 2 and a branch's FX modules are silent). New placeholders to paint: `24/slot_mix`, `8/ui_para`;
+  `24/mod_sum` deleted. Defaults of SA / CB in row M reach full scale on the loud demo patch (measured, 32767 peak) (from: user)
+- [ ] **Workflow plan phase 2: measure the cost on the board**: step 1 (both branches, Para per branch, MIX) and step 2 (effects inside a
+  branch, modulators reaching row M, row M's filter envelope; ADR-041 "Phase 2, step 2") flashed and tried by the user on the prototype
+  2026-10-09: Osc -> Phaser -> Filter works, modulators work. Not measured: the cost of per-voice effects and of a stereo shared part (from: notes)
+- [ ] **8 x 8 grid layout, the other screens**: step 1 built (top bar 16 px, RACK cells 32 px); list rows (9 px) and parameter pages still off
+  the grid. Do it together with the phase-1 RACK tab where they overlap (from: user)
+- [ ] **Module first page + cog: detailing**: works, the user will detail it later (EG / MOTION old layout, hidden settings of the other
+  modules, one cycle in the previews) (from: user)
+- [ ] **UI sprites**: pipeline built; the user paints the placeholder PNGs (from: user)
+- [ ] **Board checks not confirmed yet**: Shift + note latch, knob hysteresis (`HWV1_ABS_START` / `_STEP` / `_IDLE_MS`), Spectral Gate / Robot /
+  Whisper, ui.cfg + jump slots after a reboot (from: notes)
+- [ ] **MI follow-ups**: loudness per model, denormals (Plaits drums), IRAM, Harm placement, tier 3; cycles per model (`[MI]`) not recorded
+  here yet (from: notes)
+- [ ] **Listen to the Cab (Convolver) on the board**: flashed and measured by Claude 2026-10-09 (PIE kernel, see "Convolver on the board");
+  the sound is unchanged by design (bit-identical), but nobody had heard it usable before: its loudness (the IR is energy-normalised, level x1:
+  resonant IRs come out loud, a Cab in row M peaked at full scale on the demo patch) is the user's call (from: user)
+- [ ] **Internal RAM: the fast heap is in PSRAM on the board** (measured 2026-10-09, `[RAM]` boot lines): largest internal block 59 KB at boot,
+  51 KB before `audio_init`, so the fast heap (needs 64 KB + 16 KB margin) falls back whole to PSRAM: every module's state is in PSRAM. On
+  2026-10-06 the largest block was 90 KB: ~27 KB of static RAM appeared since. Biggest user: `s_synth` 78.6 KB (the Engine, two RackGraph copies and
+  the sample catalog; the RackGraphs and the catalog are control-only). Joins the "D" item below; options to give the user (from: measurements)
+- [ ] Engine / board "D" items: SD options (a)-(d), internal RAM for the startup patch (from: user + measurements)
+- [ ] Quick macro UI button; declarative main view (UI_GUIDE.md section 8); "audio backend" interface findings (from: user + debt)
+- [x] **Convolver made usable on the board** (done 2026-10-09; flashed + measured by Claude, user allowed the loop for this task): 128 taps
+  100k -> 10.0k cycles per block, 256 taps 195k (over budget) -> 14.2k, 512 taps 22.3k; bit-identical; IR computed off the audio thread
+- [x] Workflow plan phase 0: ADR-041 + five answers (row M for all types; types Modular / FM / Strings, mono = 1 voice; MIX cell in row M;
+  Para envelope per Para point; 16 shared slots) (done 2026-10-09)
+- [x] MI oscillators: tried by the user, work (done 2026-10-09)
+- [x] All-pass filter "AP": tried by the user, works (done 2026-10-09)
+- [x] Module first page + cog: works, details later (done 2026-10-09)
+- [x] Commit of the 2026-10-07 work: b55a1ea, e93f03e, 8101b57 (done 2026-10-08)
 - Set aside (user, 2026-10-07): unformatted card "format?" ASK (a mount without a file system is still "no card"; needs FATFS mkfs)
 
-## Rack lanes, Sum points, FX modules (ADR-040; stage 1 built 2026-10-08, host only, NOT seen by the user)
+## Convolver on the board (2026-10-09; flashed and measured by Claude, NOT listened to)
+
+Cycles per 32-frame engine block (budget 174k at 44.1 kHz), the Convolver alone, startup patch with only a Cab in row M:
+
+| Len | before | after (PIE + aligned taps + advancing history) |
+|---|---|---|
+| 64 | 52.1k | 7.9k |
+| 128 | 99.7k (57 %) | 10.0k |
+| 256 | ~195k (112 %, 400-570 DMA underruns / s) | 14.2k |
+| 512 | (not run) | 22.3k |
+
+- What it was: 25 cycles per tap per frame (wrap mask + 64-bit sums); the IR regenerated in double on the audio thread at every IR / Length step.
+- What changed (exact, details ADR-034 addendum): `pie_conv2_s16` (fft_s3.S), 8 shifted reversed tap copies (aligned loads), history written at an
+  advancing position (a move per block cost ~30k cycles: the buffers are in PSRAM), IR computed in engine_synth (`conv_builtin_ir`) and sent as
+  `ConvBlob` chunks; serial `pieconv` checks PIE against C (0 of 768 sums differ). ~14 KB per instance (was 5 KB).
+- Not measured: the switch cost when IR / Length change (~10k cycles once, estimated). The board runs Claude's last build, with
+  `HWV1_DEBUG_AUDIO` + `ENGINE_PROFILE` added through `PLATFORMIO_BUILD_FLAGS` (serial logs once a second): reflash normally when done.
+- `[RAM]` lines (main_esp32.cpp, `HWV1_DEBUG_AUDIO`): free internal RAM and its largest block before each init step.
+
+## Rack lanes, Sum points, FX modules (ADR-040; stage 1 built 2026-10-08; superseded, reworked by ADR-041 phase 1 on 2026-10-09)
+
+**Superseded 2026-10-09**: the user dropped lanes and the Sum module. Follow `PLAN_WORKFLOW.md` and ADR-041 (branches + row M, Para switch, Pads
+section, capture, sequencer; phase 0 done 2026-10-09); the stage-1 code below gets reworked in its phase 1.
 
 - User decisions (four rounds of options, recorded in ENGINE_DESIGN.md ADR-040): Sum point per lane, 3 parallel lanes, cheap FX per voice /
   heavy only after a Sum, 16 slots, master FX tab kept, one module per effect, level / pan on the lane's Sum, Sum = the Para split generalised,
@@ -396,6 +399,10 @@ The user decides and I record the reasoning and move on, without re-litigating:
   host tests (the host runs the C path); built and measured: 16k cycles, 63-64 dB.
 - **MODIFIERS tab covers the keys too** (2026-10-07; I recommended knobs + encoders + joystick): risk = a larger tab list (~60 controls on the board) and file;
   mitigated: Default entries keep the old behaviour, modifier keys and Menu-less lock-outs cannot happen through a layer (Shift / Mod keys are never remapped by it).
+- **Synth types Modular / FM / Strings only, mono = Voices 1** (2026-10-09, ADR-041; I recommended dropping only Mod Para): risk = going from 1 to 2 voices
+  silently loses legato / glide / the note stack; the Para switch does nothing with 1 voice.
+- **Branch level / pan in one MIX cell at the start of row M** (2026-10-09, ADR-041; I recommended an OUT cell per row): risk = a special cell in row M, less
+  obvious which row its values belong to.
 - On the hardware (ADR-035): a **float exception** for the filters; **mono delay / reverb** and the **half-rate reverb tank** as build flags; the **5-saw supersaw**; the sample rate is **never below 44100 Hz**; modal as phasors and the additive recurrence were done before asking
   because their tests show the same sound within a stated tolerance.
 
@@ -408,7 +415,7 @@ The user decides and I record the reasoning and move on, without re-litigating:
   the sim's panel does not draw the key LEDs; this session's UI changes were verified on the board by the user, not by host tests (the 160 engine tests do not cover `src/core/ui_*.c`; `tools/ui_dump.c` can).
 - Sample library: whole files are copied to RAM in the simulator; loaded samples are never unloaded; imports block the UI thread; a rack stores the file *index*
   (names needed when saving). Zones are engine-only (no UI). MS targets are limited to what the mapper realises (OC Pit / Lvl / PW, FL Cut, SA Drv, SM Pit).
-- Sound-design round (ADR-031..034), not listened to: the convolver costs 2 x taps MACs per sample (not measured on the S3), the compressor / shifter / engines are tested against theory only,
+- Sound-design round (ADR-031..034), not listened to: the convolver (PIE since 2026-10-09: 10k cycles per block at 128 taps, ADR-034), the compressor / shifter / engines are tested against theory only,
   the engine previews in the OSC graph box are sketches.
 - `samples/` holds the generated demo files (`tools/make_demo_samples.py`); `lib/minimp3` is not versioned like the other libs.
 - `synth_params_t` and `param_id_t` still contain the old oscillator / filter fields; only the amp envelope is used.
@@ -426,6 +433,8 @@ The user decides and I record the reasoning and move on, without re-litigating:
 - One program per serial port: close the serial monitor before `serial_test.py`.
 - Bash tool: **heredocs containing apostrophes or quotes break; `\n` inside a C string written from a Python literal becomes a real newline** (it hit `printf` lines many times: grep for a string that wrapped, or fix with a regex on `%u[\r\n]+"`).
   Write multi-line scripts with the Write tool and run them; edit with the Edit tool. Many sources are CRLF: scripted edits must keep each file's line endings.
+  **`sed -i` in this Git Bash rewrites a CRLF file with LF endings** (hit twice on 2026-10-09; git hides it in the diff): use a Python script that reads
+  with `newline=''` and writes the endings back, and check with `file <path>` after any scripted edit.
 - `src/platform/engine/engine_synth.h` is included from C: no default arguments, no C++ in it.
 - Tool calls that run `g++` through PowerShell hide compiler errors (`NativeCommandError`): compile from bash to see them. A test executable needs `C:\msys64\ucrt64\bin` on PATH.
 - Python on Windows: always `open(..., encoding="utf-8")`. The test runner takes a name filter (`engine_tests.exe reverb`) and, via the script, engine flags: `build_engine_tests.ps1 -Defs "-DENGINE_REVERB_HALF=1"`; `-Matrix` takes a few minutes, one configuration about 1 min.

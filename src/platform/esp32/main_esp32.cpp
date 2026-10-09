@@ -1,6 +1,7 @@
 // ESP32 entry point (PlatformIO / Arduino). Build flag -DHWV1 selects the pin block and the drivers of the old prototype.
 #if defined(ARDUINO_ARCH_ESP32)
 #include <Arduino.h>
+#include <esp_heap_caps.h>
 #include "core/app.h"
 #include "hal/hal_audio.h"
 #include "hal/hal_display.h"
@@ -27,9 +28,20 @@ void setup() {
 #ifdef DEV_BOOT_DELAY_MS
     delay(DEV_BOOT_DELAY_MS);                  // dev only: lets the serial monitor reconnect after a reset so the boot messages are not lost
 #endif
+#ifdef HWV1_DEBUG_AUDIO
+    // dev only: internal RAM (free, largest block) before each init step; the audio fast heap needs a large block (audio_esp32.cpp)
+    auto ram = [](const char *step) { Serial.printf("[RAM] %-14s internal free %u, largest block %u\n", step, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
+                                                    (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL)); };
+    ram("boot");
+#else
+    auto ram = [](const char *) {};
+#endif
     leds_init();
+    ram("leds_init");
     input_esp32_init();
+    ram("input_init");
     board_audio_enable();
+    ram("audio_enable");
     audio_init();
     app_init(&app, display_init());
 #ifdef DEV_SERIAL_CMD

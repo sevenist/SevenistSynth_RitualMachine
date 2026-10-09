@@ -76,7 +76,7 @@ gui_rect_t ui_picture_box(const gui_style_t *st);
 // The screen of a menu tab.
 const screen_def_t *screen_for_tab(tab_t t);
 
-extern const screen_def_t scr_rack_screen, scr_general_screen, scr_samples_screen, scr_fx_screen, scr_fm_algo_screen, scr_keys_screen,
+extern const screen_def_t scr_rack_screen, scr_general_screen, scr_samples_screen, scr_fm_algo_screen, scr_keys_screen,
                           scr_mods_screen, scr_macros_screen, scr_curves_screen, scr_leds_screen, scr_joy_screen;
 
 // The GENERAL tab's setting (cfg_param_id_t) on focus row `row` (ui->row), -1 for none.

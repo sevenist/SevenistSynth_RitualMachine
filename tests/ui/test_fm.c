@@ -22,7 +22,7 @@ TEST(fm_pages_one_per_operator_like_modules) {
     ui_app.ui.page = 0;
     ui_page_title(t, sizeof t);
     CHECK_STR(t, "FM SYNTH");
-    ui_set_type(SYNTH_MOD_MONO);
+    ui_set_type(SYNTH_MODULAR);
     CHECK(ui_find_page(GLOBAL_PAGE, GP_FM_OP_BASE) < 0);                    // a rack type has no operator pages
 }
 

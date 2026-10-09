@@ -605,7 +605,7 @@ the rack strip gets 3 rows on 128 x 128 (with the 8 x 8 grid: 16 px bar + 3 x 32
 ### ADR-041: Two branches + row M, a Para switch, Synth and Pads sections (Accepted; user choices of 2026-10-09; phases 1 and 2 built 2026-10-09)
 **Why.** The user's real need behind ADR-040 was (osc 1 -> filter 1) + (osc 2 -> filter 2), each filter per voice or paraphonic, plus a sampling and
 production loop (synth -> capture -> pads). Three lanes with Sum modules were more than that and made the scope of every module hard to read.
-The full plan, phases and open questions: `PLAN_WORKFLOW.md`; the user's brief with screen sketches: https://claude.ai/artifact/HiSWqALbydqwbo8ibHp8nA.
+The remaining phases and open questions: CONTINUE.md "Next: the production workflow"; the user's brief with screen sketches: https://claude.ai/artifact/HiSWqALbydqwbo8ibHp8nA.
 
 **Decisions taken by the user** (recorded, not to be re-litigated):
 1. **No lanes in the engine, no Sum module.** Rows exist only on the RACK page; there are no separate note streams.

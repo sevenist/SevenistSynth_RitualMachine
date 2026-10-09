@@ -9,7 +9,7 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
 ## Session todo (updated 2026-10-09)
 
 Order chosen by Claude (user: "I let you choose the order"). The user has made no sound design yet: **no saved patch or data to keep, old
-patches can be deleted, no migration code** (user, 2026-10-09). The workflow plan is `PLAN_WORKFLOW.md` (untracked; commit when asked).
+patches can be deleted, no migration code** (user, 2026-10-09). The rest of the workflow plan: "Next: the production workflow" below.
 
 - [ ] **Workflow plan phase 1: the user tries the RACK tab in the simulator**: BUILT 2026-10-09 (ADR-041 "Phase 1 as built"; 71 UI tests
   incl. `tests/ui/test_rows.c`, 172 engine tests in the 6 configurations, simulator built; NOT seen by the user, NOT committed). Rows 1 / 2 / M,
@@ -48,6 +48,29 @@ patches can be deleted, no migration code** (user, 2026-10-09). The workflow pla
 - [x] Commit of the 2026-10-07 work: b55a1ea, e93f03e, 8101b57 (done 2026-10-08)
 - Set aside (user, 2026-10-07): unformatted card "format?" ASK (a mount without a file system is still "no card"; needs FATFS mkfs)
 
+## Next: the production workflow (ADR-041, phases 3 to 6; phases 0 to 2 done 2026-10-09)
+
+The decisions are in ENGINE_DESIGN.md ADR-041; the user's design brief with screen sketches: https://claude.ai/artifact/HiSWqALbydqwbo8ibHp8nA.
+Take the phases in order; each ends with host tests green, docs updated and the user trying the result. Ask the "ask first" points with
+options (pros / cons) before building.
+
+- **Phase 3, step sequencer for the synth.** Ask first: steps, pattern length, polyphony per step (chords?), per-step values (velocity,
+  length, probability?), pattern count, how it is shown (16 keys as steps?). Then extend `seq.c` (today: monophonic, 16 steps, note + length,
+  BPM, swing, transpose); a clock module (internal BPM, MIDI clock in / out behind a HAL, so prototype 1 builds without MIDI); MIDI input
+  recorded into the sequencer (prototype 2; on prototype 1 record the keyboard). A captured sequenced pattern gives an on-grid sample.
+- **Phase 4, capture.** A global shortcut from any page (ask which combo; check `bindings.c`, `modifiers.c` for free ones). Record the
+  engine output into PSRAM, write a WAV to the card, add it to the sample catalog. Modes: manual, threshold (start on level, trim the
+  trailing silence), N bars (starts on the next bar, uses the clock); the auto-sampler later. Prototype 1 has no input: capture = resampling.
+- **Phase 5, Pads section** (SP-404 style, a separate workflow from the synth). Ask first: pads per bank and bank count, how keys map to
+  pads, how the user switches section (Synth / Pads), the screen (the brief: pad grid on top, the selected pad's settings below). Pad model +
+  editor (start / end, loop, tail, start on grid off / beat / bar, play mode one-shot / gate / toggle, root + tune + zone stretch, choke
+  group, level / pan / filter), trim / slice / assign after a capture. Engine: a pad player beside the synth (PSRAM one-shots + card
+  streaming, choke groups, grid start from the clock). Decide with the user what happens to the rack sampler SM and the SAMPLES tab.
+- **Phase 6, one settings page** reachable from both sections (LEDs, KEYS layouts, clock, MIDI): move the existing tabs there.
+- Open questions: voice budget synth vs pads (measure on the board; phases 2, 5); hearing the other section's song layer while working
+  (5 or later); keyboard Switch / Split / Layer, still needed with separate sections? (5); auto-sampler range, step, note length, velocity
+  layers (later).
+
 ## Convolver on the board (2026-10-09; flashed and measured by Claude, NOT listened to)
 
 Cycles per 32-frame engine block (budget 174k at 44.1 kHz), the Convolver alone, startup patch with only a Cab in row M:
@@ -63,13 +86,12 @@ Cycles per 32-frame engine block (budget 174k at 44.1 kHz), the Convolver alone,
 - What changed (exact, details ADR-034 addendum): `pie_conv2_s16` (fft_s3.S), 8 shifted reversed tap copies (aligned loads), history written at an
   advancing position (a move per block cost ~30k cycles: the buffers are in PSRAM), IR computed in engine_synth (`conv_builtin_ir`) and sent as
   `ConvBlob` chunks; serial `pieconv` checks PIE against C (0 of 768 sums differ). ~14 KB per instance (was 5 KB).
-- Not measured: the switch cost when IR / Length change (~10k cycles once, estimated). The board runs Claude's last build, with
-  `HWV1_DEBUG_AUDIO` + `ENGINE_PROFILE` added through `PLATFORMIO_BUILD_FLAGS` (serial logs once a second): reflash normally when done.
+- Not measured: the switch cost when IR / Length change (~10k cycles once, estimated).
 - `[RAM]` lines (main_esp32.cpp, `HWV1_DEBUG_AUDIO`): free internal RAM and its largest block before each init step.
 
 ## Rack lanes, Sum points, FX modules (ADR-040; stage 1 built 2026-10-08; superseded, reworked by ADR-041 phase 1 on 2026-10-09)
 
-**Superseded 2026-10-09**: the user dropped lanes and the Sum module. Follow `PLAN_WORKFLOW.md` and ADR-041 (branches + row M, Para switch, Pads
+**Superseded 2026-10-09**: the user dropped lanes and the Sum module. Follow ADR-041 and "Next: the production workflow" (branches + row M, Para switch, Pads
 section, capture, sequencer; phase 0 done 2026-10-09); the stage-1 code below gets reworked in its phase 1.
 
 - User decisions (four rounds of options, recorded in ENGINE_DESIGN.md ADR-040): Sum point per lane, 3 parallel lanes, cheap FX per voice /

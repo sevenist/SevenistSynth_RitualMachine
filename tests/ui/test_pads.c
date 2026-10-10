@@ -365,3 +365,20 @@ TEST(pads_next_setting_and_file) {
     pads_to_text(&ui_app.pads, txt, sizeof txt);
     CHECK(strstr(txt, "pad A1 next right") != NULL);
 }
+
+TEST(pads_chop_button_back_path_and_stop_popup) {
+    ui_fresh();
+    snprintf(ui_app.pads.pad[0].file, PAD_NAME_MAX, "demo0");
+    shift_menu();
+    ev_tap(CTL_JOY_SW);                                                  // the pad page
+    ui_app.ui.pad_row = 21;                                              // "Chop >" (after Next)
+    ev_tap(CTL_JOY_SW);
+    CHECK_EQ(ui_app.ui.pad_page, 1);
+    CHECK_EQ(ui_app.ui.chop.n_cuts, 3);
+    ev_tap(BACK);                                                        // CHOP -> the pad page
+    CHECK(ui_app.ui.pad_edit && ui_app.ui.pad_page == 0);
+    ev_tap(BACK);                                                        // -> the grid
+    CHECK(!ui_app.ui.pad_edit);
+    ev_tap(STOP_KEY);                                                    // the Stop key says so, like Shift + Back
+    CHECK_STR(ui_app.popup.info.text, "Stop all");
+}

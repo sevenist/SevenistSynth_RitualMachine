@@ -417,7 +417,13 @@ static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
         case ACT_PAD_BANK:
             if (in_pads(app) && b->arg >= 0 && b->arg < PAD_BANKS) { app->ui.pad_bank = (uint8_t)b->arg; app->dirty = true; }
             break;
-        case ACT_PAD_STOP:     if (in_pads(app)) audio_pads_stop(); break;
+        case ACT_PAD_STOP:                                  // (the same as Shift + Back, with the same popup)
+            if (in_pads(app)) {
+                audio_pads_stop();
+                popup_info(&app->popup, "PADS", "Stop all", 0, audio_millis(), LEARN_INFO_MS);
+                app->dirty = true;
+            }
+            break;
         case ACT_PAD_SELECT:   app->in.pad_select = e.kind != IN_RELEASE; break;
         case ACT_PAD_MUTE:     app->in.pad_mute = e.kind != IN_RELEASE; break;
         case ACT_BACK:                                      // Shift + Back (its Shift entry Default): release all latched notes (Pads: stop every pad), Shift only like the latch

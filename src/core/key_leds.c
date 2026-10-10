@@ -5,6 +5,11 @@
 #include "hal/hal_leds.h"
 
 #define KEY_LEDS_PERIOD_MS 20                                // repaint rate without input (the Play LED follows the sequencer)
+#define MUTE_PULSE_MS      800                               // a muted pad that sounds: red <-> its playing colour, one round trip
+
+static led_color_t mix(led_color_t a, led_color_t b, int t256) {    // t256 = 0 (a) .. 256 (b)
+    return (led_color_t){(uint8_t)(a.r + ((b.r - a.r) * t256 >> 8)), (uint8_t)(a.g + ((b.g - a.g) * t256 >> 8)), (uint8_t)(a.b + ((b.b - a.b) * t256 >> 8))};
+}
 
 // Whether a key's role is in its active state now (see led_roles.h).
 static bool key_active(const app_t *app, control_id_t ctl, key_fn_t f) {
@@ -48,6 +53,11 @@ void key_leds_update(const app_t *app, bool input_event, uint32_t now_ms) {
                 const pad_t *p = &app->pads.pad[app->ui.pad_bank * PADS_PER_BANK + (f.arg & 15)];
                 if (pad_empty(p)) { leds_set(ctl, (led_color_t){0, 0, 0}); continue; }
                 if (p->mute && !key_active(app, ctl, f)) { leds_set(ctl, led_role_rgb(LR_BACK, false)); continue; }
+                if (p->mute) {                               // muted but sounding (user, 2026-10-10): a smooth pulse red <-> the pad colour
+                    const int ph = (int)(now_ms % MUTE_PULSE_MS) * 512 / MUTE_PULSE_MS;     // 0..511: up, then down
+                    leds_set(ctl, mix(led_role_rgb(LR_BACK, true), led_role_rgb(LR_PAD, true), ph < 256 ? ph : 511 - ph));
+                    continue;
+                }
             }
             leds_set(ctl, led_role_rgb(role, key_active(app, ctl, f)));
         }

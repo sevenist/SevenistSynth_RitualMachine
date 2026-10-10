@@ -64,6 +64,10 @@ static bool pad_adjust(const ui_ctx_t *c, int dir) {
 
 static const char *pad_label_dyn(const ui_ctx_t *c) { return pad_param_label((pad_param_t)c->arg); }
 
+static void chop_refresh(synth_ui_t *ui);
+// The pad page's "Chop >" button (user, 2026-10-10: Page - / + was not found): the CHOP page; its Back comes back here.
+static void open_chop(const ui_ctx_t *c) { c->ui->pad_page = 1; c->ui->pad_row = 1; c->ui->pad_latched = false; chop_refresh(c->ui); }
+
 // The loop rows only while the pad loops (LStr for the Trim loop: a file loop has its own points).
 static bool en_loop(const ui_ctx_t *c) { return cur_pad(c)->loop != PAD_LOOP_OFF; }
 static bool en_trim_loop(const ui_ctx_t *c) { return cur_pad(c)->loop == PAD_LOOP_TRIM; }
@@ -81,6 +85,7 @@ static const el_def_t elements[] = {
     ROW(5, 1, 1, PADP_CUT, NULL), ROW(6, 1, 1, PADP_RES, NULL), ROW(7, 1, 1, PADP_CHOKE, NULL), ROW(8, 1, 1, PADP_MUTE, NULL),
     ROWH(9, 1, 1, PADP_FROM, en_from),
     ROW(10, 0, 1, PADP_NEXT, NULL),
+    {"Chop >", EL_BUTTON, 10, 1, 1, NULL, NULL, open_chop, NULL, NULL, NULL, 0, 0},
 };
 #undef ROW
 #undef ROWH
@@ -354,7 +359,12 @@ static bool grid_event(synth_ui_t *ui, ui_event_t e) {
 bool pads_ui_handle(synth_ui_t *ui, rack_t *rack, ui_event_t e) {
     if (!ui->pads) return false;
     if (!ui->pad_edit) return grid_event(ui, e);
-    if (e == UI_BACK) { ui->pad_edit = false; ui->pad_latched = false; return false; }
+    if (e == UI_BACK) {                                                           // CHOP -> the pad page -> the grid
+        if (ui->pad_page) { ui->pad_page = 0; ui->pad_row = 1; }
+        else ui->pad_edit = false;
+        ui->pad_latched = false;
+        return false;
+    }
     if (e == UI_ROW_TOP) { ui->pad_row = 0; ui->pad_latched = false; return false; }
     if (e == UI_PAGE_NEXT || e == UI_PAGE_PREV) {                                // Page: the pad's settings <-> CHOP
         ui->pad_page = (uint8_t)!ui->pad_page; ui->pad_row = 1; ui->pad_latched = false;
@@ -424,18 +434,22 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
     u8g2_DrawHLine(g, bar.x, gui_bottom(bar) - 1, bar.w);
     const bool head_focus = ui->pad_edit && ui->pad_row == 0;
     if (head_focus) { u8g2_DrawBox(g, header.x, header.y, header.w, header.h); u8g2_SetDrawColor(g, 0); }
-    if (ui->pad_edit) gui_draw_text_centered(g, header, t);
-    else {                                                   // the grid: "BANK A" on the left, the tempo and the position on the right
-        const int ty = gui_text_center(g, header, "B").y;
+    // the tempo at the top left on every Pads screen (user, 2026-10-10: to see the BPM keys act), the bar.beat at the right of the grid
+    const int ty = gui_text_center(g, header, "B").y;
+    char bt[8];
+    snprintf(bt, sizeof bt, "%d", bpm);
+    const int bw = u8g2_GetStrWidth(g, bt) + 4;
+    u8g2_DrawStr(g, header.x + 1, ty, bt);
+    u8g2_DrawVLine(g, header.x + bw - 2, header.y + 2, header.h - 4);
+    if (ui->pad_edit) gui_draw_text_centered(g, gui_rect(header.x + bw, header.y, header.w - bw, header.h), t);
+    else {                                                   // the grid: "BANK A", then the position at the right
         snprintf(t, sizeof t, "BANK %c", 'A' + ui->pad_bank);
-        u8g2_DrawStr(g, header.x + 2, ty, t);
+        u8g2_DrawStr(g, header.x + bw + 2, ty, t);
         int bar_n = 0, beat = 0, frac = 0;
         const bool run = audio_transport(&bar_n, &beat, &frac);
         char pos[24];
         if (run) snprintf(pos, sizeof pos, "%d.%d", bar_n > 99 ? 99 : bar_n, beat); else snprintf(pos, sizeof pos, "--");
-        snprintf(t, sizeof t, "%d", bpm);
         const int pw = u8g2_GetStrWidth(g, pos), px = header.x + header.w - 2 - pw;
-        u8g2_DrawStr(g, px - 4 - u8g2_GetStrWidth(g, t), ty, t);
         if (run && frac < 64) { u8g2_DrawBox(g, px - 1, header.y + 2, pw + 2, header.h - 4); u8g2_SetDrawColor(g, 0); }   // the beat flashes
         u8g2_DrawStr(g, px, ty, pos);
         u8g2_SetDrawColor(g, 1);

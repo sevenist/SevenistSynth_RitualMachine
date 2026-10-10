@@ -11,6 +11,11 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
 Order: the Pads section first (user, 2026-10-09), the rest as chosen by Claude earlier (user: "I let you choose the order"). The user has made no sound design yet: **no saved patch or data to keep, old
 patches can be deleted, no migration code** (user, 2026-10-09). The rest of the workflow plan: "Next: the production workflow" below.
 
+- [ ] **Board test of 2026-10-10 (user, test list items 1-17)**: OK: section switch, grid, editor, layout, modes, mixing, knobs, loops
+  (Off / Trim / File, crossfade), pads.cfg after reboot, Next. Fixed after it: BPM at the top left of the Pads header, the Stop key's popup,
+  a muted pad that sounds pulses red <-> its colour, a "Chop >" button (Page - / + was not found). Open: voice steal and streaming not
+  tested; Play LED (F4) flash on the beat to recheck with the clock running; "quantized capabilities" for the knobs and "the clock should
+  start at the sample loop point for looped samples" to clarify; items 18-38 of the list not reported yet (from: user)
 - [ ] **Pads step 1: on the board** (tried by the user in the simulator 2026-10-10: "all fine"): BUILT 2026-10-10 (ADR-041 "Phase 5, step 1 as built"; 7 engine
   tests in the 6 configurations, 77 UI tests, simulator + firmware built; NOT tried by the user, NOT flashed, NOT measured). See "Pads
   section, step 1" below for how to try it and its limits. On the board: measure 8 pad voices (streamed vs whole), PSRAM after the switch (from: user)

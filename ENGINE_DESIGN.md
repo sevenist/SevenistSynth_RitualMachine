@@ -780,6 +780,37 @@ offered):
   (the loader follows the playback path): at 96 kHz, where the 2 s test file streams, Post left a 1944 step (still far below 12107). The
   editor has 19 rows (8 px, the loop rows only while it loops); `ui_screen.c` MAX_ELEMENTS 16 -> 24.
 
+**Sample tools, design round (user, 2026-10-10; options offered):**
+34. **Chop modes: all four**: equal slices (N), on transients (onset detection, a sensitivity), on the beat grid (N beats / steps at a
+   BPM), manual markers (drop cuts while it plays, move them; also edits what the automatic modes found).
+35. **Slices go onto consecutive pads**: slice k = the pad after the selected one + k, start / end in the SAME file (no card write).
+36. **Processing: all four groups**: Level & cleanup (normalize, gain, fades, trim silence, DC, reverse, mono), Time & pitch (stretch
+   WSOLA / phase vocoder, pitch shift, fit to N beats: offline, decision 33), Texture (paulstretch, granular freeze / smear, reverse
+   reverb), Color / lo-fi (resample / decimate, bit crush, tape / saturation, filter, print a pad's settings).
+37. **A version history per sample on the card**: every processing writes a child version (the original is the root; undo = the parent;
+   processing an older version = a branch). **Trimming, automatic**: kept = the original, every version a pad uses, and the last K (8)
+   versions per sample; the others are deleted when a new one is written; a version whose parent goes re-links to its nearest kept
+   ancestor.
+38. **Order**: chop (no card writes) -> render-to-card + the history tree (shared with capture, phase 4) -> Level & cleanup -> Time &
+   pitch -> Texture -> Color.
+39. **Next** (user, 2026-10-10): a pad setting Off / Up / Down / Left / Right = the neighbour on the bank's 4 x 4 grid that starts when
+   the pad ends by itself or is stopped by hand (a toggle pushed again; my reading: a gate released too), not on Stop all or Play / Stop
+   (none past the grid's edge; a grid pad waits for its beat as when pushed).
+
+**Sample tools step 1 (chop) + Next, as built (2026-10-10; 14 pad engine tests in the 6 configurations, 84 UI tests, sim + firmware
+built; NOT tried by the user, NOT flashed):**
+- **Onset scan** in the SampleBank's loader (`SampleBank::scan / onsets`, `engine_synth_sample_onsets`, HAL `audio_sample_onsets`): one
+  block per pump at the lowest priority (after headers, heads and the streams; resident blocks from memory), the rise of the log energy
+  over 256-frame windows, candidates over 3 dB, the strongest within 40 ms, the 64 strongest kept per file (bulk heap). Measured on 4 noise
+  hits at 0.1 / 0.35 / 0.6 / 0.85 s (one at -24 dB): all 4 found, about 4 ms early (the window start: the cut keeps the attack).
+- **CHOP page** of the pad editor (Page - / + = the pad's settings <-> CHOP): Mode Equal (N 2..16) / Trans (Sens: 30 dB .. 3 dB rises)
+  / Grid (1/16 .. a bar at the clock's tempo) / Manual (the selected cut), Pos (moves the selected cut, 1/400 of the file), To (the
+  first target pad), Add (at the playhead while the pad sounds, `audio_pad_position`; else in the middle of the selected slice), Del,
+  Chop to pads (asks; the slices replace the pads To.. : copies of the source pad, the same file, their start / end, no loop, no Next).
+  Pos / Add / Del on an automatic chop turn it into Manual with its cuts. Cuts at least 64 frames apart; 16 slices at most.
+- **Next**: `PadBlob.next` (engine_synth finds the neighbour), started after a natural end, a toggle off or a gate release; the Pads
+  module publishes each pad's position (`pads_position`). The pad page has 20 rows now (overview 16 px).
+
 ## Known limits and ideas for later
 
 - Not hooked to the UI yet: the **Sampler** and **Granular** modules and the sample bank (stage 6 is engine-level and

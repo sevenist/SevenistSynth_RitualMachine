@@ -43,6 +43,7 @@ void app_init(app_t *app, u8g2_t *display) {
     pads_init(&app->pads);
     pads_load(&app->pads);              // pads.cfg (the board's card shows up later: check_sd)
     app->ui.pads = &app->pads;
+    app->ui.chop_pad = -1;                  // no chop yet
     app->section = SECTION_SYNTH;
     app->pads_pending = false;
     app->pads_shown = 0;
@@ -83,9 +84,41 @@ static void pad_changed(app_t *app, int pad) {
 }
 
 // One UI event in the Pads section (scr_pads.c).
+static void chop_ask(app_t *app);
+
 static void pads_event(app_t *app, ui_event_t ev) {
+    app->ui.clock_bpm = app->seq.bpm;
     if (pads_ui_handle(&app->ui, &app->rack, ev)) pad_changed(app, pads_ui_pad(&app->ui));
+    if (app->ui.pad_chop_req) { app->ui.pad_chop_req = false; chop_ask(app); }
     app->dirty = true;
+}
+
+// Chop to pads (CHOP page): the slices replace the pads they go to, so the app asks first.
+static void chop_answer(void *ctx, bool yes) {
+    app_t *app = (app_t *)ctx;
+    if (!yes) return;
+    const int src = app->ui.chop_pad;
+    audio_sample_info_t in;
+    uint32_t frames = 0;
+    for (int i = 0; i < audio_sample_count(); i++)
+        if (audio_sample_info(i, &in) && !strcmp(in.name, app->pads.pad[src].file)) { frames = in.frames; break; }
+    const int n = pad_chop_apply(&app->pads, src, &app->ui.chop, frames);
+    for (int k = 0; k < n; k++) pad_changed(app, app->ui.chop.to + k);
+    char t[32], a[8];
+    pad_label(app->ui.chop.to, a, sizeof a);
+    snprintf(t, sizeof t, "%d slices from %s", n, a);
+    popup_info(&app->popup, "CHOP", t, 0, audio_millis(), POPUP_INFO_MS);
+}
+
+static void chop_ask(app_t *app) {
+    const pad_chop_t *c = &app->ui.chop;
+    char t[POPUP_TEXT_LEN], a[8], b[8];
+    int last = c->to + c->n_cuts;
+    if (last >= PAD_COUNT) last = PAD_COUNT - 1;
+    pad_label(c->to, a, sizeof a);
+    pad_label(last, b, sizeof b);
+    snprintf(t, sizeof t, "%d slices to %s..%s? Those pads are replaced.", last - c->to + 1, a, b);
+    popup_ask(&app->popup, "CHOP", t, false, chop_answer, app);
 }
 
 // Gives the UI one event; pushes the sound to the audio side when a value changed.
@@ -863,6 +896,8 @@ bool app_step(app_t *app, input_event_t e) {
     settings_autosave(app, now);
     pads_autosave(app, now);
     if (in_pads(app)) {                                                  // the grid shows which pads sound: redraw when that changes
+        app->ui.clock_bpm = app->seq.bpm;
+        if (pads_ui_tick(&app->ui)) app->dirty = true;                       // a transient scan finished
         const uint64_t pm = audio_pads_playing();
         if (pm != app->pads_shown) { app->pads_shown = pm; app->dirty = true; }
         int bar = 0, beat = 0, frac = 0;

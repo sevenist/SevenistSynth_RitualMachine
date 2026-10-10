@@ -299,3 +299,69 @@ TEST(pads_loop_rows_show_while_the_pad_loops) {
     ev_turn(CTL_ENC_B, 1);
     CHECK_EQ(ui_app.pads.pad[0].from, 1);
 }
+
+
+TEST(pads_chop_equal_grid_transient_manual_and_apply) {
+    ui_fresh();
+    snprintf(ui_app.pads.pad[0].file, PAD_NAME_MAX, "demo0");               // 96000 frames at 48 kHz
+    ui_app.pads.pad[0].level = 55;
+    shift_menu();
+    ev_tap(CTL_JOY_SW);                                                  // the editor of A1
+    ev_press(SHIFT); ev_turn(CTL_ENC_A, 1); ev_release(SHIFT);           // Shift + encoder A = Page: CHOP
+    CHECK_EQ(ui_app.ui.pad_page, 1);
+    CHECK_EQ(ui_app.ui.chop.mode, CHOP_EQUAL);
+    CHECK_EQ(ui_app.ui.chop.n_cuts, 3);                                  // Equal 4: 3 cuts
+    CHECK_EQ(ui_app.ui.chop.cut[0], 24000);
+    ui_app.ui.pad_row = 2;                                               // N: 8 slices
+    ev_turn(CTL_ENC_B, 4);
+    CHECK_EQ(ui_app.ui.chop.n_cuts, 7);
+    ui_app.ui.pad_row = 1;                                               // Mode: Transients (the stub's scan: 2 strong, 2 faint)
+    ev_turn(CTL_ENC_B, 1);
+    CHECK_EQ(ui_app.ui.chop.mode, CHOP_TRANSIENT);
+    CHECK_EQ(ui_app.ui.chop.n_cuts, 2);
+    CHECK(ui_app.ui.chop.cut[0] == 12000 && ui_app.ui.chop.cut[1] == 48000);
+    ui_app.ui.pad_row = 2;                                               // more sensitive: the faint ones too
+    ev_turn(CTL_ENC_B, 10);
+    CHECK_EQ(ui_app.ui.chop.n_cuts, 4);
+    ui_app.ui.pad_row = 1;                                               // Grid at 120 BPM, 1/4: a cut every 24000 frames
+    ev_turn(CTL_ENC_B, 1);
+    ui_app.seq.bpm = 120;
+    ui_app.ui.pad_row = 2;
+    ev_turn(CTL_ENC_B, 0);
+    ev_turn(CTL_ENC_B, 1); ev_turn(CTL_ENC_B, -1);
+    CHECK_EQ(ui_app.ui.chop.mode, CHOP_GRID);
+    CHECK_EQ(ui_app.ui.chop.n_cuts, 3);
+    CHECK_EQ(ui_app.ui.chop.cut[1], 48000);
+    ui_app.ui.pad_row = 6;                                               // Del: becomes Manual, the selected (first) cut goes
+    ev_tap(CTL_JOY_SW);
+    CHECK_EQ(ui_app.ui.chop.mode, CHOP_MANUAL);
+    CHECK_EQ(ui_app.ui.chop.n_cuts, 2);
+    ui_app.ui.pad_row = 3;                                               // Pos: move it 2 steps of 1/400 of the file to the right
+    ev_turn(CTL_ENC_B, 2);
+    CHECK_EQ(ui_app.ui.chop.cut[0], 48000 + 480);
+    ui_app.ui.pad_row = 7;                                               // Chop to pads: asks, then A2.. get the slices
+    ev_tap(CTL_JOY_SW);
+    CHECK(popup_modal(&ui_app.popup));
+    const int sets = ui_stub_pad_sets;
+    ev_tap(CTL_JOY_LEFT);                                                // the joystick moves to Yes (No is the default) ...
+    ev_tap(CTL_JOY_SW);                                                  // ... and answers
+    CHECK(!popup_modal(&ui_app.popup));
+    CHECK_EQ(ui_stub_pad_sets, sets + 3);
+    const pad_t *s1 = &ui_app.pads.pad[1], *s3 = &ui_app.pads.pad[3];
+    CHECK_STR(s1->file, "demo0");
+    CHECK(s1->start == 0 && s1->end == 48480);
+    CHECK(s3->start == 72000 && s3->end == 0);                           // the last slice runs to the file's end
+    CHECK_EQ(s1->level, 55);                                             // the source pad's settings
+}
+
+TEST(pads_next_setting_and_file) {
+    ui_fresh();
+    shift_menu();
+    ev_tap(CTL_JOY_SW);
+    ui_app.ui.pad_row = 20;                                              // Next (the last row of the left column)
+    ev_turn(CTL_ENC_B, 4);
+    CHECK_EQ(ui_app.pads.pad[0].next, PAD_NEXT_RIGHT);
+    static char txt[STORAGE_FILE_MAX];
+    pads_to_text(&ui_app.pads, txt, sizeof txt);
+    CHECK(strstr(txt, "pad A1 next right") != NULL);
+}

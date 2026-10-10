@@ -19,8 +19,11 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
   row 3 = Tap, Click, BPM -1, BPM +1 (from: user)
 - [ ] **Pads loop crossfade, loop start, launch from, tail on the overview: try it**: BUILT 2026-10-10 (ADR-041 decisions 30-32; 12 pad
   engine tests in the 6 configurations, 82 UI tests, sim + firmware built; NOT tried, NOT flashed) (from: user)
-- [ ] **Sample tools (next, before FX; design round first)**: chopping, stretching, tempo matching (fit to N beats, offline only),
-  offline processing (normalize, stretch, paulstretch, more). Needs writing .smp files to the card (capture needs it too) (from: user)
+- [ ] **Chop (sample tools 1) + Next: try it**: BUILT 2026-10-10 (ADR-041 decision 39 + "Sample tools step 1"; NOT tried, NOT flashed):
+  in the pad editor Page - / + (Shift + encoder A) = CHOP; the pad row Next (from: user)
+- [ ] **Sample tools (next, before FX)**: design round done (ADR-041 decisions 33-38). Order: (1) chop (built 2026-10-10);
+  (2) render-to-card + version history tree (auto trim: original + used + last 8); (3) Level & cleanup; (4) Time & pitch (fit to N beats
+  offline); (5) Texture (paulstretch, freeze / smear, reverse reverb); (6) Color / lo-fi (from: user)
 - [ ] **Pads steps 3-5**: FXA-C, live synth (design round), song mode + backtrack (design round); "Next: the production workflow" (from: user)
 - [ ] **Confirm: the full synth stops in the Pads section** (my reading of ADR-041 decision 22) (from: notes)
 - [ ] **Joystick swap: try it**: a push on an already bound parameter swaps X and Y, each keeps its range / curve (built 2026-10-09, 71 UI

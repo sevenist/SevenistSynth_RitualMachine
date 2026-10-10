@@ -53,6 +53,16 @@ void audio_pad_push(int pad) { ui_stub_pad_pushes++; ui_stub_last_pad = pad; if 
 void audio_pad_release(int pad) { ui_stub_pad_releases++; if (pad >= 0 && pad < 64) stub_playing &= ~(1ull << pad); }
 void audio_pads_stop(void) { ui_stub_pads_stops++; stub_playing = 0; }
 uint64_t audio_pads_playing(void) { return stub_playing; }
+int32_t audio_pad_position(int pad) { (void)pad; return -1; }
+// the transient scan of a demo file: 4 attacks, two strong (60 % of the way at sensitivity 50) and two faint
+int audio_sample_onsets(int index, uint32_t *frames, uint16_t *strength, int max) {
+    static const uint32_t f[4] = {12000, 30000, 48000, 72000};
+    static const uint16_t s[4] = {2500, 400, 2000, 600};
+    if (index < 0 || index > 2) return 0;
+    int n = 0;
+    for (; n < 4 && n < max; n++) { frames[n] = f[n]; strength[n] = s[n]; }
+    return n;
+}
 uint32_t audio_millis(void) { static uint32_t t; return t += 10; }
 void audio_update(void) {}
 bool input_key_present(int row, int col) { return row > 0 || col < 4; }      // the first prototype: 4 function keys, 4 x 8 note keys

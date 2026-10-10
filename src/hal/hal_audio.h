@@ -42,6 +42,10 @@ void     audio_pad_push(int pad);
 void     audio_pad_release(int pad);
 void     audio_pads_stop(void);
 uint64_t audio_pads_playing(void);       // bit i = pad i sounds now
+int32_t  audio_pad_position(int pad);    // where a pad's sound is in its file (frames), -1 when it does not sound
+// The attacks of a library file (frame, strength = log10 of the energy rise x 1000) for the transient chop: the first call starts a scan
+// of the file; -1 while it runs (call again), else how many were copied (0: none / not there).
+int audio_sample_onsets(int index, uint32_t *frames, uint16_t *strength, int max);
 
 // The sample library (.smp files on the TF card / in the simulator's samples/ folder; .wav and .mp3 are listed too and converted on first use). Index 0.. in a stable order that
 // only grows while the program runs (a rescan appends); the rack refers to a file by index + 1 (0 = none).

@@ -1,4 +1,5 @@
 #include "engine/sampler/sample_bank.h"
+#include <cmath>
 #include <cstring>
 
 namespace sc {
@@ -46,6 +47,8 @@ bool SampleBank::init(StorageDevice &dev, Memory &mem) {
 
 void SampleBank::shutdown() {
     for (auto &s : slot_) { free_heads(s); s = SampleSlot{}; }
+    if (scan_buf_) { mem_.bulk->free(scan_buf_); scan_buf_ = nullptr; }
+    scan_slot_ = -1; scan_busy_ = false;
     // the loader's state too: a read still in flight on the old device would keep its job (and the queue "full") in the next bank
     for (auto &j : jobs_) j = Job{};
     jobs_in_flight_ = 0;
@@ -58,6 +61,8 @@ void SampleBank::free_heads(SampleSlot &s) {
     for (int i = 0; i < s.n_heads; i++) { mem_.bulk->free(s.head[i].data); s.head[i].data = nullptr; }
     s.n_heads = 0;
     if (s.hdr_tmp) { mem_.fast->free(s.hdr_tmp); s.hdr_tmp = nullptr; }
+    if (s.onsets) { mem_.bulk->free(s.onsets); s.onsets = nullptr; }
+    s.n_onsets = -1;
 }
 
 int SampleBank::alloc_job() {
@@ -171,6 +176,12 @@ void SampleBank::complete(const IoDone &d) {
         if (--s.pending == 0) finish_slot_heads(s);
         break;
     }
+    case J_SCAN:
+        scan_busy_ = false;
+        if (j.slot != scan_slot_) break;
+        if (d.ok) { scan_feed(scan_buf_, kSmpBlockFrames); scan_blk_++; }
+        else scan_finish();                                                          // a read failed: what was found so far
+        break;
     case J_BLOCK: {
         Stream *st = streams_[j.stream];
         if (!st) break;
@@ -308,11 +319,109 @@ void SampleBank::issue_streams(uint64_t now_us) {
     }
 }
 
+/* ---------------- the onset scan ---------------- */
+
+void SampleBank::scan(int id) {
+    if (id < 0 || id >= kMaxSamples || slot_[id].state == SLOT_FREE) return;
+    SampleSlot &s = slot_[id];
+    if (s.n_onsets < 0 && id != scan_slot_) s.scan_want = true;
+}
+
+int SampleBank::onsets(int id, Onset *out, int max) const {
+    if (id < 0 || id >= kMaxSamples) return 0;
+    const SampleSlot &s = slot_[id];
+    if (s.state == SLOT_FAILED) return 0;
+    if (s.n_onsets < 0) return -1;
+    const int n = s.n_onsets < max ? s.n_onsets : max;
+    for (int i = 0; i < n; i++) out[i] = s.onsets[i];
+    return n;
+}
+
+// The detection function: the rise of the log energy from one 256-frame window to the next. A rise of more than 3 dB is a candidate; of
+// the candidates closer than 40 ms only the strongest stays; the kMaxOnsets strongest are kept.
+void SampleBank::scan_feed(const q15 *data, uint32_t frames) {
+    constexpr uint32_t kHop = 256;
+    const uint32_t gap = slot_[scan_slot_].h.sample_rate / 25;                       // 40 ms
+    auto keep = [&](const Onset &o) {
+        if (scan_count_ < kMaxOnsets) { scan_found_[scan_count_++] = o; return; }
+        int weakest = 0;
+        for (int i = 1; i < kMaxOnsets; i++) if (scan_found_[i].strength < scan_found_[weakest].strength) weakest = i;
+        if (o.strength > scan_found_[weakest].strength) scan_found_[weakest] = o;
+    };
+    for (uint32_t i = 0; i < frames; i++) {
+        scan_acc_ += static_cast<int32_t>(data[i]) * data[i];
+        if (++scan_n_ < kHop) continue;
+        const float le = std::log10(static_cast<float>(scan_acc_) / kHop + 1.0f);
+        const float rise = le - scan_prev_;
+        scan_prev_ = le;
+        if (rise > 0.3f) {
+            const Onset o{scan_frame_, static_cast<uint16_t>(rise * 1000.0f > 65535.0f ? 65535.0f : rise * 1000.0f)};
+            if (scan_pend_.strength && o.frame - scan_pend_.frame < gap) { if (o.strength > scan_pend_.strength) scan_pend_ = o; }
+            else { if (scan_pend_.strength) keep(scan_pend_); scan_pend_ = o; }
+        }
+        scan_acc_ = 0; scan_n_ = 0; scan_frame_ += kHop;
+    }
+}
+
+void SampleBank::scan_finish() {
+    SampleSlot &s = slot_[scan_slot_];
+    if (scan_pend_.strength) {                                                       // the last candidate
+        if (scan_count_ < kMaxOnsets) scan_found_[scan_count_++] = scan_pend_;
+        scan_pend_ = Onset{};
+    }
+    for (int i = 1; i < scan_count_; i++)                                            // by frame
+        for (int k = i; k > 0 && scan_found_[k].frame < scan_found_[k - 1].frame; k--) {
+            const Onset t = scan_found_[k]; scan_found_[k] = scan_found_[k - 1]; scan_found_[k - 1] = t;
+        }
+    s.onsets = scan_count_ ? static_cast<Onset *>(mem_.bulk->alloc(sizeof(Onset) * static_cast<size_t>(scan_count_))) : nullptr;
+    const int n = s.onsets ? scan_count_ : 0;
+    for (int i = 0; i < n; i++) s.onsets[i] = scan_found_[i];
+    s.n_onsets = static_cast<int16_t>(n);
+    scan_slot_ = -1;
+}
+
+// One step of the scan when the streams leave room: blocks held in memory (heads) at once, the others read from the card.
+void SampleBank::issue_scan(uint64_t now_us) {
+    if (scan_busy_) return;
+    if (scan_slot_ < 0) {
+        for (int i = 0; i < kMaxSamples && scan_slot_ < 0; i++)
+            if (slot_[i].scan_want && slot_[i].state == SLOT_READY) {
+                slot_[i].scan_want = false;
+                scan_slot_ = i; scan_blk_ = 0; scan_acc_ = 0; scan_n_ = 0; scan_frame_ = 0; scan_prev_ = 0.0f; scan_pend_ = Onset{}; scan_count_ = 0;
+            }
+        if (scan_slot_ < 0) return;
+    }
+    const SampleSlot &s = slot_[scan_slot_];
+    const uint32_t nblocks = s.h.blocks();
+    for (int guard = 0; guard < 16; guard++) {                                       // at most 16 blocks from memory per pump
+        if (scan_blk_ >= nblocks) { scan_finish(); return; }
+        const uint32_t first = scan_blk_ * kSmpBlockFrames;
+        const uint32_t frames = s.h.frames - first < kSmpBlockFrames ? s.h.frames - first : kSmpBlockFrames;
+        const q15 *mem = nullptr;
+        for (int h = 0; h < s.n_heads && !mem; h++)
+            if (first >= s.head[h].start_frame && first + frames <= s.head[h].start_frame + s.head[h].frames) mem = s.head[h].data + (first - s.head[h].start_frame);
+        if (!mem) break;
+        scan_feed(mem, frames);
+        scan_blk_++;
+    }
+    if (scan_blk_ >= nblocks) { scan_finish(); return; }
+    if (jobs_in_flight_ >= kQueueDepth) return;                                     // the streams first
+    if (!scan_buf_) scan_buf_ = static_cast<q15 *>(mem_.bulk->alloc(kSmpBlockBytes));
+    const int jid = alloc_job();
+    if (!scan_buf_ || jid < 0) return;
+    IoRead r{s.file, (scan_blk_ + 1) * kSmpBlockBytes, kSmpBlockBytes, scan_buf_, static_cast<uint32_t>(jid)};
+    if (!dev_->submit(r, now_us)) return;
+    jobs_[jid] = Job{J_SCAN, static_cast<int16_t>(scan_slot_), 0, 0, 0, 0, scan_blk_, 0};
+    jobs_in_flight_++;
+    scan_busy_ = true;
+}
+
 void SampleBank::pump(uint64_t now_us) {
     IoDone d;
     while (dev_->poll(d, now_us)) complete(d);
     issue_admin(now_us);
     issue_streams(now_us);
+    issue_scan(now_us);
 }
 
 }  // namespace sc

@@ -401,3 +401,64 @@ TEST(pads_loop_start_crossfade_and_launch_from_the_loop) {
     std::printf("    grid launch from the loop start: 500 Hz %.2e, 300 Hz %.2e\n", power_at(head, 500.0), power_at(head, 300.0));
     CHECK(power_at(head, 500.0) > 100.0 * power_at(head, 300.0));
 }
+
+
+TEST(pads_next_starts_the_neighbour_when_a_pad_ends_or_is_stopped) {
+    PadsApp a;
+    a.add("short", sine(440.0, 0.3));
+    a.add("long", sine(330.0, 3.0));
+    pad_t &p0 = a.pad(0, "short");
+    p0.next = PAD_NEXT_RIGHT;                                                 // A1 -> A2 when it ends
+    pad_t &p1 = a.pad(1, "long");
+    p1.mode = PAD_TOGGLE; p1.next = PAD_NEXT_DOWN;                           // A2 -> A6 when it is toggled off
+    a.pad(5, "short");
+    pad_t &p3 = a.pad(3, "short");
+    p3.next = PAD_NEXT_RIGHT;                                                 // A4 is on the right edge: no neighbour
+    a.build();
+    engine_synth_pad_push(0);
+    a.run(0.2);
+    CHECK(engine_synth_pads_playing() == 1u);
+    a.run(0.2);                                                               // A1 ended at 0.3 s: A2 plays
+    CHECK(engine_synth_pads_playing() == 2u);
+    CHECK(engine_synth_pad_position(1) > 0);
+    engine_synth_pad_push(1);                                                 // toggled off by hand: A6 starts
+    a.run(0.1);
+    CHECK((engine_synth_pads_playing() & 0x20u) != 0);
+    a.run(0.5);
+    engine_synth_pad_push(1);                                                 // A2 again, then Stop all: no Next
+    a.run(0.1);
+    engine_synth_pads_stop();
+    a.run(0.2);
+    CHECK(engine_synth_pads_playing() == 0u);
+    engine_synth_pad_push(3);
+    a.run(0.5);
+    CHECK(engine_synth_pads_playing() == 0u);
+}
+
+TEST(pads_onset_scan_finds_the_attacks_of_a_drum_loop) {
+    PadsApp a;
+    // four hits (decaying noise bursts) at 0.1, 0.35, 0.6 and 0.85 s over silence; the third one faint
+    std::vector<int16_t> pcm(static_cast<size_t>(kSampleRate), 0);
+    uint32_t seed = 1;
+    const double at[4] = {0.1, 0.35, 0.6, 0.85}, amp[4] = {0.8, 0.8, 0.05, 0.8};
+    for (int h = 0; h < 4; h++)
+        for (int i = 0; i < static_cast<int>(0.15 * kSampleRate); i++) {
+            seed = seed * 1664525u + 1013904223u;
+            const double noise = static_cast<double>(static_cast<int32_t>(seed) >> 16) / 32768.0;
+            pcm[static_cast<size_t>(at[h] * kSampleRate) + static_cast<size_t>(i)] = static_cast<int16_t>(32767.0 * amp[h] * noise * std::exp(-i / (0.03 * kSampleRate)));
+        }
+    a.add("drums", pcm);
+    a.build();
+    uint32_t f[64];
+    uint16_t s[64];
+    int n = -1;
+    for (int k = 0; k < 200 && n < 0; k++) { n = engine_synth_sample_onsets(0, f, s, 64); if (n < 0) a.run(0.01); }
+    std::printf("    onsets:");
+    for (int i = 0; i < n; i++) std::printf(" %.3f s (%d)", static_cast<double>(f[i]) / kSampleRate, s[i]);
+    std::printf("\n");
+    CHECK(n >= 4);
+    int found = 0;
+    for (int h = 0; h < 4; h++)
+        for (int i = 0; i < n; i++) if (std::fabs(static_cast<double>(f[i]) / kSampleRate - at[h]) < 0.012) { found++; break; }
+    CHECK_EQ(found, 4);
+}

@@ -36,6 +36,7 @@ public:
     // first frames, the wrap then lands after them). Capped at half the loop, and for Pre at the frames that exist before the loop start.
     void set_loop_extra(int32_t lstart, int32_t xfade, bool post) { lstart_ = lstart; xfade_ = xfade; xpost_ = post; }
     bool playing() const { return active_ || want_start_; }
+    uint32_t position() const { return static_cast<uint32_t>(pos_ >> 32); }
     bool init(Memory &m) override {
         bank_ = m.bank;
         if (!bank_) return true;                                           // no sampler service: the module stays silent
@@ -462,6 +463,7 @@ private:
 /* ------------------------------------------------------------------ Pads */
 
 std::atomic<uint64_t> g_pads_playing{0};
+std::atomic<int32_t> g_pads_pos[kPadCount];                                  // frame + 1 of each pad's sound, 0 = none
 
 class Pads : public Module {
 public:
@@ -499,7 +501,7 @@ public:
         if (idx == PADS_PUSH) push(pad);
         else if (idx == PADS_RELEASE && pads_[pad].mode == PADM_GATE) {
             if (want_[pad]) want_[pad] = 0;                                      // released before its beat: it does not start
-            else if (Voice *x = sounding(pad)) stop(*x, pads_[pad].tail);
+            else if (Voice *x = sounding(pad)) { stop(*x, pads_[pad].tail); follow(pad); }
         }
     }
     void set_blob(const void *data, size_t bytes) override {
@@ -516,6 +518,7 @@ public:
         int32_t acc_l[kBlock] = {}, acc_r[kBlock] = {};
         q15 buf[kBlock];
         uint64_t playing = 0;
+        int ended[kPadVoices], n_ended = 0;                                      // pads that reached their end: their Next starts after the loop
         Ports vp{};
         vp.in[0] = silence_;
         vp.out[0] = buf;
@@ -549,9 +552,16 @@ public:
             }
             v.gl = tl; v.gr = tr; v.env = env;
             if (env == 0 && v.env_step < 0) { free_voice(v); continue; }        // faded out
-            if (!v.smp->playing()) { free_voice(v); continue; }               // reached the end of its sample
-            if (!v.stopping) playing |= 1ull << v.pad;
+            if (!v.smp->playing()) {                                             // reached the end of its sample
+                if (!v.stopping) ended[n_ended++] = v.pad;
+                free_voice(v);
+                continue;
+            }
+            if (!v.stopping) { playing |= 1ull << v.pad; g_pads_pos[v.pad].store(static_cast<int32_t>(v.smp->position()) + 1, std::memory_order_relaxed); }
         }
+        for (int i = 0; i < n_ended; i++) follow(ended[i]);
+        for (int pad = 0; pad < kPadCount; pad++)
+            if (!((playing >> pad) & 1)) g_pads_pos[pad].store(0, std::memory_order_relaxed);
         for (int i = 0; i < n; i++) { p.out[0][i] = sat16(acc_l[i]); p.out[1][i] = sat16(acc_r[i]); }
         g_pads_playing.store(playing, std::memory_order_relaxed);
     }
@@ -577,12 +587,18 @@ private:
     void cut(Voice &v) { if (v.pad >= 0) { v.stopping = true; v.env_step = fade_step(kPadCutMs * kSampleRate / 1000); } }
     void stop(Voice &v, int32_t tail) { v.stopping = true; v.env_step = fade_step(tail > 32 ? tail : 32); }
 
+    // A pad ended by itself or was stopped by hand: its Next starts (as if pushed: a grid pad waits for its beat).
+    void follow(int pad) {
+        const int nx = pads_[pad].next;
+        if (nx >= 0 && nx < kPadCount && nx != pad) push(nx);
+    }
+
     void push(int pad) {
         const PadBlob &b = pads_[pad];
         if (b.slot < 0) return;
         if (b.grid) {
             if (want_[pad]) { if (b.mode == PADM_TOGGLE) want_[pad] = 0; return; }   // waiting: a toggle pushed again cancels, the others wait on
-            if (b.mode == PADM_TOGGLE) if (Voice *cur = sounding(pad)) { stop(*cur, b.tail); return; }
+            if (b.mode == PADM_TOGGLE) if (Voice *cur = sounding(pad)) { stop(*cur, b.tail); follow(pad); return; }
             want_[pad] = 1;                                                      // its beat is found at the next process() (the clock is there)
             return;
         }
@@ -608,7 +624,7 @@ private:
         const PadBlob &b = pads_[pad];
         if (b.slot < 0) return;
         if (Voice *cur = sounding(pad)) {
-            if (b.mode == PADM_TOGGLE) { stop(*cur, b.tail); return; }           // a toggle pad: the push stops it
+            if (b.mode == PADM_TOGGLE) { stop(*cur, b.tail); follow(pad); return; }   // a toggle pad: the push stops it (and starts its Next)
             cut(*cur);                                                           // mono: the new start replaces it
         }
         if (b.choke)
@@ -656,6 +672,7 @@ ModuleType type_of() { static T probe; return {&probe.info(), &create_module<T>}
 }  // namespace
 
 uint64_t pads_playing() { return g_pads_playing.load(std::memory_order_relaxed); }
+int32_t pads_position(int pad) { return pad >= 0 && pad < kPadCount ? g_pads_pos[pad].load(std::memory_order_relaxed) - 1 : -1; }
 
 void register_sampler_modules(Registry &r) {
     r.add(T_SAMPLER, type_of<Sampler>());

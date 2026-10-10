@@ -29,6 +29,9 @@ typedef enum { PAD_ONESHOT, PAD_GATE, PAD_TOGGLE, PAD_MODE_COUNT } pad_mode_t;
 typedef enum { PAD_LOOP_OFF, PAD_LOOP_TRIM, PAD_LOOP_FILE, PAD_LOOP_COUNT } pad_loop_t;
 // Start on grid (decision 24): with the clock running (Play) the pad waits for the next beat / bar; stopped, it starts at once.
 typedef enum { PAD_GRID_OFF, PAD_GRID_BEAT, PAD_GRID_BAR, PAD_GRID_COUNT } pad_grid_t;
+// Next (user, 2026-10-10): the neighbour on the bank's 4 x 4 grid that starts when this pad ends by itself or is stopped by hand (toggle
+// off, gate release); not on Stop all or Play / Stop. None past the grid's edge.
+typedef enum { PAD_NEXT_OFF, PAD_NEXT_UP, PAD_NEXT_DOWN, PAD_NEXT_LEFT, PAD_NEXT_RIGHT, PAD_NEXT_COUNT } pad_next_t;
 
 typedef struct {
     char     file[PAD_NAME_MAX];  // sample name without extension; "" = an empty pad
@@ -38,6 +41,7 @@ typedef struct {
     uint16_t xfade_ms;            // the loop crossfade (0 = a plain loop), equal-power, at most half the loop (the engine caps it)
     uint8_t  xpost;               // 0 Pre: the fade-in comes from before the loop start (and ends there); 1 Post: it starts at the loop start
     uint8_t  from;                // a grid launch starts at 0 the sample start, 1 the loop start (user, 2026-10-10)
+    uint8_t  next;                // pad_next_t
     uint8_t  mode;                // pad_mode_t: one-shot (plays to its end), gate (stops on release), toggle (a push starts, the next stops)
     uint8_t  loop;                // pad_loop_t: loops until stopped (Trim: start..end, File: the file's loop points)
     uint16_t tail_ms;             // fade-out after a stop (gate release, toggle off, Stop all)
@@ -56,7 +60,7 @@ typedef struct { pad_t pad[PAD_COUNT]; } pads_t;
 
 // The pad settings, in the order the pad editor shows them.
 typedef enum { PADP_FILE, PADP_MODE, PADP_START, PADP_END, PADP_LOOP, PADP_TAIL, PADP_TUNE, PADP_FINE, PADP_LEVEL, PADP_PAN,
-               PADP_CUT, PADP_RES, PADP_CHOKE, PADP_MUTE, PADP_GRID, PADP_LSTART, PADP_XFADE, PADP_XPOS, PADP_FROM, PADP_COUNT } pad_param_t;
+               PADP_CUT, PADP_RES, PADP_CHOKE, PADP_MUTE, PADP_GRID, PADP_LSTART, PADP_XFADE, PADP_XPOS, PADP_FROM, PADP_NEXT, PADP_COUNT } pad_param_t;
 
 void pad_default(pad_t *p);
 void pads_init(pads_t *ps);                                // every pad empty, default settings
@@ -75,6 +79,36 @@ bool pad_param_set_norm(pad_t *p, pad_param_t k, float x, uint32_t frames);
 uint32_t pad_end(const pad_t *p, uint32_t frames);
 uint32_t pad_lstart(const pad_t *p, uint32_t frames);
 float pad_cut_hz(const pad_t *p);                          // the cutoff in Hz (pad.cut 100: 0 = off)
+
+/* ---- chopping (ADR-041 decisions 34-35): cuts inside a pad's trim, then the slices onto consecutive pads (same file) ---- */
+#define PAD_CHOP_MAX 16                                    // slices
+typedef enum { CHOP_EQUAL, CHOP_TRANSIENT, CHOP_GRID, CHOP_MANUAL, CHOP_MODE_COUNT } chop_mode_t;
+#define CHOP_DIVS 5                                        // Grid: a slice every 1/16, 1/8, 1/4, 1/2 note or a bar (4/4)
+typedef struct {
+    uint8_t  mode;                                         // chop_mode_t
+    uint8_t  n;                                            // Equal: slices 2..PAD_CHOP_MAX
+    uint8_t  sens;                                         // Transients: 0..100 (100 = the faintest attacks too)
+    uint8_t  div;                                          // Grid: 0..CHOP_DIVS-1, at the clock's tempo
+    uint8_t  to;                                           // the first pad the slices go to (0..PAD_COUNT-1)
+    uint8_t  sel;                                          // Manual: the selected cut
+    uint8_t  n_cuts;
+    bool     pending;                                      // Transients: the file's scan is not done yet
+    uint32_t cut[PAD_CHOP_MAX - 1];                        // the cuts (frames), ascending, strictly inside start..end
+} pad_chop_t;
+
+void pad_chop_init(pad_chop_t *c, int pad);                // Equal 4, sensitivity 50, a 1/4 note grid, to the next pad
+const char *pad_chop_mode_name(int mode);                  // "Equal", "Trans", "Grid", "Manual"
+const char *pad_chop_div_name(int div);                    // "1/16" .. "Bar"
+// The cuts of an automatic mode for the trim start..end of a file at `rate`: Equal (n), Grid (div at bpm), Transients (the onsets of the
+// file's scan, frame + strength, filtered by the sensitivity; the strongest when there are too many). Manual keeps its cuts.
+void pad_chop_compute(pad_chop_t *c, uint32_t start, uint32_t end, uint32_t rate, int bpm, const uint32_t *on, const uint16_t *str, int n_on);
+// Manual: add a cut at `at` (selected), remove the selected one, move it by `delta` frames (between its neighbours). True when it changed.
+bool pad_chop_add(pad_chop_t *c, uint32_t at, uint32_t start, uint32_t end);
+bool pad_chop_del(pad_chop_t *c);
+bool pad_chop_move(pad_chop_t *c, int64_t delta, uint32_t start, uint32_t end);
+// Writes the slices onto pads c->to, c->to + 1 ...: each a copy of the source pad (the same file) with its start / end, no loop. Stops at
+// the last pad. Returns how many pads were written.
+int pad_chop_apply(pads_t *ps, int src, const pad_chop_t *c, uint32_t frames);
 
 // pads.cfg. pads_load() replaces the pads with the file (false: no card or no file, the pads are kept); pads_save() writes it.
 int  pads_to_text(const pads_t *ps, char *buf, int cap);  // the length written (cut at cap - 1: 64 pads with long names and many changed settings

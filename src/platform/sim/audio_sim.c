@@ -84,6 +84,8 @@ void audio_pad_push(int pad)                                     { engine_synth_
 void audio_pad_release(int pad)                                  { engine_synth_pad_release(pad); }
 void audio_pads_stop(void)                                       { engine_synth_pads_stop(); }
 uint64_t audio_pads_playing(void)                                { return engine_synth_pads_playing(); }
+int32_t audio_pad_position(int pad)                              { return engine_synth_pad_position(pad); }
+int audio_sample_onsets(int i, uint32_t *f, uint16_t *s, int max) { return engine_synth_sample_onsets(i, f, s, max); }
 uint32_t audio_millis(void)                                     { return dev ? engine_synth_millis() : SDL_GetTicks(); }   // no audio device: the sequencer still runs
 void audio_update(void)                                         {}
 #endif // PLATFORM_SIM

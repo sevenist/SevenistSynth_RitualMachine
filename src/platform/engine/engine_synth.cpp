@@ -186,6 +186,11 @@ PadBlob pad_blob(int idx, const pad_t &p) {
     b.loop = p.loop == PAD_LOOP_FILE ? 2 : p.loop == PAD_LOOP_TRIM ? 1 : 0;
     b.choke = p.choke;
     b.grid = p.grid;
+    if (p.next) {                                                               // a neighbour on the bank's 4 x 4 grid (none past an edge)
+        const int bank = idx / PADS_PER_BANK * PADS_PER_BANK, k = idx % PADS_PER_BANK, r = k / 4, c = k % 4;
+        const int nr = r + (p.next == PAD_NEXT_DOWN) - (p.next == PAD_NEXT_UP), nc = c + (p.next == PAD_NEXT_RIGHT) - (p.next == PAD_NEXT_LEFT);
+        if (nr >= 0 && nr < 4 && nc >= 0 && nc < 4) b.next = static_cast<int8_t>(bank + nr * 4 + nc);
+    }
     b.from = p.from;
     b.xpost = p.xpost;
     b.mute = p.mute ? 1 : 0;
@@ -417,6 +422,26 @@ void engine_synth_pad_push(int pad)    { if (pad >= 0 && pad < PAD_COUNT) pad_ev
 void engine_synth_pad_release(int pad) { if (pad >= 0 && pad < PAD_COUNT) pad_event(PADS_RELEASE, pad); }
 void engine_synth_pads_stop(void)      { pad_event(PADS_STOP, 0); }
 uint64_t engine_synth_pads_playing(void) { return s_ready && s_synth.pads_mode ? pads_playing() : 0; }
+int32_t engine_synth_pad_position(int pad) { return s_ready && s_synth.pads_mode ? pads_position(pad) : -1; }
+
+int engine_synth_sample_onsets(int index, uint32_t *frames, uint16_t *strength, int max) {
+    if (!s_ready) return 0;
+    Synth &s = s_synth;
+    std::lock_guard<std::mutex> lk(s.mx);
+    if (!s.bank_on || index < 0 || index >= s.cat_n || s.cat[index].pending) return 0;
+    if (s.slot_of[index] < 0) {                                                 // not loaded yet: load it (a head) to scan it
+        char path[40];
+        std::snprintf(path, sizeof path, "%s.smp", s.cat[index].name);
+        s.slot_of[index] = static_cast<int16_t>(s.bank.load(path, 150));
+        if (s.slot_of[index] < 0) return 0;
+    }
+    const int slot = s.slot_of[index];
+    Onset o[kMaxOnsets];
+    const int n = s.bank.onsets(slot, o, max < kMaxOnsets ? max : kMaxOnsets);
+    if (n < 0) { s.bank.scan(slot); return -1; }
+    for (int i = 0; i < n; i++) { frames[i] = o[i].frame; strength[i] = o[i].strength; }
+    return n;
+}
 
 void engine_synth_render(int16_t *stereo, int frames) {
     if (!s_ready) { std::memset(stereo, 0, static_cast<size_t>(frames) * 4); return; }

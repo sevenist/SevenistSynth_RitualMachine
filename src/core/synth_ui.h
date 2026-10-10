@@ -141,6 +141,11 @@ typedef struct {
     bool    pad_edit;
     int     pad_row;
     bool    pad_latched;
+    uint8_t pad_page;      // the editor's page: 0 the pad's settings, 1 CHOP (Page - / + switch)
+    pad_chop_t chop;       // CHOP: the cuts of pad chop_pad (another pad starts a new chop)
+    int     chop_pad;
+    bool    pad_chop_req;  // the Chop button was pushed: the app asks, then writes the slices (pad_chop_apply)
+    int     clock_bpm;     // the machine clock's tempo (the app sets it): the Grid chop
 } synth_ui_t;
 
 void synth_ui_init(synth_ui_t *ui, const rack_t *rack);
@@ -210,6 +215,8 @@ bool synth_ui_joy_axis(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_
 // shows the bank, the tempo and, while the clock runs, bar.beat (the beat inverted for its first quarter: audio_transport()).
 bool pads_ui_handle(synth_ui_t *ui, rack_t *rack, ui_event_t e);
 void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t playing, int bpm);
+// Call every step in the Pads section: true when the CHOP page got new cuts (a transient scan finished): redraw.
+bool pads_ui_tick(synth_ui_t *ui);
 static inline int pads_ui_pad(const synth_ui_t *ui) { return ui->pad_bank * PADS_PER_BANK + ui->pad_cur; }   // the selected pad, 0..PAD_COUNT-1
 
 // Jump slots (see jump_slot_t). save: the page / tab on screen goes into slot k. resolve: finds every slot's page again (called by

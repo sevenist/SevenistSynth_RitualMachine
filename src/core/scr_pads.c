@@ -3,6 +3,7 @@
 // that sounds is drawn inverted, the selected one has a double frame. The editor: the sample's overview with the trim across the top, then
 // the settings in two columns. The app (app.c) owns the pads, plays them and sends every change to the engine.
 #include "core/ui_screen.h"
+#include "core/fine_step.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -79,11 +80,12 @@ static const el_def_t elements[] = {
     ROW(1, 1, 1, PADP_LEVEL, NULL), ROW(2, 1, 1, PADP_PAN, NULL), ROW(3, 1, 1, PADP_TUNE, NULL), ROW(4, 1, 1, PADP_FINE, NULL),
     ROW(5, 1, 1, PADP_CUT, NULL), ROW(6, 1, 1, PADP_RES, NULL), ROW(7, 1, 1, PADP_CHOKE, NULL), ROW(8, 1, 1, PADP_MUTE, NULL),
     ROWH(9, 1, 1, PADP_FROM, en_from),
+    ROW(10, 0, 1, PADP_NEXT, NULL),
 };
 #undef ROW
 #undef ROWH
 #define N_ELEMENTS ((int)(sizeof elements / sizeof elements[0]))
-#define WAVE_H 24                                        // the sample overview across the top (3 grid rows)
+#define WAVE_H 16                                        // the sample overview across the top (2 grid rows)
 #define ROW_H  GUI_GRID                                  // 8 px rows, as on the module pages
 
 // The overview on top, the sample row across the width, then two columns of 8 px rows.
@@ -152,6 +154,184 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
 
 static const screen_def_t pads_screen = {elements, N_ELEMENTS, false, true, layout, NULL, NULL, draw_extra};
 
+/* ---------------- CHOP (ADR-041 decisions 34-35) ---------------- */
+
+static pad_chop_t *chop(const ui_ctx_t *c) { return &c->ui->chop; }
+
+// The cuts again from the pad's trim and the file (Manual keeps its own); a transient chop asks the file's scan (pending until it is done).
+static void chop_refresh(synth_ui_t *ui) {
+    const int pad = pads_ui_pad(ui);
+    if (ui->chop_pad != pad) { pad_chop_init(&ui->chop, pad); ui->chop_pad = pad; }
+    pad_chop_t *c = &ui->chop;
+    const pad_t *p = &ui->pads->pad[pad];
+    audio_sample_info_t in;
+    const int fi = file_index(p->file);
+    if (fi < 0 || !audio_sample_info(fi, &in) || in.pending || in.frames < 4) { if (c->mode != CHOP_MANUAL) c->n_cuts = 0; c->pending = false; return; }
+    uint32_t on[64];
+    uint16_t str[64];
+    const int n_on = c->mode == CHOP_TRANSIENT ? audio_sample_onsets(fi, on, str, 64) : 0;
+    pad_chop_compute(c, p->start, pad_end(p, in.frames), in.rate, ui->clock_bpm, on, str, n_on);
+}
+
+static bool chop_frames(const ui_ctx_t *c, audio_sample_info_t *in) {
+    const pad_t *p = cur_pad(c);
+    return file_info(p, in) && !in->pending && in->frames >= 4;
+}
+
+static void ch_mode_value(const ui_ctx_t *c, char *out, int n) { snprintf(out, (size_t)n, "%s", pad_chop_mode_name(chop(c)->mode)); }
+static bool ch_mode_adjust(const ui_ctx_t *c, int dir) {
+    pad_chop_t *ch = chop(c);
+    ch->mode = (uint8_t)((ch->mode + CHOP_MODE_COUNT + (dir > 0 ? 1 : -1)) % CHOP_MODE_COUNT);
+    chop_refresh(c->ui);
+    return false;
+}
+
+static const char *ch_amt_label(const ui_ctx_t *c) {
+    static const char *const l[CHOP_MODE_COUNT] = {"N", "Sens", "Div", "Cut"};
+    return l[chop(c)->mode % CHOP_MODE_COUNT];
+}
+static void ch_amt_value(const ui_ctx_t *c, char *out, int n) {
+    const pad_chop_t *ch = chop(c);
+    switch (ch->mode) {
+        case CHOP_EQUAL:     snprintf(out, (size_t)n, "%d", ch->n); break;
+        case CHOP_TRANSIENT: snprintf(out, (size_t)n, ch->pending ? "scan.." : "%d%%", ch->sens); break;
+        case CHOP_GRID:      snprintf(out, (size_t)n, "%s", pad_chop_div_name(ch->div)); break;
+        default:             if (ch->n_cuts) snprintf(out, (size_t)n, "%d/%d", ch->sel + 1, ch->n_cuts); else snprintf(out, (size_t)n, "--"); break;
+    }
+}
+static bool ch_amt_adjust(const ui_ctx_t *c, int dir) {
+    pad_chop_t *ch = chop(c);
+    const int d = dir > 0 ? 1 : -1;
+    switch (ch->mode) {
+        case CHOP_EQUAL:     ch->n = (uint8_t)(ch->n + d < 2 ? 2 : ch->n + d > PAD_CHOP_MAX ? PAD_CHOP_MAX : ch->n + d); break;
+        case CHOP_TRANSIENT: ch->sens = (uint8_t)(ch->sens + 5 * d < 0 ? 0 : ch->sens + 5 * d > 100 ? 100 : ch->sens + 5 * d); break;
+        case CHOP_GRID:      ch->div = (uint8_t)(ch->div + d < 0 ? 0 : ch->div + d >= CHOP_DIVS ? CHOP_DIVS - 1 : ch->div + d); break;
+        default:             if (ch->n_cuts) ch->sel = (uint8_t)((ch->sel + ch->n_cuts + d) % ch->n_cuts); break;
+    }
+    chop_refresh(c->ui);
+    return false;
+}
+
+// Pos / Add / Del edit the cuts by hand: an automatic chop becomes Manual with what it found.
+static void ch_pos_value(const ui_ctx_t *c, char *out, int n) {
+    const pad_chop_t *ch = chop(c);
+    audio_sample_info_t in;
+    if (!ch->n_cuts || !chop_frames(c, &in)) { snprintf(out, (size_t)n, "--"); return; }
+    const double s = (double)ch->cut[ch->sel < ch->n_cuts ? ch->sel : 0] / in.rate;
+    if (s < 1.0) snprintf(out, (size_t)n, "%dms", (int)(s * 1000.0 + 0.5)); else snprintf(out, (size_t)n, "%.3fs", s);
+}
+static bool ch_pos_adjust(const ui_ctx_t *c, int dir) {
+    pad_chop_t *ch = chop(c);
+    audio_sample_info_t in;
+    if (!ch->n_cuts || !chop_frames(c, &in)) return false;
+    ch->mode = CHOP_MANUAL;
+    const pad_t *p = cur_pad(c);
+    const int64_t step = g_fine_step ? (in.frames / 2000 ? in.frames / 2000 : 1) : (in.frames / 400 ? in.frames / 400 : 1);
+    pad_chop_move(ch, (dir > 0 ? 1 : -1) * step, p->start, pad_end(p, in.frames));
+    return false;
+}
+static bool en_cut(const ui_ctx_t *c) { return chop(c)->n_cuts > 0; }
+
+static void ch_to_value(const ui_ctx_t *c, char *out, int n) {
+    const pad_chop_t *ch = chop(c);
+    char a[8], b[8];
+    int last = ch->to + ch->n_cuts;
+    if (last >= PAD_COUNT) last = PAD_COUNT - 1;
+    pad_label(ch->to, a, sizeof a);
+    pad_label(last, b, sizeof b);
+    snprintf(out, (size_t)n, "%s-%s", a, b);
+}
+static bool ch_to_adjust(const ui_ctx_t *c, int dir) {
+    pad_chop_t *ch = chop(c);
+    const int t = ch->to + (dir > 0 ? 1 : -1);
+    ch->to = (uint8_t)(t < 0 ? 0 : t >= PAD_COUNT ? PAD_COUNT - 1 : t);
+    return false;
+}
+
+static void ch_add(const ui_ctx_t *c) {
+    pad_chop_t *ch = chop(c);
+    audio_sample_info_t in;
+    if (!chop_frames(c, &in)) return;
+    const pad_t *p = cur_pad(c);
+    const uint32_t start = p->start, end = pad_end(p, in.frames);
+    const int32_t at_play = audio_pad_position(pads_ui_pad(c->ui));                 // while it sounds: where it is (a cut dropped on the beat)
+    uint32_t at;
+    if (at_play >= 0) at = (uint32_t)at_play;
+    else {                                                                          // else the middle of the selected cut's slice
+        const int i = ch->n_cuts ? (ch->sel < ch->n_cuts ? ch->sel : ch->n_cuts - 1) : -1;
+        const uint32_t lo = i >= 0 ? ch->cut[i] : start, hi = i >= 0 && i + 1 < ch->n_cuts ? ch->cut[i + 1] : end;
+        at = lo + (hi - lo) / 2;
+    }
+    ch->mode = CHOP_MANUAL;
+    pad_chop_add(ch, at, start, end);
+}
+static void ch_del(const ui_ctx_t *c) { chop(c)->mode = CHOP_MANUAL; pad_chop_del(chop(c)); }
+static void ch_chop(const ui_ctx_t *c) { if (chop_frames(c, &(audio_sample_info_t){0})) c->ui->pad_chop_req = true; }
+
+static const el_def_t chop_elements[] = {
+    {"Mode", EL_VALUE,  0, 0, 1, ch_mode_value, ch_mode_adjust, NULL, NULL, NULL, NULL, 0, 0},
+    {"",     EL_VALUE,  0, 1, 1, ch_amt_value, ch_amt_adjust, NULL, NULL, NULL, ch_amt_label, 0, 0},
+    {"Pos",  EL_VALUE,  1, 0, 1, ch_pos_value, ch_pos_adjust, NULL, NULL, en_cut, NULL, 0, 0},
+    {"To",   EL_VALUE,  1, 1, 1, ch_to_value, ch_to_adjust, NULL, NULL, NULL, NULL, 0, 0},
+    {"Add",  EL_BUTTON, 2, 0, 1, NULL, NULL, ch_add, NULL, NULL, NULL, 0, 0},
+    {"Del",  EL_BUTTON, 2, 1, 1, NULL, NULL, ch_del, NULL, en_cut, NULL, 0, 0},
+    {"Chop to pads", EL_BUTTON, 3, 0, 2, NULL, NULL, ch_chop, NULL, NULL, NULL, 0, 0},
+};
+#define N_CHOP ((int)(sizeof chop_elements / sizeof chop_elements[0]))
+#define CHOP_WAVE_H 40
+
+static void chop_layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, gui_rect_t *rect) {
+    (void)g; (void)st; (void)c;
+    const int y0 = area.y + CHOP_WAVE_H + 4, half = area.w / 2, rh = 12;
+    for (int i = 0; i < N_CHOP; i++) {
+        const el_def_t *e = &chop_elements[i];
+        rect[i] = gui_rect(area.x + e->col * half, y0 + e->row * rh, e->span * half - 1, rh - 1);
+    }
+}
+
+// The overview with the trim and the cuts (the selected one solid, the others dotted), and how many slices.
+static void chop_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, const gui_rect_t *rect) {
+    (void)st; (void)rect;
+    const gui_rect_t box = gui_rect(area.x, area.y + 1, area.w, CHOP_WAVE_H);
+    const pad_t *p = cur_pad(c);
+    const pad_chop_t *ch = chop(c);
+    audio_sample_info_t in;
+    if (!chop_frames(c, &in)) {
+        u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
+        gui_draw_text_centered(g, box, !p->file[0] ? "empty pad" : "no sample");
+        return;
+    }
+    const int mid = box.y + box.h / 2, amp = box.h / 2 - 1;
+    const uint32_t end = pad_end(p, in.frames);
+    const int xs = x_of(box, p->start, in.frames), xe = x_of(box, end, in.frames);
+    for (int x = 0; x < box.w; x++) {
+        const int px = box.x + x;
+        if ((px < xs || px > xe) && (x & 1)) continue;
+        const int h = in.peaks[x * AUDIO_PEAKS / box.w] * amp / 255;
+        u8g2_DrawVLine(g, px, mid - h, 2 * h + 1);
+    }
+    u8g2_DrawVLine(g, xs, box.y, box.h);
+    u8g2_DrawVLine(g, xe, box.y, box.h);
+    for (int i = 0; i < ch->n_cuts; i++) {
+        const int x = x_of(box, ch->cut[i], in.frames);
+        if (i == ch->sel && ch->mode == CHOP_MANUAL) { u8g2_SetDrawColor(g, 2); u8g2_DrawVLine(g, x, box.y, box.h); u8g2_SetDrawColor(g, 1); }
+        else for (int y = box.y; y < box.y + box.h; y += 2) { u8g2_SetDrawColor(g, 2); u8g2_DrawPixel(g, x, y); u8g2_SetDrawColor(g, 1); }
+    }
+    char t[16];
+    snprintf(t, sizeof t, "%d slices", ch->n_cuts + 1);
+    u8g2_DrawStr(g, box.x + 1, box.y + box.h + 1 + 7, ch->pending ? "scanning..." : t);
+}
+
+static const screen_def_t chop_screen = {chop_elements, N_CHOP, false, true, chop_layout, NULL, NULL, chop_extra};
+
+static const screen_def_t *editor_screen(const synth_ui_t *ui) { return ui->pad_page ? &chop_screen : &pads_screen; }
+
+bool pads_ui_tick(synth_ui_t *ui) {
+    if (!ui->pads || !ui->pad_edit || ui->pad_page != 1 || !ui->chop.pending) return false;
+    chop_refresh(ui);
+    return !ui->chop.pending;
+}
+
 /* ---------------- events ---------------- */
 
 static bool grid_event(synth_ui_t *ui, ui_event_t e) {
@@ -165,7 +345,7 @@ static bool grid_event(synth_ui_t *ui, ui_event_t e) {
         case UI_DOWN:      ui->pad_cur = (uint8_t)((ui->pad_cur + 1) % PADS_PER_BANK); break;
         case UI_VALUE_INC: case UI_RIGHT: case UI_PAGE_NEXT: ui->pad_bank = (uint8_t)((ui->pad_bank + 1) % PAD_BANKS); break;
         case UI_VALUE_DEC: case UI_LEFT:  case UI_PAGE_PREV: ui->pad_bank = (uint8_t)((ui->pad_bank + PAD_BANKS - 1) % PAD_BANKS); break;
-        case UI_LATCH: case UI_SELECT: ui->pad_edit = true; ui->pad_row = 1; ui->pad_latched = false; break;
+        case UI_LATCH: case UI_SELECT: ui->pad_edit = true; ui->pad_page = 0; ui->pad_row = 1; ui->pad_latched = false; break;
         default: break;
     }
     return false;
@@ -176,18 +356,28 @@ bool pads_ui_handle(synth_ui_t *ui, rack_t *rack, ui_event_t e) {
     if (!ui->pad_edit) return grid_event(ui, e);
     if (e == UI_BACK) { ui->pad_edit = false; ui->pad_latched = false; return false; }
     if (e == UI_ROW_TOP) { ui->pad_row = 0; ui->pad_latched = false; return false; }
-    // the header (and Page from anywhere): the previous / next pad of the bank
-    int step = e == UI_PAGE_NEXT ? 1 : e == UI_PAGE_PREV ? -1 : 0;
+    if (e == UI_PAGE_NEXT || e == UI_PAGE_PREV) {                                // Page: the pad's settings <-> CHOP
+        ui->pad_page = (uint8_t)!ui->pad_page; ui->pad_row = 1; ui->pad_latched = false;
+        if (ui->pad_page) chop_refresh(ui);
+        return false;
+    }
+    // the header: the previous / next pad of the bank
+    int step = 0;
     if (ui->pad_row == 0 && (e == UI_NAV_LEFT || e == UI_VALUE_DEC || e == UI_LEFT)) step = -1;
     if (ui->pad_row == 0 && (e == UI_NAV_RIGHT || e == UI_VALUE_INC || e == UI_RIGHT)) step = 1;
-    if (step) { ui->pad_cur = (uint8_t)((ui->pad_cur + PADS_PER_BANK + step) % PADS_PER_BANK); return false; }
+    if (step) {
+        ui->pad_cur = (uint8_t)((ui->pad_cur + PADS_PER_BANK + step) % PADS_PER_BANK);
+        if (ui->pad_page) chop_refresh(ui);
+        return false;
+    }
     const int row = ui->row;                             // the screen helpers use the synth UI's focus: lend them the editor's
     const bool latched = ui->latched;
     ui->row = ui->pad_row; ui->latched = ui->pad_latched;
     const ui_ctx_t ctx = {ui, rack, 0};
-    const bool changed = screen_event(&pads_screen, &ctx, e);
+    const bool changed = screen_event(editor_screen(ui), &ctx, e);
     ui->pad_row = ui->row; ui->pad_latched = ui->latched;
     ui->row = row; ui->latched = latched;
+    if (ui->pad_page) chop_refresh(ui);                                          // (the trim may have moved)
     return changed;
 }
 
@@ -228,7 +418,8 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
     if (ui->pad_edit) {
         pad_label(sel, l, sizeof l);
         const pad_t *p = &ui->pads->pad[sel];
-        snprintf(t, sizeof t, "< %s %s >", l, p->file[0] ? p->file : "empty");
+        if (ui->pad_page) snprintf(t, sizeof t, "< %s CHOP >", l);
+        else snprintf(t, sizeof t, "< %s %s >", l, p->file[0] ? p->file : "empty");
     }
     u8g2_DrawHLine(g, bar.x, gui_bottom(bar) - 1, bar.w);
     const bool head_focus = ui->pad_edit && ui->pad_row == 0;
@@ -258,7 +449,7 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
         const bool latched = w->latched;
         w->row = ui->pad_row; w->latched = ui->pad_latched;
         const ui_ctx_t ctx = {w, (rack_t *)rack, 0};
-        screen_draw(&pads_screen, g, st, &ctx, screen);
+        screen_draw(editor_screen(ui), g, st, &ctx, screen);
         w->row = row; w->latched = latched;
         return;
     }

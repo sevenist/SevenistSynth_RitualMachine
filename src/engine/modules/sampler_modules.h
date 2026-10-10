@@ -46,6 +46,8 @@ struct PadBlob {
     uint8_t xpost = 0;                          // the crossfade's fade-in: 0 before the loop start, 1 from it
     int32_t lstart = 0;                         // the loop start in frames (the Trim loop's own, or the file's)
     int32_t xfade = 0;                          // the loop crossfade in frames (0: none)
+    int8_t next = -1;                           // the pad started when this one ends by itself or is stopped by hand (toggle off, gate
+                                                // release; not Stop all, a choke or a restart), -1 = none (user, 2026-10-10)
     int16_t slot = -1;                          // bank slot of the sample, -1 = an empty pad
     int32_t start = 0, end = 0;                 // frames; end 0 = the file's end
     int32_t tune = 0;                           // pitch units (1/256 semitone)
@@ -53,8 +55,10 @@ struct PadBlob {
     q15 gain_l = 0, gain_r = 0;                 // level x pan
     float a1 = 1.0f, a2 = 0.0f, a3 = 0.0f, k = 1.0f;   // low-pass SVF coefficients (dsp/svf.h, SvfCoefF), filter = 1
 };
-// [any thread] the pads sounding now, bit i = pad i (published by the Pads module once per block; 0 when there is none).
+// [any thread] the pads sounding now, bit i = pad i (published by the Pads module once per block; 0 when there is none), and where a pad's
+// sound is in its file (frames; -1 when it does not sound).
 uint64_t pads_playing();
+int32_t pads_position(int pad);
 
 void register_sampler_modules(Registry &reg);
 

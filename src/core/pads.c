@@ -20,12 +20,14 @@ void pad_label(int pad, char *out, int n) {
     snprintf(out, (size_t)n, "%c%d", 'A' + pad / PADS_PER_BANK, pad % PADS_PER_BANK + 1);
 }
 
-static const char *const labels[PADP_COUNT] = {"Smp", "Mode", "Strt", "End", "Loop", "Tail", "Tune", "Fine", "Lvl", "Pan", "Cut", "Res", "Chok", "Mute", "Grid", "LStr", "XFad", "XPos", "From"};
+static const char *const labels[PADP_COUNT] = {"Smp", "Mode", "Strt", "End", "Loop", "Tail", "Tune", "Fine", "Lvl", "Pan", "Cut", "Res", "Chok", "Mute", "Grid", "LStr", "XFad", "XPos", "From", "Next"};
 static const char *const mode_names[PAD_MODE_COUNT] = {"One", "Gate", "Togl"};
 static const char *const mode_toks[PAD_MODE_COUNT]  = {"one", "gate", "toggle"};
 static const char *const loop_names[PAD_LOOP_COUNT] = {"Off", "Trim", "File"};
 static const char *const grid_names[PAD_GRID_COUNT] = {"Off", "Beat", "Bar"};
 static const char *const grid_toks[PAD_GRID_COUNT]  = {"off", "beat", "bar"};
+static const char *const next_names[PAD_NEXT_COUNT] = {"Off", "Up", "Down", "Left", "Right"};
+static const char *const next_toks[PAD_NEXT_COUNT]  = {"off", "up", "down", "left", "right"};
 
 uint32_t pad_end(const pad_t *p, uint32_t frames) {
     uint32_t e = p->end && p->end < frames ? p->end : frames;
@@ -60,6 +62,7 @@ void pad_param_format(const pad_t *p, pad_param_t k, uint32_t frames, uint32_t r
         case PADP_XFADE: if (p->xfade_ms) snprintf(out, (size_t)n, "%dms", p->xfade_ms); else snprintf(out, (size_t)n, "Off"); break;
         case PADP_XPOS:  snprintf(out, (size_t)n, "%s", p->xpost ? "Post" : "Pre"); break;
         case PADP_FROM:  snprintf(out, (size_t)n, "%s", p->from ? "Loop" : "Start"); break;
+        case PADP_NEXT:  snprintf(out, (size_t)n, "%s", next_names[p->next % PAD_NEXT_COUNT]); break;
         case PADP_LOOP:  snprintf(out, (size_t)n, "%s", loop_names[p->loop % PAD_LOOP_COUNT]); break;
         case PADP_TAIL:  snprintf(out, (size_t)n, "%dms", p->tail_ms); break;
         case PADP_TUNE:  snprintf(out, (size_t)n, "%+dst", p->tune); break;
@@ -117,6 +120,7 @@ bool pad_param_adjust(pad_t *p, pad_param_t k, int dir, uint32_t frames) {
         case PADP_XFADE: p->xfade_ms = (uint16_t)tail_step(p->xfade_ms, d); break;
         case PADP_XPOS:  p->xpost = !p->xpost; break;
         case PADP_FROM:  p->from = !p->from; break;
+        case PADP_NEXT:  p->next = (uint8_t)((p->next + PAD_NEXT_COUNT + d) % PAD_NEXT_COUNT); break;
         case PADP_LOOP:  p->loop = (uint8_t)((p->loop + PAD_LOOP_COUNT + d) % PAD_LOOP_COUNT); break;
         case PADP_TAIL:  p->tail_ms = (uint16_t)tail_step(p->tail_ms, d); break;
         case PADP_TUNE:  p->tune = (int8_t)clampi(p->tune + d, -24, 24); break;
@@ -144,6 +148,7 @@ bool pad_param_set_norm(pad_t *p, pad_param_t k, float x, uint32_t frames) {
         case PADP_XFADE: p->xfade_ms = (uint16_t)(x * x * 2000.0f + 0.5f); break;
         case PADP_XPOS:  p->xpost = x >= 0.5f; break;
         case PADP_FROM:  p->from = x >= 0.5f; break;
+        case PADP_NEXT:  p->next = (uint8_t)clampi((int)(x * PAD_NEXT_COUNT), 0, PAD_NEXT_COUNT - 1); break;
         case PADP_LOOP:  p->loop = (uint8_t)clampi((int)(x * PAD_LOOP_COUNT), 0, PAD_LOOP_COUNT - 1); break;
         case PADP_TAIL:  p->tail_ms = (uint16_t)(x * x * 2000.0f + 0.5f); break;
         case PADP_TUNE:  p->tune = (int8_t)clampi((int)lroundf(x * 48.0f) - 24, -24, 24); break;
@@ -158,6 +163,116 @@ bool pad_param_set_norm(pad_t *p, pad_param_t k, float x, uint32_t frames) {
         default: break;
     }
     return memcmp(&old, p, sizeof old) != 0;
+}
+
+/* ---------------- chopping ---------------- */
+
+#define CHOP_GAP 64                                         // the shortest slice, in frames
+
+static const char *const chop_names[CHOP_MODE_COUNT] = {"Equal", "Trans", "Grid", "Manual"};
+static const char *const div_names[CHOP_DIVS] = {"1/16", "1/8", "1/4", "1/2", "Bar"};
+static const uint8_t div_quarters_x4[CHOP_DIVS] = {1, 2, 4, 8, 16};    // in 1/16 notes
+
+const char *pad_chop_mode_name(int mode) { return mode >= 0 && mode < CHOP_MODE_COUNT ? chop_names[mode] : "?"; }
+const char *pad_chop_div_name(int div) { return div >= 0 && div < CHOP_DIVS ? div_names[div] : "?"; }
+
+void pad_chop_init(pad_chop_t *c, int pad) {
+    memset(c, 0, sizeof *c);
+    c->mode = CHOP_EQUAL;
+    c->n = 4;
+    c->sens = 50;
+    c->div = 2;
+    c->to = (uint8_t)(pad + 1 < PAD_COUNT ? pad + 1 : pad);
+}
+
+void pad_chop_compute(pad_chop_t *c, uint32_t start, uint32_t end, uint32_t rate, int bpm, const uint32_t *on, const uint16_t *str, int n_on) {
+    if (c->mode == CHOP_MANUAL) return;
+    c->n_cuts = 0;
+    c->sel = 0;
+    c->pending = false;
+    if (end <= start + 2 * CHOP_GAP) return;
+    const uint32_t len = end - start;
+    if (c->mode == CHOP_EQUAL) {
+        const int n = c->n < 2 ? 2 : c->n > PAD_CHOP_MAX ? PAD_CHOP_MAX : c->n;
+        for (int k = 1; k < n; k++) {
+            const uint32_t at = start + (uint32_t)((uint64_t)len * (uint64_t)k / (uint64_t)n);
+            if (at - (c->n_cuts ? c->cut[c->n_cuts - 1] : start) >= CHOP_GAP && end - at >= CHOP_GAP) c->cut[c->n_cuts++] = at;
+        }
+    } else if (c->mode == CHOP_GRID) {
+        if (bpm <= 0 || !rate) return;
+        const uint64_t step = (uint64_t)rate * 60u * div_quarters_x4[c->div % CHOP_DIVS] / 4u / (uint64_t)bpm;   // frames per slice
+        if (step < CHOP_GAP) return;
+        for (uint64_t at = start + step; at + CHOP_GAP <= end && c->n_cuts < PAD_CHOP_MAX - 1; at += step) c->cut[c->n_cuts++] = (uint32_t)at;
+    } else if (c->mode == CHOP_TRANSIENT) {
+        if (n_on < 0) { c->pending = true; return; }
+        const int thr = 3000 - c->sens * 27;                                    // sensitivity 0: rises of 30 dB only; 100: 3 dB
+        uint32_t f[PAD_CHOP_MAX - 1];
+        uint16_t sv[PAD_CHOP_MAX - 1];
+        int k = 0;
+        for (int i = 0; i < n_on; i++) {
+            if (str[i] < thr || on[i] < start + CHOP_GAP || on[i] + CHOP_GAP > end) continue;
+            if (k < PAD_CHOP_MAX - 1) { f[k] = on[i]; sv[k] = str[i]; k++; continue; }
+            int weakest = 0;                                                    // too many: keep the strongest
+            for (int j = 1; j < k; j++) if (sv[j] < sv[weakest]) weakest = j;
+            if (str[i] > sv[weakest]) { f[weakest] = on[i]; sv[weakest] = str[i]; }
+        }
+        for (int i = 1; i < k; i++)                                             // by frame
+            for (int j = i; j > 0 && f[j] < f[j - 1]; j--) { const uint32_t t = f[j]; f[j] = f[j - 1]; f[j - 1] = t; }
+        for (int i = 0; i < k; i++)
+            if (f[i] - (c->n_cuts ? c->cut[c->n_cuts - 1] : start) >= CHOP_GAP) c->cut[c->n_cuts++] = f[i];
+    }
+}
+
+bool pad_chop_add(pad_chop_t *c, uint32_t at, uint32_t start, uint32_t end) {
+    if (c->n_cuts >= PAD_CHOP_MAX - 1 || at < start + CHOP_GAP || at + CHOP_GAP > end) return false;
+    int i = 0;
+    while (i < c->n_cuts && c->cut[i] < at) i++;
+    if ((i > 0 && at - c->cut[i - 1] < CHOP_GAP) || (i < c->n_cuts && c->cut[i] - at < CHOP_GAP)) return false;
+    for (int k = c->n_cuts; k > i; k--) c->cut[k] = c->cut[k - 1];
+    c->cut[i] = at;
+    c->n_cuts++;
+    c->sel = (uint8_t)i;
+    return true;
+}
+
+bool pad_chop_del(pad_chop_t *c) {
+    if (!c->n_cuts) return false;
+    const int i = c->sel < c->n_cuts ? c->sel : c->n_cuts - 1;
+    for (int k = i; k + 1 < c->n_cuts; k++) c->cut[k] = c->cut[k + 1];
+    c->n_cuts--;
+    if (c->sel && c->sel >= c->n_cuts) c->sel = (uint8_t)(c->n_cuts ? c->n_cuts - 1 : 0);
+    return true;
+}
+
+bool pad_chop_move(pad_chop_t *c, int64_t delta, uint32_t start, uint32_t end) {
+    if (!c->n_cuts) return false;
+    const int i = c->sel < c->n_cuts ? c->sel : c->n_cuts - 1;
+    const int64_t lo = (int64_t)(i ? c->cut[i - 1] : start) + CHOP_GAP, hi = (int64_t)(i + 1 < c->n_cuts ? c->cut[i + 1] : end) - CHOP_GAP;
+    int64_t v = (int64_t)c->cut[i] + delta;
+    v = v < lo ? lo : v > hi ? hi : v;
+    if ((uint32_t)v == c->cut[i]) return false;
+    c->cut[i] = (uint32_t)v;
+    return true;
+}
+
+int pad_chop_apply(pads_t *ps, int src, const pad_chop_t *c, uint32_t frames) {
+    if (src < 0 || src >= PAD_COUNT || frames < 4) return 0;
+    const pad_t base = ps->pad[src];                                            // (the source may be among the targets)
+    const uint32_t start = base.start, end = pad_end(&base, frames);
+    int written = 0;
+    for (int k = 0; k <= c->n_cuts && c->to + k < PAD_COUNT; k++) {
+        pad_t *d = &ps->pad[c->to + k];
+        *d = base;
+        d->start = k ? c->cut[k - 1] : start;
+        const uint32_t e = k < c->n_cuts ? c->cut[k] : end;
+        d->end = e >= frames ? 0 : e;
+        d->loop = PAD_LOOP_OFF;
+        d->lstart = 0;
+        d->xfade_ms = 0;
+        d->next = PAD_NEXT_OFF;
+        written++;
+    }
+    return written;
 }
 
 /* ---------------- pads.cfg ---------------- */
@@ -181,6 +296,7 @@ int pads_to_text(const pads_t *ps, char *buf, int cap) {
         FIELD(p->xfade_ms != d.xfade_ms, " xfade %d", p->xfade_ms);
         FIELD(p->xpost != d.xpost, " xpos %s", p->xpost ? "post" : "pre");
         FIELD(p->from != d.from, " from %s", p->from ? "loop" : "start");
+        FIELD(p->next != d.next, " next %s", next_toks[p->next % PAD_NEXT_COUNT]);
         FIELD(p->tail_ms != d.tail_ms, " tail %d", p->tail_ms);
         FIELD(p->tune != d.tune, " tune %d", p->tune);
         FIELD(p->fine != d.fine, " fine %d", p->fine);
@@ -236,6 +352,7 @@ static void parse_pad(pad_t *p, const char *s) {
         else if (!strcmp(key, "xfade")) p->xfade_ms = (uint16_t)clampi(v, 0, 2000);
         else if (!strcmp(key, "xpos"))  p->xpost = !strcmp(val, "post");
         else if (!strcmp(key, "from"))  p->from = !strcmp(val, "loop");
+        else if (!strcmp(key, "next")) { for (int k = 0; k < PAD_NEXT_COUNT; k++) if (!strcmp(val, next_toks[k])) p->next = (uint8_t)k; }
         else if (!strcmp(key, "tail"))  p->tail_ms = (uint16_t)clampi(v, 0, 2000);
         else if (!strcmp(key, "tune"))  p->tune = (int8_t)clampi(v, -24, 24);
         else if (!strcmp(key, "fine"))  p->fine = (int8_t)clampi(v, -50, 50);

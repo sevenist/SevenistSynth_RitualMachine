@@ -44,6 +44,10 @@ void engine_synth_pad_push(int pad);
 void engine_synth_pad_release(int pad);
 void engine_synth_pads_stop(void);
 uint64_t engine_synth_pads_playing(void);           // bit i = pad i sounds
+int32_t  engine_synth_pad_position(int pad);         // where a pad's sound is in its file (frames), -1 when it does not sound
+// The attacks of a library file (the transient chop): asks the loader to scan it (once) and returns how many onsets it copied (frame,
+// strength = log10 of the energy rise x 1000), -1 while the scan is not done (call again), 0 for none / a file that is not there.
+int engine_synth_sample_onsets(int index, uint32_t *frames, uint16_t *strength, int max);
 
 // [AUDIO THREAD] renders `frames` stereo frames of interleaved signed 16-bit samples (any frame count).
 void engine_synth_render(int16_t *stereo, int frames);

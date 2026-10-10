@@ -41,12 +41,17 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
   host-tested (207 engine tests x 6, 95 UI tests), NOT tried, NOT flashed, NOT listened to. Crop is my addition (from: notes)
 - [ ] **Texture: try it, by ear, and check it on the board** (sample tools 5; ADR-041 decisions 44-46 + "Sample tools step 5"):
   EDIT op Paulstr. (x1.5..x64, a 4096-point window) and the Algo row Beat / Tonal for Stretch, Pitch, Fit beats. BUILT 2026-10-11,
-  host-tested (211 engine tests x 6, 96 UI tests), NOT tried, NOT flashed, NOT listened to. **On the board: does the memory fit
-  (Tonal pitch needs ~48 KB of the ~59 KB of spare PSRAM; a refusal shows "Busy, no card or no memory"), how long does a job take,
-  do streamed pads underrun meanwhile.** Reverse reverb and freeze / smear: from the FX chains + resampling (decision 46) (from: user)
+  host-tested (211 engine tests x 6, 96 UI tests), FLASHED 2026-10-11 and measured (ADR-041 "The sample tools on the board": every
+  operation fits, 48.5 of 59.3 KB at worst; jobs run at 0.2..0.8 of real time; streamed pads keep playing), NOT tried by the user,
+  NOT listened to. Reverse reverb and freeze / smear: from the FX chains + resampling (decision 46) (from: user)
+- [ ] **Sample jobs are slow on the board** (a 1.5 s sample: Normalize 2.3 s, Tonal stretch 8 s, Paulstretch x4 12 s): the card
+  writes at ~100 KB/s (single-block CMD24: try multi-block CMD25 in `sd_card_spi.cpp`), a spectral frame costs ~30 ms of CPU (profile
+  the float FFT: PSRAM, loop order). Both exact, no sound change (from: notes)
 - [x] **Sample tools**: all six groups built 2026-10-10 / 11 (chop, render + history, Level, Time & pitch, Texture, Color); left for
   the capture path: "print a pad's settings", reverse reverb, freeze / smear (done 2026-10-11)
-- [ ] **Pads steps 3-5**: FXA-C, live synth (design round), song mode + backtrack (design round); "Next: the production workflow" (from: user)
+- [ ] **Pads steps 3-5**: FXA-C (design round done 2026-10-11, ADR-041 decisions 47-49: 4 slots per chain, the rack's effect modules,
+  a rack-style FX page; IN PROGRESS), live synth (design round), song mode + backtrack (design round); "Next: the production
+  workflow" (from: user)
 - [ ] **Confirm: the full synth stops in the Pads section** (my reading of ADR-041 decision 22) (from: notes)
 - [ ] **Joystick swap: try it**: a push on an already bound parameter swaps X and Y, each keeps its range / curve (built 2026-10-09, 71 UI
   tests, sim built; NOT tried by the user, NOT flashed) (from: user)

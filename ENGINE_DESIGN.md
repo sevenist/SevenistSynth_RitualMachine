@@ -914,7 +914,8 @@ built, firmware static RAM unchanged at 65.8 %; NOT tried by the user, NOT flash
    FX chain, capture, reverse again. No offline operation for them; they arrive with Pads step 3 (FXA-C) and the capture path.
 
 **Sample tools step 5, Texture, as built (2026-10-11; 211 engine tests in the 6 configurations, 96 UI tests, simulator + firmware
-built, firmware static RAM 66.0 %; NOT tried by the user, NOT flashed, NOT listened to, NOT timed or memory-checked on the board):**
+built, firmware static RAM 66.0 %; NOT tried by the user, NOT listened to; timed and memory-checked on the board the same day: the
+table further down):**
 - **`engine/offline/rfft.*`**: a float FFT of a real signal, 4096 points, in place (one complex FFT of 2048 points and the even / odd
   split), its quarter-wave sine table in the caller's memory. Checked against a direct transform (5e-5 on bins of ~1800) and its
   inverse (6e-7).
@@ -930,11 +931,41 @@ built, firmware static RAM 66.0 %; NOT tried by the user, NOT flashed, NOT liste
 - **The working memory is per operation now** (`Processor::work_bytes`, lent by the card job from PSRAM for the job's time; the
   processor itself is 4.9 KB and its block doubles as the job's header block): none for the level / color operations, Resample
   6.3 KB, Stretch 10.8 KB, Pitch 17 KB, Paulstretch 28.7 KB, Tonal stretch 36.9 KB, Tonal pitch 43.2 KB. **With the job's ~5 KB the
-  worst case is ~48 KB of the ~59 KB the board has to spare: not checked on the board.** If the memory is not there the job is
-  refused ("Busy, no card or no memory"), nothing else breaks. If it turns out too tight: 16 KB less sample memory, or Tonal pitch
-  in two passes.
+  worst case is ~48 KB of the ~59 KB the board has to spare (checked on the board: it fits, 48.5 of 59.3 KB).** If the memory is
+  not there the job is refused ("Busy, no card or no memory"), nothing else breaks.
 - Card: a spectral frame reads its 4096 frames again every hop (8 KB read per 2 KB written for Tonal, per 4 KB for Paulstretch).
-  Not timed on the board; the card task runs two hops per call, so streamed pads may underrun while a job runs (to measure).
+  Timed on the board (the table further down), and the card task now runs a job's chunks between the streams' reads.
+
+**The sample tools on the board (2026-10-11, flashed by me with the user's go-ahead; `tools/edit_test.py`, serial `pad edit`; the
+sample: pluck_c4, 1.5 s, 140 KB; NOT listened to):**
+
+| operation | result | time | memory borrowed |
+|---|---|---|---|
+| Normalize | 1.50 s | 2.3 s | 5.5 KB |
+| Reverse / Low-pass | 1.50 s | 1.8 s | 5.5 KB |
+| Speed 200 % | 0.75 s | 1.5 s | 11.8 KB |
+| Stretch 150 % (Beat) | 2.25 s | 4.6 s | 16.3 KB |
+| Pitch +7 (Beat) | 1.50 s | 4.8 s | 22.5 KB |
+| Stretch 150 % (Tonal) | 2.25 s | 8.0 s | 42.5 KB |
+| Pitch +7 (Tonal) | 1.50 s | 8.1 s | 48.5 KB |
+| Paulstretch x4 | 6.00 s | 12.1 s | 34.0 KB |
+
+- **Every operation fits**: PSRAM free 59.3 KB (largest block 58.4 KB) before a job, the worst case takes 48.5 KB.
+- **Every job is slower than real time** (0.2 to 0.8 of it). Where the time goes, from the numbers: the card writes at about
+  100 KB/s (single-block writes, CMD24) against ~500 KB/s read, and a spectral frame costs about 30 ms of CPU (estimated 6 to 8:
+  not profiled). Candidates, both exact: multi-block writes (CMD25) in `sd_card_spi.cpp`, and a profile of the FFT (its memory is
+  in PSRAM and the loop order strides across it).
+- **Streamed pads and a job**: with two chunks of the job before every pump of the loader, 4 streamed pads lost 13 blocks during
+  a Normalize and 48 during a Tonal stretch. Now the card task gives the job one chunk at a time and only while the loader has no
+  read waiting (one chunk anyway after 8 reads in a row, so a job always ends): **0 and 1 lost blocks**; the job then takes about
+  twice as long (4.5 s, 16.2 s). Pads held in memory are not concerned.
+
+**Pads step 3, FX chains, design round (user, 2026-10-11; options offered):**
+47. **4 slots per chain** (against my recommendation "2"): up to 12 effect modules in the three chains. Risk: the board will not
+   run 12 heavy effects next to 8 pad voices and the live synth; the limit becomes what is loaded (measure, show the load).
+48. **A slot takes any of the rack's effect modules** (row M's: my recommendation, taken): same sound and parameters as in the synth.
+49. **A rack-style FX page** in the Pads section (my recommendation, taken): three rows FXA / FXB / FXC, slots as cells, the routing
+   on top.
 
 ## Known limits and ideas for later
 

@@ -362,16 +362,21 @@ void io_task(void *) {
     uint32_t t_poll = 0;
     bool first = true;
     int burst = 0;
+    bool reading = false;                           // the loader still had reads in flight after its last pump
     for (;;) {
         const uint32_t now = millis();
         if (first || now - t_poll >= (g_state == SD_SLOW ? kPollSlowMs : kPollMs)) { first = false; t_poll = now; poll_card(); }
         if (ulTaskNotifyTake(pdTRUE, 0) && g_state == SD_OK) scan();      // the Scan row of the sample list
         if (g_job.state == 1) run_file_job();      // a settings file (keys.cfg ...), also on a card too slow for samples
         if (g_mkdirs) make_folders();
-        if (g_state == SD_OK) for (int k = 0; k < 2 && engine_synth_render_step(); k++) {}   // a processing job: a few chunks between the loader's reads
+        // A processing job: one chunk, and only while the loader has nothing waiting. The streams come first: a chunk holds the card
+        // for ~50 ms (4 KB read, 4 KB written), and measured with two chunks before every pump, 4 streamed pads lost 13..48 blocks per job.
+        if (g_state == SD_OK && !reading) engine_synth_render_step();
         if (g_state == SD_OK) {
             const bool more = engine_synth_io_pump();   // reads still in flight: go on at once, a stream may be about to run dry
+            reading = more;
             if (more && ++burst < kBurst) continue;
+            if (more) reading = false;                  // a long run of reads: the job still gets its chunk (it has to end)
             burst = 0;
         }
 #ifdef HWV1_DEBUG_AUDIO

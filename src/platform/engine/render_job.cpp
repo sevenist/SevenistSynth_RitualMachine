@@ -139,7 +139,7 @@ bool engine_synth_render_step(void) {
         if (!j.proc.begin(h, j.op, j.amount, j.amount2, j.work)) { finish(j, false); return false; }
         return true;
     }
-    if (!j.proc.step(j.in, j.out, 2)) { finish(j, false); return false; }
+    if (!j.proc.step(j.in, j.out, 1)) { finish(j, false); return false; }   // one chunk a call: the caller decides how many between the streams' reads
     g_percent.store(static_cast<int>(j.proc.progress() * 99.0f));
     if (!j.proc.done()) return true;
     const SmpHeader &oh = j.proc.out_header();                             // pad the last block, then the header in place

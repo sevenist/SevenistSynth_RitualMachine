@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "hal/hal_audio.h"
+#include "hal/hal_storage.h"
 #include "platform/engine/engine_synth.h"
 #include "engine/modules/mi_osc.h"
 #include "engine/dsp/fft.h"
@@ -237,7 +238,7 @@ void run(char *line) {
         char sub[8] = {};
         int used = 0;
         const char *s = arg ? arg : "";
-        if (sscanf(s, "%7s%n", sub, &used) < 1) { Serial.println("[CMD] pad on|off|fill F N|def A1 ...|push K|rel K|stop|clock 0/1|mem"); return; }
+        if (sscanf(s, "%7s%n", sub, &used) < 1) { Serial.println("[CMD] pad on|off|fill F N|def A1 ...|push K|rel K|stop|clock 0/1|mem|edit F OP AMOUNT"); return; }
         s += used;
         while (*s == ' ') s++;
         const int a = atoi(s);
@@ -279,6 +280,31 @@ void run(char *line) {
                           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
                           (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM),
                           (unsigned)fu, (unsigned)fc, (unsigned)fh, (unsigned)bu, (unsigned)sp, (unsigned long long)audio_pads_playing());
+            return;
+        }
+        if (!strcmp(sub, "edit")) {                       // edit F OP AMOUNT [AMOUNT2]: catalog file F through ProcOp OP (pads.h PROC_*) into a scratch file, timed
+            int f = 0, op = 0, amt = 0, amt2 = 0;
+            sscanf(s, "%d %d %d %d", &f, &op, &amt, &amt2);
+            audio_sample_info_t in;
+            if (!audio_sample_info(f, &in)) { Serial.printf("[CMD] pad edit: no sample %d\n", f); return; }
+            uint32_t u0 = 0, u1 = 0, rd = 0;
+            engine_synth_sampler_stats(&u0, &rd);
+            const size_t free0 = heap_caps_get_free_size(MALLOC_CAP_SPIRAM), big0 = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+            const uint32_t t0 = millis();
+            if (!audio_render_start(in.name, "zzedit", op, amt, amt2)) {
+                Serial.printf("[CMD] pad edit %s op %d amount %d: refused, PSRAM free %u largest %u\n", in.name, op, amt, (unsigned)free0, (unsigned)big0);
+                return;
+            }
+            const size_t free1 = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+            int pct = 0, state = RENDER_STATE_RUNNING;
+            while ((state = audio_render_poll(&pct)) == RENDER_STATE_RUNNING && millis() - t0 < 600000) delay(20);
+            const uint32_t ms = millis() - t0;
+            audio_render_done();
+            engine_synth_sampler_stats(&u1, &rd);
+            storage_remove(STORAGE_DIR_SAMPLES "/zzedit.smp");
+            Serial.printf("[CMD] pad edit %s frames %u rate %u op %d amount %d: %s in %u ms, memory %u (PSRAM free %u largest %u before), underruns +%u\n", in.name,
+                          (unsigned)in.frames, (unsigned)in.rate, op, amt, state == RENDER_STATE_DONE ? "done" : state == RENDER_STATE_FAILED ? "FAILED" : "TIMEOUT", (unsigned)ms,
+                          (unsigned)(free0 - free1), (unsigned)free0, (unsigned)big0, (unsigned)(u1 - u0));
             return;
         }
         Serial.printf("[CMD] pad: unknown '%s'\n", sub);

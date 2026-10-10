@@ -77,6 +77,7 @@ C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --cmd "chord 3" --ra
 | `pad stop` | Stop all |
 | `pad clock 1` / `pad clock 0` | the clock in the Pads section (Play) |
 | `pad mem` | internal RAM and PSRAM free / largest block, the engine's heaps, the pads sounding |
+| `pad edit F OP AMOUNT [AMOUNT2]` | runs one sample processing job (the EDIT page's) on catalog file F: OP is the engine operation number (0 Normalize, 5 Reverse, 8 Stretch, 9 Resample, 10 Pitch, 15 Low-pass, 17 Tonal stretch, 18 Tonal pitch, 19 Paulstretch...), waits for it and prints the time, the PSRAM it borrowed and the stream underruns meanwhile. Writes and deletes `zzedit.smp`. `tools/edit_test.py` runs the set |
 
 `tools/pads_test.py` uses them: 1 / 4 / 8 pads looping on a short (whole in memory) and a long (streamed) sample, a crossfade, the
 heaps before and after the section switch.

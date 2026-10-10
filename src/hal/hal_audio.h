@@ -3,6 +3,7 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "core/pads.h"
 #include "core/rack.h"
 #include "core/synth_params.h"
 
@@ -27,6 +28,16 @@ void audio_motion_restart(void);
 // Polyphonic notes: every audio_note_on() must be followed by an audio_note_off().
 void audio_note_on(int midi_note);
 void audio_note_off(int midi_note);
+
+// The Pads section (core/pads.h, ADR-041): audio_pads_build loads the pads player in place of the synth (audio_build brings the synth
+// back); while it plays, audio_set_params only follows the master volume. audio_pad_set: one pad's settings changed. Push / release are the
+// pad keys (gate pads stop on the release, the engine decides one-shot / gate / toggle); stop = every pad fades out.
+void     audio_pads_build(const pads_t *pads, const rack_t *rack);
+void     audio_pad_set(int pad, const pad_t *p);
+void     audio_pad_push(int pad);
+void     audio_pad_release(int pad);
+void     audio_pads_stop(void);
+uint64_t audio_pads_playing(void);       // bit i = pad i sounds now
 
 // The sample library (.smp files on the TF card / in the simulator's samples/ folder; .wav and .mp3 are listed too and converted on first use). Index 0.. in a stable order that
 // only grows while the program runs (a rescan appends); the rack refers to a file by index + 1 (0 = none).

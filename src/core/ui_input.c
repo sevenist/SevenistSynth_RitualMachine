@@ -516,11 +516,6 @@ void synth_ui_macros_prune(synth_ui_t *ui, const rack_t *rack) {
 
 /* ---------------- the joystick as an XY controller ---------------- */
 
-static void mapping_invert(mapping_t *m) {              // Min <-> Max (Min > Max inverts, synth_ui.h)
-    const int lo = m->min, hi = mapping_max(m);
-    m->min = (uint8_t)hi; m->max_off = (uint8_t)(100 - lo);
-}
-
 joy_click_t synth_ui_joy_click(synth_ui_t *ui, const rack_t *rack, int *axis) {
     macro_t t;
     if (!synth_ui_target_at_cursor(ui, rack, &t)) return JOY_CLICK_NONE;
@@ -534,11 +529,13 @@ joy_click_t synth_ui_joy_click(synth_ui_t *ui, const rack_t *rack, int *axis) {
         return JOY_CLICK_MOVED;
     }
     for (int a = 0; a < 2; a++)
-        if (same_target(&ui->joy[a].t, &t)) {           // already bound (not just now): its axis is inverted
-            mapping_invert(&ui->joy[a]);
+        if (same_target(&ui->joy[a].t, &t)) {           // already bound (not just now): X and Y swap, each keeping its range and curve
+            const mapping_t m = ui->joy[0];
+            ui->joy[0] = ui->joy[1]; ui->joy[1] = m;
             ui->joy_fresh = -1;
-            *axis = a;
-            return JOY_CLICK_INVERTED;
+            ui->joy_next = (uint8_t)(1 - ui->joy_next % 2); // the older binding moved with its parameter
+            *axis = 1 - a;
+            return JOY_CLICK_SWAPPED;
         }
     const int a = ui->joy_next % 2;                     // a new one replaces the older binding: X, Y, X, Y ...
     ui->joy_prev[0] = ui->joy[0]; ui->joy_prev[1] = ui->joy[1];

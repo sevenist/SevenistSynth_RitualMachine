@@ -643,7 +643,7 @@ Phaser, Flanger, Comp) and the FX module types / pages of stage 1 are kept. Modu
 12. **The Para envelope (Legato / Retrig / Voice) is set per Para point** (a row of the module where Para is on; each branch its own). Leaves GENERAL.
 13. **16 slots shared by the three rows** (as built for lanes); the MIX cell does not take a slot.
 
-**Phase 1 as built (2026-10-09; 71 UI tests incl. `tests/ui/test_rows.c`, 172 engine tests, simulator builds; NOT seen by the user):**
+**Phase 1 as built (2026-10-09; 71 UI tests incl. `tests/ui/test_rows.c`, 172 engine tests, simulator builds; GUI checked and synth heard by the user 2026-10-09):**
 - Model (`rack.h/.c`): `slot.row` (0, 1 = branches, `ROW_M`), `slot.para`, `slot.penv` (para_env_t), `rack_t.br_lvl / br_pan` (the MIX); `MOD_SUM`
   removed (the type list shifted: no saved data). Rules: `rack_can_insert`, `rack_set_row`, `rack_set_para` (checked in place, undone when
   refused); `rack_shared_start` (Para on, or the first heavy FX), `rack_slot_is_shared` (a modulator: its target's), `rack_type_voice_only`
@@ -662,7 +662,7 @@ Phaser, Flanger, Comp) and the FX module types / pages of stage 1 are kept. Modu
 - Serial (`serial_cmd_esp32.cpp`): `mode mono|poly|para`, `patch para`, `fx <code> [values]` / `fx clear` reworked (SERIAL_COMMANDS.md).
 
 **Phase 2, step 1 as built (2026-10-09, user report "the second lane has no sound"; host-tested in the 6 configurations, simulator +
-firmware built, NOT flashed, NOT listened to):** both branches sound.
+firmware built; flashed and heard by the user 2026-10-09):** both branches sound.
 - Engine: a **second voice bus** (`ProcessCtx::bus2_l / bus2_r`, `Engine::bus2_*`, cleared per block); `VoiceOut` has a second input
   (`VO_IN2` = 1 when it is used) that accumulates into it, and keeps the voice alive while either input sounds; `BusIn` reads bus 0 or 1
   (`BUS_SEL`).
@@ -676,7 +676,7 @@ firmware built, NOT flashed, NOT listened to):** both branches sound.
   live (no rebuild), Para none / 1 / 2 / both (shared filters are global nodes, both keys on both branches, everything stops after the release).
 - Step 1 tried by the user on the prototype: works ("very cool", 2026-10-09).
 
-**Phase 2, step 2 as built (2026-10-09; host-tested in the 6 configurations, simulator + firmware built, NOT flashed, NOT listened to):**
+**Phase 2, step 2 as built (2026-10-09; host-tested in the 6 configurations, simulator + firmware built; flashed and heard by the user 2026-10-09, cost not measured):**
 - Per-voice effects: Phaser, Flanger, Tremolo, Compressor, Eq3, Shifter are templates on their channel count (`fx2_modules.cpp`):
   CH 2 = the global stereo module (unchanged code path), CH 1 = a mono voice-scope version (`T_PHASER_V` .. `T_SHIFTER_V`, ids 74-79).
   Per voice, Trem's Pan mode is a plain tremolo. A cheap effect before a branch's Para point uses it.
@@ -693,6 +693,59 @@ firmware built, NOT flashed, NOT listened to):** both branches sound.
 - Costs: per-voice effects multiply by the voice count (a 4-voice phaser = 4 phasers; a per-voice flanger takes a 2 KB line per voice);
   after a stereo effect the branch's shared filter costs twice. +2 KB static RAM (the probes of the six new module types). Not measured
   on the board. Flashed and tried by the user 2026-10-09: Osc -> Phaser -> Filter (per-voice phaser) and the modulators work.
+
+**Phase 5 (Pads), round 1 answers (user, 2026-10-09; options with pros / cons offered, all four my recommendation):** Pads started before
+phases 3 / 4 (the clock and capture come later: "start on grid" needs the clock, pads take card files until capture exists).
+14. **16 pads per bank (4 x 4)**: half of prototype 1's 32 note keys, the other 16 free for pad-section functions; fits the 4-column board.
+15. **4 banks, 64 pads, all ready to play**: every pad's head stays in PSRAM (2 MB on the board, shared with the synth), so any pad of any
+   bank starts at once. More banks later = heads loaded per bank (a card read on a bank switch).
+16. **Synth / Pads switch = Shift + Menu**, a Shift-layer entry (editable in MODIFIERS) plus a key function "Section" for the KEYS layouts.
+17. **SM stays in the rack; one shared sample library**: the SAMPLES browser serves both the rack's SM and the pads (the auto-sampler's
+   multisamples will play through SM). Risk: two ways to play a sample.
+
+**Phase 5, round 2 answers (user, 2026-10-09; all my recommendation):**
+18. **Built-in "Pads" key layout** (editable in KEYS): on prototype 1 the left 4 x 4 are the pads, the right 4 x 4 the functions; on the
+   4-column board all 16 keys are pads and the functions are Shift + pad.
+19. **Function keys**: Bank A-D (4 keys, lit in the bank colour), Stop all, Select (hold + pad: show its settings, no sound), Mute (hold +
+   pad: mute / unmute).
+20. **The synth keeps sounding in the Pads section** (latched notes, later its sequencer); only the keys go to the pads. Risk: the synth's
+   CPU stays in use, fewer pad voices fit.
+21. **Each pad mono (a push restarts it), 8 pad voices**, the oldest stolen. Risk: a fast roll cuts the previous hit's tail.
+
+**Phase 5, round 3 answers (user, 2026-10-10):**
+22. **A "live synth" in the Pads section**: a simpler, optimized synth for live play; the full synth and its row M are not loaded there
+   (replaces decision 20; my reading: the full synth stops while in Pads, to confirm). Its design (voices, engine, how it is played) is open.
+23. **Three FX chains FXA / FXB / FXC** in the Pads section, routings A/B/C, A+B/C, A+B+C, A+C/A+B ('+' = series, '/' = parallel;
+   A+C/A+B = A, then split into C and B in parallel), like the SP-404 / Elektron buses. **Each source (a pad, the live synth) picks its
+   entry Dry / A / B / C** (in A+B+C a pad on B goes through B and C). **Each chain is a short chain of modules** (against my
+   recommendation "one effect per chain"): risk = up to ~12 effect modules next to 8 pad voices and the live synth; measure on the board.
+24. **A minimal clock now**: internal BPM and a 4/4 bar / beat position, shown in the Pads header, used by "start on grid"; the sequencer,
+   capture and MIDI clock build on it later.
+25. **Pads screen = the grid full screen**; a push (or Select + pad) opens the pad's settings pages (against my recommendation "grid on
+   top, pad below"): risk = editing a pad hides the others.
+26. **Song mode + backtrack**: in the Pads section the user sets start / end edit points in a song mode; the performance is recorded as a
+   sample and offered as a **backtrack** in the Synth section (the answer to "hearing the other section while working"). Design open.
+
+**Phase 5, step 1 as built (2026-10-10; 7 engine tests `test_pads.cpp` in the 6 configurations, 6 UI tests `tests/ui/test_pads.c`,
+simulator + firmware built; NOT tried by the user, NOT flashed):**
+- Model `core/pads.c/.h`: 64 `pad_t` (file name, start / end in 1/1000, mode, loop, tail, tune, fine, level, pan, cut, res, choke 1..4,
+  mute), `pads.cfg` (one line per changed pad, the file name last), saved 2 s after a change.
+- Engine: module **Pads** (`T_PADS` 80, global, `sampler_modules.cpp`): 8 voices, each an internal `Sampler` at a fixed pitch (new Sampler
+  parameters `fstart` / `fend` / `region`: a trim in frames and a loop over it), then a 12 dB SVF low-pass (float, the ADR-035 filter
+  exception), a fade envelope, level / pan / mute ramped per block, into L / R. Pad settings as `PadBlob` (set_blob), pushes / releases /
+  Stop as parameters `(n << 8) | pad`. Mono restart and choke fade the old sound in 5 ms; a gate release / toggle off / Stop all fade in
+  the pad's tail; the oldest voice (the quietest fading one first) is stolen at once. `pads_playing()` publishes the sounding pads.
+- `engine_synth_pads_build` loads Pads -> MasterOut (the rack's volume / Out) in place of the synth (decision 22: the full synth stops);
+  `engine_synth_build` brings the synth back; in between `set_params` only follows the master volume. Every pad's sample is loaded at
+  build (decision 15): whole in memory up to 192 KB each and 768 KB in total, else a 150 ms head and streaming.
+- Decision 16 as built: Shift + Menu is the **Default** of the Menu key's Shift entry (like Shift + Back), not a separate layer entry; a
+  Shift entry set on that key in MODIFIERS takes over. Key function "Sectn". Decision 18: the Pads layout is built in and **not editable
+  yet**. Decision 19 + 4-column boards: Shift + pad = select, Shift + Back = Stop all. Decision 25: push or Select + pad opens the editor.
+- **Loop = Off / Trim / File** (user, 2026-10-10): assigning a file with loop points sets File (the Sampler plays from the trim start and
+  loops at the file's own points, exact; `PadBlob.loop` 2 = `SMPR_LOOP` -1); Trim loops start..end (a sample recorded from the synth has
+  no loop points); File is not offered for a file without them. Pads start empty (the user: the sound designer fills them).
+- Not yet: the clock / start on grid (step 2), FX entry (step 3), root note / zone stretch, reverse, live tune changes of a sounding pad
+  (tune / trim apply at the next push), the Pads layout in the KEYS tab, an LED for Select / Mute held.
 
 ## Known limits and ideas for later
 

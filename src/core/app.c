@@ -40,6 +40,12 @@ void app_init(app_t *app, u8g2_t *display) {
     seq_init(&app->seq);
     rack_init_startup(&app->rack);
     synth_ui_init(&app->ui, &app->rack);
+    pads_init(&app->pads);
+    pads_load(&app->pads);              // pads.cfg (the board's card shows up later: check_sd)
+    app->ui.pads = &app->pads;
+    app->section = SECTION_SYNTH;
+    app->pads_pending = false;
+    app->pads_shown = 0;
     curves_load();                      // before ui.cfg: its mappings name the user curves
     ui_settings_load(&app->ui, &app->rack);   // Knob mode, jump slots, the Shift / Mod layers (the board's card shows up later: check_sd)
     app->settings_pending = false;
@@ -63,8 +69,24 @@ static void set_status(app_t *app, const binding_t *b, int amount) {
 // before the next draw. A knob move itself never sets it, so a knob that just caught its value keeps it.
 static bool catch_stale;
 
+static bool in_pads(const app_t *app) { return app->section == SECTION_PADS; }
+
+// A pad's settings changed: the engine gets them, pads.cfg is saved a moment later (pads_autosave).
+static void pad_changed(app_t *app, int pad) {
+    audio_pad_set(pad, &app->pads.pad[pad]);
+    if (!app->pads_pending) { app->pads_pending = true; app->pads_ms = audio_millis(); }
+    app->dirty = true;
+}
+
+// One UI event in the Pads section (scr_pads.c).
+static void pads_event(app_t *app, ui_event_t ev) {
+    if (pads_ui_handle(&app->ui, &app->rack, ev)) pad_changed(app, pads_ui_pad(&app->ui));
+    app->dirty = true;
+}
+
 // Gives the UI one event; pushes the sound to the audio side when a value changed.
 static void ui_event(app_t *app, ui_event_t ev) {
+    if (in_pads(app)) { pads_event(app, ev); return; }
     if (synth_ui_handle(&app->ui, &app->params, &app->seq, &app->rack, ev)) audio_set_params(&app->rack, &app->params);
     app->dirty = true;
     catch_stale = true;
@@ -76,6 +98,7 @@ static void ui_event_n(app_t *app, int n, ui_event_t down_or_next, ui_event_t up
     const ui_event_t ev = n > 0 ? down_or_next : up_or_prev;
     if (n < 0) n = -n;
     if (n > 16) n = 16;
+    if (in_pads(app)) { for (int i = 0; i < n; i++) pads_event(app, ev); return; }
     for (int i = 0; i < n; i++) changed |= synth_ui_handle(&app->ui, &app->params, &app->seq, &app->rack, ev);
     if (changed) audio_set_params(&app->rack, &app->params);
     app->dirty = true;
@@ -189,6 +212,83 @@ static bool learn_push(app_t *app, action_id_t act) {
     return true;
 }
 
+/* ---------------- the Pads section (core/pads.h, scr_pads.c; ADR-041 decisions 14-26) ---------------- */
+
+#define SECTION_INFO_MS 1200
+
+static void synth_xy_off(app_t *app);
+
+// Synth <-> Pads. The full synth stops in the Pads section (its notes, latched ones too, and the sequencer); the pads stop when it is left
+// (the engine loads the other graph). The keys take the section's layout (core/keymap.h).
+static void section_set(app_t *app, bool pads) {
+    if (pads == in_pads(app)) return;
+    for (int c = 0; c < CTL_COUNT; c++) {
+        if (app->in.held[c]) audio_note_off(app->in.held[c] - 1);
+        app->in.held[c] = 0;
+        app->in.latched[c] = false;
+        app->in.pad_held[c] = 0;
+    }
+    app->in.pad_select = app->in.pad_mute = false;
+    if (app->seq.running) seq_set_running(&app->seq, false);
+    synth_xy_off(app);
+    app->section = pads ? SECTION_PADS : SECTION_SYNTH;
+    keymap_set_pads(pads);
+    if (pads) audio_pads_build(&app->pads, &app->rack);
+    else      audio_build(&app->rack, &app->params);
+    char t[24];
+    snprintf(t, sizeof t, pads ? "Bank %c" : "Back to the synth", 'A' + app->ui.pad_bank);
+    popup_info(&app->popup, pads ? "PADS" : "SYNTH", t, 0, audio_millis(), SECTION_INFO_MS);
+    app->dirty = true;
+}
+
+// A pad key (ACT_PAD, k = 0..15 of the bank shown): selects that pad; plays it, or with Mute held mutes / unmutes it, with Select held
+// opens its editor, with Shift held only selects it. Its release reaches the same pad (pad_held), so a gate pad stops even after a bank change.
+static void pad_key_down(app_t *app, control_id_t ctl, int k) {
+    if (!in_pads(app) || k < 0 || k >= PADS_PER_BANK) return;
+    const int pad = app->ui.pad_bank * PADS_PER_BANK + k;
+    app->ui.pad_cur = (uint8_t)k;
+    app->dirty = true;
+    if (app->in.pad_mute) {
+        app->pads.pad[pad].mute = !app->pads.pad[pad].mute;
+        pad_changed(app, pad);
+        return;
+    }
+    if (app->in.pad_select) {                                // Select + pad: its editor (decision 25), no sound
+        if (!app->ui.pad_edit) { app->ui.pad_edit = true; app->ui.pad_row = 1; app->ui.pad_latched = false; }
+        return;
+    }
+    if (app->in.shift && !app->in.mod) return;               // Shift + pad: selected, no sound (the 4-column board's Select)
+    audio_pad_push(pad);
+    app->in.pad_held[ctl] = (uint8_t)(pad + 1);
+}
+
+static void pad_key_up(app_t *app, control_id_t ctl) {
+    if (!app->in.pad_held[ctl]) return;
+    audio_pad_release(app->in.pad_held[ctl] - 1);
+    app->in.pad_held[ctl] = 0;
+}
+
+// The column knobs in the Pads section: Start, End, Tune and Cut of the selected pad, over their whole range.
+static void pads_knob(app_t *app, int row, int value) {
+    static const pad_param_t knob[SYNTH_UI_COL_KNOBS] = {PADP_START, PADP_END, PADP_TUNE, PADP_CUT};
+    if (row < 1 || row > SYNTH_UI_COL_KNOBS) return;
+    const int pad = pads_ui_pad(&app->ui);
+    pad_t *p = &app->pads.pad[pad];
+    const pad_param_t k = knob[row - 1];
+    if (pad_param_set_norm(p, k, (float)value / INPUT_VALUE_MAX)) pad_changed(app, pad);
+    char t[24], v[16];
+    pad_label(pad, t, sizeof t);
+    snprintf(t + strlen(t), sizeof t - strlen(t), " %s", pad_param_label(k));
+    pad_param_format(p, k, 0, 0, v, sizeof v);
+    if (k == PADP_START || k == PADP_END) {                 // the trim in time when the sample is known
+        audio_sample_info_t in;
+        for (int i = 0; i < audio_sample_count(); i++)
+            if (audio_sample_info(i, &in) && !strcmp(in.name, p->file)) { pad_param_format(p, k, in.frames, in.rate, v, sizeof v); break; }
+    }
+    popup_info(&app->popup, t, v, 0, audio_millis(), POPUP_INFO_MS);
+    app->dirty = true;
+}
+
 /* ---------------- the joystick as an XY controller (synth_ui.h: synth_ui_joy_*) ---------------- */
 
 #define JOY_INFO_MS 1500
@@ -204,10 +304,14 @@ static bool joy_bind(app_t *app) {
     const mapping_t *m = &app->ui.joy[axis];
     if (!synth_ui_target_describe(NULL, NULL, &app->rack, &m->t, name, sizeof name, NULL, 0)) snprintf(name, sizeof name, "?");
     snprintf(t, sizeof t, "%s %s%s", axis ? "Y" : "X", name, m->min > mapping_max(m) ? " (inv)" : "");
-    popup_info(&app->popup, r == JOY_CLICK_INVERTED ? "JOY INVERT" : "JOY", t, 0, audio_millis(), JOY_INFO_MS);
+    popup_info(&app->popup, r == JOY_CLICK_SWAPPED ? "JOY SWAP" : "JOY", t, 0, audio_millis(), JOY_INFO_MS);
     if (app->ui.joy_xy) synth_ui_joy_mode(&app->ui, &app->params, &app->seq, &app->rack, true);   // XY mode: the new binding rests where its value is
     app->dirty = true;
     return true;
+}
+
+static void synth_xy_off(app_t *app) {                 // leaving the synth: XY mode off, its parameters back where they were
+    if (app->ui.joy_xy) synth_ui_joy_mode(&app->ui, &app->params, &app->seq, &app->rack, false);
 }
 
 static void joy_mode(app_t *app, bool on) {
@@ -236,11 +340,11 @@ static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             break;
         }
         case ACT_LATCH:
-            if (!app->ui.in_rack && joy_bind(app)) break;   // the pages: a push on a parameter row binds it to a joystick axis
+            if (!in_pads(app) && !app->ui.in_rack && joy_bind(app)) break;   // the pages: a push on a parameter row binds it to a joystick axis
             ui_event(app, UI_LATCH); snprintf(app->status, sizeof app->status, "%s > %s", control_name(b->ctl), app->ui.latched ? "Latched" : "Released");
             break;
         case ACT_JOY_MODE:
-            joy_mode(app, !app->ui.joy_xy);
+            if (!in_pads(app)) joy_mode(app, !app->ui.joy_xy);
             break;
         case ACT_VALUE_ADJUST: ui_event_n(app, n, UI_VALUE_INC, UI_VALUE_DEC); set_status(app, b, n); break;
         case ACT_VALUE_FINE:                                // the same in fine steps (core/fine_step.h)
@@ -252,9 +356,26 @@ static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
         case ACT_PAGE_MOVE:    ui_event_n(app, n, UI_PAGE_NEXT, UI_PAGE_PREV); set_status(app, b, n); break;
         case ACT_ROW_TOP:      ui_event(app, UI_ROW_TOP); break;
         case ACT_SELECT:       ui_event(app, UI_SELECT); break;
-        case ACT_MENU:         ui_event(app, UI_MENU); break;
-        case ACT_BACK:                                      // Shift + Back (its Shift entry Default): release all latched notes, Shift only like the latch
-            if (app->in.shift && !app->in.mod) {
+        case ACT_MENU:                                      // Shift + Menu (its Shift entry Default): Synth <-> Pads
+            if (app->in.shift && !app->in.mod) section_set(app, !in_pads(app));
+            else if (!in_pads(app)) ui_event(app, UI_MENU);
+            break;
+        case ACT_SECTION:      section_set(app, !in_pads(app)); break;
+        case ACT_PAD:
+            if (e.kind == IN_RELEASE) pad_key_up(app, b->ctl); else pad_key_down(app, b->ctl, b->arg);
+            break;
+        case ACT_PAD_BANK:
+            if (in_pads(app) && b->arg >= 0 && b->arg < PAD_BANKS) { app->ui.pad_bank = (uint8_t)b->arg; app->dirty = true; }
+            break;
+        case ACT_PAD_STOP:     if (in_pads(app)) audio_pads_stop(); break;
+        case ACT_PAD_SELECT:   app->in.pad_select = e.kind != IN_RELEASE; break;
+        case ACT_PAD_MUTE:     app->in.pad_mute = e.kind != IN_RELEASE; break;
+        case ACT_BACK:                                      // Shift + Back (its Shift entry Default): release all latched notes (Pads: stop every pad), Shift only like the latch
+            if (app->in.shift && !app->in.mod && in_pads(app)) {
+                audio_pads_stop();
+                popup_info(&app->popup, "PADS", "Stop all", 0, audio_millis(), LEARN_INFO_MS);
+                app->dirty = true;
+            } else if (app->in.shift && !app->in.mod) {
                 snprintf(app->status, sizeof app->status, "Released %d", release_latched(app));
                 popup_info(&app->popup, "LATCH", app->status, 0, audio_millis(), LEARN_INFO_MS);
                 app->dirty = true;
@@ -282,6 +403,7 @@ static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             snprintf(app->status, sizeof app->status, "Octave %+d", app->in.octave);
             break;
         case ACT_PAGE_KNOB:
+            if (in_pads(app)) { pads_knob(app, b->arg, e.value); break; }
             changed = synth_ui_knob_row(&app->ui, &app->params, &app->seq, &app->rack, b->arg, e.value);
             if (changed) { audio_set_params(&app->rack, &app->params); app->dirty = true; }
             break;
@@ -485,6 +607,10 @@ static void key_event(app_t *app, input_event_t e, uint32_t now) {
     const int key = e.ctl - CTL_KEY_FIRST;
     if (e.kind == IN_RELEASE) {
         note_off(app, e.ctl);
+        pad_key_up(app, e.ctl);
+        const key_fn_t rf = keymap_get(key);
+        if (rf.act == ACT_PAD_SELECT) app->in.pad_select = false;
+        if (rf.act == ACT_PAD_MUTE)   app->in.pad_mute = false;
         if (app->in.shift_key == e.ctl) { app->in.shift = false; app->in.shift_key = CTL_NONE; }
         if (app->in.mod_key == e.ctl)   { app->in.mod = false;   app->in.mod_key = CTL_NONE; }
         if (e.ctl == KEYMAP_RESET_KEY) app->reset_held = false;
@@ -530,7 +656,7 @@ static control_id_t joy_direction(const input_state_t *in) {
 }
 
 static void joy_update(app_t *app, uint32_t now) {
-    if (app->ui.joy_xy) {                               // XY mode: the axes drive the bound parameters, no navigation
+    if (app->ui.joy_xy && !in_pads(app)) {              // XY mode: the axes drive the bound parameters, no navigation
         bool changed = synth_ui_joy_axis(&app->ui, &app->params, &app->seq, &app->rack, 0, app->in.axis_x);
         changed |= synth_ui_joy_axis(&app->ui, &app->params, &app->seq, &app->rack, 1, app->in.axis_y);
         if (changed) { audio_set_params(&app->rack, &app->params); app->dirty = true; catch_stale = true; }
@@ -578,13 +704,16 @@ static void draw_frame(app_t *app) {
     u8g2_t *g = app->display;
     if (app->keys_notice) draw_keys_notice(app);   // the full-screen notice hides the popups until it goes (they wait in their queue)
     else {
-        synth_ui_draw(&app->ui, &app->params, &app->seq, &app->rack, g);
+        if (in_pads(app)) pads_ui_draw(&app->ui, &app->rack, g, app->pads_shown);
+        else synth_ui_draw(&app->ui, &app->params, &app->seq, &app->rack, g);
         gui_style_t st;
         gui_style_init(&st, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
         popup_draw(&app->popup, g, &st);
     }
     display_send(g);
 }
+
+#define SETTINGS_SAVE_MS 2000           // after the first change: a few edits in a row make one write (ui.cfg, curves.cfg, pads.cfg)
 
 // The card changed (inserted, removed, or its files were listed): the sampler modules look their file up again.
 // The key layout follows the card: a card that shows up gives its keys.cfg, unless the keys were changed meanwhile (then they are written to it).
@@ -596,14 +725,22 @@ static void check_sd(app_t *app) {
         if (keymap_dirty()) keymap_save(); else keymap_load();
         if (curves_changed()) curves_save(); else curves_load();
         if (ui_settings_changed(&app->ui, &app->rack)) ui_settings_save(&app->ui, &app->rack); else ui_settings_load(&app->ui, &app->rack);
+        if (app->pads_pending) { if (pads_save(&app->pads)) app->pads_pending = false; } else pads_load(&app->pads);
     }
-    audio_build(&app->rack, &app->params);
+    if (in_pads(app)) audio_pads_build(&app->pads, &app->rack);         // the samples are looked up again by name
+    else audio_build(&app->rack, &app->params);
     app->dirty = true;
+}
+
+// pads.cfg: written a moment after the last change (like ui.cfg); no card: written when one shows up (check_sd).
+static void pads_autosave(app_t *app, uint32_t now) {
+    if (!app->pads_pending || now - app->pads_ms < SETTINGS_SAVE_MS || audio_sd_state() == SD_NONE) return;
+    if (pads_save(&app->pads)) app->pads_pending = false;
+    else app->pads_ms = now;                                         // try again a bit later
 }
 
 /* ---------------- UI settings (ui.cfg): saved by themselves a moment after they change ---------------- */
 
-#define SETTINGS_SAVE_MS 2000           // after the first change: a few edits in a row make one write
 
 static void settings_autosave(app_t *app, uint32_t now) {
     const bool ui = ui_settings_changed(&app->ui, &app->rack), cv = curves_changed();      // ui.cfg and curves.cfg
@@ -691,6 +828,11 @@ bool app_step(app_t *app, input_event_t e) {
     joy_repeat(app, now);
     key_reset_check(app, now);
     settings_autosave(app, now);
+    pads_autosave(app, now);
+    if (in_pads(app)) {                                                  // the grid shows which pads sound: redraw when that changes
+        const uint64_t pm = audio_pads_playing();
+        if (pm != app->pads_shown) { app->pads_shown = pm; app->dirty = true; }
+    }
 
     if (app->menu_open && !app->ui.in_rack && keymap_dirty() && !keymap_save())        // the menu was closed: the key layout goes to the card
         snprintf(app->status, sizeof app->status, "Keys not saved (no card)");

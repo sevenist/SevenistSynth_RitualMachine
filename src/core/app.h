@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include "u8g2.h"
 #include "core/synth_params.h"
+#include "core/pads.h"
 #include "core/rack.h"
 #include "core/seq.h"
 #include "core/synth_ui.h"
@@ -28,13 +29,23 @@ typedef struct {
     int          axis_x, axis_y;        // joystick axes 0..INPUT_VALUE_MAX
     control_id_t joy_dir;               // virtual direction control currently held (CTL_NONE = centred)
     uint32_t     joy_next_ms;           // when the held direction repeats
+    uint8_t      pad_held[CTL_COUNT];   // pad + 1 a key pushed (0 = none), so its release reaches the same pad after a bank change
+    bool         pad_select, pad_mute;  // the Pads section's Select / Mute keys are held
 } input_state_t;
+
+// The two workflows (ADR-041 decision 5): the synth, or the Pads section (an SP-404-style sampler). Shift + Menu switches.
+typedef enum { SECTION_SYNTH, SECTION_PADS } section_t;
 
 typedef struct {
     u8g2_t        *display;   // injected by the platform layer
     synth_params_t params;
     seq_t          seq;
     rack_t         rack;
+    pads_t         pads;        // the Pads section's 64 pads (pads.cfg)
+    uint8_t        section;     // section_t
+    bool           pads_pending;     // the pads changed and wait to be saved (pads.cfg) ...
+    uint32_t       pads_ms;          // ... since then
+    uint64_t       pads_shown;  // the pads that sounded at the last draw (a change redraws the grid)
     synth_ui_t     ui;
     input_state_t  in;
     bool           dirty;       // the screen needs a redraw after this step

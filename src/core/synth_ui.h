@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "u8g2.h"
+#include "core/pads.h"
 #include "core/rack.h"
 #include "core/seq.h"
 #include "core/synth_params.h"
@@ -133,6 +134,13 @@ typedef struct {
     bool rebuild;          // set when the RACK page is left with edits: app must audio_build()
     int run_anim;   // gui animation id shown while the sequencer runs (owned by app.c)
     jump_slot_t jump[SYNTH_UI_JUMP_SLOTS]; // rapid-navigation slots: save with Shift+key, recall with key
+    // The Pads section (core/pads.h, scr_pads.c): the pads (the app's), the bank shown and its selected pad, the grid or that pad's editor,
+    // and the editor's focus row (0 = the header: left / right change the pad) and latch, kept apart from the synth screens' row / latch.
+    pads_t *pads;
+    uint8_t pad_bank, pad_cur;
+    bool    pad_edit;
+    int     pad_row;
+    bool    pad_latched;
 } synth_ui_t;
 
 void synth_ui_init(synth_ui_t *ui, const rack_t *rack);
@@ -183,7 +191,7 @@ void synth_ui_macros_prune(synth_ui_t *ui, const rack_t *rack);               //
 // The joystick as an XY controller (user design, 2026-10-07). On a page, a push on a parameter row binds it (joy_click):
 //   a new parameter     replaces the older binding (X, then Y, then X ...)                    JOY_CLICK_BOUND
 //   the same, again     moves it to the other axis and brings back what it replaced            JOY_CLICK_MOVED   (again: back)
-//   a bound one         (not the one just bound) inverts its axis (Min <-> Max)               JOY_CLICK_INVERTED
+//   a bound one         (not the one just bound) swaps X and Y; each keeps its range / curve  JOY_CLICK_SWAPPED
 //   not a parameter     JOY_CLICK_NONE (the push keeps its old meaning)
 // *axis = the axis concerned. joy_mode: XY mode on / off (the app: Shift + push, ACT_JOY_MODE). joy_axis: the stick's raw axis value
 // (0..INPUT_VALUE_MAX) moves the parameter from the value it has when the stick leaves the centre (so a value set by a knob, an encoder or the
@@ -191,10 +199,17 @@ void synth_ui_macros_prune(synth_ui_t *ui, const rack_t *rack);               //
 // push: kept). Returns true when a sound value changed. Ranges / curves: the JOY menu tab.
 #define JOY_XY_DEADZONE 48
 #define JOY_POS_CENTRE  128
-typedef enum { JOY_CLICK_NONE, JOY_CLICK_BOUND, JOY_CLICK_MOVED, JOY_CLICK_INVERTED } joy_click_t;
+typedef enum { JOY_CLICK_NONE, JOY_CLICK_BOUND, JOY_CLICK_MOVED, JOY_CLICK_SWAPPED } joy_click_t;
 joy_click_t synth_ui_joy_click(synth_ui_t *ui, const rack_t *rack, int *axis);
 void synth_ui_joy_mode(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, bool on);
 bool synth_ui_joy_axis(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int axis, int value);
+
+// The Pads section's screens (scr_pads.c): the grid of the bank shown (the joystick moves the selection, encoder B / pages change the bank,
+// a push opens the pad's editor), or that editor (a declarative screen; Back returns to the grid). pads_ui_handle returns true when the
+// selected pad's settings changed: the app sends them to the engine and saves pads.cfg. `playing`: audio_pads_playing().
+bool pads_ui_handle(synth_ui_t *ui, rack_t *rack, ui_event_t e);
+void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t playing);
+static inline int pads_ui_pad(const synth_ui_t *ui) { return ui->pad_bank * PADS_PER_BANK + ui->pad_cur; }   // the selected pad, 0..PAD_COUNT-1
 
 // Jump slots (see jump_slot_t). save: the page / tab on screen goes into slot k. resolve: finds every slot's page again (called by
 // synth_ui_rebuild_pages; a slot whose module was deleted is cleared). ready: the slot can be jumped to now (its LED is bright).

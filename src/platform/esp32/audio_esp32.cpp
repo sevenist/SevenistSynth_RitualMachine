@@ -293,6 +293,12 @@ extern "C" void audio_set_clock(int bpm, int steps, int swing, int running) { en
 extern "C" void audio_motion_restart(void)                                 { engine_synth_motion_restart(); }
 extern "C" void audio_note_on(int midi_note)                               { engine_synth_note_on(midi_note); }
 extern "C" void audio_note_off(int midi_note)                              { engine_synth_note_off(midi_note); }
+extern "C" void audio_pads_build(const pads_t *p, const rack_t *r)          { apply_speaker(r); engine_synth_pads_build(p, r); }
+extern "C" void audio_pad_set(int pad, const pad_t *p)                      { engine_synth_pad_set(pad, p); }
+extern "C" void audio_pad_push(int pad)                                     { engine_synth_pad_push(pad); }
+extern "C" void audio_pad_release(int pad)                                  { engine_synth_pad_release(pad); }
+extern "C" void audio_pads_stop(void)                                       { engine_synth_pads_stop(); }
+extern "C" uint64_t audio_pads_playing(void)                                { return engine_synth_pads_playing(); }
 extern "C" uint32_t audio_millis(void)                                     { return engine_synth_millis(); }
 extern "C" void audio_update(void)                                         {}     // nothing to pump: the audio task is independent
 #endif // ARDUINO_ARCH_ESP32

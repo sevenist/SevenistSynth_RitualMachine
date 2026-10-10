@@ -76,6 +76,12 @@ void audio_set_clock(int bpm, int steps, int swing, int running) { engine_synth_
 void audio_motion_restart(void)                                 { engine_synth_motion_restart(); }
 void audio_note_on(int midi_note)                               { engine_synth_note_on(midi_note); }
 void audio_note_off(int midi_note)                              { engine_synth_note_off(midi_note); }
+void audio_pads_build(const pads_t *p, const rack_t *r)          { engine_synth_pads_build(p, r); }
+void audio_pad_set(int pad, const pad_t *p)                      { engine_synth_pad_set(pad, p); }
+void audio_pad_push(int pad)                                     { engine_synth_pad_push(pad); }
+void audio_pad_release(int pad)                                  { engine_synth_pad_release(pad); }
+void audio_pads_stop(void)                                       { engine_synth_pads_stop(); }
+uint64_t audio_pads_playing(void)                                { return engine_synth_pads_playing(); }
 uint32_t audio_millis(void)                                     { return dev ? engine_synth_millis() : SDL_GetTicks(); }   // no audio device: the sequencer still runs
 void audio_update(void)                                         {}
 #endif // PLATFORM_SIM

@@ -4,6 +4,7 @@
 // UI thread. See ENGINE_DESIGN.md (ADR-024) for the threading rules.
 #include <stddef.h>
 #include <stdint.h>
+#include "core/pads.h"
 #include "core/rack.h"
 #include "core/synth_params.h"
 #include "hal/hal_audio.h"
@@ -29,6 +30,16 @@ void engine_synth_set_clock(int bpm, int steps, int swing, int running);
 void engine_synth_motion_restart(void);
 void engine_synth_note_on(int midi_note);
 void engine_synth_note_off(int midi_note);
+
+// The Pads section (core/pads.h, ADR-041): pads_build replaces the synth's graph with the pads player (the Pads module into the master
+// output, at the rack's master volume) and sends every pad; the next engine_synth_build brings the synth back. While the pads play,
+// engine_synth_set_params only follows the master volume. pad_set: one pad changed (its sample is loaded when needed).
+void engine_synth_pads_build(const pads_t *pads, const rack_t *rack);
+void engine_synth_pad_set(int pad, const pad_t *p);
+void engine_synth_pad_push(int pad);
+void engine_synth_pad_release(int pad);
+void engine_synth_pads_stop(void);
+uint64_t engine_synth_pads_playing(void);           // bit i = pad i sounds
 
 // [AUDIO THREAD] renders `frames` stereo frames of interleaved signed 16-bit samples (any frame count).
 void engine_synth_render(int16_t *stereo, int frames);

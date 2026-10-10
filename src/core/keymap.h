@@ -33,6 +33,10 @@ void        keymap_select(int layout);
 key_fn_t    keymap_get(int key);                            // key = row * KEY_COLS + col, in the active layout
 void        keymap_set(int key, key_fn_t f);                // switches to User (copying the active layout into it first)
 void        keymap_reset(void);                             // first built-in layout, User = a copy of it, saved at the next keymap_save()
+// The Pads section (core/pads.h): its built-in layout (pads 1..16, banks, Select, Mute, Stop all) replaces the chosen one while it is on;
+// the chosen layout and the User keys stay as they are (and are what keys.cfg saves).
+void        keymap_set_pads(bool on);
+bool        keymap_pads(void);
 bool        keymap_dirty(void);                             // changed since the last load / save
 
 // The card. keymap_load() replaces the state with keys.cfg (false: no card or no file, the state is kept);

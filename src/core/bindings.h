@@ -41,6 +41,13 @@ typedef enum {
     ACT_MOD,                // HOLD action: the Mod modifier is on while the control is down (what Shift / Mod + a control do: core/modifiers.h)
     ACT_JOY_MODE,           // joystick XY mode on / off (the stick drives the parameters bound by a push; synth_ui.h: synth_ui_joy_*)
     ACT_VALUE_FINE,         // fine steps of the focused value (core/fine_step.h: 1/5 of a step): +1 = increase; Shift + joystick left / right
+    // the Pads section (core/pads.h, ADR-041): key functions of the built-in "Pads" layout (core/keymap.h)
+    ACT_SECTION,            // Synth <-> Pads (also Shift + Menu)
+    ACT_PAD,                // HOLD action: arg = pad 0..15 of the bank shown; release = the gate pads stop
+    ACT_PAD_BANK,           // arg = bank 0..3
+    ACT_PAD_STOP,           // every pad fades out
+    ACT_PAD_SELECT,         // HOLD action: a pad pushed meanwhile is selected (its settings shown), not played
+    ACT_PAD_MUTE,           // HOLD action: a pad pushed meanwhile is muted / unmuted
     ACT_COUNT
 } action_id_t;
 

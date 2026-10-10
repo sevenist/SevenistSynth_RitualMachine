@@ -1,9 +1,12 @@
 #include "engine/modules/sampler_modules.h"
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <cstring>
 #include "engine/dsp/block.h"
 #include "engine/dsp/interp.h"
 #include "engine/dsp/phase.h"
+#include "engine/dsp/svf.h"
 #include "engine/dsp/util.h"
 #include "engine/modules/builtin.h"
 #include "engine/sampler/sample_bank.h"
@@ -22,9 +25,13 @@ public:
         static const ModuleInfo i = {"Sampler", Scope::Voice, 1, 1, SMPR_N, false, {"pitch"}, {"out"},
             {{"sample", -1, -1, 31}, {"instrument", -1, -1, 7}, {"tune", 0, -48 * kSemi, 48 * kSemi}, {"root", -1, -1, 127 * kSemi},
              {"loop", -1, -1, 2}, {"reverse", 0, 0, 1}, {"start", 0, 0, 60000 * 16}, {"slice", -1, -1, 15}, {"slice_mode", 0, 0, 1},
-             {"gain", kUnity, 0, kUnity}, {"interp", 1, 0, 1}, {"track", 1, 0, 1}}};
+             {"gain", kUnity, 0, kUnity}, {"interp", 1, 0, 1}, {"track", 1, 0, 1},
+             {"fstart", -1, -1, 0x7FFFFFFF}, {"fend", 0, 0, 0x7FFFFFFF}, {"region", 0, 0, 1}}};
         return i;
     }
+    // The Pads module drives its voices directly (same thread as process()): stop at once, and whether it still sounds (or waits for its sample).
+    void halt() { want_start_ = false; active_ = false; if (bank_ && ring_) stream_.stop(); }
+    bool playing() const { return active_ || want_start_; }
     bool init(Memory &m) override {
         bank_ = m.bank;
         if (!bank_) return true;                                           // no sampler service: the module stays silent
@@ -54,6 +61,9 @@ public:
             case SMPR_GAIN: gain_ = static_cast<q15>(v); break;
             case SMPR_INTERP: hermite_ = v != 0; break;
             case SMPR_TRACK: track_ = v != 0; break;
+            case SMPR_FSTART: fstart_ = v; break;
+            case SMPR_FEND: fend_ = v; break;
+            case SMPR_REGION: region_ = v != 0; break;
         }
     }
     void process(const ProcessCtx &ctx, const Ports &p) override {
@@ -242,6 +252,13 @@ private:
             if (slice_mode_ == 1 && slice_ + 1 < h.slice_count) stop_frame_ = h.slice[slice_ + 1];
         }
         start += static_cast<uint32_t>(static_cast<int64_t>(start_) * h.sample_rate / 16000);
+        if (fstart_ >= 0) {                                                                          // a trim in frames (the pads)
+            start = static_cast<uint32_t>(fstart_);
+            stop_frame_ = 0;
+            const uint32_t end = fend_ > 0 && static_cast<uint32_t>(fend_) < frames_ ? static_cast<uint32_t>(fend_) : frames_;
+            if (region_ && end > start + 1) { loop_ = LoopInfo{}; loop_.start = start; loop_.end = end; loop_.mode = SMP_LOOP_FWD; }
+            else if (end < frames_) stop_frame_ = end;
+        }
         if (start >= frames_) return true;
         dir_ = reverse_ ? -1 : 1;
         pos_ = (reverse_ ? static_cast<int64_t>(frames_ > 0 ? frames_ - 1 : 0) : static_cast<int64_t>(start)) << 32;
@@ -302,9 +319,9 @@ private:
     bool want_start_ = true, active_ = false, underrun_ = false;
     // parameters
     int32_t sample_ = -1, inst_ = -1, tune_ = 0, root_ = -1, start_ = 0, slice_ = -1, slice_mode_ = 0;
-    int32_t loop_param_ = -1;
+    int32_t loop_param_ = -1, fstart_ = -1, fend_ = 0;
     q15 gain_ = kUnity, gain_eff_ = kUnity;
-    bool reverse_ = false, hermite_ = true, track_ = true;
+    bool reverse_ = false, hermite_ = true, track_ = true, region_ = false;
 };
 
 /* ------------------------------------------------------------------ Granular */
@@ -402,15 +419,170 @@ private:
     q15 level_ = kUnity, norm_ = 8000;
 };
 
+/* ------------------------------------------------------------------ Pads */
+
+std::atomic<uint64_t> g_pads_playing{0};
+
+class Pads : public Module {
+public:
+    const ModuleInfo &info() const override {
+        static const ModuleInfo i = {"Pads", Scope::Global, 0, 2, PADS_N, false, {}, {"L", "R"},
+            {{"push", 0, 0, 0x7FFFFFFF}, {"release", 0, 0, 0x7FFFFFFF}, {"stop", 0, 0, 0x7FFFFFFF}}};
+        return i;
+    }
+    bool init(Memory &m) override {
+        mem_ = m;
+        for (Voice &v : voice_) {
+            Module *s = create_module<Sampler>(m);
+            if (!s) return false;
+            v.smp = static_cast<Sampler *>(s);
+            v.smp->set_param(SMPR_TRACK, 0);                                     // fixed pitch: the pad's tune only
+            v.smp->set_param(SMPR_LOOP, 0);                                      // the pad's Loop decides at every push
+            v.smp->halt();
+        }
+        return true;
+    }
+    ~Pads() override {
+        for (Voice &v : voice_) if (v.smp) destroy_module(*mem_.fast, v.smp);
+        g_pads_playing.store(0, std::memory_order_relaxed);
+    }
+    void reset() override { for (Voice &v : voice_) free_voice(v); }
+    void set_param(int idx, int32_t v) override {
+        if (v <= 0) return;                                                      // 0: no event (what a rebuild re-applies)
+        const int pad = v & 0xFF;
+        if (idx == PADS_STOP) { for (Voice &x : voice_) if (x.pad >= 0 && !x.stopping) stop(x, pads_[x.pad].tail); return; }
+        if (pad >= kPadCount) return;
+        if (idx == PADS_PUSH) push(pad);
+        else if (idx == PADS_RELEASE && pads_[pad].mode == PADM_GATE) { if (Voice *x = sounding(pad)) stop(*x, pads_[pad].tail); }
+    }
+    void set_blob(const void *data, size_t bytes) override {
+        if (bytes != sizeof(PadBlob)) return;
+        PadBlob b;
+        std::memcpy(&b, data, sizeof b);
+        if (b.pad >= kPadCount) return;
+        pads_[b.pad] = b;
+        if (b.slot < 0) for (Voice &x : voice_) if (x.pad == b.pad) cut(x);    // the sample was taken away
+    }
+    void process(const ProcessCtx &ctx, const Ports &p) override {
+        const int n = ctx.frames;
+        int32_t acc_l[kBlock] = {}, acc_r[kBlock] = {};
+        q15 buf[kBlock];
+        uint64_t playing = 0;
+        Ports vp{};
+        vp.in[0] = silence_;
+        vp.out[0] = buf;
+        ProcessCtx vc = ctx;
+        for (Voice &v : voice_) {
+            if (v.pad < 0) continue;
+            const PadBlob &b = pads_[v.pad];
+            vc.voice = &v.vs;
+            v.smp->process(vc, vp);
+            if (b.filter) {
+                const SvfCoefF c{b.a1, b.a2, b.a3, b.k};
+                for (int i = 0; i < n; i++) {
+                    float lp, bp, hp;
+                    svf_tick_f(c, v.svf, buf[i] * (1.0f / 32768.0f), lp, bp, hp);
+                    buf[i] = svf_out_f(lp);
+                }
+            }
+            // level / pan / mute: a ramp over the block to the pad's current gains; the envelope: fade-in after a trimmed start, fade-out after a stop
+            const int32_t tl = b.mute ? 0 : b.gain_l, tr = b.mute ? 0 : b.gain_r;
+            const int32_t dl = (tl - v.gl) / n, dr = (tr - v.gr) / n;
+            int32_t gl = v.gl, gr = v.gr, env = v.env;
+            for (int i = 0; i < n; i++) {
+                gl = i == n - 1 ? tl : gl + dl;
+                gr = i == n - 1 ? tr : gr + dr;
+                env += v.env_step;
+                if (env >= 32767) { env = 32767; if (v.env_step > 0) v.env_step = 0; }
+                if (env < 0) env = 0;
+                const int32_t x = (static_cast<int32_t>(buf[i]) * env) >> 15;
+                acc_l[i] += (x * gl) >> 15;
+                acc_r[i] += (x * gr) >> 15;
+            }
+            v.gl = tl; v.gr = tr; v.env = env;
+            if (env == 0 && v.env_step < 0) { free_voice(v); continue; }        // faded out
+            if (!v.smp->playing()) { free_voice(v); continue; }               // reached the end of its sample
+            if (!v.stopping) playing |= 1ull << v.pad;
+        }
+        for (int i = 0; i < n; i++) { p.out[0][i] = sat16(acc_l[i]); p.out[1][i] = sat16(acc_r[i]); }
+        g_pads_playing.store(playing, std::memory_order_relaxed);
+    }
+
+private:
+    struct Voice {
+        Sampler *smp = nullptr;
+        int pad = -1;                                                            // -1 = free
+        uint32_t order = 0;                                                      // start order (the oldest is stolen)
+        bool stopping = false;                                                   // fading out: no longer the pad's sound
+        int32_t env = 32767, env_step = 0;                                       // q15 envelope and its step per sample
+        int32_t gl = 0, gr = 0;                                                  // the gains reached at the end of the last block
+        SvfStateF svf;
+        VoiceState vs;
+    };
+
+    Voice *sounding(int pad) {
+        for (Voice &v : voice_) if (v.pad == pad && !v.stopping) return &v;
+        return nullptr;
+    }
+    void free_voice(Voice &v) { if (v.smp) v.smp->halt(); v.pad = -1; v.stopping = false; v.env_step = 0; }
+    static int32_t fade_step(int32_t samples) { return -(32767 / (samples > 1 ? samples : 1)) - 1; }
+    void cut(Voice &v) { if (v.pad >= 0) { v.stopping = true; v.env_step = fade_step(kPadCutMs * kSampleRate / 1000); } }
+    void stop(Voice &v, int32_t tail) { v.stopping = true; v.env_step = fade_step(tail > 32 ? tail : 32); }
+
+    void push(int pad) {
+        const PadBlob &b = pads_[pad];
+        if (b.slot < 0) return;
+        if (Voice *cur = sounding(pad)) {
+            if (b.mode == PADM_TOGGLE) { stop(*cur, b.tail); return; }           // a toggle pad: the push stops it
+            cut(*cur);                                                           // mono: the new start replaces it
+        }
+        if (b.choke)
+            for (Voice &v : voice_) if (v.pad >= 0 && v.pad != pad && !v.stopping && pads_[v.pad].choke == b.choke) cut(v);
+        Voice *v = nullptr;
+        for (Voice &x : voice_) if (x.pad < 0) { v = &x; break; }
+        if (!v)                                                                  // all busy: the quietest fading voice, else the oldest
+            for (Voice &x : voice_) {
+                if (!v) { v = &x; continue; }
+                const bool better = x.stopping != v->stopping ? x.stopping : (x.stopping ? x.env < v->env : x.order < v->order);
+                if (better) v = &x;
+            }
+        free_voice(*v);
+        v->pad = pad;
+        v->order = ++order_;
+        v->smp->set_param(SMPR_SAMPLE, b.slot);
+        v->smp->set_param(SMPR_FSTART, b.start);
+        v->smp->set_param(SMPR_FEND, b.end);
+        v->smp->set_param(SMPR_LOOP, b.loop == 2 ? -1 : 0);                     // the file's loop points, or none (then maybe the region)
+        v->smp->set_param(SMPR_REGION, b.loop == 1 ? 1 : 0);
+        v->smp->set_param(SMPR_TUNE, b.tune);
+        v->smp->reset();                                                         // starts at its next process()
+        v->svf = SvfStateF{};
+        v->env = b.start > 0 ? 0 : 32767;                                        // a trimmed start may be mid-wave: 1 ms fade-in
+        v->env_step = b.start > 0 ? 32767 / (kSampleRate / 1000) + 1 : 0;
+        v->gl = b.mute ? 0 : b.gain_l;
+        v->gr = b.mute ? 0 : b.gain_r;
+        v->vs.note = 60; v->vs.velocity = 32767; v->vs.gate = true; v->vs.active = true;
+    }
+
+    Memory mem_;
+    Voice voice_[kPadVoices];
+    PadBlob pads_[kPadCount];
+    uint32_t order_ = 0;
+    q15 silence_[kBlock] = {};
+};
+
 template <typename T>
 ModuleType type_of() { static T probe; return {&probe.info(), &create_module<T>}; }
 
 }  // namespace
 
+uint64_t pads_playing() { return g_pads_playing.load(std::memory_order_relaxed); }
+
 void register_sampler_modules(Registry &r) {
     r.add(T_SAMPLER, type_of<Sampler>());
     r.add(T_GRANULAR_V, type_of<Granular<Scope::Voice>>());
     r.add(T_GRANULAR_G, type_of<Granular<Scope::Global>>());
+    r.add(T_PADS, type_of<Pads>());
 }
 
 }  // namespace sc

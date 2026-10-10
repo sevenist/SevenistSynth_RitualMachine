@@ -42,6 +42,9 @@ struct Synth {
     int clk_bpm = 110, clk_steps = 16, clk_swing = 0, clk_run = 0, clk_restart = 0;   // the note sequencer's clock, for the motion sequencers
     int last_nv = 0, last_glide = 0, last_legato = 0;      // voice count / note handling of the loaded graph (a different count is a rebuild)
     bool last_mono = false;
+    bool pads_mode = false;                   // the pads player is loaded instead of the synth (engine_synth_pads_build)
+    int32_t pad_events = 0;                   // the counter of the pad events (sampler_modules.h: (n << 8) | pad)
+    size_t resident_bytes = 0;                // pad samples kept whole in memory (kPadResidentBudget)
 };
 
 Synth s_synth;
@@ -128,6 +131,79 @@ void send_clock(const RackGraph &r) {                 // the motion sequencers' 
     }
 }
 
+/* ---- the Pads section ---- */
+
+constexpr int RP_PADS = 1, RP_MASTER = 2;               // node ids of the pads graph
+constexpr size_t kPadResidentMax = 192 * 1024;         // a pad sample up to this size is kept whole in memory (no card reads while it plays) ...
+constexpr size_t kPadResidentBudget = 768 * 1024;      // ... while they stay under this in total; longer ones stream (a 150 ms head)
+
+int catalog_find(const char *name) {                    // [lock held]
+    if (!name || !name[0]) return -1;
+    for (int i = 0; i < s_synth.cat_n; i++) if (!std::strcmp(s_synth.cat[i].name, name)) return i;
+    return -1;
+}
+
+// Converts a pending .wav / .mp3 a pad uses (outside the lock, like prepare_samples).
+void pad_prepare(const pad_t &p) {
+    Synth &s = s_synth;
+    if (!s.importer || !p.file[0]) return;
+    int f;
+    bool pending;
+    {
+        std::lock_guard<std::mutex> lk(s.mx);
+        f = catalog_find(p.file);
+        pending = f >= 0 && s.cat[f].pending;
+    }
+    if (pending) s.importer(f);
+}
+
+// The engine's form of a pad [lock held]: its sample loaded (or loading), the trim in frames, the gains and the filter.
+PadBlob pad_blob(int idx, const pad_t &p) {
+    Synth &s = s_synth;
+    PadBlob b;
+    b.pad = static_cast<uint8_t>(idx);
+    const int f = catalog_find(p.file);
+    if (f >= 0 && s.bank_on && !s.cat[f].pending) {
+        if (s.slot_of[f] < 0) {
+            const size_t bytes = static_cast<size_t>(s.cat[f].frames) * sizeof(q15);
+            const bool whole = bytes <= kPadResidentMax && s.resident_bytes + bytes <= kPadResidentBudget;
+            char path[40];
+            std::snprintf(path, sizeof path, "%s.smp", s.cat[f].name);
+            s.slot_of[f] = static_cast<int16_t>(s.bank.load(path, whole ? 0 : 150));
+            if (whole && s.slot_of[f] >= 0) s.resident_bytes += bytes;
+        }
+        b.slot = s.slot_of[f];
+        const uint32_t frames = s.cat[f].frames;
+        b.start = static_cast<int32_t>(static_cast<uint64_t>(frames) * p.start / 1000);
+        b.end = p.end >= 1000 ? 0 : static_cast<int32_t>(static_cast<uint64_t>(frames) * p.end / 1000);
+    }
+    b.mode = p.mode == PAD_GATE ? PADM_GATE : p.mode == PAD_TOGGLE ? PADM_TOGGLE : PADM_ONESHOT;
+    b.loop = p.loop == PAD_LOOP_FILE ? 2 : p.loop == PAD_LOOP_TRIM ? 1 : 0;
+    b.choke = p.choke;
+    b.mute = p.mute ? 1 : 0;
+    b.tune = (static_cast<int32_t>(p.tune) * 100 + p.fine) * 256 / 100;
+    b.tail = static_cast<int32_t>(p.tail_ms) * kSampleRate / 1000;
+    const float lvl = p.level / 100.0f, pan = p.pan / 50.0f;                   // a balance: the far side goes down, the near side stays
+    b.gain_l = static_cast<q15>(std::lround(32767.0f * lvl * (pan > 0.0f ? 1.0f - pan : 1.0f)));
+    b.gain_r = static_cast<q15>(std::lround(32767.0f * lvl * (pan < 0.0f ? 1.0f + pan : 1.0f)));
+    const float hz = pad_cut_hz(&p);
+    if (hz > 0.0f) {                                                            // a 12 dB low-pass (TPT SVF), resonance 0..100 -> Q 0.7..12
+        const float fc = std::fmin(hz, 0.45f * kSampleRate);
+        const float g = std::tan(3.14159265f * fc / kSampleRate), k = 1.0f / (0.7071f + p.res * 0.113f);
+        b.filter = 1;
+        b.a1 = 1.0f / (1.0f + g * (g + k)); b.a2 = g * b.a1; b.a3 = g * b.a2; b.k = k;
+    }
+    return b;
+}
+
+void pads_master(const rack_t &rack) {                  // the master output of the pads graph follows the rack's volume (as rack_graph does)
+    const synth_config_t &cfg = rack.cfg;
+    const bool boost = cfg.volume > 1.0f;
+    s_synth.eng.set_param(RP_MASTER, 0, static_cast<int32_t>(std::lround(32767.0f * (boost ? cfg.volume * 0.5f : cfg.volume))));
+    s_synth.eng.set_param(RP_MASTER, 1, boost ? 1 : 0);
+    s_synth.eng.set_param(RP_MASTER, 2, cfg.mono);
+}
+
 }  // namespace
 
 extern "C" {
@@ -196,6 +272,7 @@ void engine_synth_build(const rack_t *rack, const synth_params_t *params) {
     if (!s_ready) return;
     s_builds++;
     Synth &s = s_synth;
+    s.pads_mode = false;                                    // an explicit build brings the synth back (from the Pads section)
     prepare_samples(*rack);
     std::lock_guard<std::mutex> lk(s.mx);
     resolve_samples(*rack);
@@ -214,6 +291,7 @@ void engine_synth_build(const rack_t *rack, const synth_params_t *params) {
 void engine_synth_set_params(const rack_t *rack, const synth_params_t *params) {
     if (!s_ready) return;
     Synth &s = s_synth;
+    if (s.pads_mode) { pads_master(*rack); return; }       // the Pads section: only the master volume is the synth's
     if (!s.have_last) { engine_synth_build(rack, params); return; }
     prepare_samples(*rack);
     {
@@ -267,6 +345,50 @@ void engine_synth_motion_restart(void) {
 
 void engine_synth_note_on(int note)  { if (s_ready) s_synth.eng.note_on(note, 100); }
 void engine_synth_note_off(int note) { if (s_ready) s_synth.eng.note_off(note); }
+
+void engine_synth_pads_build(const pads_t *pads, const rack_t *rack) {
+    if (!s_ready) return;
+    Synth &s = s_synth;
+    s_builds++;
+    std::snprintf(s_reason, sizeof s_reason, "pads");
+    for (int i = 0; i < PAD_COUNT; i++) pad_prepare(pads->pad[i]);
+    std::lock_guard<std::mutex> lk(s.mx);
+    GraphDesc &g = s.cur.g;
+    g = GraphDesc{};
+    if (!g.add_node(s.eng.registry(), RP_PADS, T_PADS) || !g.add_node(s.eng.registry(), RP_MASTER, T_MASTER_OUT)) return;
+    g.connect(RP_PADS, 0, RP_MASTER, Dst::In, 0);
+    g.connect(RP_PADS, 1, RP_MASTER, Dst::In, 1);
+    if (s.eng.load(g, 1) != Err::Ok) return;
+    s.pads_mode = true;
+    s.have_last = false;                                    // the synth's graph is gone: the next set_params is a build
+    s.last_nv = 1;
+    for (int i = 0; i < PAD_COUNT; i++) {
+        const PadBlob b = pad_blob(i, pads->pad[i]);
+        s.eng.set_blob(RP_PADS, &b, sizeof b);
+    }
+    pads_master(*rack);
+    s.eng.gc();
+}
+
+void engine_synth_pad_set(int pad, const pad_t *p) {
+    if (!s_ready || !s_synth.pads_mode || pad < 0 || pad >= PAD_COUNT) return;
+    pad_prepare(*p);
+    std::lock_guard<std::mutex> lk(s_synth.mx);
+    const PadBlob b = pad_blob(pad, *p);
+    s_synth.eng.set_blob(RP_PADS, &b, sizeof b);
+}
+
+static void pad_event(int idx, int pad) {
+    if (!s_ready || !s_synth.pads_mode) return;
+    s_synth.pad_events = (s_synth.pad_events + 1) & 0x7FFFFF;
+    if (!s_synth.pad_events) s_synth.pad_events = 1;
+    s_synth.eng.set_param(RP_PADS, idx, (s_synth.pad_events << 8) | (pad & 0xFF));
+}
+
+void engine_synth_pad_push(int pad)    { if (pad >= 0 && pad < PAD_COUNT) pad_event(PADS_PUSH, pad); }
+void engine_synth_pad_release(int pad) { if (pad >= 0 && pad < PAD_COUNT) pad_event(PADS_RELEASE, pad); }
+void engine_synth_pads_stop(void)      { pad_event(PADS_STOP, 0); }
+uint64_t engine_synth_pads_playing(void) { return s_ready && s_synth.pads_mode ? pads_playing() : 0; }
 
 void engine_synth_render(int16_t *stereo, int frames) {
     if (!s_ready) { std::memset(stereo, 0, static_cast<size_t>(frames) * 4); return; }

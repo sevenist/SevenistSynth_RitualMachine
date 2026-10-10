@@ -15,6 +15,8 @@ static bool key_active(const app_t *app, control_id_t ctl, key_fn_t f) {
         case ACT_PLAY:   return app->seq.running;
         case ACT_OCTAVE: return f.arg > 0 ? app->in.octave > 0 : app->in.octave < 0;
         case ACT_JUMP:   return synth_ui_jump_ready(&app->ui, &app->rack, f.arg & 7);     // bright: a jump goes somewhere now
+        case ACT_PAD:    return (app->pads_shown >> (app->ui.pad_bank * PADS_PER_BANK + (f.arg & 15))) & 1;    // the pad sounds
+        case ACT_PAD_BANK: return app->ui.pad_bank == f.arg;
         default:         return false;
     }
 }
@@ -36,8 +38,13 @@ void key_leds_update(const app_t *app, bool input_event, uint32_t now_ms) {
             const control_id_t ctl = (control_id_t)CTL_KEY(r, c);
             const key_fn_t f = keymap_get(r * KEY_COLS + c);
             const int role = led_role_of(f);
-            if (preview) leds_set(ctl, role == app->ui.led_role ? led_role_rgb(role, !preview_idle) : (led_color_t){0, 0, 0});
-            else         leds_set(ctl, led_role_rgb(role, key_active(app, ctl, f)));
+            if (preview) { leds_set(ctl, role == app->ui.led_role ? led_role_rgb(role, !preview_idle) : (led_color_t){0, 0, 0}); continue; }
+            if (f.act == ACT_PAD) {                          // an empty pad is dark, a muted one shows Back's idle colour (unless it sounds)
+                const pad_t *p = &app->pads.pad[app->ui.pad_bank * PADS_PER_BANK + (f.arg & 15)];
+                if (pad_empty(p)) { leds_set(ctl, (led_color_t){0, 0, 0}); continue; }
+                if (p->mute && !key_active(app, ctl, f)) { leds_set(ctl, led_role_rgb(LR_BACK, false)); continue; }
+            }
+            leds_set(ctl, led_role_rgb(role, key_active(app, ctl, f)));
         }
     leds_show();                                             // the driver sends only when something changed
 }

@@ -12,7 +12,8 @@
 // no audio in this tool
 void audio_init(void) {}
 void audio_shutdown(void) {}
-void audio_build(const rack_t *r, const synth_params_t *p) { (void)r; (void)p; }
+int ui_stub_builds;                                                  // audio_build calls (the UI tests check the section switch)
+void audio_build(const rack_t *r, const synth_params_t *p) { (void)r; (void)p; ui_stub_builds++; }
 void audio_set_params(const rack_t *r, const synth_params_t *p) { (void)r; (void)p; }
 int audio_sample_count(void) { return 3; }
 int audio_osc_preview(int m, float t, float mo, float h, int period, int16_t *out, int n) {   // no engine here: the UI shows the model name
@@ -26,7 +27,7 @@ bool audio_sample_info(int i, audio_sample_info_t *o) {
     o->frames = 96000; o->rate = 48000; o->root = 60; o->slices = i == 2 ? 8 : 0;
     for (int k = 0; k < 8; k++) o->slice[k] = k * 12000;
     for (int k = 0; k < 64; k++) o->peaks[k] = 255 - k * 3;
-    o->loop_start = 20000; o->loop_end = 70000;
+    o->loop_start = 20000; o->loop_end = 70000; o->loop_mode = i == 1 ? 1 : 0;     // demo1 has loop points, demo0 / demo2 only the numbers
     return true;
 }
 int audio_samples_rescan(void) { return 3; }
@@ -38,6 +39,16 @@ void audio_set_clock(int b, int s, int w, int r) { (void)b; (void)s; (void)w; (v
 void audio_motion_restart(void) {}
 void audio_note_on(int n) { (void)n; }
 void audio_note_off(int n) { (void)n; }
+// The Pads section: what the app asked for, for the UI tests (pushes / releases / stops counted; a pushed pad "plays" until released or
+// stopped, so the grid and the LEDs have something to show).
+int ui_stub_pads_builds, ui_stub_pad_sets, ui_stub_pad_pushes, ui_stub_pad_releases, ui_stub_pads_stops, ui_stub_last_pad = -1;
+static uint64_t stub_playing;
+void audio_pads_build(const pads_t *p, const rack_t *r) { (void)p; (void)r; ui_stub_pads_builds++; stub_playing = 0; }
+void audio_pad_set(int pad, const pad_t *p) { (void)pad; (void)p; ui_stub_pad_sets++; }
+void audio_pad_push(int pad) { ui_stub_pad_pushes++; ui_stub_last_pad = pad; if (pad >= 0 && pad < 64) stub_playing |= 1ull << pad; }
+void audio_pad_release(int pad) { ui_stub_pad_releases++; if (pad >= 0 && pad < 64) stub_playing &= ~(1ull << pad); }
+void audio_pads_stop(void) { ui_stub_pads_stops++; stub_playing = 0; }
+uint64_t audio_pads_playing(void) { return stub_playing; }
 uint32_t audio_millis(void) { static uint32_t t; return t += 10; }
 void audio_update(void) {}
 bool input_key_present(int row, int col) { return row > 0 || col < 4; }      // the first prototype: 4 function keys, 4 x 8 note keys

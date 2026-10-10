@@ -1,6 +1,7 @@
 #include "core/key_leds.h"
 #include "core/keymap.h"
 #include "core/led_roles.h"
+#include "hal/hal_audio.h"
 #include "hal/hal_leds.h"
 
 #define KEY_LEDS_PERIOD_MS 20                                // repaint rate without input (the Play LED follows the sequencer)
@@ -12,7 +13,11 @@ static bool key_active(const app_t *app, control_id_t ctl, key_fn_t f) {
         case ACT_SHIFT:  return app->in.shift;
         case ACT_MOD:    return app->in.mod;
         case ACT_MENU:   return app->ui.in_rack;
-        case ACT_PLAY:   return app->seq.running;
+        case ACT_PLAY: {                                      // the clock runs: a flash on every beat, a longer one on beat 1
+            int bar, beat, frac;
+            if (!audio_transport(&bar, &beat, &frac)) return false;
+            return frac < (beat == 1 ? 128 : 64);
+        }
         case ACT_OCTAVE: return f.arg > 0 ? app->in.octave > 0 : app->in.octave < 0;
         case ACT_JUMP:   return synth_ui_jump_ready(&app->ui, &app->rack, f.arg & 7);     // bright: a jump goes somewhere now
         case ACT_PAD:    return (app->pads_shown >> (app->ui.pad_bank * PADS_PER_BANK + (f.arg & 15))) & 1;    // the pad sounds

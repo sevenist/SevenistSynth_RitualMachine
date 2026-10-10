@@ -21,10 +21,12 @@ void pad_label(int pad, char *out, int n) {
     snprintf(out, (size_t)n, "%c%d", 'A' + pad / PADS_PER_BANK, pad % PADS_PER_BANK + 1);
 }
 
-static const char *const labels[PADP_COUNT] = {"Smp", "Mode", "Strt", "End", "Loop", "Tail", "Tune", "Fine", "Lvl", "Pan", "Cut", "Res", "Chok", "Mute"};
+static const char *const labels[PADP_COUNT] = {"Smp", "Mode", "Strt", "End", "Loop", "Tail", "Tune", "Fine", "Lvl", "Pan", "Cut", "Res", "Chok", "Mute", "Grid"};
 static const char *const mode_names[PAD_MODE_COUNT] = {"One", "Gate", "Togl"};
 static const char *const mode_toks[PAD_MODE_COUNT]  = {"one", "gate", "toggle"};
 static const char *const loop_names[PAD_LOOP_COUNT] = {"Off", "Trim", "File"};
+static const char *const grid_names[PAD_GRID_COUNT] = {"Off", "Beat", "Bar"};
+static const char *const grid_toks[PAD_GRID_COUNT]  = {"off", "beat", "bar"};
 
 const char *pad_param_label(pad_param_t k) { return k >= 0 && k < PADP_COUNT ? labels[k] : "?"; }
 
@@ -59,6 +61,7 @@ void pad_param_format(const pad_t *p, pad_param_t k, uint32_t frames, uint32_t r
         case PADP_RES:   snprintf(out, (size_t)n, "%d%%", p->res); break;
         case PADP_CHOKE: if (p->choke) snprintf(out, (size_t)n, "%d", p->choke); else snprintf(out, (size_t)n, "--"); break;
         case PADP_MUTE:  snprintf(out, (size_t)n, "%s", p->mute ? "On" : "Off"); break;
+        case PADP_GRID:  snprintf(out, (size_t)n, "%s", grid_names[p->grid % PAD_GRID_COUNT]); break;
         default:         snprintf(out, (size_t)n, "?"); break;
     }
 }
@@ -88,6 +91,7 @@ bool pad_param_adjust(pad_t *p, pad_param_t k, int dir) {
         case PADP_RES:   p->res = (uint8_t)clampi(p->res + d * fine_int_step(5), 0, 100); break;
         case PADP_CHOKE: p->choke = (uint8_t)((p->choke + PAD_CHOKES + 1 + d) % (PAD_CHOKES + 1)); break;
         case PADP_MUTE:  p->mute = !p->mute; break;
+        case PADP_GRID:  p->grid = (uint8_t)((p->grid + PAD_GRID_COUNT + d) % PAD_GRID_COUNT); break;
         default: break;
     }
     return memcmp(&old, p, sizeof old) != 0;
@@ -111,6 +115,7 @@ bool pad_param_set_norm(pad_t *p, pad_param_t k, float x) {
         case PADP_RES:   p->res = (uint8_t)v100; break;
         case PADP_CHOKE: p->choke = (uint8_t)clampi((int)(x * (PAD_CHOKES + 1)), 0, PAD_CHOKES); break;
         case PADP_MUTE:  p->mute = x >= 0.5f; break;
+        case PADP_GRID:  p->grid = (uint8_t)clampi((int)(x * PAD_GRID_COUNT), 0, PAD_GRID_COUNT - 1); break;
         default: break;
     }
     return memcmp(&old, p, sizeof old) != 0;
@@ -142,6 +147,7 @@ int pads_to_text(const pads_t *ps, char *buf, int cap) {
         FIELD(p->res != d.res, " res %d", p->res);
         FIELD(p->choke != d.choke, " choke %d", p->choke);
         FIELD(p->mute != d.mute, " mute %d", p->mute);
+        FIELD(p->grid != d.grid, " grid %s", grid_toks[p->grid % PAD_GRID_COUNT]);
         FIELD(p->file[0], " file %s", p->file);
 #undef FIELD
         n += snprintf(buf + n, (size_t)(cap - n), "%s\n", line);
@@ -192,6 +198,7 @@ static void parse_pad(pad_t *p, const char *s) {
         else if (!strcmp(key, "res"))   p->res = (uint8_t)clampi(v, 0, 100);
         else if (!strcmp(key, "choke")) p->choke = (uint8_t)clampi(v, 0, PAD_CHOKES);
         else if (!strcmp(key, "mute"))  p->mute = v != 0;
+        else if (!strcmp(key, "grid")) { for (int g = 0; g < PAD_GRID_COUNT; g++) if (!strcmp(val, grid_toks[g])) p->grid = (uint8_t)g; }
         if (p->start >= p->end) p->start = (uint16_t)(p->end - 1);
     }
 }

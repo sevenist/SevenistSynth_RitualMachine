@@ -206,9 +206,10 @@ bool synth_ui_joy_axis(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_
 
 // The Pads section's screens (scr_pads.c): the grid of the bank shown (the joystick moves the selection, encoder B / pages change the bank,
 // a push opens the pad's editor), or that editor (a declarative screen; Back returns to the grid). pads_ui_handle returns true when the
-// selected pad's settings changed: the app sends them to the engine and saves pads.cfg. `playing`: audio_pads_playing().
+// selected pad's settings changed: the app sends them to the engine and saves pads.cfg. `playing`: audio_pads_playing(); the grid's header
+// shows the bank, the tempo and, while the clock runs, bar.beat (the beat inverted for its first quarter: audio_transport()).
 bool pads_ui_handle(synth_ui_t *ui, rack_t *rack, ui_event_t e);
-void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t playing);
+void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t playing, int bpm);
 static inline int pads_ui_pad(const synth_ui_t *ui) { return ui->pad_bank * PADS_PER_BANK + ui->pad_cur; }   // the selected pad, 0..PAD_COUNT-1
 
 // Jump slots (see jump_slot_t). save: the page / tab on screen goes into slot k. resolve: finds every slot's page again (called by

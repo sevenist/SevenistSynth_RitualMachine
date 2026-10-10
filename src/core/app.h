@@ -46,6 +46,10 @@ typedef struct {
     bool           pads_pending;     // the pads changed and wait to be saved (pads.cfg) ...
     uint32_t       pads_ms;          // ... since then
     uint64_t       pads_shown;  // the pads that sounded at the last draw (a change redraws the grid)
+    bool           pads_run;    // the machine clock runs in the Pads section (Play; in the synth it runs with the sequencer)
+    bool           metronome;   // the click on the beat (key function Click)
+    seq_tap_t      tap;         // tap tempo
+    uint32_t       clock_shown; // running / bar / beat / blink at the last draw (a change redraws the header)
     synth_ui_t     ui;
     input_state_t  in;
     bool           dirty;       // the screen needs a redraw after this step

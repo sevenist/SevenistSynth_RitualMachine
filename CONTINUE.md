@@ -14,8 +14,10 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
 - [ ] **Pads step 1: the user tries it in the simulator, then on the board**: BUILT 2026-10-10 (ADR-041 "Phase 5, step 1 as built"; 7 engine
   tests in the 6 configurations, 77 UI tests, simulator + firmware built; NOT tried by the user, NOT flashed, NOT measured). See "Pads
   section, step 1" below for how to try it and its limits. On the board: measure 8 pad voices (streamed vs whole), PSRAM after the switch (from: user)
-- [ ] **Pads steps 2-5**: clock + start on grid, FXA-C, live synth (design round), song mode + backtrack (design round); "Next: the
-  production workflow" (from: user)
+- [ ] **Pads step 2 (clock, start on grid, tempo, metronome): try it**: BUILT 2026-10-10 (ADR-041 decisions 27-29; 11 pad engine tests,
+  81 UI tests, simulator + firmware built; NOT tried by the user, NOT flashed). Play in Pads runs the clock; Grid row of a pad; right block
+  row 3 = Tap, Click, BPM -1, BPM +1 (from: user)
+- [ ] **Pads steps 3-5**: FXA-C, live synth (design round), song mode + backtrack (design round); "Next: the production workflow" (from: user)
 - [ ] **Confirm: the full synth stops in the Pads section** (my reading of ADR-041 decision 22) (from: notes)
 - [ ] **Joystick swap: try it**: a push on an already bound parameter swaps X and Y, each keeps its range / curve (built 2026-10-09, 71 UI
   tests, sim built; NOT tried by the user, NOT flashed) (from: user)
@@ -90,7 +92,7 @@ options (pros / cons) before building.
      stretch, choke group, level / pan / filter, FX entry Dry / A / B / C, mute), `pads.cfg` on the card; the section switch (Shift + Menu,
      key function "Section"); the built-in "Pads" key layout (left 4 x 4 pads; right: Bank A-D, Stop all, Select, Mute); the full-screen
      grid, a push opens the pad's pages. Engine: a pad player of 8 mono voices (Sampler streaming, choke, modes, tail), dry to the output.
-  2. The minimal clock (BPM, 4/4 position) + "start on grid".
+  2. **BUILT 2026-10-10**: the machine clock (ADR-041 decisions 27-29) + "start on grid".
   3. FXA / FXB / FXC: a short module chain each, the four routings, entry per source.
   4. Live synth: design round first (voices, engine, how it is played with 16 pads + Shift, its FX entry).
   5. Song mode + backtrack: design round first (what is recorded: events or audio; start / end edit; the backtrack in the Synth section).

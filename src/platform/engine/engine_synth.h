@@ -28,6 +28,10 @@ void engine_synth_set_params(const rack_t *rack, const synth_params_t *params); 
 // note sequencer starts a run (the motion lanes restart at their first step).
 void engine_synth_set_clock(int bpm, int steps, int swing, int running);
 void engine_synth_motion_restart(void);
+// The machine clock (ADR-041 decision 24) follows set_clock (bpm, running: a start is bar 1 beat 1). The metronome click on / off, and
+// where the clock is: returns 1 while it runs; bar from 1, beat 1..4, frac = 0..255 of the beat.
+void engine_synth_set_metronome(int on);
+int  engine_synth_transport(int *bar, int *beat, int *frac);
 void engine_synth_note_on(int midi_note);
 void engine_synth_note_off(int midi_note);
 

@@ -29,7 +29,9 @@ enum { GRN_SAMPLE, GRN_POSITION, GRN_SPEED, GRN_SIZE, GRN_DENSITY, GRN_PITCH, GR
 // and the pad's level / pan into out 0 / 1 (L / R). Each pad is mono: a push restarts it (the old sound fades in kPadCutMs). A choke group
 // stops its other pads; the oldest voice is stolen when all are busy. The pads' settings come as PadBlob (set_blob, one per pad, at build and
 // on every change); the pushes as parameters whose value is (n << 8) | pad, n a counter that starts at 1 (0 = nothing: the value a rebuild
-// re-applies), so two pushes of the same pad in one block are two events.
+// re-applies), so two pushes of the same pad in one block are two events. A pad with a grid (beat / bar) waits for the next beat / bar of
+// the running clock (ProcessCtx::transport), block-accurate (it starts in the block nearest to it); with the clock stopped it starts at
+// once. A gate pad released while it waits, or a toggle pad pushed again, does not start; a sounding toggle pad stops at its push.
 enum { T_PADS = 80 };
 enum { PADS_PUSH, PADS_RELEASE, PADS_STOP, PADS_N };
 constexpr int kPadCount = 64;
@@ -39,6 +41,7 @@ enum PadMode : uint8_t { PADM_ONESHOT, PADM_GATE, PADM_TOGGLE };
 struct PadBlob {
     uint8_t pad = 0;                            // 0..kPadCount-1
     uint8_t mode = PADM_ONESHOT, loop = 0, choke = 0, mute = 0, filter = 0;   // loop: 0 off, 1 start..end, 2 the file's loop points
+    uint8_t grid = 0;                           // start on: 0 the push, 1 the next beat, 2 the next bar
     int16_t slot = -1;                          // bank slot of the sample, -1 = an empty pad
     int32_t start = 0, end = 0;                 // frames; end 0 = the file's end
     int32_t tune = 0;                           // pitch units (1/256 semitone)

@@ -48,6 +48,10 @@ typedef enum {
     ACT_PAD_STOP,           // every pad fades out
     ACT_PAD_SELECT,         // HOLD action: a pad pushed meanwhile is selected (its settings shown), not played
     ACT_PAD_MUTE,           // HOLD action: a pad pushed meanwhile is muted / unmuted
+    // the machine clock (ADR-041 decision 24): one tempo for the whole machine (the sequencer's BPM)
+    ACT_TEMPO,              // arg = BPM steps (+1, -1, +5, -5; an encoder multiplies it by its detents)
+    ACT_TAP,                // tap tempo: the average of the last taps sets the BPM
+    ACT_METRONOME,          // the metronome click on / off
     ACT_COUNT
 } action_id_t;
 

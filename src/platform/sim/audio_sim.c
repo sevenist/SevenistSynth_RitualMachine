@@ -74,6 +74,8 @@ uint32_t audio_sd_generation(void)                              { return sim_car
 bool audio_sample_prepare(int i)                                { return sim_samples_prepare(i) != 0; }
 void audio_set_clock(int bpm, int steps, int swing, int running) { engine_synth_set_clock(bpm, steps, swing, running); }
 void audio_motion_restart(void)                                 { engine_synth_motion_restart(); }
+void audio_set_metronome(bool on)                                { engine_synth_set_metronome(on); }
+bool audio_transport(int *bar, int *beat, int *frac)             { return engine_synth_transport(bar, beat, frac) != 0; }
 void audio_note_on(int midi_note)                               { engine_synth_note_on(midi_note); }
 void audio_note_off(int midi_note)                              { engine_synth_note_off(midi_note); }
 void audio_pads_build(const pads_t *p, const rack_t *r)          { engine_synth_pads_build(p, r); }

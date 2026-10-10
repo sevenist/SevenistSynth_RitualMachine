@@ -291,6 +291,8 @@ extern "C" uint32_t audio_sd_read_us(void)                                  { re
 extern "C" uint32_t audio_sd_generation(void)                               { return samples_esp32_sd_generation(); }
 extern "C" void audio_set_clock(int bpm, int steps, int swing, int running) { engine_synth_set_clock(bpm, steps, swing, running); }
 extern "C" void audio_motion_restart(void)                                 { engine_synth_motion_restart(); }
+extern "C" void audio_set_metronome(bool on)                                { engine_synth_set_metronome(on); }
+extern "C" bool audio_transport(int *bar, int *beat, int *frac)             { return engine_synth_transport(bar, beat, frac) != 0; }
 extern "C" void audio_note_on(int midi_note)                               { engine_synth_note_on(midi_note); }
 extern "C" void audio_note_off(int midi_note)                              { engine_synth_note_off(midi_note); }
 extern "C" void audio_pads_build(const pads_t *p, const rack_t *r)          { apply_speaker(r); engine_synth_pads_build(p, r); }

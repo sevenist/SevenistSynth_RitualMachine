@@ -446,14 +446,21 @@ public:
         for (Voice &v : voice_) if (v.smp) destroy_module(*mem_.fast, v.smp);
         g_pads_playing.store(0, std::memory_order_relaxed);
     }
-    void reset() override { for (Voice &v : voice_) free_voice(v); }
+    void reset() override { for (Voice &v : voice_) free_voice(v); for (uint8_t &w : want_) w = 0; }
     void set_param(int idx, int32_t v) override {
         if (v <= 0) return;                                                      // 0: no event (what a rebuild re-applies)
         const int pad = v & 0xFF;
-        if (idx == PADS_STOP) { for (Voice &x : voice_) if (x.pad >= 0 && !x.stopping) stop(x, pads_[x.pad].tail); return; }
+        if (idx == PADS_STOP) {
+            for (Voice &x : voice_) if (x.pad >= 0 && !x.stopping) stop(x, pads_[x.pad].tail);
+            for (uint8_t &w : want_) w = 0;
+            return;
+        }
         if (pad >= kPadCount) return;
         if (idx == PADS_PUSH) push(pad);
-        else if (idx == PADS_RELEASE && pads_[pad].mode == PADM_GATE) { if (Voice *x = sounding(pad)) stop(*x, pads_[pad].tail); }
+        else if (idx == PADS_RELEASE && pads_[pad].mode == PADM_GATE) {
+            if (want_[pad]) want_[pad] = 0;                                      // released before its beat: it does not start
+            else if (Voice *x = sounding(pad)) stop(*x, pads_[pad].tail);
+        }
     }
     void set_blob(const void *data, size_t bytes) override {
         if (bytes != sizeof(PadBlob)) return;
@@ -461,10 +468,11 @@ public:
         std::memcpy(&b, data, sizeof b);
         if (b.pad >= kPadCount) return;
         pads_[b.pad] = b;
-        if (b.slot < 0) for (Voice &x : voice_) if (x.pad == b.pad) cut(x);    // the sample was taken away
+        if (b.slot < 0) { for (Voice &x : voice_) if (x.pad == b.pad) cut(x); want_[b.pad] = 0; }    // the sample was taken away
     }
     void process(const ProcessCtx &ctx, const Ports &p) override {
         const int n = ctx.frames;
+        start_due(ctx.transport, n);
         int32_t acc_l[kBlock] = {}, acc_r[kBlock] = {};
         q15 buf[kBlock];
         uint64_t playing = 0;
@@ -532,6 +540,33 @@ private:
     void push(int pad) {
         const PadBlob &b = pads_[pad];
         if (b.slot < 0) return;
+        if (b.grid) {
+            if (want_[pad]) { if (b.mode == PADM_TOGGLE) want_[pad] = 0; return; }   // waiting: a toggle pushed again cancels, the others wait on
+            if (b.mode == PADM_TOGGLE) if (Voice *cur = sounding(pad)) { stop(*cur, b.tail); return; }
+            want_[pad] = 1;                                                      // its beat is found at the next process() (the clock is there)
+            return;
+        }
+        start(pad);
+    }
+
+    // The grid pads that wait: their beat / bar is the first one at or after the block they were pushed in; they start in the block nearest
+    // to it. A stopped clock starts them at once.
+    void start_due(const Transport *tr, int n) {
+        for (int pad = 0; pad < kPadCount; pad++) {
+            if (!want_[pad]) continue;
+            if (!tr || !tr->running) { want_[pad] = 0; start(pad); continue; }
+            if (want_[pad] == 1) {
+                const uint64_t unit = pads_[pad].grid == 2 ? 4ull << 32 : 1ull << 32;
+                at_[pad] = (tr->beat_q32 + unit - 1) / unit * unit;
+                want_[pad] = 2;
+            }
+            if (tr->sample_at(at_[pad], n) <= n / 2) { want_[pad] = 0; start(pad); }
+        }
+    }
+
+    void start(int pad) {
+        const PadBlob &b = pads_[pad];
+        if (b.slot < 0) return;
         if (Voice *cur = sounding(pad)) {
             if (b.mode == PADM_TOGGLE) { stop(*cur, b.tail); return; }           // a toggle pad: the push stops it
             cut(*cur);                                                           // mono: the new start replaces it
@@ -567,6 +602,8 @@ private:
     Memory mem_;
     Voice voice_[kPadVoices];
     PadBlob pads_[kPadCount];
+    uint8_t want_[kPadCount] = {};                                               // a grid pad waits: 1 = its beat is not known yet, 2 = at_
+    uint64_t at_[kPadCount] = {};                                                // ... the beat (Q32) it starts on
     uint32_t order_ = 0;
     q15 silence_[kBlock] = {};
 };

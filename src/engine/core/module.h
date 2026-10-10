@@ -39,6 +39,22 @@ struct ModuleInfo {
     ParamDesc param[kMaxParams];
 };
 
+// The machine clock (ADR-041 decision 24): a 4/4 transport counted in beats, advanced by the engine at the end of every block. A module reads
+// where the block starts and how far one sample moves it (Engine::set_transport sets the tempo and starts / stops it; a start is beat 0).
+struct Transport {
+    bool running = false;
+    int32_t bpm = 120;
+    uint64_t beat_q32 = 0;      // the position at the first sample of this block, in beats (Q32); the bar is beat / 4
+    uint64_t inc_q32 = 0;       // beats per sample (Q32)
+    // The sample of this block (0..n-1) where the position reaches `at` (beats Q32); n when it does not in this block (or stopped).
+    int sample_at(uint64_t at, int n) const {
+        if (!running || inc_q32 == 0) return n;
+        if (at <= beat_q32) return 0;
+        const uint64_t k = (at - beat_q32 + inc_q32 - 1) / inc_q32;
+        return k < static_cast<uint64_t>(n) ? static_cast<int>(k) : n;
+    }
+};
+
 // Per-voice state owned by the engine, visible to voice-scope modules.
 struct VoiceState {
     int note = 0;
@@ -65,6 +81,7 @@ struct ProcessCtx {
     int nvoices = 0;
     int keys_held = 0;          // voices whose key is down
     int32_t *bus2_l = nullptr, *bus2_r = nullptr;   // the second voice bus (VoiceOut's input 2, BusIn with bus 1): the rack's branch 2 (ADR-041)
+    const Transport *transport = nullptr;           // the machine clock at the start of this block
 };
 
 struct Ports {

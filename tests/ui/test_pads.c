@@ -187,3 +187,87 @@ TEST(pads_leds_show_empty_loaded_playing_and_bank) {
     ev_idle(1);
     CHECK(same_rgb(ui_stub_led[PAD_KEY(0)], led_role_rgb(LR_PAD, false)));      // loaded, silent
 }
+
+extern int ui_stub_clock_bpm, ui_stub_clock_run, ui_stub_metronome;
+#define TAP_KEY      CTL_KEY(3, 4)
+#define CLICK_KEY    CTL_KEY(3, 5)
+#define BPM_DN_KEY   CTL_KEY(3, 6)
+#define BPM_UP_KEY   CTL_KEY(3, 7)
+
+TEST(pads_play_runs_the_shared_clock) {
+    ui_fresh();
+    shift_menu();
+    ev_idle(1);
+    CHECK_EQ(ui_stub_clock_run, 0);
+    ev_tap(CTL_PLAY);                                                    // Play in the Pads section: the clock, not the sequencer
+    ev_idle(1);
+    CHECK_EQ(ui_stub_clock_run, 1);
+    CHECK(!ui_app.seq.running);
+    CHECK_EQ(ui_stub_clock_bpm, ui_app.seq.bpm);                         // one tempo: the sequencer's
+    ev_tap(CTL_PLAY);
+    ev_idle(1);
+    CHECK_EQ(ui_stub_clock_run, 0);
+    ev_tap(CTL_PLAY);
+    shift_menu();                                                        // leaving the section stops it
+    ev_idle(1);
+    CHECK_EQ(ui_stub_clock_run, 0);
+    ev_tap(CTL_PLAY);                                                    // the synth: the sequencer, and the clock with it
+    ev_idle(1);
+    CHECK(ui_app.seq.running);
+    CHECK_EQ(ui_stub_clock_run, 1);
+}
+
+TEST(pads_tempo_keys_tap_click_and_bindings) {
+    ui_fresh();
+    shift_menu();
+    const int bpm = ui_app.seq.bpm;
+    ev_tap(BPM_UP_KEY);
+    CHECK_EQ(ui_app.seq.bpm, bpm + 1);
+    ev_tap(BPM_DN_KEY); ev_tap(BPM_DN_KEY);
+    CHECK_EQ(ui_app.seq.bpm, bpm - 1);
+    CHECK_STR(ui_app.popup.info.title, "TEMPO");
+    ev_tap(CLICK_KEY);
+    CHECK_EQ(ui_stub_metronome, 1);
+    ev_tap(CLICK_KEY);
+    CHECK_EQ(ui_stub_metronome, 0);
+    // Shift + a pad bound to BPM +5 (a layer entry, MODIFIERS tab): the tempo moves, the pad does not play
+    modifiers_set(MODL_SHIFT, PAD_KEY(0), (mod_entry_t){ME_ACTION, ACT_TEMPO, 5, {MACRO_NONE, 0, 0}});
+    const int pushes = ui_stub_pad_pushes;
+    ev_press(SHIFT); ev_tap(PAD_KEY(0)); ev_release(SHIFT);
+    CHECK_EQ(ui_app.seq.bpm, bpm + 4);
+    CHECK_EQ(ui_stub_pad_pushes, pushes);
+    // an encoder with the "Tempo" step function (Mod + encoder B, say)
+    CHECK(modifiers_fn_index(CTL_ENC_B, (mod_entry_t){ME_ACTION, ACT_TEMPO, 1, {MACRO_NONE, 0, 0}}) > 0);
+    modifiers_set(MODL_SHIFT, CTL_ENC_B, (mod_entry_t){ME_ACTION, ACT_TEMPO, 1, {MACRO_NONE, 0, 0}});
+    ev_press(SHIFT); ev_turn(CTL_ENC_B, -3); ev_release(SHIFT);
+    CHECK_EQ(ui_app.seq.bpm, bpm + 1);
+    ev_tap(TAP_KEY);                                                     // one tap: nothing yet
+    CHECK_EQ(ui_app.seq.bpm, bpm + 1);
+}
+
+TEST(pads_tap_tempo_averages_the_last_taps) {
+    seq_tap_t t;
+    memset(&t, 0, sizeof t);
+    CHECK_EQ(seq_tap(&t, 1000), 0);
+    CHECK_EQ(seq_tap(&t, 1500), 120);
+    CHECK_EQ(seq_tap(&t, 2000), 120);
+    CHECK_EQ(seq_tap(&t, 2600), 113);                                    // 500 500 600 ms: 533 on average
+    CHECK_EQ(seq_tap(&t, 6000), 0);                                      // a long pause starts again
+    CHECK_EQ(seq_tap(&t, 6250), 240);                                    // clamped
+}
+
+TEST(pads_grid_setting_in_the_editor_and_the_file) {
+    ui_fresh();
+    shift_menu();
+    ev_tap(CTL_JOY_SW);
+    ev_turn(CTL_ENC_A, 14);                                              // the last row: Grid
+    ev_turn(CTL_ENC_B, 2);
+    CHECK_EQ(ui_app.pads.pad[0].grid, PAD_GRID_BAR);
+    static char txt[STORAGE_FILE_MAX];
+    pads_to_text(&ui_app.pads, txt, sizeof txt);
+    CHECK(strstr(txt, "pad A1 grid bar") != NULL);
+    pads_t b;
+    pads_init(&b);
+    CHECK(pads_from_text(&b, txt));
+    CHECK_EQ(b.pad[0].grid, PAD_GRID_BAR);
+}

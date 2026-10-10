@@ -40,6 +40,7 @@ struct Synth {
     int16_t slot_of[AUDIO_SAMPLES_MAX];       // catalog index -> bank slot (-1 = not loaded; samples stay loaded once used)
     std::mutex mx;                            // control calls (build, params, catalog) vs the loader thread; never taken by the audio thread
     int clk_bpm = 110, clk_steps = 16, clk_swing = 0, clk_run = 0, clk_restart = 0;   // the note sequencer's clock, for the motion sequencers
+    bool click = false;                       // the metronome (the transport's click)
     int last_nv = 0, last_glide = 0, last_legato = 0;      // voice count / note handling of the loaded graph (a different count is a rebuild)
     bool last_mono = false;
     bool pads_mode = false;                   // the pads player is loaded instead of the synth (engine_synth_pads_build)
@@ -180,6 +181,7 @@ PadBlob pad_blob(int idx, const pad_t &p) {
     b.mode = p.mode == PAD_GATE ? PADM_GATE : p.mode == PAD_TOGGLE ? PADM_TOGGLE : PADM_ONESHOT;
     b.loop = p.loop == PAD_LOOP_FILE ? 2 : p.loop == PAD_LOOP_TRIM ? 1 : 0;
     b.choke = p.choke;
+    b.grid = p.grid;
     b.mute = p.mute ? 1 : 0;
     b.tune = (static_cast<int32_t>(p.tune) * 100 + p.fine) * 256 / 100;
     b.tail = static_cast<int32_t>(p.tail_ms) * kSampleRate / 1000;
@@ -229,6 +231,10 @@ int engine_synth_init(void *fast, size_t fast_bytes, void *bulk, size_t bulk_byt
     register_mi_osc(s.eng.registry());
     s.have_last = false;
     s.bpos = kBlock;
+    s.click = false;
+    s.resident_bytes = 0;
+    s.clk_bpm = 110; s.clk_steps = 16; s.clk_swing = 0; s.clk_run = 0; s.clk_restart = 0;   // a new engine: set_clock compares with these
+    s.eng.set_transport(s.clk_bpm, false, false);          // the machine clock: stopped, at the default tempo
     s_ready = true;
     return 0;
 }
@@ -334,6 +340,22 @@ void engine_synth_set_clock(int bpm, int steps, int swing, int running) {
     if (bpm == s.clk_bpm && steps == s.clk_steps && swing == s.clk_swing && run == s.clk_run) return;     // called every UI step
     s.clk_bpm = bpm; s.clk_steps = steps; s.clk_swing = swing; s.clk_run = running ? 1 : 0;
     if (s.have_last) send_clock(s.last);
+    s.eng.set_transport(bpm, running != 0, s.click);
+}
+
+void engine_synth_set_metronome(int on) {
+    if (!s_ready || (on != 0) == s_synth.click) return;
+    s_synth.click = on != 0;
+    s_synth.eng.set_transport(s_synth.clk_bpm, s_synth.clk_run != 0, s_synth.click);
+}
+
+int engine_synth_transport(int *bar, int *beat, int *frac) {
+    const uint64_t b = s_ready ? s_synth.eng.transport_beat() : 0;
+    const uint64_t whole = b >> 32;
+    if (bar) *bar = static_cast<int>(whole / 4) + 1;
+    if (beat) *beat = static_cast<int>(whole % 4) + 1;
+    if (frac) *frac = static_cast<int>((b >> 24) & 0xFF);
+    return s_ready && s_synth.eng.transport_running() ? 1 : 0;
 }
 
 void engine_synth_motion_restart(void) {

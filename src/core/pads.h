@@ -4,7 +4,7 @@
 // push restarts it. The engine side is the Pads module (engine/modules/sampler_modules.h, 8 voices).
 //
 // Saved in pads.cfg on the card (system/config, text, one line per pad that differs from the defaults):
-//   pad A1 mode gate loop 1 start 120 end 900 tail 50 tune -2 fine 10 level 80 pan -10 cut 60 res 20 choke 1 mute 1 file kick 01
+//   pad A1 mode gate loop 1 start 120 end 900 tail 50 tune -2 fine 10 level 80 pan -10 cut 60 res 20 choke 1 mute 1 grid beat file kick 01
 // The file name comes last (the rest of the line). Unknown words are skipped, so a file from a later version still loads.
 #include <stdbool.h>
 #include <stdint.h>
@@ -26,6 +26,8 @@ typedef enum { PAD_ONESHOT, PAD_GATE, PAD_TOGGLE, PAD_MODE_COUNT } pad_mode_t;
 // points of the file itself, exact (the pad plays from its start and loops there; a ping-pong file loop stays ping-pong). Assigning a file
 // that has loop points sets File; a file without them never offers File.
 typedef enum { PAD_LOOP_OFF, PAD_LOOP_TRIM, PAD_LOOP_FILE, PAD_LOOP_COUNT } pad_loop_t;
+// Start on grid (decision 24): with the clock running (Play) the pad waits for the next beat / bar; stopped, it starts at once.
+typedef enum { PAD_GRID_OFF, PAD_GRID_BEAT, PAD_GRID_BAR, PAD_GRID_COUNT } pad_grid_t;
 
 typedef struct {
     char     file[PAD_NAME_MAX];  // sample name without extension; "" = an empty pad
@@ -41,13 +43,14 @@ typedef struct {
     uint8_t  res;                 // resonance 0..100
     uint8_t  choke;               // 0 = none, 1..PAD_CHOKES: starting a pad stops the other pads of its group
     uint8_t  mute;                // 1 = its voices sound silent (a playing loop keeps running and comes back on unmute)
+    uint8_t  grid;                // pad_grid_t
 } pad_t;
 
 typedef struct { pad_t pad[PAD_COUNT]; } pads_t;
 
 // The pad settings, in the order the pad editor shows them.
 typedef enum { PADP_FILE, PADP_MODE, PADP_START, PADP_END, PADP_LOOP, PADP_TAIL, PADP_TUNE, PADP_FINE, PADP_LEVEL, PADP_PAN,
-               PADP_CUT, PADP_RES, PADP_CHOKE, PADP_MUTE, PADP_COUNT } pad_param_t;
+               PADP_CUT, PADP_RES, PADP_CHOKE, PADP_MUTE, PADP_GRID, PADP_COUNT } pad_param_t;
 
 void pad_default(pad_t *p);
 void pads_init(pads_t *ps);                                // every pad empty, default settings

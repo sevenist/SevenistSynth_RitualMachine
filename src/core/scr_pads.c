@@ -67,7 +67,7 @@ static const el_def_t elements[] = {
     ROW(1, 0, 1, PADP_MODE), ROW(2, 0, 1, PADP_START), ROW(3, 0, 1, PADP_END), ROW(4, 0, 1, PADP_LOOP), ROW(5, 0, 1, PADP_TAIL),
     ROW(6, 0, 1, PADP_TUNE), ROW(7, 0, 1, PADP_FINE),
     ROW(1, 1, 1, PADP_LEVEL), ROW(2, 1, 1, PADP_PAN), ROW(3, 1, 1, PADP_CUT), ROW(4, 1, 1, PADP_RES), ROW(5, 1, 1, PADP_CHOKE),
-    ROW(6, 1, 1, PADP_MUTE),
+    ROW(6, 1, 1, PADP_MUTE), ROW(7, 1, 1, PADP_GRID),
 };
 #undef ROW
 #define N_ELEMENTS ((int)(sizeof elements / sizeof elements[0]))
@@ -179,7 +179,7 @@ static void draw_cell(u8g2_t *g, gui_rect_t r, int index, const pad_t *p, bool o
     u8g2_SetDrawColor(g, 1);
 }
 
-void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t playing) {
+void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t playing, int bpm) {
     gui_style_t style;
     gui_style_init(&style, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
     const gui_style_t *st = &style;
@@ -195,13 +195,26 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
         pad_label(sel, l, sizeof l);
         const pad_t *p = &ui->pads->pad[sel];
         snprintf(t, sizeof t, "< %s %s >", l, p->file[0] ? p->file : "empty");
-    } else {
-        snprintf(t, sizeof t, "PADS  BANK %c", 'A' + ui->pad_bank);
     }
     u8g2_DrawHLine(g, bar.x, gui_bottom(bar) - 1, bar.w);
     const bool head_focus = ui->pad_edit && ui->pad_row == 0;
     if (head_focus) { u8g2_DrawBox(g, header.x, header.y, header.w, header.h); u8g2_SetDrawColor(g, 0); }
-    gui_draw_text_centered(g, header, t);
+    if (ui->pad_edit) gui_draw_text_centered(g, header, t);
+    else {                                                   // the grid: "BANK A" on the left, the tempo and the position on the right
+        const int ty = gui_text_center(g, header, "B").y;
+        snprintf(t, sizeof t, "BANK %c", 'A' + ui->pad_bank);
+        u8g2_DrawStr(g, header.x + 2, ty, t);
+        int bar_n = 0, beat = 0, frac = 0;
+        const bool run = audio_transport(&bar_n, &beat, &frac);
+        char pos[24];
+        if (run) snprintf(pos, sizeof pos, "%d.%d", bar_n > 99 ? 99 : bar_n, beat); else snprintf(pos, sizeof pos, "--");
+        snprintf(t, sizeof t, "%d", bpm);
+        const int pw = u8g2_GetStrWidth(g, pos), px = header.x + header.w - 2 - pw;
+        u8g2_DrawStr(g, px - 4 - u8g2_GetStrWidth(g, t), ty, t);
+        if (run && frac < 64) { u8g2_DrawBox(g, px - 1, header.y + 2, pw + 2, header.h - 4); u8g2_SetDrawColor(g, 0); }   // the beat flashes
+        u8g2_DrawStr(g, px, ty, pos);
+        u8g2_SetDrawColor(g, 1);
+    }
     if (playing & (1ull << sel)) u8g2_DrawStr(g, header.x + header.w - 6, gui_text_center(g, header, ">").y, ">");   // the selected pad sounds
     u8g2_SetDrawColor(g, 1);
 

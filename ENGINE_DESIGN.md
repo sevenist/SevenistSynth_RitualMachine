@@ -747,6 +747,23 @@ simulator + firmware built; NOT tried by the user, NOT flashed):**
 - Not yet: the clock / start on grid (step 2), FX entry (step 3), root note / zone stretch, reverse, live tune changes of a sounding pad
   (tune / trim apply at the next push), the Pads layout in the KEYS tab, an LED for Select / Mute held.
 
+**Phase 5, step 2: the clock (user answers 2026-10-10; built 2026-10-10, host-tested, NOT tried by the user, NOT flashed):**
+27. **One clock for the machine**: the sequencer's BPM (40..240). **Play** starts / stops it (Pads: the clock; the synth: the sequencer
+   and the clock with it); a start is bar 1 beat 1; leaving / entering the Pads section stops it.
+28. **Tempo**: Tap (key function), BPM -1 / +1 / -5 / +5 key functions (bindable as Shift / Mod + any key, MODIFIERS), a "Tempo" step
+   function for encoders / knobs, the SEQ SETUP page's BPM row is learnable as before; a Clock row in the settings page comes in phase 6.
+29. **Beat display**: Pads header "BANK A ... 120 3.2" (bar.beat inverted for the first quarter of the beat, "--" when stopped); the Play
+   LED flashes on every beat (longer on beat 1, both sections); a metronome click (key function Click, off by default).
+- As built: `Transport` in the engine (`module.h`, `Engine::set_transport`, `Cmd::Transport`): the position in beats (Q32) advanced per
+  block, read by modules through `ProcessCtx::transport`, published for the UI (`engine_synth_transport`, HAL `audio_transport`). The click
+  (1.5 kHz, 3 kHz on beat 1, about -12 dBFS) is added after the master output. Start on grid (pad setting Grid Off / Beat / Bar):
+  **block-accurate** (the pad starts in the block nearest to its beat: within half a block, 0.36 ms at 44.1 kHz / 32), a stopped clock
+  starts it at once (also a pad still waiting when the clock stops), a gate released or a toggle pushed again before its beat cancels it.
+  The sequencer still counts its steps in milliseconds of the audio clock beside it (phase 3 moves it onto the transport).
+- Fixed on the way (both only bite when the engine is started again, which the tests do): `engine_synth_init` did not reset the stored
+  clock values (a second engine ignored the first `set_clock`) nor the pads' resident-sample budget; `SampleBank::shutdown` kept the
+  loader's jobs, in-flight count and stream list, so a read in flight at shutdown left the next bank's queue "full" (no more card reads).
+
 ## Known limits and ideas for later
 
 - Not hooked to the UI yet: the **Sampler** and **Granular** modules and the sample bank (stage 6 is engine-level and

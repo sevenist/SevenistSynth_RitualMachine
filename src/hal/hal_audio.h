@@ -24,6 +24,10 @@ void audio_set_params(const rack_t *rack, const synth_params_t *params);
 // The note sequencer's timing, for the motion sequencers (cheap: call whenever it may have changed), and the start of a run.
 void audio_set_clock(int bpm, int steps, int swing, int running);
 void audio_motion_restart(void);
+// The machine clock (ADR-041 decision 24) runs at audio_set_clock's bpm while `running`: a start is bar 1, beat 1. The metronome click,
+// and where the clock is (true while it runs; bar from 1, beat 1..4, frac 0..255 of the beat).
+void audio_set_metronome(bool on);
+bool audio_transport(int *bar, int *beat, int *frac);
 
 // Polyphonic notes: every audio_note_on() must be followed by an audio_note_off().
 void audio_note_on(int midi_note);

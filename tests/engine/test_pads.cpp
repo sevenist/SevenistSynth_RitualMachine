@@ -68,8 +68,10 @@ struct PadsApp {
     pad_t &pad(int i, const char *file) { std::snprintf(pads.pad[i].file, PAD_NAME_MAX, "%s", file); return pads.pad[i]; }
     void build() { engine_synth_pads_build(&pads, &rack); run(0.1); }    // the heads arrive through the loader
 
+    long frames = 0;                                                          // rendered so far (whole engine blocks: the clock tests count on it)
     Stereo run(double seconds) {
-        const int frames = static_cast<int>(seconds * engine_synth_sample_rate());
+        const int frames = (static_cast<int>(seconds * engine_synth_sample_rate()) + kBlock - 1) / kBlock * kBlock;
+        this->frames += frames;
         std::vector<int16_t> buf(static_cast<size_t>(frames) * 2);
         for (int done = 0; done < frames;) {
             const int k = std::min(frames - done, 64);
@@ -217,7 +219,7 @@ TEST(pads_mute_pan_and_filter) {
 
 TEST(pads_a_streamed_sample_plays_through_and_the_synth_comes_back) {
     PadsApp a;
-    a.add("big", sine(220.0, 3.0));                                           // 3 s: bigger than a resident pad sample, streamed from the card
+    a.add("big", sine(220.0, 5.0));                                           // 5 s: bigger than a resident pad sample at every rate, streamed
     a.pad(0, "big");
     a.build();
     engine_synth_pad_push(0);
@@ -262,4 +264,88 @@ TEST(pads_file_loop_uses_the_files_loop_points) {
     (void)q;
     engine_synth_pad_push(1);
     CHECK(rms(tail_of(a.run(1.3).l, 0.2)) < 1.0);                              // Off: plays to the end
+}
+
+namespace {
+// The first sample (from `from`) whose level passes `thr`, -1 when none.
+long onset(const std::vector<double> &x, size_t from, double thr = 300.0) {
+    for (size_t i = from; i < x.size(); i++) if (std::fabs(x[i]) > thr) return static_cast<long>(i);
+    return -1;
+}
+}  // namespace
+
+TEST(pads_clock_runs_in_beats_and_restarts_at_bar_one) {
+    PadsApp a;
+    a.build();
+    engine_synth_set_clock(120, 16, 0, 1);                                    // 120 BPM: a beat is 0.5 s
+    a.run(1.25);
+    int bar = 0, beat = 0, frac = 0;
+    CHECK(engine_synth_transport(&bar, &beat, &frac));
+    std::printf("    120 BPM after 1.25 s: bar %d beat %d frac %d\n", bar, beat, frac);
+    CHECK(bar == 1 && beat == 3 && frac > 100 && frac < 156);
+    a.run(1.0);                                                               // 2.25 s: bar 2, beat 1
+    engine_synth_transport(&bar, &beat, &frac);
+    CHECK(bar == 2 && beat == 1);
+    engine_synth_set_clock(120, 16, 0, 0);
+    a.run(0.1);
+    CHECK(!engine_synth_transport(&bar, &beat, &frac));
+    engine_synth_set_clock(120, 16, 0, 1);                                    // a start is bar 1 beat 1 again
+    a.run(0.1);
+    engine_synth_transport(&bar, &beat, &frac);
+    CHECK(bar == 1 && beat == 1);
+}
+
+TEST(pads_start_on_grid_waits_for_the_beat_or_the_bar) {
+    PadsApp a;
+    a.add("tone", sine(440.0, 3.0));
+    a.add("low", sine(97.0, 3.0));                                            // the bar pad at another pitch (two equal tones could cancel)
+    a.pad(0, "tone").grid = PAD_GRID_BEAT;
+    a.pad(1, "low").grid = PAD_GRID_BAR;
+    pad_t &g = a.pad(2, "tone");
+    g.grid = PAD_GRID_BEAT; g.mode = PAD_GATE;
+    a.build();
+    engine_synth_pad_push(0);                                                 // the clock is stopped: at once
+    const Stereo s0 = a.run(0.05);
+    CHECK(onset(s0.l, 0) >= 0 && onset(s0.l, 0) < kBlock + 64);
+    engine_synth_pads_stop();
+    a.run(0.1);
+    engine_synth_set_clock(120, 16, 0, 1);
+    const long t0 = a.frames;                                                 // beat 0: the next block (runs are whole blocks)
+    a.run(0.1);
+    engine_synth_pad_push(0);                                                 // pushed 0.1 s in: waits for the beat at 0.5 s
+    engine_synth_pad_push(1);                                                 // ... and the bar at 2.0 s
+    const long from = a.frames;
+    const Stereo s = a.run(2.2);
+    const long spb = static_cast<long>(kSampleRate / 2);                     // samples per beat at 120 BPM
+    const long beat_at = t0 + spb - from, bar_at = t0 + 4 * spb - from;
+    const long on = onset(s.l, 0);
+    std::printf("    beat pad: onset %ld samples from the beat (block %d)\n", on - beat_at, kBlock);
+    CHECK(on >= beat_at - kBlock / 2 - 1 && on <= beat_at + kBlock / 2 + 2);
+    CHECK(engine_synth_pads_playing() == 3u);
+    const long w = static_cast<long>(0.1 * kSampleRate);
+    const std::vector<double> pre(s.l.begin() + bar_at - w, s.l.begin() + bar_at - kBlock), post(s.l.begin() + bar_at + kBlock, s.l.begin() + bar_at + w);
+    std::printf("    bar pad: power at 97 Hz before the bar %.2e, after %.2e\n", power_at(pre, 97.0), power_at(post, 97.0));
+    CHECK(power_at(post, 97.0) > 100.0 * power_at(pre, 97.0));
+    engine_synth_pads_stop();
+    a.run(0.3);                                                               // 2.6 s on the clock: the next beat is at 3.0 s
+    engine_synth_pad_push(2);                                                 // a gate pad released before its beat never starts
+    a.run(0.05);
+    engine_synth_pad_release(2);
+    CHECK(rms(a.run(1.0).l) < 1.0);
+}
+
+TEST(pads_metronome_clicks_on_the_beats) {
+    PadsApp a;
+    a.build();
+    engine_synth_set_metronome(1);
+    engine_synth_set_clock(120, 16, 0, 1);
+    const Stereo s = a.run(1.2);
+    const long half = static_cast<long>(0.5 * kSampleRate), ms20 = static_cast<long>(0.02 * kSampleRate);
+    auto win = [&](long from, long len) { return rms(std::vector<double>(s.l.begin() + from, s.l.begin() + from + len)); };
+    const double c0 = win(0, ms20), c1 = win(half, ms20), mid = win(half / 2, ms20);
+    std::printf("    click rms beat 1 %.0f, beat 2 %.0f, between %.0f\n", c0, c1, mid);
+    CHECK(c0 > 500.0 && c1 > 500.0 && mid < 1.0);
+    engine_synth_set_metronome(0);
+    const Stereo q = a.run(1.0);
+    CHECK(rms(q.l) < 1.0);
 }

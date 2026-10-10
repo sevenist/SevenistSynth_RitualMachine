@@ -58,6 +58,12 @@ bool seq_tick(seq_t *s, uint32_t now_ms, seq_event_t *ev);
 // Writes e.g. "C#4" or "--" (rest).
 void seq_note_name(int note, char *buf, int size);
 
+// Tap tempo: call at every tap; returns the BPM of the last taps (up to 4 intervals averaged, 40..240), 0 after the first tap. A pause
+// of more than SEQ_TAP_RESET_MS starts again.
+#define SEQ_TAP_RESET_MS 2000
+typedef struct { uint32_t last_ms; uint32_t iv[4]; int n; bool on; } seq_tap_t;
+int seq_tap(seq_tap_t *t, uint32_t now_ms);
+
 #ifdef __cplusplus
 }
 #endif

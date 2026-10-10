@@ -46,6 +46,10 @@ void app_init(app_t *app, u8g2_t *display) {
     app->section = SECTION_SYNTH;
     app->pads_pending = false;
     app->pads_shown = 0;
+    app->pads_run = false;
+    app->metronome = false;
+    memset(&app->tap, 0, sizeof app->tap);
+    app->clock_shown = 0;
     curves_load();                      // before ui.cfg: its mappings name the user curves
     ui_settings_load(&app->ui, &app->rack);   // Knob mode, jump slots, the Shift / Mod layers (the board's card shows up later: check_sd)
     app->settings_pending = false;
@@ -230,6 +234,7 @@ static void section_set(app_t *app, bool pads) {
     }
     app->in.pad_select = app->in.pad_mute = false;
     if (app->seq.running) seq_set_running(&app->seq, false);
+    app->pads_run = false;                                  // the clock stops with the section's music
     synth_xy_off(app);
     app->section = pads ? SECTION_PADS : SECTION_SYNTH;
     keymap_set_pads(pads);
@@ -287,6 +292,19 @@ static void pads_knob(app_t *app, int row, int value) {
     }
     popup_info(&app->popup, t, v, 0, audio_millis(), POPUP_INFO_MS);
     app->dirty = true;
+}
+
+/* ---------------- the machine clock (ADR-041 decision 24): one tempo, the sequencer's BPM ---------------- */
+
+static bool clock_running(const app_t *app) { return in_pads(app) ? app->pads_run : app->seq.running; }
+
+static void set_tempo(app_t *app, int bpm, const char *title) {
+    app->seq.bpm = bpm < 40 ? 40 : bpm > 240 ? 240 : bpm;
+    char t[16];
+    snprintf(t, sizeof t, "%d BPM", app->seq.bpm);
+    popup_info(&app->popup, title, t, 0, audio_millis(), POPUP_INFO_MS);
+    app->dirty = true;
+    catch_stale = true;                                     // a knob on the BPM row re-measures it
 }
 
 /* ---------------- the joystick as an XY controller (synth_ui.h: synth_ui_joy_*) ---------------- */
@@ -381,7 +399,23 @@ static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
                 app->dirty = true;
             } else ui_event(app, UI_BACK);
             break;
-        case ACT_PLAY:         ui_event(app, UI_PLAY); break;
+        case ACT_PLAY:                                      // Pads: the clock (a start is bar 1); the synth: the sequencer, the clock with it
+            if (in_pads(app)) { app->pads_run = !app->pads_run; app->dirty = true; }
+            else ui_event(app, UI_PLAY);
+            break;
+        case ACT_TEMPO:        set_tempo(app, app->seq.bpm + n, "TEMPO"); break;
+        case ACT_TAP: {
+            const int bpm = seq_tap(&app->tap, audio_millis());
+            if (bpm) set_tempo(app, bpm, "TAP");
+            else { popup_info(&app->popup, "TAP", "Tap again", 0, audio_millis(), POPUP_INFO_MS); app->dirty = true; }
+            break;
+        }
+        case ACT_METRONOME:
+            app->metronome = !app->metronome;
+            audio_set_metronome(app->metronome);
+            popup_info(&app->popup, "CLICK", app->metronome ? "On" : "Off", 0, audio_millis(), POPUP_INFO_MS);
+            app->dirty = true;
+            break;
         case ACT_SHIFT:
             app->in.shift = e.kind != IN_RELEASE;
             break;
@@ -704,7 +738,7 @@ static void draw_frame(app_t *app) {
     u8g2_t *g = app->display;
     if (app->keys_notice) draw_keys_notice(app);   // the full-screen notice hides the popups until it goes (they wait in their queue)
     else {
-        if (in_pads(app)) pads_ui_draw(&app->ui, &app->rack, g, app->pads_shown);
+        if (in_pads(app)) pads_ui_draw(&app->ui, &app->rack, g, app->pads_shown, app->seq.bpm);
         else synth_ui_draw(&app->ui, &app->params, &app->seq, &app->rack, g);
         gui_style_t st;
         gui_style_init(&st, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
@@ -832,6 +866,10 @@ bool app_step(app_t *app, input_event_t e) {
     if (in_pads(app)) {                                                  // the grid shows which pads sound: redraw when that changes
         const uint64_t pm = audio_pads_playing();
         if (pm != app->pads_shown) { app->pads_shown = pm; app->dirty = true; }
+        int bar = 0, beat = 0, frac = 0;
+        const bool run = audio_transport(&bar, &beat, &frac);
+        const uint32_t cs = run ? (uint32_t)bar << 4 | (uint32_t)beat << 1 | (frac < 64) | 1u << 31 : 0;
+        if (cs != app->clock_shown) { app->clock_shown = cs; app->dirty = true; }
     }
 
     if (app->menu_open && !app->ui.in_rack && keymap_dirty() && !keymap_save())        // the menu was closed: the key layout goes to the card
@@ -892,7 +930,7 @@ bool app_step(app_t *app, input_event_t e) {
     }
     bool animated = gui_anim_tick(audio_millis());
 
-    audio_set_clock(app->seq.bpm, app->seq.steps, app->seq.swing, app->seq.running);   // the motion sequencers follow the note sequencer's timing
+    audio_set_clock(app->seq.bpm, app->seq.steps, app->seq.swing, clock_running(app));  // the machine clock; the motion sequencers follow it
     if (app->seq.running && app->seq.fresh) audio_motion_restart();                     // a run starts on this tick: the lanes start with it
     seq_event_t se;
     bool stepped = seq_tick(&app->seq, audio_millis(), &se);

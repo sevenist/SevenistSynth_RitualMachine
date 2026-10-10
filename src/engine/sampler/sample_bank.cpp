@@ -46,6 +46,12 @@ bool SampleBank::init(StorageDevice &dev, Memory &mem) {
 
 void SampleBank::shutdown() {
     for (auto &s : slot_) { free_heads(s); s = SampleSlot{}; }
+    // the loader's state too: a read still in flight on the old device would keep its job (and the queue "full") in the next bank
+    for (auto &j : jobs_) j = Job{};
+    jobs_in_flight_ = 0;
+    for (auto &st : streams_) st = nullptr;
+    for (auto &in : inst_) in = Instrument{};
+    stats.underruns.store(0); stats.block_reads.store(0); stats.late_reads.store(0);
 }
 
 void SampleBank::free_heads(SampleSlot &s) {

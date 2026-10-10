@@ -216,6 +216,11 @@ void pad_chop_init(pad_chop_t *c, int pad) {
     c->to = (uint8_t)(pad + 1 < PAD_COUNT ? pad + 1 : pad);
 }
 
+uint32_t pad_chop_unit(int div, uint32_t rate, int bpm) {
+    if (bpm <= 0 || !rate) return 0;
+    return (uint32_t)((uint64_t)rate * 60u * div_quarters_x4[div % CHOP_DIVS] / 4u / (uint64_t)bpm);
+}
+
 void pad_chop_compute(pad_chop_t *c, uint32_t start, uint32_t end, uint32_t rate, int bpm, const uint32_t *on, const uint16_t *str, int n_on) {
     if (c->mode == CHOP_MANUAL) return;
     c->n_cuts = 0;
@@ -420,13 +425,13 @@ bool pads_from_text(pads_t *ps, const char *txt) {
     return true;
 }
 
-static char g_buf[STORAGE_FILE_MAX];             // the text of pads.cfg on its way to / from the card
+#define g_buf g_storage_buf                      // the shared settings buffer (hal_storage.h)
 
 bool pads_load(pads_t *ps) {
-    return storage_read(PADS_FILE, g_buf, sizeof g_buf) >= 0 && pads_from_text(ps, g_buf);
+    return storage_read(PADS_FILE, g_buf, STORAGE_FILE_MAX) >= 0 && pads_from_text(ps, g_buf);
 }
 
 bool pads_save(const pads_t *ps) {
-    const int n = pads_to_text(ps, g_buf, sizeof g_buf);
+    const int n = pads_to_text(ps, g_buf, STORAGE_FILE_MAX);
     return storage_write(PADS_FILE, g_buf, n);
 }

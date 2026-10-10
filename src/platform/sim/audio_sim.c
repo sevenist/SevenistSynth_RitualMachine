@@ -87,6 +87,11 @@ uint64_t audio_pads_playing(void)                                { return engine
 int32_t audio_pad_position(int pad)                              { return engine_synth_pad_position(pad); }
 int audio_sample_onsets(int i, uint32_t *f, uint16_t *s, int max) { return engine_synth_sample_onsets(i, f, s, max); }
 int64_t audio_sample_zero(int i, uint32_t frame, int dir)        { return engine_synth_sample_zero(i, frame, dir); }
+bool audio_render_start(const char *s, const char *d, int op, int a) { return engine_synth_render_start(s, d, op, a); }
+int audio_render_poll(int *percent)                              { return (int)engine_synth_render_poll(percent); }
+void audio_render_done(void)                                     { engine_synth_render_done(); }
+void sim_samples_hide(int index);
+void audio_sample_hide(int index)                                { sim_samples_hide(index); }
 uint32_t audio_millis(void)                                     { return dev ? engine_synth_millis() : SDL_GetTicks(); }   // no audio device: the sequencer still runs
 void audio_update(void)                                         { engine_synth_housekeeping(); }
 #endif // PLATFORM_SIM

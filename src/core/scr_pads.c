@@ -89,10 +89,14 @@ static bool pad_adjust(const ui_ctx_t *c, int dir) {
         return p->loop != was;
     }
     if (c->arg != PADP_FILE) return pad_param_adjust(p, (pad_param_t)c->arg, dir, frames);
-    const int n = audio_sample_count();                  // the library in its order, "--" (none) before the first file
-    int i = file_index(p->file) + (dir > 0 ? 1 : -1);
-    if (i < -1) i = n - 1;
-    if (i >= n) i = -1;
+    const int n = audio_sample_count();                  // the library in its order, "--" (none) before the first file; versions (name~n)
+    int i = file_index(p->file);                         // and deleted entries are skipped (the EDIT page reaches the versions)
+    for (int k = 0; k <= n; k++) {
+        i += dir > 0 ? 1 : -1;
+        if (i < -1) i = n - 1;
+        if (i >= n) i = -1;
+        if (i < 0 || (audio_sample_info(i, &in) && in.name[0] && !strchr(in.name, '~'))) break;
+    }
     if (i >= 0 && audio_sample_info(i, &in)) snprintf(p->file, PAD_NAME_MAX, "%s", in.name);
     else p->file[0] = 0;
     // a file with its own loop points loads them (user, 2026-10-10); without them File is not offered
@@ -392,14 +396,135 @@ static void chop_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
 
 static const screen_def_t chop_screen = {chop_elements, N_CHOP, false, true, chop_layout, NULL, NULL, chop_extra};
 
-#define PAD_PAGES 3                                      // PLAY, TONE, CHOP
-static const screen_def_t *editor_screen(const synth_ui_t *ui) { return ui->pad_page == 2 ? &chop_screen : ui->pad_page == 1 ? &tone_screen : &pads_screen; }
+/* ---------------- EDIT (sample tools: processing into a new version, the version history; ADR-041 decisions 36-38) ---------------- */
+
+static const char *const op_names[PAD_EDIT_OPS] = {"Normalize", "Gain", "Fade in", "Fade out", "Trim sil.", "Reverse", "Remove DC"};
+static const int32_t op_default[PAD_EDIT_OPS] = {-3, 60, 100, 100, -40, 0, 0};
+
+const char *pads_ui_op_name(int op) { return op >= 0 && op < PAD_EDIT_OPS ? op_names[op] : "?"; }
+
+void pads_ui_op_amount(int op, int32_t a, char *out, int n) {
+    switch (op) {
+        case 0: case 1: snprintf(out, (size_t)n, "%+d.%ddB", a / 10, (a < 0 ? -a : a) % 10); if (a < 0 && a > -10) snprintf(out, (size_t)n, "-0.%ddB", -a % 10); break;
+        case 2: case 3: snprintf(out, (size_t)n, "%dms", (int)a); break;
+        case 4: snprintf(out, (size_t)n, "%ddB", (int)a); break;
+        default: out[0] = 0; break;
+    }
+}
+
+void pads_ui_init(synth_ui_t *ui) {
+    ui->chop_pad = -1;
+    ui->render_pct = -1;
+    for (int i = 0; i < PAD_EDIT_OPS; i++) ui->edit_amt[i] = op_default[i];
+}
+
+static void ed_op_value(const ui_ctx_t *c, char *out, int n) { snprintf(out, (size_t)n, "%s", pads_ui_op_name(c->ui->edit_op)); }
+static bool ed_op_adjust(const ui_ctx_t *c, int dir) { c->ui->edit_op = (uint8_t)((c->ui->edit_op + PAD_EDIT_OPS + (dir > 0 ? 1 : -1)) % PAD_EDIT_OPS); return false; }
+static const char *ed_amt_label(const ui_ctx_t *c) {
+    static const char *const l[PAD_EDIT_OPS] = {"Peak", "dB", "Len", "Len", "Thr", "", ""};
+    return l[c->ui->edit_op % PAD_EDIT_OPS];
+}
+static bool en_amt(const ui_ctx_t *c) { return c->ui->edit_op < 5; }
+static void ed_amt_value(const ui_ctx_t *c, char *out, int n) { pads_ui_op_amount(c->ui->edit_op, c->ui->edit_amt[c->ui->edit_op % PAD_EDIT_OPS], out, n); }
+static bool ed_amt_adjust(const ui_ctx_t *c, int dir) {
+    const int op = c->ui->edit_op % PAD_EDIT_OPS, d = dir > 0 ? 1 : -1;
+    int32_t a = c->ui->edit_amt[op];
+    switch (op) {
+        case 0: a += d * (g_fine_step ? 1 : 5); a = a < -120 ? -120 : a > 0 ? 0 : a; break;
+        case 1: a += d * (g_fine_step ? 1 : 10); a = a < -240 ? -240 : a > 240 ? 240 : a; break;
+        case 2: case 3: a += d * (g_fine_step ? 1 : a < 200 || (d < 0 && a <= 200) ? 10 : 50); a = a < 0 ? 0 : a > 5000 ? 5000 : a; break;
+        case 4: a += d; a = a < -90 ? -90 : a > -6 ? -6 : a; break;
+        default: break;
+    }
+    c->ui->edit_amt[op] = a;
+    return false;
+}
+static void ed_apply_value(const ui_ctx_t *c, char *out, int n) {
+    if (c->ui->render_pct >= 0) snprintf(out, (size_t)n, "Working %d%%", c->ui->render_pct);
+    else snprintf(out, (size_t)n, "Apply");
+}
+static void ed_apply(const ui_ctx_t *c) {
+    audio_sample_info_t in;
+    if (c->ui->render_pct < 0 && file_info(cur_pad(c), &in) && !in.pending) c->ui->pad_render_req = true;
+}
+
+// The versions of the pad's sample: Ver steps through them (the root first, then by age), Undo = the parent, Redo = the newest child.
+static void set_version(const ui_ctx_t *c, const char *name) {
+    if (!name[0] || file_index(name) < 0) return;
+    pad_t *p = cur_pad(c);
+    snprintf(p->file, PAD_NAME_MAX, "%s", name);
+}
+static void ed_ver_value(const ui_ctx_t *c, char *out, int n) { snprintf(out, (size_t)n, "%s", cur_pad(c)->file[0] ? cur_pad(c)->file : "--"); }
+static bool ed_ver_adjust(const ui_ctx_t *c, int dir) {
+    const history_t *h = c->ui->history;
+    pad_t *p = cur_pad(c);
+    if (!h || !p->file[0]) return false;
+    char root[HISTORY_NAME], vers[HISTORY_MAX + 1][HISTORY_NAME];
+    history_root(h, p->file, root);
+    const int n = history_versions(h, root, vers, HISTORY_MAX + 1);
+    int at = 0;
+    for (int i = 0; i < n; i++) if (!strcmp(vers[i], p->file)) at = i;
+    for (int k = 1; k < n; k++) {                                         // the next one still in the library
+        const int i = (at + n + (dir > 0 ? k : -k)) % n;
+        if (file_index(vers[i]) >= 0) { set_version(c, vers[i]); return true; }
+    }
+    return false;
+}
+static void ed_undo(const ui_ctx_t *c) {
+    char to[HISTORY_NAME] = "";
+    if (c->ui->history) history_parent(c->ui->history, cur_pad(c)->file, to);
+    if (to[0] && file_index(to) >= 0) { set_version(c, to); c->ui->pad_render_req = false; c->ui->pad_ver_changed = true; }
+}
+static void ed_redo(const ui_ctx_t *c) {
+    char to[HISTORY_NAME] = "";
+    if (c->ui->history) history_newest_child(c->ui->history, cur_pad(c)->file, to);
+    if (to[0] && file_index(to) >= 0) { set_version(c, to); c->ui->pad_ver_changed = true; }
+}
+
+static const el_def_t edit_elements[] = {
+    {"Op",    EL_VALUE,  0, 0, 2, ed_op_value, ed_op_adjust, NULL, NULL, NULL, NULL, 0, 0},
+    {"",      EL_VALUE,  1, 0, 2, ed_amt_value, ed_amt_adjust, NULL, NULL, en_amt, ed_amt_label, 0, EF_HIDE_WHEN_DISABLED},
+    {"Apply", EL_BUTTON, 2, 0, 2, ed_apply_value, NULL, ed_apply, NULL, NULL, NULL, 0, 0},
+    {"Ver",   EL_VALUE,  3, 0, 2, ed_ver_value, ed_ver_adjust, NULL, NULL, NULL, NULL, 0, 0},
+    {"Undo",  EL_BUTTON, 4, 0, 1, NULL, NULL, ed_undo, NULL, NULL, NULL, 0, 0},
+    {"Redo",  EL_BUTTON, 4, 1, 1, NULL, NULL, ed_redo, NULL, NULL, NULL, 0, 0},
+};
+#define N_EDIT ((int)(sizeof edit_elements / sizeof edit_elements[0]))
+
+static void edit_layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, gui_rect_t *rect) {
+    (void)g; (void)st; (void)c;
+    const int y0 = area.y + WAVE_H + 12, half = area.w / 2, rh = 11;
+    for (int i = 0; i < N_EDIT; i++) {
+        const el_def_t *e = &edit_elements[i];
+        rect[i] = gui_rect(area.x + e->col * half, y0 + e->row * rh, e->span * half - 1, rh - 1);
+    }
+}
+
+// The overview of the pad's sample, then where this version comes from ("from kick~2: Gain +6.0dB").
+static void edit_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, const gui_rect_t *rect) {
+    draw_extra(g, st, c, area, rect);
+    const pad_t *p = cur_pad(c);
+    const hist_ver_t *v = c->ui->history ? history_find(c->ui->history, p->file) : NULL;
+    char t[48];
+    if (v) snprintf(t, sizeof t, "from %.10s: %s", v->parent[0] ? v->parent : "?", v->what);
+    else snprintf(t, sizeof t, p->file[0] ? "original" : "");
+    u8g2_DrawStr(g, area.x + 1, area.y + WAVE_H + 10, t);
+}
+
+static const screen_def_t edit_screen = {edit_elements, N_EDIT, false, true, edit_layout, NULL, NULL, edit_extra};
+
+#define PAD_PAGES 4                                      // PLAY, TONE, CHOP, EDIT
+static const screen_def_t *editor_screen(const synth_ui_t *ui) {
+    return ui->pad_page == 3 ? &edit_screen : ui->pad_page == 2 ? &chop_screen : ui->pad_page == 1 ? &tone_screen : &pads_screen;
+}
 
 int pads_ui_row(int page, int param) {
-    const screen_def_t *s = page == 2 ? &chop_screen : page == 1 ? &tone_screen : &pads_screen;
+    const screen_def_t *s = page == 3 ? &edit_screen : page == 2 ? &chop_screen : page == 1 ? &tone_screen : &pads_screen;
     for (int i = 0; i < s->n; i++) if (s->el[i].arg == param && s->el[i].kind == EL_VALUE) return i + 1;
     return -1;
 }
+
+void pads_ui_chop_refresh(synth_ui_t *ui) { chop_refresh(ui); }
 
 bool pads_ui_tick(synth_ui_t *ui) {
     if (!ui->pads || !ui->pad_edit || ui->pad_page != 2 || !ui->chop.pending) return false;
@@ -446,6 +571,7 @@ bool pads_ui_handle(synth_ui_t *ui, rack_t *rack, ui_event_t e) {
         if (ui->pad_page == 2) chop_refresh(ui);
         return false;
     }
+    if (ui->pad_page == 2 && ui->chop_pad != pads_ui_pad(ui)) chop_refresh(ui);   // another pad (its key): a new chop, before the event acts
     const int row = ui->row;                             // the screen helpers use the synth UI's focus: lend them the editor's
     const bool latched = ui->latched;
     ui->row = ui->pad_row; ui->latched = ui->pad_latched;
@@ -494,7 +620,7 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
     if (ui->pad_edit) {
         pad_label(sel, l, sizeof l);
         const pad_t *p = &ui->pads->pad[sel];
-        static const char *const page[PAD_PAGES] = {"PLAY", "TONE", "CHOP"};
+        static const char *const page[PAD_PAGES] = {"PLAY", "TONE", "CHOP", "EDIT"};
         if (ui->pad_page) snprintf(t, sizeof t, "< %s %s >", l, page[ui->pad_page % PAD_PAGES]);
         else snprintf(t, sizeof t, "< %s %.9s >", l, p->file[0] ? p->file : "PLAY");
     }

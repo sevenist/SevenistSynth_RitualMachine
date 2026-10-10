@@ -15,22 +15,48 @@ void audio_shutdown(void) {}
 int ui_stub_builds;                                                  // audio_build calls (the UI tests check the section switch)
 void audio_build(const rack_t *r, const synth_params_t *p) { (void)r; (void)p; ui_stub_builds++; }
 void audio_set_params(const rack_t *r, const synth_params_t *p) { (void)r; (void)p; }
-int audio_sample_count(void) { return 3; }
+// The library: demo0..2, then the files the processing "wrote" (stub_extra: their names and lengths; a hidden one has no name).
+#define STUB_EXTRA 24
+static char stub_extra[STUB_EXTRA][24];
+static uint32_t stub_extra_frames[STUB_EXTRA];
+static int stub_n_extra, stub_listed;                                 // written / listed by the last rescan
+int audio_sample_count(void) { return 3 + stub_listed; }
 int audio_osc_preview(int m, float t, float mo, float h, int period, int16_t *out, int n) {   // no engine here: the UI shows the model name
     (void)m; (void)t; (void)mo; (void)h; (void)period; (void)out; (void)n;
     return 0;
 }
 bool audio_sample_info(int i, audio_sample_info_t *o) {
-    if (i < 0 || i > 2) return false;
+    if (i < 0 || i >= 3 + stub_listed) return false;
     memset(o, 0, sizeof *o);
-    snprintf(o->name, 24, "demo%d", i);
-    o->frames = 96000; o->rate = 48000; o->root = 60; o->slices = i == 2 ? 8 : 0;
+    if (i < 3) snprintf(o->name, 24, "demo%d", i); else snprintf(o->name, 24, "%s", stub_extra[i - 3]);
+    o->frames = i < 3 ? 96000 : stub_extra_frames[i - 3]; o->rate = 48000; o->root = 60; o->slices = i == 2 ? 8 : 0;
     for (int k = 0; k < 8; k++) o->slice[k] = k * 12000;
     for (int k = 0; k < 64; k++) o->peaks[k] = 255 - k * 3;
     o->loop_start = 20000; o->loop_end = 70000; o->loop_mode = i == 1 ? 1 : 0;     // demo1 has loop points, demo0 / demo2 only the numbers
     return true;
 }
-int audio_samples_rescan(void) { return 3; }
+int audio_samples_rescan(void) { stub_listed = stub_n_extra; return 3 + stub_listed; }
+// The processing: done at once, a new library entry of the source's length (Pad to: the amount) once the app rescans.
+int ui_stub_renders, ui_stub_render_op, ui_stub_render_amount, ui_stub_removed;
+char ui_stub_render_src[24], ui_stub_removed_last[64];
+static int stub_render_state;
+bool audio_render_start(const char *src, const char *dst, int op, int amount) {
+    if (stub_render_state == 1 || stub_n_extra >= STUB_EXTRA) return false;
+    audio_sample_info_t in;
+    uint32_t frames = 96000;
+    for (int i = 0; i < 3 + stub_listed; i++) if (audio_sample_info(i, &in) && !strcmp(in.name, src)) frames = in.frames;
+    snprintf(stub_extra[stub_n_extra], 24, "%s", dst);
+    stub_extra_frames[stub_n_extra] = op == 7 && (uint32_t)amount > frames ? (uint32_t)amount : frames;
+    stub_n_extra++;
+    snprintf(ui_stub_render_src, sizeof ui_stub_render_src, "%s", src);
+    ui_stub_renders++; ui_stub_render_op = op; ui_stub_render_amount = amount;
+    stub_render_state = 2;
+    return true;
+}
+int audio_render_poll(int *percent) { if (percent) *percent = stub_render_state == 2 ? 100 : 0; return stub_render_state; }
+void audio_render_done(void) { stub_render_state = 0; }
+void audio_sample_hide(int index) { if (index >= 3 && index < 3 + stub_listed) stub_extra[index - 3][0] = 0; }
+void ui_stub_library_reset(void) { stub_n_extra = stub_listed = 0; stub_render_state = 0; }
 sd_state_t audio_sd_state(void) { return getenv("UI_DUMP_SD_SLOW") ? SD_SLOW : SD_OK; }
 uint32_t audio_sd_read_us(void) { return 81000; }
 uint32_t audio_sd_generation(void) { static int calls; return getenv("UI_DUMP_SD_SLOW") && calls++ > 0 ? 1 : 0; }   // slow card: the first call (app_init) sees 0, the card "arrives" afterwards
@@ -96,6 +122,12 @@ int storage_read(const char *name, char *buf, int cap) {
             return n;
         }
     return -1;
+}
+bool storage_remove(const char *name) {
+    ui_stub_removed++;
+    snprintf(ui_stub_removed_last, sizeof ui_stub_removed_last, "%s", name);
+    for (int i = 0; i < RAMCARD_FILES; i++) if (ramcard[i].name[0] && !strcmp(ramcard[i].name, name)) { memset(&ramcard[i], 0, sizeof ramcard[i]); return true; }
+    return ramcard_on;
 }
 bool storage_write(const char *name, const char *data, int len) {
     if (!ramcard_on || len < 0 || len >= STORAGE_FILE_MAX) return false;

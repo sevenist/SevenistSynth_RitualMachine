@@ -49,6 +49,16 @@ int audio_sample_onsets(int index, uint32_t *frames, uint16_t *strength, int max
 // The zero crossing nearest to `frame` (dir 0), or the next after (+1) / before (-1) it; -1 where the sample is not in memory.
 int64_t audio_sample_zero(int index, uint32_t frame, int dir);
 
+// Sample processing to the card (the pads' EDIT page, engine_synth.h render_*): `src` through `op` (0 Normalize, 1 Gain, 2 Fade in,
+// 3 Fade out, 4 Trim silence, 5 Reverse, 6 Remove DC) with `amount` into a new library file `dst` (names without extension). poll: 0 idle,
+// 1 running, 2 done, 3 failed, and 0..100; after done the app rescans the library (audio_samples_rescan) and calls audio_render_done.
+enum { RENDER_STATE_IDLE, RENDER_STATE_RUNNING, RENDER_STATE_DONE, RENDER_STATE_FAILED };
+bool audio_render_start(const char *src, const char *dst, int op, int amount);
+int  audio_render_poll(int *percent);
+void audio_render_done(void);
+// A library entry whose file was deleted (a trimmed version): its name goes, so no list shows it; the index stays (the rack's samplers keep theirs).
+void audio_sample_hide(int index);
+
 // The sample library (.smp files on the TF card / in the simulator's samples/ folder; .wav and .mp3 are listed too and converted on first use). Index 0.. in a stable order that
 // only grows while the program runs (a rescan appends); the rack refers to a file by index + 1 (0 = none).
 #define AUDIO_PEAKS 64

@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include "u8g2.h"
 #include "core/synth_params.h"
+#include "core/history.h"
 #include "core/pads.h"
 #include "core/rack.h"
 #include "core/seq.h"
@@ -33,6 +34,16 @@ typedef struct {
     bool         pad_select, pad_mute;  // the Pads section's Select / Mute keys are held
 } input_state_t;
 
+// A processing of a pad's sample in progress (the EDIT page, a Grid chop that pads): rendered by the card thread, then found in the
+// library, then the pad takes it and the history records it.
+typedef struct {
+    uint8_t  stage;                     // 0 none, 1 rendering, 2 waiting for the library to list the new file
+    int      pad, op;                   // op: engine/offline/process.h ProcOp (7 = Pad to)
+    char     name[24], parent[24], what[16];
+    uint32_t since;
+    bool     chop;                      // then chop the new version (CHOP: a Grid chop that needed padding)
+} pad_render_t;
+
 // The two workflows (ADR-041 decision 5): the synth, or the Pads section (an SP-404-style sampler). Shift + Menu switches.
 typedef enum { SECTION_SYNTH, SECTION_PADS } section_t;
 
@@ -42,6 +53,8 @@ typedef struct {
     seq_t          seq;
     rack_t         rack;
     pads_t         pads;        // the Pads section's 64 pads (pads.cfg)
+    history_t      history;     // the versions of the library's samples (history.cfg next to them)
+    pad_render_t   render;
     uint8_t        section;     // section_t
     bool           pads_pending;     // the pads changed and wait to be saved (pads.cfg) ...
     uint32_t       pads_ms;          // ... since then

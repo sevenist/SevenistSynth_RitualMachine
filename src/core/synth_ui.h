@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "u8g2.h"
+#include "core/history.h"
 #include "core/pads.h"
 #include "core/rack.h"
 #include "core/seq.h"
@@ -146,6 +147,14 @@ typedef struct {
     int     chop_pad;
     bool    pad_chop_req;  // the Chop button was pushed: the app asks, then writes the slices (pad_chop_apply)
     int     clock_bpm;     // the machine clock's tempo (the app sets it): the Grid chop
+    // EDIT page (sample tools, ADR-041 decisions 36-38): the operation and the amount of each, the Apply request (the app renders),
+    // the progress the app shows (-1: no job), the library's version history (the app's)
+    uint8_t edit_op;
+    int32_t edit_amt[PAD_EDIT_OPS];
+    bool    pad_render_req;
+    bool    pad_ver_changed;   // Ver / Undo / Redo picked another version of the pad's sample: the app sends the pad
+    int     render_pct;
+    const history_t *history;
 } synth_ui_t;
 
 void synth_ui_init(synth_ui_t *ui, const rack_t *rack);
@@ -217,6 +226,13 @@ bool pads_ui_handle(synth_ui_t *ui, rack_t *rack, ui_event_t e);
 void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t playing, int bpm);
 // Call every step in the Pads section: true when the CHOP page got new cuts (a transient scan finished): redraw.
 bool pads_ui_tick(synth_ui_t *ui);
+// The Pads screens' starting state (no chop yet, the EDIT page's default amounts). The app calls it once.
+void pads_ui_init(synth_ui_t *ui);
+void pads_ui_chop_refresh(synth_ui_t *ui);     // the CHOP page's cuts again (after the app changed the pad: a padded version)
+// The EDIT page's operations (the order of engine/offline/process.h ProcOp, without Pad to which the Grid chop uses): their name, and the
+// amount's text ("-0.3dB", "100ms"; "" for none).
+const char *pads_ui_op_name(int op);
+void pads_ui_op_amount(int op, int32_t amount, char *out, int n);
 // A trim point of pad `pad` (PADP_START / END / LSTART) moved one step (dir +1 / -1) or set from a knob (dir 0, x 0..1), through the pad's
 // Snap. True when it changed. (The column knobs use it.)
 bool pads_ui_trim(synth_ui_t *ui, int pad, int param, int dir, float x);

@@ -20,6 +20,7 @@ extern "C" {
 #define PAD_COUNT      (PAD_BANKS * PADS_PER_BANK)
 #define PAD_NAME_MAX   24                       // = audio_sample_info_t.name
 #define PAD_CHOKES     4                        // choke groups 1..4 (0 = none)
+#define PAD_EDIT_OPS   7                        // the EDIT page's operations (engine/offline/process.h ProcOp without Pad to)
 #define PADS_FILE      STORAGE_DIR_CONFIG "/pads.cfg"
 
 typedef enum { PAD_ONESHOT, PAD_GATE, PAD_TOGGLE, PAD_MODE_COUNT } pad_mode_t;
@@ -126,6 +127,8 @@ bool pad_chop_move(pad_chop_t *c, int64_t delta, uint32_t start, uint32_t end);
 // Writes the slices onto pads c->to, c->to + 1 ...: each a copy of the source pad (the same file) with its start / end, no loop. Stops at
 // the last pad. Returns how many pads were written.
 int pad_chop_apply(pads_t *ps, int src, const pad_chop_t *c, uint32_t frames);
+// The Grid chop's slice length in frames (div at bpm, a file at rate); 0 without a tempo.
+uint32_t pad_chop_unit(int div, uint32_t rate, int bpm);
 
 // pads.cfg. pads_load() replaces the pads with the file (false: no card or no file, the pads are kept); pads_save() writes it.
 int  pads_to_text(const pads_t *ps, char *buf, int cap);  // the length written (cut at cap - 1: 64 pads with long names and many changed settings

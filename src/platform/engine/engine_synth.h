@@ -71,6 +71,18 @@ void engine_synth_catalog_reset(void);
 // Streaming health since boot: playheads that found a block missing (audible), and stream blocks read from the card.
 void engine_synth_sampler_stats(uint32_t *underruns, uint32_t *block_reads);
 
+// Sample processing to the card (the pads' sample tools, ADR-041 decisions 36-38; platform/engine/render_job.cpp): library file `src`
+// through operation `op` (engine/offline/process.h ProcOp: 0 Normalize, 1 Gain, 2 Fade in, 3 Fade out, 4 Trim silence, 5 Reverse, 6
+// Remove DC, 7 Pad to (amount = frames)) with `amount` into a new file `dst` (names without extension, in the samples folder). One job at a time; the thread that
+// owns the card runs it (render_step, a few chunks per call: true while there is more). poll: the state and 0..100; DONE / FAILED stay
+// until render_done (the UI then rescans the library). set_card_root: where the card is on this platform ("/sdcard", the desktop folder).
+typedef enum { RENDER_IDLE, RENDER_RUNNING, RENDER_DONE, RENDER_FAILED } render_state_t;
+void engine_synth_set_card_root(const char *root);
+bool engine_synth_render_start(const char *src, const char *dst, int op, int amount);
+render_state_t engine_synth_render_poll(int *percent);
+void engine_synth_render_done(void);
+bool engine_synth_render_step(void);
+
 #ifdef ENGINE_PROFILE
 // [AUDIO THREAD] per-module CPU cost since the previous call: `cb` gets the module name, its cycles per rendered block (all voices summed) and its
 // calls per block; `blocks` is the number of blocks the figures cover. Only exists when built with -DENGINE_PROFILE.

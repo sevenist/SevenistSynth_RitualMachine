@@ -249,17 +249,17 @@ bool keymap_from_text(const char *txt) {
     return true;
 }
 
-static char g_buf[STORAGE_FILE_MAX];             // the text of keys.cfg on its way to / from the card
+#define g_buf g_storage_buf                      // the shared settings buffer (hal_storage.h)
 
 bool keymap_load(void) {
-    if (storage_read(KEYMAP_FILE, g_buf, sizeof g_buf) < 0 || !keymap_from_text(g_buf)) return false;
+    if (storage_read(KEYMAP_FILE, g_buf, STORAGE_FILE_MAX) < 0 || !keymap_from_text(g_buf)) return false;
     g_dirty = false;
     return true;
 }
 
 bool keymap_save(void) {
     if (!g_dirty) return true;
-    const int n = keymap_to_text(g_buf, sizeof g_buf);
+    const int n = keymap_to_text(g_buf, STORAGE_FILE_MAX);
     if (!storage_write(KEYMAP_FILE, g_buf, n)) return false;
     g_dirty = false;
     return true;

@@ -304,6 +304,10 @@ extern "C" uint64_t audio_pads_playing(void)                                { re
 extern "C" int32_t audio_pad_position(int pad)                              { return engine_synth_pad_position(pad); }
 extern "C" int audio_sample_onsets(int i, uint32_t *f, uint16_t *s, int max) { return engine_synth_sample_onsets(i, f, s, max); }
 extern "C" int64_t audio_sample_zero(int i, uint32_t frame, int dir)        { return engine_synth_sample_zero(i, frame, dir); }
+extern "C" bool audio_render_start(const char *s, const char *d, int op, int a) { return engine_synth_render_start(s, d, op, a); }
+extern "C" int audio_render_poll(int *percent)                              { return static_cast<int>(engine_synth_render_poll(percent)); }
+extern "C" void audio_render_done(void)                                     { engine_synth_render_done(); }
+extern "C" void audio_sample_hide(int index)                                { samples_esp32_hide(index); }
 extern "C" uint32_t audio_millis(void)                                     { return engine_synth_millis(); }
 extern "C" void audio_update(void)                                         { engine_synth_housekeeping(); }     // frees an old graph once the audio task runs the new one
 #endif // ARDUINO_ARCH_ESP32

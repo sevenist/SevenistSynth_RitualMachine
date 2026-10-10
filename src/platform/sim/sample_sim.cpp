@@ -146,10 +146,16 @@ int sim_samples_init(void) {
     g_stop = false;
     if (!engine_synth_attach_storage(&g_storage)) return 0;
     engine_synth_set_importer(&convert_cb);
+    char root[256];
+    sim_card_path("", root, sizeof root);
+    const size_t rl = std::strlen(root);
+    if (rl && (root[rl - 1] == '/' || root[rl - 1] == 92)) root[rl - 1] = 0;
+    engine_synth_set_card_root(root);                                      // the processing jobs write next to the library
     const int n = scan();
     g_io = std::thread([] {
         while (!g_stop) {
             { std::lock_guard<std::mutex> lk(g_io_mx); engine_synth_io_pump(); }
+            for (int k = 0; k < 4 && engine_synth_render_step(); k++) {}   // a processing job, a few chunks between the loader's reads
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     });
@@ -163,6 +169,12 @@ void sim_samples_shutdown(void) {
 }
 
 int sim_samples_rescan(void) { return scan(); }
+
+void sim_samples_hide(int index) {
+    if (index < 0 || index >= g_n) return;
+    g_cat[index].name[0] = 0;
+    engine_synth_catalog_set(g_cat, g_n);
+}
 
 int sim_samples_prepare(int index) { return convert(index) ? 1 : 0; }
 

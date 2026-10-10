@@ -374,8 +374,8 @@ TEST(pads_chop_page_back_path_and_stop_popup) {
     snprintf(ui_app.pads.pad[0].file, PAD_NAME_MAX, "demo0");
     shift_menu();
     ev_tap(CTL_JOY_SW);                                                  // the pad page
-    ui_app.ui.pad_row = 0;                                               // the header: left = CHOP (PLAY <- CHOP)
-    ev_tap(CTL_JOY_LEFT);
+    ui_app.ui.pad_row = 0;                                               // the header: PLAY -> TONE -> CHOP
+    ev_tap(CTL_JOY_RIGHT); ev_tap(CTL_JOY_RIGHT);
     CHECK_EQ(ui_app.ui.pad_page, 2);
     CHECK_EQ(ui_app.ui.chop.n_cuts, 3);
     ev_tap(BACK);                                                        // CHOP -> the pad page
@@ -429,4 +429,150 @@ TEST(pads_sync_and_grid_units_in_the_file) {
     CHECK_EQ(pad_grid_beats(PAD_GRID_2BEAT), 2);
     CHECK_EQ(pad_grid_beats(PAD_GRID_BAR), 4);
     CHECK_EQ(pad_grid_beats(PAD_GRID_8BAR), 32);
+}
+
+
+#include "core/history.h"
+extern int ui_stub_renders, ui_stub_render_op, ui_stub_render_amount, ui_stub_removed;
+extern char ui_stub_render_src[24], ui_stub_removed_last[64];
+
+TEST(history_tree_names_undo_redo_and_trim) {
+    history_t h;
+    history_init(&h);
+    char n[HISTORY_NAME], r[HISTORY_NAME];
+    history_new_name(&h, "kick", n);
+    CHECK_STR(n, "kick~1");
+    CHECK(history_add(&h, "kick~1", "kick", "Norm -0.3dB"));
+    CHECK(history_add(&h, "kick~2", "kick~1", "Reverse"));
+    CHECK(history_add(&h, "kick~3", "kick~1", "Gain +6.0dB"));         // a branch from ~1
+    history_new_name(&h, "kick", n);
+    CHECK_STR(n, "kick~4");
+    history_root(&h, "kick~3", r);
+    CHECK_STR(r, "kick");
+    history_parent(&h, "kick~2", n);
+    CHECK_STR(n, "kick~1");
+    history_newest_child(&h, "kick~1", n);                               // Redo from ~1: the newest branch
+    CHECK_STR(n, "kick~3");
+    history_newest_child(&h, "kick~3", n);
+    CHECK_STR(n, "");
+    static char txt[STORAGE_FILE_MAX];
+    history_to_text(&h, txt, sizeof txt);
+    history_t b;
+    CHECK(history_from_text(&b, txt));
+    CHECK(b.n == 3 && !strcmp(b.v[1].what, "Reverse") && !strcmp(b.v[2].parent, "kick~1"));
+    // the trimming: 12 versions in a chain, a pad uses ~2: the last 8 and ~2 stay, the others go and ~2's child re-links
+    history_init(&h);
+    char prev[HISTORY_NAME] = "pad";
+    for (int k = 1; k <= 12; k++) { history_new_name(&h, "pad", n); history_add(&h, n, prev, "Gain"); snprintf(prev, sizeof prev, "%s", n); }
+    const char *used[1] = {"pad~2"};
+    char gone[HISTORY_MAX][HISTORY_NAME];
+    const int g = history_trim(&h, "pad", used, 1, gone, HISTORY_MAX);
+    CHECK_EQ(g, 3);                                                      // ~1, ~3, ~4 (12 - 8 = 4 old ones, ~2 is used)
+    CHECK(!strcmp(gone[0], "pad~1") && !strcmp(gone[1], "pad~3") && !strcmp(gone[2], "pad~4"));
+    history_parent(&h, "pad~2", n);
+    CHECK_STR(n, "pad");                                                 // its parent ~1 went: now from the root
+    history_parent(&h, "pad~5", n);
+    CHECK_STR(n, "pad~2");                                               // ~4 and ~3 went: the nearest kept ancestor
+    CHECK(!history_find(&h, "pad~1") && history_find(&h, "pad~12"));
+}
+
+TEST(pads_edit_page_renders_a_version_and_undo_goes_back) {
+    ui_stub_ramcard(true);
+    ui_fresh();
+    snprintf(ui_app.pads.pad[0].file, PAD_NAME_MAX, "demo0");
+    shift_menu();
+    ev_tap(CTL_JOY_SW);
+    ui_app.ui.pad_row = 0;
+    ev_tap(CTL_JOY_LEFT);                                                // the header: PLAY <- EDIT
+    CHECK_EQ(ui_app.ui.pad_page, 3);
+    const int renders = ui_stub_renders;
+    ui_app.ui.pad_row = 3;                                               // Apply (Normalize to -0.3 dB by default)
+    ev_tap(CTL_JOY_SW);
+    ev_idle(3);                                                          // rendered, listed, adopted
+    CHECK_EQ(ui_stub_renders, renders + 1);
+    CHECK_EQ(ui_stub_render_op, 0);
+    CHECK_EQ(ui_stub_render_amount, -3);
+    CHECK_STR(ui_stub_render_src, "demo0");
+    CHECK_STR(ui_app.pads.pad[0].file, "demo0~1");                       // the pad plays the new version
+    CHECK_EQ(ui_app.history.n, 1);
+    CHECK_STR(ui_app.history.v[0].what, "Norm -0.3dB");
+    CHECK_EQ(ui_app.ui.render_pct, -1);
+    ui_app.ui.pad_row = 1; ev_turn(CTL_ENC_B, 5);                         // Op: Reverse
+    CHECK_STR(pads_ui_op_name(ui_app.ui.edit_op), "Reverse");
+    ui_app.pads.pad[0].start = 5000;
+    ui_app.ui.pad_row = 3; ev_tap(CTL_JOY_SW); ev_idle(3);
+    CHECK_STR(ui_app.pads.pad[0].file, "demo0~2");
+    CHECK_EQ(ui_app.pads.pad[0].start, 0);                               // reversed: the old trim means nothing
+    ui_app.ui.pad_row = 5; ev_tap(CTL_JOY_SW);                           // Undo: the parent
+    CHECK_STR(ui_app.pads.pad[0].file, "demo0~1");
+    ev_tap(CTL_JOY_SW);
+    CHECK_STR(ui_app.pads.pad[0].file, "demo0");
+    ui_app.ui.pad_row = 6; ev_tap(CTL_JOY_SW);                           // Redo: the newest child
+    CHECK_STR(ui_app.pads.pad[0].file, "demo0~1");
+    ui_app.ui.pad_row = 4; ev_turn(CTL_ENC_B, 1);                         // Ver: the next version
+    CHECK_STR(ui_app.pads.pad[0].file, "demo0~2");
+    history_t h;                                                         // history.cfg was written
+    CHECK(history_load(&h) && h.n == 2);
+    ev_tap(BACK);                                                        // the Smp row does not offer the versions
+    ui_app.ui.pad_row = 1;
+    ev_turn(CTL_ENC_B, 1);
+    CHECK(strchr(ui_app.pads.pad[0].file, '~') == NULL);
+}
+
+TEST(pads_edit_trims_old_versions_and_deletes_their_files) {
+    ui_stub_ramcard(true);
+    ui_fresh();
+    snprintf(ui_app.pads.pad[0].file, PAD_NAME_MAX, "demo0");
+    shift_menu();
+    ev_tap(CTL_JOY_SW);
+    ui_app.ui.pad_page = 3;
+    const int removed = ui_stub_removed;
+    for (int k = 0; k < 10; k++) { ui_app.ui.pad_row = 3; ev_tap(CTL_JOY_SW); ev_idle(3); }
+    CHECK_STR(ui_app.pads.pad[0].file, "demo0~10");
+    CHECK_EQ(ui_app.history.n, HISTORY_KEEP);                            // the last 8 of 10
+    CHECK_EQ(ui_stub_removed, removed + 2);                              // ~1 and ~2: their files deleted
+    CHECK_STR(ui_stub_removed_last, STORAGE_DIR_SAMPLES "/demo0~2.smp");
+    audio_sample_info_t in;
+    bool listed = false;
+    for (int i = 0; i < audio_sample_count(); i++) if (audio_sample_info(i, &in) && !strcmp(in.name, "demo0~1")) listed = true;
+    CHECK(!listed);                                                      // and gone from the library's lists
+}
+
+TEST(pads_grid_chop_pads_the_sample_to_whole_grid_units) {
+    ui_fresh();
+    snprintf(ui_app.pads.pad[0].file, PAD_NAME_MAX, "demo0");               // 96000 frames = 2 s
+    ui_app.seq.bpm = 100;                                                // a beat = 28800 frames: 2 s is 3.33 beats
+    shift_menu();
+    ev_tap(CTL_JOY_SW);
+    ui_app.ui.pad_page = 2;                                              // CHOP
+    ui_app.ui.pad_row = 1; ev_turn(CTL_ENC_B, 2);                         // Mode: Grid (1/4 note)
+    CHECK_EQ(ui_app.ui.chop.mode, CHOP_GRID);
+    const int renders = ui_stub_renders;
+    ui_app.ui.pad_row = 7; ev_tap(CTL_JOY_SW);                           // Chop to pads
+    ev_tap(CTL_JOY_LEFT); ev_tap(CTL_JOY_SW);                            // Yes
+    ev_idle(3);
+    CHECK_EQ(ui_stub_renders, renders + 1);                              // a padded version: 4 beats = 115200 frames
+    CHECK_EQ(ui_stub_render_op, 7);
+    CHECK_EQ(ui_stub_render_amount, 115200);
+    CHECK_STR(ui_app.pads.pad[0].file, "demo0~1");
+    const pad_t *s1 = &ui_app.pads.pad[1], *s4 = &ui_app.pads.pad[4];
+    CHECK_STR(s1->file, "demo0~1");                                      // 4 slices of one beat on A2..A5
+    CHECK(s1->start == 0 && s1->end == 28800);
+    CHECK(s4->start == 86400 && s4->end == 0);
+    CHECK(pad_empty(&ui_app.pads.pad[5]));
+    // a trim that the file can fill: End moves to the grid line, no render
+    ui_fresh();
+    snprintf(ui_app.pads.pad[0].file, PAD_NAME_MAX, "demo0");
+    ui_app.seq.bpm = 120;                                                // a beat = 24000
+    ui_app.pads.pad[0].end = 40000;
+    shift_menu();
+    ev_tap(CTL_JOY_SW);
+    ui_app.ui.pad_page = 2;
+    ui_app.ui.pad_row = 1; ev_turn(CTL_ENC_B, 2);
+    const int r2 = ui_stub_renders;
+    ui_app.ui.pad_row = 7; ev_tap(CTL_JOY_SW);
+    ev_tap(CTL_JOY_LEFT); ev_tap(CTL_JOY_SW);
+    ev_idle(2);
+    CHECK_EQ(ui_stub_renders, r2);
+    CHECK_EQ(ui_app.pads.pad[2].end, 48000);                             // the second slice ends on the beat, with the file's own audio
 }

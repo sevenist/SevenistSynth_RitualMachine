@@ -804,6 +804,10 @@ offered):
    on the grid (a reverse-reverb pre-roll leads into the downbeat); with the clock stopped it starts at once like any pad. (First asked:
    the playhead reaching the loop start also starts a stopped clock; dropped by the user the same day as too complicated.) **Grid
    units**: 1 / 2 beats, 1 .. 8 bars (odd counts too).
+43. **Grid chop fills whole grid units** (user, 2026-10-10): when the slices of a Grid chop do not fill whole units (a sample shorter than
+   the grid unit, or a last slice cut short), Chop to pads extends them to the next grid line: with the file's own audio when it is there,
+   else with a padded version of the sample (silence appended, a new version in the history) so the pads loop on the grid at the current
+   tempo (a later BPM change does not follow: chop again).
 42. The tempo popup goes (the header shows the BPM). The editor gets pages PLAY / TONE / CHOP switched from its header (the board has no
    Page control); the edited pad = the pad key pushed (or Select + pad).
 
@@ -828,6 +832,28 @@ built; NOT tried by the user, NOT flashed):**
   Pos / Add / Del on an automatic chop turn it into Manual with its cuts. Cuts at least 64 frames apart; 16 slices at most.
 - **Next**: `PadBlob.next` (engine_synth finds the neighbour), started after a natural end, a toggle off or a gate release; the Pads
   module publishes each pad's position (`pads_position`). The pad page has 20 rows now (overview 16 px).
+
+**Sample tools steps 2 + 3 as built (2026-10-10; 199 engine tests in the 6 configurations, 91 UI tests, simulator + firmware built;
+NOT tried by the user, NOT flashed: the first run on the board writes sample files to the card, back the card up first):**
+- **Offline processing** `engine/offline/process.*`: `Processor` runs block by block over a reader / writer (nothing the size of the
+  sample in memory: the board has ~60 KB of PSRAM to spare). Level & cleanup: Normalize (two passes), Gain (saturating), Fade in / out
+  (linear), Trim silence (threshold; 5 ms kept each side; the loop and the slices move with it), Reverse (the loop mirrored, slices
+  dropped), Remove DC (10 Hz one-pole high-pass), Pad to (silence appended: decision 43). Tests `test_offline.cpp`.
+- **Card job** `platform/engine/render_job.cpp` (`engine_synth_render_start / _step / _poll / _done`, HAL `audio_render_*`): the UI posts
+  one job; the thread that owns the card runs it 2-4 chunks at a time between the loader's reads (the board's card task, the desktop's
+  loader thread), with C stdio on `<card root>/system/samples/<name>.smp`: the header is written last, the file is renamed into place
+  from `.tmp`. The job's 8 KB come from PSRAM on the board and are freed when the result is taken.
+- **Version history** `core/history.*`, `system/samples/history.cfg` (decision 37): versions `<root>~<n>`, parent links, Undo / Redo /
+  branches; trimming after every new version (the root, what a pad uses, the last 8), the trimmed files deleted (`storage_remove`) and
+  their library entries hidden (`audio_sample_hide`: the name goes, the index stays).
+- **EDIT page** (the editor's 4th page): Op, its amount, Apply ("Working n %"), Ver (steps through the versions), Undo, Redo, and where
+  the version comes from. The Smp row no longer offers versions or hidden entries. After a Trim / Reverse the pad's trim points reset.
+- **Grid chop fills whole grid units** (decision 43): End moves to the next grid line when the file has the audio, else a padded
+  version is rendered first and the chop runs on it.
+- Internal RAM: the five settings modules shared nothing (5 x 4 KB text buffers); one `g_storage_buf` now (hal_storage.h): firmware
+  static RAM 70.8 % -> 65.8 %.
+- Limits: 32 library entries in all (versions included; a hidden entry's slot is not reused until a restart); no cancel of a running
+  job; the processing reads the file's whole length, not the pad's trim; mono 16-bit only.
 
 ## Known limits and ideas for later
 

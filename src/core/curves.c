@@ -247,17 +247,17 @@ bool curves_from_text(const char *txt) {
     return true;
 }
 
-static char g_buf[STORAGE_FILE_MAX];
+#define g_buf g_storage_buf                      // the shared settings buffer (hal_storage.h)
 
 bool curves_load(void) {
-    const bool ok = storage_read(CURVES_FILE, g_buf, sizeof g_buf) >= 0 && curves_from_text(g_buf);
+    const bool ok = storage_read(CURVES_FILE, g_buf, STORAGE_FILE_MAX) >= 0 && curves_from_text(g_buf);
     g_saved_rev = g_rev;                                          // loaded, or nothing to load: the current state is the reference
     g_have_saved = true;
     return ok;
 }
 
 bool curves_save(void) {
-    const int n = curves_to_text(g_buf, sizeof g_buf);
+    const int n = curves_to_text(g_buf, STORAGE_FILE_MAX);
     if (!storage_write(CURVES_FILE, g_buf, n)) return false;
     g_saved_rev = g_rev;
     g_have_saved = true;

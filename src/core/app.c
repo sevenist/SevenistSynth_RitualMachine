@@ -43,7 +43,10 @@ void app_init(app_t *app, u8g2_t *display) {
     pads_init(&app->pads);
     pads_load(&app->pads);              // pads.cfg (the board's card shows up later: check_sd)
     app->ui.pads = &app->pads;
-    app->ui.chop_pad = -1;                  // no chop yet
+    pads_ui_init(&app->ui);                 // no chop yet, the EDIT page's amounts
+    history_load(&app->history);
+    app->ui.history = &app->history;
+    memset(&app->render, 0, sizeof app->render);
     app->section = SECTION_SYNTH;
     app->pads_pending = false;
     app->pads_shown = 0;
@@ -85,12 +88,125 @@ static void pad_changed(app_t *app, int pad) {
 
 // One UI event in the Pads section (scr_pads.c).
 static void chop_ask(app_t *app);
+static void render_start(app_t *app, int pad, int op, int32_t amount, bool chop);
 
 static void pads_event(app_t *app, ui_event_t ev) {
     app->ui.clock_bpm = app->seq.bpm;
     if (pads_ui_handle(&app->ui, &app->rack, ev)) pad_changed(app, pads_ui_pad(&app->ui));
     if (app->ui.pad_chop_req) { app->ui.pad_chop_req = false; chop_ask(app); }
+    if (app->ui.pad_render_req) {
+        app->ui.pad_render_req = false;
+        render_start(app, pads_ui_pad(&app->ui), app->ui.edit_op, app->ui.edit_amt[app->ui.edit_op % PAD_EDIT_OPS], false);
+    }
+    if (app->ui.pad_ver_changed) { app->ui.pad_ver_changed = false; pad_changed(app, pads_ui_pad(&app->ui)); }
     app->dirty = true;
+}
+
+/* ---------------- processing a pad's sample into a new version (ADR-041 decisions 36-38, 43) ---------------- */
+
+static int lib_index(const char *name) {
+    audio_sample_info_t in;
+    if (!name || !name[0]) return -1;
+    for (int i = 0; i < audio_sample_count(); i++) if (audio_sample_info(i, &in) && !strcmp(in.name, name)) return i;
+    return -1;
+}
+
+static void render_start(app_t *app, int pad, int op, int32_t amount, bool chop) {
+    pad_render_t *r = &app->render;
+    const pad_t *p = &app->pads.pad[pad];
+    if (r->stage || lib_index(p->file) < 0) return;
+    char root[HISTORY_NAME];
+    history_root(&app->history, p->file, root);
+    history_new_name(&app->history, root, r->name);
+    for (int k = 2; lib_index(r->name) >= 0 && k < 100; k++) {             // a file of that name is already there (an older history): further on
+        char stem[19];
+        snprintf(stem, sizeof stem, "%s", root);
+        snprintf(r->name, sizeof r->name, "%s~%d", stem, k);
+    }
+    static const char *const shortname[8] = {"Norm", "Gain", "FadeIn", "FadeOut", "Trim", "Reverse", "DC", "Pad"};
+    char amt[12] = "";
+    if (op < PAD_EDIT_OPS) pads_ui_op_amount(op, amount, amt, sizeof amt);
+    snprintf(r->what, sizeof r->what, "%s%s%s", shortname[op & 7], amt[0] ? " " : "", amt);
+    snprintf(r->parent, sizeof r->parent, "%s", p->file);
+    r->pad = pad; r->op = op; r->chop = chop;
+    if (!audio_render_start(p->file, r->name, op, amount)) {
+        popup_info(&app->popup, "EDIT", "Busy or no card", 0, audio_millis(), POPUP_INFO_MS);
+        return;
+    }
+    r->stage = 1;
+    app->ui.render_pct = 0;
+    app->dirty = true;
+}
+
+// The new file is in the library: the pad takes it, the history records it and trims the old versions (their files deleted).
+static void render_adopt(app_t *app) {
+    pad_render_t *r = &app->render;
+    pad_t *p = &app->pads.pad[r->pad];
+    snprintf(p->file, PAD_NAME_MAX, "%s", r->name);
+    if (r->op == 4 || r->op == 5) { p->start = p->end = p->lstart = 0; }  // a trim / reverse moved the audio: the old points mean nothing
+    if (r->op == 7) p->end = 0;                                              // padded: to the new end
+    history_add(&app->history, r->name, r->parent, r->what);
+    const char *used[PAD_COUNT];
+    for (int k = 0; k < PAD_COUNT; k++) used[k] = app->pads.pad[k].file;
+    char root[HISTORY_NAME], gone[HISTORY_MAX][HISTORY_NAME];
+    history_root(&app->history, r->name, root);
+    const int n = history_trim(&app->history, root, used, PAD_COUNT, gone, HISTORY_MAX);
+    for (int i = 0; i < n; i++) {
+        char path[64];
+        snprintf(path, sizeof path, STORAGE_DIR_SAMPLES "/%s.smp", gone[i]);
+        storage_remove(path);
+        const int idx = lib_index(gone[i]);
+        if (idx >= 0) audio_sample_hide(idx);
+    }
+    history_save(&app->history);
+    audio_render_done();
+    r->stage = 0;
+    app->ui.render_pct = -1;
+    pad_changed(app, r->pad);
+    char t[48];
+    snprintf(t, sizeof t, "%s: %s", r->what, r->name);
+    popup_info(&app->popup, "EDIT", t, 0, audio_millis(), POPUP_INFO_MS);
+    if (r->chop) {                                                           // a Grid chop that needed the padding: now on the padded version
+        app->ui.chop_pad = -1;
+        const pad_chop_t keep = app->ui.chop;
+        pads_ui_chop_refresh(&app->ui);
+        app->ui.chop.mode = keep.mode; app->ui.chop.div = keep.div; app->ui.chop.to = keep.to;
+        pads_ui_chop_refresh(&app->ui);
+        audio_sample_info_t in;
+        const int idx = lib_index(p->file);
+        if (idx >= 0 && audio_sample_info(idx, &in)) {
+            const int w = pad_chop_apply(&app->pads, r->pad, &app->ui.chop, in.frames);
+            for (int k = 0; k < w; k++) pad_changed(app, app->ui.chop.to + k);
+        }
+    }
+    app->dirty = true;
+}
+
+static void render_poll(app_t *app, uint32_t now) {
+    pad_render_t *r = &app->render;
+    if (r->stage == 1) {
+        int pct = 0;
+        const int st = audio_render_poll(&pct);
+        if (pct != app->ui.render_pct) { app->ui.render_pct = pct; app->dirty = true; }
+        if (st == RENDER_STATE_DONE) { audio_samples_rescan(); r->stage = 2; r->since = now; }
+        else if (st == RENDER_STATE_FAILED) {
+            audio_render_done();
+            r->stage = 0;
+            app->ui.render_pct = -1;
+            popup_error(&app->popup, "EDIT", "The new sample could not be written to the card.", NULL, NULL);
+            app->dirty = true;
+        }
+    }
+    if (r->stage == 2) {
+        if (lib_index(r->name) >= 0) render_adopt(app);
+        else if (now - r->since > 15000) {                                   // the card task never listed it
+            audio_render_done();
+            r->stage = 0;
+            app->ui.render_pct = -1;
+            popup_error(&app->popup, "EDIT", "The new sample did not show up in the library.", NULL, NULL);
+            app->dirty = true;
+        }
+    }
 }
 
 // Chop to pads (CHOP page): the slices replace the pads they go to, so the app asks first.
@@ -99,9 +215,22 @@ static void chop_answer(void *ctx, bool yes) {
     if (!yes) return;
     const int src = app->ui.chop_pad;
     audio_sample_info_t in;
-    uint32_t frames = 0;
+    uint32_t frames = 0, rate = 0;
     for (int i = 0; i < audio_sample_count(); i++)
-        if (audio_sample_info(i, &in) && !strcmp(in.name, app->pads.pad[src].file)) { frames = in.frames; break; }
+        if (audio_sample_info(i, &in) && !strcmp(in.name, app->pads.pad[src].file)) { frames = in.frames; rate = in.rate; break; }
+    if (app->ui.chop.mode == CHOP_GRID && frames) {                         // whole grid units (decision 43)
+        pad_t *p = &app->pads.pad[src];
+        const uint32_t u = pad_chop_unit(app->ui.chop.div, rate, app->seq.bpm), end = pad_end(p, frames);
+        if (u) {
+            const uint64_t k = (end - p->start + u - 1) / u, target = p->start + k * u;
+            if (target > frames) {                                           // past the file: a padded version first, the chop follows
+                render_start(app, src, 7, (int32_t)target, true);
+                popup_info(&app->popup, "CHOP", "Padding to the grid...", 0, audio_millis(), POPUP_INFO_MS);
+                return;
+            }
+            if (target != end) { p->end = target >= frames ? 0 : (uint32_t)target; pads_ui_chop_refresh(&app->ui); }
+        }
+    }
     const int n = pad_chop_apply(&app->pads, src, &app->ui.chop, frames);
     for (int k = 0; k < n; k++) pad_changed(app, app->ui.chop.to + k);
     char t[32], a[8];
@@ -805,6 +934,7 @@ static void check_sd(app_t *app) {
         if (curves_changed()) curves_save(); else curves_load();
         if (ui_settings_changed(&app->ui, &app->rack)) ui_settings_save(&app->ui, &app->rack); else ui_settings_load(&app->ui, &app->rack);
         if (app->pads_pending) { if (pads_save(&app->pads)) app->pads_pending = false; } else pads_load(&app->pads);
+        history_load(&app->history);
     }
     if (in_pads(app)) audio_pads_build(&app->pads, &app->rack);         // the samples are looked up again by name
     else audio_build(&app->rack, &app->params);
@@ -911,6 +1041,7 @@ bool app_step(app_t *app, input_event_t e) {
     if (in_pads(app)) {                                                  // the grid shows which pads sound: redraw when that changes
         app->ui.clock_bpm = app->seq.bpm;
         if (pads_ui_tick(&app->ui)) app->dirty = true;                       // a transient scan finished
+        render_poll(app, now);
         const uint64_t pm = audio_pads_playing();
         if (pm != app->pads_shown) { app->pads_shown = pm; app->dirty = true; }
         int bar = 0, beat = 0, frac = 0;

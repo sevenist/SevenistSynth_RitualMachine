@@ -295,10 +295,11 @@ void report() {
 // state: 0 = free, 1 = posted (the card task owns the job), 2 = done (the poster owns it). A poster that gave up waiting leaves it at 1 or 2;
 // the next post waits for / takes it over, so the card task never writes into a job that is being refilled.
 struct FileJob {
-    char name[32];
+    char name[48];
     char data[STORAGE_FILE_MAX];
     int  len;                                      // write: bytes in data; read: capacity in, bytes read out (-1 = failed)
     bool write;
+    bool remove;                                   // delete the file (storage_remove)
     volatile int state;
 };
 FileJob g_job;
@@ -316,11 +317,14 @@ bool write_file(const char *path, const char *tmp, const char *data, int len) {
 
 void run_file_job() {
     FileJob &j = g_job;
-    char path[48], tmp[52];
+    char path[64], tmp[68];
     snprintf(path, sizeof path, SD_MOUNT_POINT "/%s", j.name);
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     if (!sd_card_mounted()) {
         j.len = -1;
+    } else if (j.remove) {
+        j.len = ::unlink(path) == 0 ? 0 : -1;
+        Serial.printf("[SD] %s %s\n", j.len == 0 ? "removed" : "could not remove", path);
     } else if (j.write) {
         const bool ok = write_file(path, tmp, j.data, j.len);
         Serial.printf("[SD] %s %s (%d bytes)\n", ok ? "wrote" : "could not write", path, j.len);
@@ -364,6 +368,7 @@ void io_task(void *) {
         if (ulTaskNotifyTake(pdTRUE, 0) && g_state == SD_OK) scan();      // the Scan row of the sample list
         if (g_job.state == 1) run_file_job();      // a settings file (keys.cfg ...), also on a card too slow for samples
         if (g_mkdirs) make_folders();
+        if (g_state == SD_OK) for (int k = 0; k < 2 && engine_synth_render_step(); k++) {}   // a processing job: a few chunks between the loader's reads
         if (g_state == SD_OK) {
             const bool more = engine_synth_io_pump();   // reads still in flight: go on at once, a stream may be about to run dry
             if (more && ++burst < kBurst) continue;
@@ -378,6 +383,7 @@ void io_task(void *) {
 }  // namespace
 
 void samples_esp32_start() {
+    engine_synth_set_card_root(SD_MOUNT_POINT);                // the processing jobs write next to the library
     if (!g_task) xTaskCreatePinnedToCore(io_task, "sd_io", kStackBytes, nullptr, kPriority, &g_task, 0);
 }
 
@@ -390,6 +396,7 @@ extern "C" int storage_read(const char *name, char *buf, int cap) {
     if (g_state == SD_NONE || !job_free()) return -1;
     snprintf(g_job.name, sizeof g_job.name, "%s", name);
     g_job.write = false;
+    g_job.remove = false;
     if (!post_job() || g_job.len < 0) return -1;
     const int n = g_job.len < cap - 1 ? g_job.len : cap - 1;
     memcpy(buf, g_job.data, n);
@@ -404,10 +411,28 @@ extern "C" bool storage_write(const char *name, const char *data, int len) {
     memcpy(g_job.data, data, len);
     g_job.len = len;
     g_job.write = true;
+    g_job.remove = false;
     if (!post_job()) return false;
     const bool ok = g_job.len >= 0;
     g_job.state = 0;
     return ok;
+}
+
+extern "C" bool storage_remove(const char *name) {
+    if (g_state == SD_NONE || !job_free()) return false;
+    snprintf(g_job.name, sizeof g_job.name, "%s", name);
+    g_job.write = false;
+    g_job.remove = true;
+    if (!post_job()) return false;
+    const bool ok = g_job.len == 0;
+    g_job.state = 0;
+    return ok;
+}
+
+void samples_esp32_hide(int index) {
+    if (index < 0 || index >= g_n) return;
+    g_cat[index].name[0] = 0;
+    engine_synth_catalog_set(g_cat, g_n);
 }
 
 extern "C" bool storage_poll_event(storage_event_t *e) {

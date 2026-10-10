@@ -12,6 +12,11 @@ extern "C" {
 
 #define STORAGE_FILE_MAX 4096                       // the largest settings file (keys.cfg: under 1 KB; ui.cfg with many Shift / Mod entries: up to ~3 KB)
 
+// The one text buffer of the settings files (core/storage_buf.c): keys.cfg, curves.cfg, ui.cfg, pads.cfg and history.cfg are each read /
+// written through it, one at a time, on the UI thread (each had its own 4 KB before: 20 KB of internal RAM). Never keep a pointer into it
+// across another load / save.
+extern char g_storage_buf[STORAGE_FILE_MAX];
+
 // The folders of a SynthCore card, relative to its root. Parents come before their children (they are created in this order).
 #define STORAGE_DIR_SAMPLES "system/samples"         // the sample library (*.smp)
 #define STORAGE_DIR_CONFIG  "system/config"          // settings files (keys.cfg ...)
@@ -25,6 +30,9 @@ int  storage_read(const char *name, char *buf, int cap);
 
 // Replaces the file `name` with `len` bytes of data. Returns false when there is no card or the write failed.
 bool storage_write(const char *name, const char *data, int len);
+
+// Deletes the file `name` (the sample versions the history trims). False when there is no card or it could not be removed.
+bool storage_remove(const char *name);
 
 // Card events: the platform watches the card and queues what happened; the application polls them (once per step) and tells the user.
 typedef enum {

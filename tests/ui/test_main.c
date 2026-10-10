@@ -18,7 +18,10 @@ static u8g2_t disp;
 
 void ui_board(bool prototype) { putenv(prototype ? "UI_DUMP_BOARD=hwv1" : "UI_DUMP_BOARD="); }
 
+void ui_stub_library_reset(void);           // tools/ui_stubs.c
+
 void ui_fresh(void) {
+    ui_stub_library_reset();
     memset(&ui_app, 0, sizeof ui_app);
     app_init(&ui_app, &disp);
     ev_idle(1);

@@ -174,14 +174,20 @@ PadBlob pad_blob(int idx, const pad_t &p) {
             if (whole && s.slot_of[f] >= 0) s.resident_bytes += bytes;
         }
         b.slot = s.slot_of[f];
-        const uint32_t frames = s.cat[f].frames;
-        b.start = static_cast<int32_t>(static_cast<uint64_t>(frames) * p.start / 1000);
-        b.end = p.end >= 1000 ? 0 : static_cast<int32_t>(static_cast<uint64_t>(frames) * p.end / 1000);
+        const audio_sample_info_t &in = s.cat[f];
+        const uint32_t frames = in.frames, end = pad_end(&p, frames);
+        b.start = static_cast<int32_t>(p.start + 2 <= frames ? p.start : (frames > 2 ? frames - 2 : 0));
+        b.end = end >= frames ? 0 : static_cast<int32_t>(end);
+        const bool file_loop = in.loop_mode != 0 && in.loop_end > in.loop_start + 1;
+        b.lstart = static_cast<int32_t>(p.loop == PAD_LOOP_FILE && file_loop ? in.loop_start : pad_lstart(&p, frames));
+        b.xfade = static_cast<int32_t>(static_cast<uint64_t>(p.xfade_ms) * in.rate / 1000);
     }
     b.mode = p.mode == PAD_GATE ? PADM_GATE : p.mode == PAD_TOGGLE ? PADM_TOGGLE : PADM_ONESHOT;
     b.loop = p.loop == PAD_LOOP_FILE ? 2 : p.loop == PAD_LOOP_TRIM ? 1 : 0;
     b.choke = p.choke;
     b.grid = p.grid;
+    b.from = p.from;
+    b.xpost = p.xpost;
     b.mute = p.mute ? 1 : 0;
     b.tune = (static_cast<int32_t>(p.tune) * 100 + p.fine) * 256 / 100;
     b.tail = static_cast<int32_t>(p.tail_ms) * kSampleRate / 1000;

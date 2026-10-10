@@ -176,7 +176,7 @@ TEST(pads_trim_loop_and_tune) {
     PadsApp a;
     a.add("tone", sine(261.6256, 1.0));
     pad_t &p = a.pad(0, "tone");
-    p.end = 500;                                                              // the first half
+    p.end = static_cast<uint32_t>(kSampleRate / 2);                           // the first half (frames)
     a.build();
     engine_synth_pad_push(0);
     const Stereo s = a.run(0.7);
@@ -348,4 +348,56 @@ TEST(pads_metronome_clicks_on_the_beats) {
     engine_synth_set_metronome(0);
     const Stereo q = a.run(1.0);
     CHECK(rms(q.l) < 1.0);
+}
+
+TEST(pads_loop_start_crossfade_and_launch_from_the_loop) {
+    PadsApp a;
+    // two halves: 300 Hz then 500 Hz; the Trim loop is the second half (its start is the loop start, apart from the sample start)
+    std::vector<int16_t> pcm = sine(300.0, 1.0);
+    const std::vector<int16_t> hi = sine(500.0, 1.0);
+    pcm.insert(pcm.end(), hi.begin(), hi.end());
+    a.add("two", pcm);
+    const uint32_t half = static_cast<uint32_t>(kSampleRate);
+    pad_t &p = a.pad(0, "two");
+    p.loop = PAD_LOOP_TRIM; p.lstart = half;                                  // plays 300 Hz once, then loops the 500 Hz half
+    a.build();
+    engine_synth_pad_push(0);
+    const Stereo s = a.run(3.5);
+    const std::vector<double> first(s.l.begin(), s.l.begin() + static_cast<long>(0.9 * kSampleRate)), late = tail_of(s.l, 0.5);
+    CHECK(power_at(first, 300.0) > 100.0 * power_at(first, 500.0));
+    CHECK(power_at(late, 500.0) > 100.0 * power_at(late, 300.0));              // after 3 s: inside the loop, never back to 300 Hz
+    // the crossfade: the wrap of a 500 Hz loop that does not end on a whole period clicks; with a 20 ms crossfade the step shrinks
+    engine_synth_pads_stop();
+    a.run(0.2);
+    auto worst_step = [](const std::vector<double> &x) { double w = 0; for (size_t i = 1; i < x.size(); i++) w = std::max(w, std::fabs(x[i] - x[i - 1])); return w; };
+    p.end = half + half / 2 + 37;                                             // the loop is 0.5 s + 37 frames: a broken wave at the wrap
+    engine_synth_pad_set(0, &p);
+    engine_synth_pad_push(0);
+    const double hard = worst_step(tail_of(a.run(3.0).l, 1.8));
+    engine_synth_pads_stop();
+    a.run(0.2);
+    p.xfade_ms = 20;
+    for (int post = 0; post < 2; post++) {
+        p.xpost = static_cast<uint8_t>(post);
+        engine_synth_pad_set(0, &p);
+        engine_synth_pad_push(0);
+        const std::vector<double> t = tail_of(a.run(3.0).l, 1.8);
+        std::printf("    loop wrap: largest step %.0f plain, %.0f with a 20 ms %s crossfade (rms %.0f)\n", hard, worst_step(t), post ? "Post" : "Pre", rms(t));
+        CHECK(worst_step(t) < hard * 0.6);
+        CHECK(rms(t) > 3000.0);
+        engine_synth_pads_stop();
+        a.run(0.2);
+    }
+    // a grid launch from the loop start: the first sound is already 500 Hz
+    p.xfade_ms = 0; p.grid = PAD_GRID_BEAT; p.from = 1;
+    engine_synth_pad_set(0, &p);
+    engine_synth_set_clock(120, 16, 0, 1);
+    a.run(0.1);
+    engine_synth_pad_push(0);
+    const Stereo g = a.run(0.8);
+    const long on = onset(g.l, 0);
+    CHECK(on > 0);
+    const std::vector<double> head(g.l.begin() + on, g.l.begin() + on + static_cast<long>(0.2 * kSampleRate));
+    std::printf("    grid launch from the loop start: 500 Hz %.2e, 300 Hz %.2e\n", power_at(head, 500.0), power_at(head, 300.0));
+    CHECK(power_at(head, 500.0) > 100.0 * power_at(head, 300.0));
 }

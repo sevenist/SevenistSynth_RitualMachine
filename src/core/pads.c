@@ -7,7 +7,6 @@
 
 void pad_default(pad_t *p) {
     memset(p, 0, sizeof *p);
-    p->end = 1000;
     p->mode = PAD_ONESHOT;
     p->tail_ms = 20;
     p->level = 80;
@@ -21,21 +20,32 @@ void pad_label(int pad, char *out, int n) {
     snprintf(out, (size_t)n, "%c%d", 'A' + pad / PADS_PER_BANK, pad % PADS_PER_BANK + 1);
 }
 
-static const char *const labels[PADP_COUNT] = {"Smp", "Mode", "Strt", "End", "Loop", "Tail", "Tune", "Fine", "Lvl", "Pan", "Cut", "Res", "Chok", "Mute", "Grid"};
+static const char *const labels[PADP_COUNT] = {"Smp", "Mode", "Strt", "End", "Loop", "Tail", "Tune", "Fine", "Lvl", "Pan", "Cut", "Res", "Chok", "Mute", "Grid", "LStr", "XFad", "XPos", "From"};
 static const char *const mode_names[PAD_MODE_COUNT] = {"One", "Gate", "Togl"};
 static const char *const mode_toks[PAD_MODE_COUNT]  = {"one", "gate", "toggle"};
 static const char *const loop_names[PAD_LOOP_COUNT] = {"Off", "Trim", "File"};
 static const char *const grid_names[PAD_GRID_COUNT] = {"Off", "Beat", "Bar"};
 static const char *const grid_toks[PAD_GRID_COUNT]  = {"off", "beat", "bar"};
 
+uint32_t pad_end(const pad_t *p, uint32_t frames) {
+    uint32_t e = p->end && p->end < frames ? p->end : frames;
+    return e > p->start + 1 ? e : p->start + 2;
+}
+
+uint32_t pad_lstart(const pad_t *p, uint32_t frames) {
+    const uint32_t e = pad_end(p, frames);
+    const uint32_t l = p->lstart > p->start ? p->lstart : p->start;
+    return l + 1 < e ? l : e - 2;
+}
+
 const char *pad_param_label(pad_param_t k) { return k >= 0 && k < PADP_COUNT ? labels[k] : "?"; }
 
 float pad_cut_hz(const pad_t *p) { return p->cut >= 100 ? 0.0f : 20.0f * powf(1000.0f, p->cut / 100.0f); }
 
-// A trim point (1/1000 of the file) as a time when the sample is known.
-static void fmt_trim(int permille, uint32_t frames, uint32_t rate, char *out, int n) {
-    if (!frames || !rate) { snprintf(out, (size_t)n, "%d.%d%%", permille / 10, permille % 10); return; }
-    const double s = (double)permille * frames / 1000.0 / rate;
+// A trim point (frames) as a time when the sample is known.
+static void fmt_trim(uint32_t at, uint32_t frames, uint32_t rate, char *out, int n) {
+    if (!frames || !rate) { snprintf(out, (size_t)n, "--"); return; }
+    const double s = (double)at / rate;
     if (s < 1.0) snprintf(out, (size_t)n, "%dms", (int)(s * 1000.0 + 0.5));
     else         snprintf(out, (size_t)n, "%.2fs", s);
 }
@@ -45,7 +55,11 @@ void pad_param_format(const pad_t *p, pad_param_t k, uint32_t frames, uint32_t r
         case PADP_FILE:  snprintf(out, (size_t)n, "%s", p->file[0] ? p->file : "--"); break;
         case PADP_MODE:  snprintf(out, (size_t)n, "%s", mode_names[p->mode % PAD_MODE_COUNT]); break;
         case PADP_START: fmt_trim(p->start, frames, rate, out, n); break;
-        case PADP_END:   fmt_trim(p->end, frames, rate, out, n); break;
+        case PADP_END:   fmt_trim(pad_end(p, frames), frames, rate, out, n); break;
+        case PADP_LSTART: fmt_trim(pad_lstart(p, frames), frames, rate, out, n); break;
+        case PADP_XFADE: if (p->xfade_ms) snprintf(out, (size_t)n, "%dms", p->xfade_ms); else snprintf(out, (size_t)n, "Off"); break;
+        case PADP_XPOS:  snprintf(out, (size_t)n, "%s", p->xpost ? "Post" : "Pre"); break;
+        case PADP_FROM:  snprintf(out, (size_t)n, "%s", p->from ? "Loop" : "Start"); break;
         case PADP_LOOP:  snprintf(out, (size_t)n, "%s", loop_names[p->loop % PAD_LOOP_COUNT]); break;
         case PADP_TAIL:  snprintf(out, (size_t)n, "%dms", p->tail_ms); break;
         case PADP_TUNE:  snprintf(out, (size_t)n, "%+dst", p->tune); break;
@@ -74,13 +88,35 @@ static int tail_step(int ms, int dir) {
     return clampi(ms + dir * fine_int_step(st), 0, 2000);
 }
 
-bool pad_param_adjust(pad_t *p, pad_param_t k, int dir) {
+static int64_t clampl(int64_t v, int64_t lo, int64_t hi) { return v < lo ? lo : v > hi ? hi : v; }
+
+// A trim point moved to `v` (frames), kept in order: start < loop start < end - 1 <= the file.
+static void set_trim(pad_t *p, pad_param_t k, int64_t v, uint32_t frames) {
+    if (frames < 4) return;
+    const uint32_t e = pad_end(p, frames);
+    switch (k) {
+        case PADP_START:  p->start = (uint32_t)clampl(v, 0, (int64_t)e - 2); break;
+        case PADP_END: {
+            const uint32_t ne = (uint32_t)clampl(v, (int64_t)p->start + 2, frames);
+            p->end = ne >= frames ? 0 : ne;                                  // the file's end follows the file
+        } break;
+        case PADP_LSTART: p->lstart = (uint32_t)clampl(v, p->start, (int64_t)e - 2); break;
+        default: break;
+    }
+}
+
+bool pad_param_adjust(pad_t *p, pad_param_t k, int dir, uint32_t frames) {
     const pad_t old = *p;
     const int d = dir > 0 ? 1 : -1;
+    const int64_t tstep = g_fine_step ? (frames / 1000 ? frames / 1000 : 1) : (frames / 200 ? frames / 200 : 1);
     switch (k) {
         case PADP_MODE:  p->mode = (uint8_t)((p->mode + PAD_MODE_COUNT + d) % PAD_MODE_COUNT); break;
-        case PADP_START: p->start = (uint16_t)clampi(p->start + d * fine_int_step(5), 0, p->end - 1); break;
-        case PADP_END:   p->end = (uint16_t)clampi(p->end + d * fine_int_step(5), p->start + 1, 1000); break;
+        case PADP_START: set_trim(p, k, (int64_t)p->start + d * tstep, frames); break;
+        case PADP_END:   set_trim(p, k, (int64_t)pad_end(p, frames) + d * tstep, frames); break;
+        case PADP_LSTART: set_trim(p, k, (int64_t)pad_lstart(p, frames) + d * tstep, frames); break;
+        case PADP_XFADE: p->xfade_ms = (uint16_t)tail_step(p->xfade_ms, d); break;
+        case PADP_XPOS:  p->xpost = !p->xpost; break;
+        case PADP_FROM:  p->from = !p->from; break;
         case PADP_LOOP:  p->loop = (uint8_t)((p->loop + PAD_LOOP_COUNT + d) % PAD_LOOP_COUNT); break;
         case PADP_TAIL:  p->tail_ms = (uint16_t)tail_step(p->tail_ms, d); break;
         case PADP_TUNE:  p->tune = (int8_t)clampi(p->tune + d, -24, 24); break;
@@ -97,14 +133,17 @@ bool pad_param_adjust(pad_t *p, pad_param_t k, int dir) {
     return memcmp(&old, p, sizeof old) != 0;
 }
 
-bool pad_param_set_norm(pad_t *p, pad_param_t k, float x) {
+bool pad_param_set_norm(pad_t *p, pad_param_t k, float x, uint32_t frames) {
     const pad_t old = *p;
     x = x < 0.0f ? 0.0f : x > 1.0f ? 1.0f : x;
-    const int v1000 = (int)(x * 1000.0f + 0.5f), v100 = (int)(x * 100.0f + 0.5f);
+    const int v100 = (int)(x * 100.0f + 0.5f);
+    const int64_t at = (int64_t)((double)x * frames + 0.5);
     switch (k) {
         case PADP_MODE:  p->mode = (uint8_t)clampi((int)(x * PAD_MODE_COUNT), 0, PAD_MODE_COUNT - 1); break;
-        case PADP_START: p->start = (uint16_t)clampi(v1000, 0, p->end - 1); break;
-        case PADP_END:   p->end = (uint16_t)clampi(v1000, p->start + 1, 1000); break;
+        case PADP_START: case PADP_END: case PADP_LSTART: set_trim(p, k, at, frames); break;
+        case PADP_XFADE: p->xfade_ms = (uint16_t)(x * x * 2000.0f + 0.5f); break;
+        case PADP_XPOS:  p->xpost = x >= 0.5f; break;
+        case PADP_FROM:  p->from = x >= 0.5f; break;
         case PADP_LOOP:  p->loop = (uint8_t)clampi((int)(x * PAD_LOOP_COUNT), 0, PAD_LOOP_COUNT - 1); break;
         case PADP_TAIL:  p->tail_ms = (uint16_t)(x * x * 2000.0f + 0.5f); break;
         case PADP_TUNE:  p->tune = (int8_t)clampi((int)lroundf(x * 48.0f) - 24, -24, 24); break;
@@ -130,14 +169,18 @@ int pads_to_text(const pads_t *ps, char *buf, int cap) {
     for (int i = 0; i < PAD_COUNT && n < cap; i++) {
         const pad_t *p = &ps->pad[i];
         if (!memcmp(p, &d, sizeof d)) continue;
-        char l[8], line[160];
+        char l[8], line[256];                                       // every setting changed + a 23-character name: about 200
         pad_label(i, l, sizeof l);
         int k = snprintf(line, sizeof line, "pad %s", l);
 #define FIELD(cond, ...) if ((cond) && k < (int)sizeof line) k += snprintf(line + k, sizeof line - (size_t)k, __VA_ARGS__)
         FIELD(p->mode != d.mode, " mode %s", mode_toks[p->mode % PAD_MODE_COUNT]);
         FIELD(p->loop != d.loop, " loop %d", p->loop);
-        FIELD(p->start != d.start, " start %d", p->start);
-        FIELD(p->end != d.end, " end %d", p->end);
+        FIELD(p->start != d.start, " start %lu", (unsigned long)p->start);
+        FIELD(p->end != d.end, " end %lu", (unsigned long)p->end);
+        FIELD(p->lstart != d.lstart, " lstart %lu", (unsigned long)p->lstart);
+        FIELD(p->xfade_ms != d.xfade_ms, " xfade %d", p->xfade_ms);
+        FIELD(p->xpost != d.xpost, " xpos %s", p->xpost ? "post" : "pre");
+        FIELD(p->from != d.from, " from %s", p->from ? "loop" : "start");
         FIELD(p->tail_ms != d.tail_ms, " tail %d", p->tail_ms);
         FIELD(p->tune != d.tune, " tune %d", p->tune);
         FIELD(p->fine != d.fine, " fine %d", p->fine);
@@ -187,8 +230,12 @@ static void parse_pad(pad_t *p, const char *s) {
         const int v = atoi(val);
         if (!strcmp(key, "mode")) { for (int m = 0; m < PAD_MODE_COUNT; m++) if (!strcmp(val, mode_toks[m])) p->mode = (uint8_t)m; }
         else if (!strcmp(key, "loop"))  p->loop = (uint8_t)clampi(v, 0, PAD_LOOP_COUNT - 1);
-        else if (!strcmp(key, "start")) p->start = (uint16_t)clampi(v, 0, 999);
-        else if (!strcmp(key, "end"))   p->end = (uint16_t)clampi(v, 1, 1000);
+        else if (!strcmp(key, "start")) p->start = (uint32_t)strtoul(val, NULL, 10);
+        else if (!strcmp(key, "end"))   p->end = (uint32_t)strtoul(val, NULL, 10);
+        else if (!strcmp(key, "lstart")) p->lstart = (uint32_t)strtoul(val, NULL, 10);
+        else if (!strcmp(key, "xfade")) p->xfade_ms = (uint16_t)clampi(v, 0, 2000);
+        else if (!strcmp(key, "xpos"))  p->xpost = !strcmp(val, "post");
+        else if (!strcmp(key, "from"))  p->from = !strcmp(val, "loop");
         else if (!strcmp(key, "tail"))  p->tail_ms = (uint16_t)clampi(v, 0, 2000);
         else if (!strcmp(key, "tune"))  p->tune = (int8_t)clampi(v, -24, 24);
         else if (!strcmp(key, "fine"))  p->fine = (int8_t)clampi(v, -50, 50);
@@ -199,7 +246,6 @@ static void parse_pad(pad_t *p, const char *s) {
         else if (!strcmp(key, "choke")) p->choke = (uint8_t)clampi(v, 0, PAD_CHOKES);
         else if (!strcmp(key, "mute"))  p->mute = v != 0;
         else if (!strcmp(key, "grid")) { for (int g = 0; g < PAD_GRID_COUNT; g++) if (!strcmp(val, grid_toks[g])) p->grid = (uint8_t)g; }
-        if (p->start >= p->end) p->start = (uint16_t)(p->end - 1);
     }
 }
 

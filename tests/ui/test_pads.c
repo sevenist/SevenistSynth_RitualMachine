@@ -127,10 +127,10 @@ TEST(pads_knobs_edit_the_selected_pad) {
     snprintf(ui_app.pads.pad[0].file, PAD_NAME_MAX, "demo0");
     shift_menu();
     const int sets = ui_stub_pad_sets;
-    ev_knob(CTL_COL_KNOB_0, INPUT_VALUE_MAX / 2);                         // Start
-    CHECK(ui_app.pads.pad[0].start >= 495 && ui_app.pads.pad[0].start <= 505);
+    ev_knob(CTL_COL_KNOB_0, INPUT_VALUE_MAX / 2);                         // Start: half of demo0's 96000 frames
+    CHECK(ui_app.pads.pad[0].start >= 47500 && ui_app.pads.pad[0].start <= 48500);
     ev_knob(CTL_COL_KNOB_1, 0);                                          // End: never before Start
-    CHECK_EQ(ui_app.pads.pad[0].end, ui_app.pads.pad[0].start + 1);
+    CHECK_EQ(pad_end(&ui_app.pads.pad[0], 96000), ui_app.pads.pad[0].start + 2);
     ev_knob(CTL_COL_KNOB_2, INPUT_VALUE_MAX);                            // Tune
     CHECK_EQ(ui_app.pads.pad[0].tune, 24);
     ev_knob(CTL_COL_KNOB_3, 0);                                          // Cut
@@ -144,12 +144,12 @@ TEST(pads_cfg_text_and_autosave) {
     pads_init(&a);
     pad_t *p = &a.pad[PADS_PER_BANK + 2];                                // B3
     snprintf(p->file, PAD_NAME_MAX, "kick 01");
-    p->mode = PAD_TOGGLE; p->loop = PAD_LOOP_TRIM; p->start = 120; p->end = 900; p->tail_ms = 50; p->tune = -2; p->fine = 10;
+    p->mode = PAD_TOGGLE; p->loop = PAD_LOOP_TRIM; p->start = 1200; p->end = 90000; p->lstart = 4800; p->xfade_ms = 40; p->xpost = 1; p->from = 1; p->tail_ms = 50; p->tune = -2; p->fine = 10;
     p->level = 70; p->pan = -10; p->cut = 60; p->res = 20; p->choke = 3; p->mute = 1;
     snprintf(a.pad[63].file, PAD_NAME_MAX, "snare");
     static char txt[STORAGE_FILE_MAX];
     pads_to_text(&a, txt, sizeof txt);
-    CHECK(strstr(txt, "pad B3 mode toggle loop 1 start 120 end 900 tail 50 tune -2 fine 10 level 70 pan -10 cut 60 res 20 choke 3 mute 1 file kick 01\n") != NULL);
+    CHECK(strstr(txt, "pad B3 mode toggle loop 1 start 1200 end 90000 lstart 4800 xfade 40 xpos post from loop tail 50 tune -2 fine 10 level 70 pan -10 cut 60 res 20 choke 3 mute 1 file kick 01\n") != NULL);
     CHECK(strstr(txt, "pad D16 file snare\n") != NULL);
     CHECK(strstr(txt, "pad A1") == NULL);                                // an empty default pad has no line
     pads_init(&b);
@@ -260,7 +260,7 @@ TEST(pads_grid_setting_in_the_editor_and_the_file) {
     ui_fresh();
     shift_menu();
     ev_tap(CTL_JOY_SW);
-    ev_turn(CTL_ENC_A, 14);                                              // the last row: Grid
+    ev_turn(CTL_ENC_A, 6);                                               // Grid: Mode Strt End Loop Tail Grid (the loop rows are hidden)
     ev_turn(CTL_ENC_B, 2);
     CHECK_EQ(ui_app.pads.pad[0].grid, PAD_GRID_BAR);
     static char txt[STORAGE_FILE_MAX];
@@ -270,4 +270,32 @@ TEST(pads_grid_setting_in_the_editor_and_the_file) {
     pads_init(&b);
     CHECK(pads_from_text(&b, txt));
     CHECK_EQ(b.pad[0].grid, PAD_GRID_BAR);
+}
+
+TEST(pads_loop_rows_show_while_the_pad_loops) {
+    ui_fresh();
+    snprintf(ui_app.pads.pad[0].file, PAD_NAME_MAX, "demo0");
+    shift_menu();
+    ev_tap(CTL_JOY_SW);                                                  // the editor of A1, on Smp
+    ev_turn(CTL_ENC_A, 4);                                               // Loop
+    ev_turn(CTL_ENC_B, 1);                                               // Trim: LStr and XFad appear
+    CHECK_EQ(ui_app.pads.pad[0].loop, PAD_LOOP_TRIM);
+    ev_turn(CTL_ENC_A, 1);
+    CHECK_EQ(ui_app.ui.pad_row, 6);                                      // LStr (element 6)
+    ev_turn(CTL_ENC_B, 3);                                               // 3 steps of 1/200 of 96000 frames
+    CHECK_EQ(pad_lstart(&ui_app.pads.pad[0], 96000), 3 * 480);
+    ev_turn(CTL_ENC_A, 1);                                               // XFad
+    ev_turn(CTL_ENC_B, 2);
+    CHECK_EQ(ui_app.pads.pad[0].xfade_ms, 10);
+    ev_turn(CTL_ENC_A, 1);                                               // XPos (shown once there is a crossfade)
+    CHECK_EQ(ui_app.ui.pad_row, 8);
+    ev_turn(CTL_ENC_B, 1);
+    CHECK_EQ(ui_app.pads.pad[0].xpost, 1);
+    ev_turn(CTL_ENC_A, 2);                                               // Tail, Grid
+    ev_turn(CTL_ENC_B, 1);                                               // Beat: From appears in the right column
+    CHECK_EQ(ui_app.pads.pad[0].grid, PAD_GRID_BEAT);
+    ev_turn(CTL_ENC_A, 9);                                               // Lvl Pan Tune Fine Cut Res Chok Mute From
+    CHECK_EQ(ui_app.ui.pad_row, 19);
+    ev_turn(CTL_ENC_B, 1);
+    CHECK_EQ(ui_app.pads.pad[0].from, 1);
 }

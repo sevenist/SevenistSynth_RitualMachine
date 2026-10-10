@@ -38,14 +38,16 @@ static void pad_value(const ui_ctx_t *c, char *out, int n) {
 static bool pad_adjust(const ui_ctx_t *c, int dir) {
     pad_t *p = cur_pad(c);
     audio_sample_info_t in;
+    const bool have = file_info(p, &in);
+    const uint32_t frames = have && !in.pending ? in.frames : 0;
     if (c->arg == PADP_LOOP) {                           // Off / Trim / File; File only when the file has loop points
-        const bool file_loop = file_info(p, &in) && file_has_loop(&in);
+        const bool file_loop = have && file_has_loop(&in);
         const uint8_t was = p->loop;
-        pad_param_adjust(p, PADP_LOOP, dir);
-        if (p->loop == PAD_LOOP_FILE && !file_loop) pad_param_adjust(p, PADP_LOOP, dir);
+        pad_param_adjust(p, PADP_LOOP, dir, frames);
+        if (p->loop == PAD_LOOP_FILE && !file_loop) pad_param_adjust(p, PADP_LOOP, dir, frames);
         return p->loop != was;
     }
-    if (c->arg != PADP_FILE) return pad_param_adjust(p, (pad_param_t)c->arg, dir);
+    if (c->arg != PADP_FILE) return pad_param_adjust(p, (pad_param_t)c->arg, dir, frames);
     const int n = audio_sample_count();                  // the library in its order, "--" (none) before the first file
     int i = file_index(p->file) + (dir > 0 ? 1 : -1);
     if (i < -1) i = n - 1;
@@ -61,20 +63,30 @@ static bool pad_adjust(const ui_ctx_t *c, int dir) {
 
 static const char *pad_label_dyn(const ui_ctx_t *c) { return pad_param_label((pad_param_t)c->arg); }
 
-#define ROW(r, col, span, k) {"", EL_VALUE, r, col, span, pad_value, pad_adjust, NULL, NULL, NULL, pad_label_dyn, k, 0}
+// The loop rows only while the pad loops (LStr for the Trim loop: a file loop has its own points).
+static bool en_loop(const ui_ctx_t *c) { return cur_pad(c)->loop != PAD_LOOP_OFF; }
+static bool en_trim_loop(const ui_ctx_t *c) { return cur_pad(c)->loop == PAD_LOOP_TRIM; }
+static bool en_xfade(const ui_ctx_t *c) { return cur_pad(c)->loop != PAD_LOOP_OFF && cur_pad(c)->xfade_ms > 0; }
+static bool en_from(const ui_ctx_t *c) { return cur_pad(c)->loop != PAD_LOOP_OFF && cur_pad(c)->grid != PAD_GRID_OFF; }
+
+#define ROW(r, col, span, k, en) {"", EL_VALUE, r, col, span, pad_value, pad_adjust, NULL, NULL, en, pad_label_dyn, k, 0}
+#define ROWH(r, col, span, k, en) {"", EL_VALUE, r, col, span, pad_value, pad_adjust, NULL, NULL, en, pad_label_dyn, k, EF_HIDE_WHEN_DISABLED}
 static const el_def_t elements[] = {
-    ROW(0, 0, 2, PADP_FILE),
-    ROW(1, 0, 1, PADP_MODE), ROW(2, 0, 1, PADP_START), ROW(3, 0, 1, PADP_END), ROW(4, 0, 1, PADP_LOOP), ROW(5, 0, 1, PADP_TAIL),
-    ROW(6, 0, 1, PADP_TUNE), ROW(7, 0, 1, PADP_FINE),
-    ROW(1, 1, 1, PADP_LEVEL), ROW(2, 1, 1, PADP_PAN), ROW(3, 1, 1, PADP_CUT), ROW(4, 1, 1, PADP_RES), ROW(5, 1, 1, PADP_CHOKE),
-    ROW(6, 1, 1, PADP_MUTE), ROW(7, 1, 1, PADP_GRID),
+    ROW(0, 0, 2, PADP_FILE, NULL),
+    ROW(1, 0, 1, PADP_MODE, NULL), ROW(2, 0, 1, PADP_START, NULL), ROW(3, 0, 1, PADP_END, NULL), ROW(4, 0, 1, PADP_LOOP, NULL),
+    ROWH(5, 0, 1, PADP_LSTART, en_trim_loop), ROWH(6, 0, 1, PADP_XFADE, en_loop), ROWH(7, 0, 1, PADP_XPOS, en_xfade),
+    ROW(8, 0, 1, PADP_TAIL, NULL), ROW(9, 0, 1, PADP_GRID, NULL),
+    ROW(1, 1, 1, PADP_LEVEL, NULL), ROW(2, 1, 1, PADP_PAN, NULL), ROW(3, 1, 1, PADP_TUNE, NULL), ROW(4, 1, 1, PADP_FINE, NULL),
+    ROW(5, 1, 1, PADP_CUT, NULL), ROW(6, 1, 1, PADP_RES, NULL), ROW(7, 1, 1, PADP_CHOKE, NULL), ROW(8, 1, 1, PADP_MUTE, NULL),
+    ROWH(9, 1, 1, PADP_FROM, en_from),
 };
 #undef ROW
+#undef ROWH
 #define N_ELEMENTS ((int)(sizeof elements / sizeof elements[0]))
-#define WAVE_H 32                                        // the sample overview across the top (4 grid rows)
-#define ROW_H  9
+#define WAVE_H 24                                        // the sample overview across the top (3 grid rows)
+#define ROW_H  GUI_GRID                                  // 8 px rows, as on the module pages
 
-// The overview on top, the sample row across the width, then two columns of 9 px rows.
+// The overview on top, the sample row across the width, then two columns of 8 px rows.
 static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, gui_rect_t *rect) {
     (void)g; (void)st; (void)c;
     const int y0 = area.y + WAVE_H + 2, half = area.w / 2;
@@ -84,19 +96,23 @@ static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect
     }
 }
 
-// The sample's overview (its 64 peaks), dotted outside the trim, the start and end as lines, a loop as marks at the top of both.
+static int x_of(gui_rect_t box, uint64_t frame, uint32_t frames) { return box.x + (int)(frame * (uint64_t)(box.w - 1) / frames); }
+
+// The sample's overview (its 64 peaks), dotted outside the trim, Start and End as lines, the tail as a fade after End, the loop as a
+// bracket along the top (from the Trim loop's start or the file's loop points) with the crossfade as a filled bar under its end.
 static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, const gui_rect_t *rect) {
     (void)st; (void)rect;
     const gui_rect_t box = gui_rect(area.x, area.y + 1, area.w, WAVE_H);
     const pad_t *p = cur_pad(c);
     audio_sample_info_t in;
-    if (!file_info(p, &in) || in.pending) {
+    if (!file_info(p, &in) || in.pending || in.frames < 4) {
         u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
         gui_draw_text_centered(g, box, !p->file[0] ? "empty pad" : in.pending && file_index(p->file) >= 0 ? "not converted yet" : "not on this card");
         return;
     }
     const int mid = box.y + box.h / 2, amp = box.h / 2 - 1;
-    const int xs = box.x + p->start * (box.w - 1) / 1000, xe = box.x + p->end * (box.w - 1) / 1000;
+    const uint32_t end = pad_end(p, in.frames);
+    const int xs = x_of(box, p->start, in.frames), xe = x_of(box, end, in.frames);
     for (int x = 0; x < box.w; x++) {
         const int px = box.x + x;
         const bool inside = px >= xs && px <= xe;
@@ -106,13 +122,31 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
     }
     u8g2_DrawVLine(g, xs, box.y, box.h);
     u8g2_DrawVLine(g, xe, box.y, box.h);
-    if (p->loop == PAD_LOOP_TRIM) { u8g2_DrawHLine(g, xs, box.y, 4); u8g2_DrawHLine(g, xe - 3, box.y, 4); }
-    if (p->loop == PAD_LOOP_FILE && file_has_loop(&in) && in.frames) {    // the file's loop points: a bracket along the top
-        const int ls = box.x + (int)((uint64_t)in.loop_start * (uint64_t)(box.w - 1) / in.frames);
-        const int le = box.x + (int)((uint64_t)in.loop_end * (uint64_t)(box.w - 1) / in.frames);
-        u8g2_DrawHLine(g, ls, box.y, le - ls + 1);
-        u8g2_DrawVLine(g, ls, box.y, 3);
-        u8g2_DrawVLine(g, le, box.y, 3);
+    if (p->tail_ms && in.rate) {                         // the tail: a fade from the End point over its length (the real one starts at the stop)
+        const uint64_t tf = (uint64_t)p->tail_ms * in.rate / 1000;
+        int tw = (int)(tf * (uint64_t)(box.w - 1) / in.frames);
+        if (tw < 2) tw = 2;
+        const int x1 = xe + tw > box.x + box.w - 1 ? box.x + box.w - 1 : xe + tw;
+        const int y1 = mid - (int)((int64_t)amp * (xe + tw - x1) / tw);   // cut at the box edge: where the ramp is there
+        u8g2_DrawLine(g, xe, box.y, x1, y1);
+        u8g2_DrawLine(g, xe, box.y + box.h - 1, x1, 2 * mid - y1);
+    }
+    uint32_t ls = 0, le = 0;
+    if (p->loop == PAD_LOOP_TRIM) { ls = pad_lstart(p, in.frames); le = end; }
+    if (p->loop == PAD_LOOP_FILE && file_has_loop(&in)) { ls = in.loop_start; le = in.loop_end; }
+    if (le > ls + 1) {
+        const int x0 = x_of(box, ls, in.frames), x1 = x_of(box, le, in.frames);
+        u8g2_DrawHLine(g, x0, box.y, x1 - x0 + 1);
+        u8g2_DrawVLine(g, x0, box.y, 4);
+        u8g2_DrawVLine(g, x1, box.y, 4);
+        if (p->xfade_ms && in.rate) {                    // the crossfade: under the loop's end; Post also marks the loop's first part
+            uint64_t xf = (uint64_t)p->xfade_ms * in.rate / 1000;
+            if (xf > (le - ls) / 2) xf = (le - ls) / 2;
+            const int w = (int)(xf * (uint64_t)(box.w - 1) / in.frames) + 1;
+            u8g2_DrawBox(g, x1 - w + 1, box.y + 1, w, 2);
+            if (p->xpost) u8g2_DrawBox(g, x0, box.y + 1, w, 2);
+            else          u8g2_DrawBox(g, x0 - w + 1 < box.x ? box.x : x0 - w + 1, box.y + 1, w, 2);
+        }
     }
 }
 

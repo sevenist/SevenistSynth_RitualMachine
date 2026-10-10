@@ -280,16 +280,15 @@ static void pads_knob(app_t *app, int row, int value) {
     const int pad = pads_ui_pad(&app->ui);
     pad_t *p = &app->pads.pad[pad];
     const pad_param_t k = knob[row - 1];
-    if (pad_param_set_norm(p, k, (float)value / INPUT_VALUE_MAX)) pad_changed(app, pad);
+    audio_sample_info_t in;                                 // the trim needs the sample's length
+    uint32_t frames = 0, rate = 0;
+    for (int i = 0; p->file[0] && i < audio_sample_count(); i++)
+        if (audio_sample_info(i, &in) && !strcmp(in.name, p->file)) { if (!in.pending) { frames = in.frames; rate = in.rate; } break; }
+    if (pad_param_set_norm(p, k, (float)value / INPUT_VALUE_MAX, frames)) pad_changed(app, pad);
     char t[24], v[16];
     pad_label(pad, t, sizeof t);
     snprintf(t + strlen(t), sizeof t - strlen(t), " %s", pad_param_label(k));
-    pad_param_format(p, k, 0, 0, v, sizeof v);
-    if (k == PADP_START || k == PADP_END) {                 // the trim in time when the sample is known
-        audio_sample_info_t in;
-        for (int i = 0; i < audio_sample_count(); i++)
-            if (audio_sample_info(i, &in) && !strcmp(in.name, p->file)) { pad_param_format(p, k, in.frames, in.rate, v, sizeof v); break; }
-    }
+    pad_param_format(p, k, frames, rate, v, sizeof v);
     popup_info(&app->popup, t, v, 0, audio_millis(), POPUP_INFO_MS);
     app->dirty = true;
 }

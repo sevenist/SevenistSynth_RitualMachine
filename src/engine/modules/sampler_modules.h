@@ -42,6 +42,10 @@ struct PadBlob {
     uint8_t pad = 0;                            // 0..kPadCount-1
     uint8_t mode = PADM_ONESHOT, loop = 0, choke = 0, mute = 0, filter = 0;   // loop: 0 off, 1 start..end, 2 the file's loop points
     uint8_t grid = 0;                           // start on: 0 the push, 1 the next beat, 2 the next bar
+    uint8_t from = 0;                           // a grid start plays from 0 the start, 1 the loop start (when it loops)
+    uint8_t xpost = 0;                          // the crossfade's fade-in: 0 before the loop start, 1 from it
+    int32_t lstart = 0;                         // the loop start in frames (the Trim loop's own, or the file's)
+    int32_t xfade = 0;                          // the loop crossfade in frames (0: none)
     int16_t slot = -1;                          // bank slot of the sample, -1 = an empty pad
     int32_t start = 0, end = 0;                 // frames; end 0 = the file's end
     int32_t tune = 0;                           // pitch units (1/256 semitone)

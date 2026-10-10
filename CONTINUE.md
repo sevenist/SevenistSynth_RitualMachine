@@ -11,12 +11,16 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
 Order: the Pads section first (user, 2026-10-09), the rest as chosen by Claude earlier (user: "I let you choose the order"). The user has made no sound design yet: **no saved patch or data to keep, old
 patches can be deleted, no migration code** (user, 2026-10-09). The rest of the workflow plan: "Next: the production workflow" below.
 
-- [ ] **Pads step 1: the user tries it in the simulator, then on the board**: BUILT 2026-10-10 (ADR-041 "Phase 5, step 1 as built"; 7 engine
+- [ ] **Pads step 1: on the board** (tried by the user in the simulator 2026-10-10: "all fine"): BUILT 2026-10-10 (ADR-041 "Phase 5, step 1 as built"; 7 engine
   tests in the 6 configurations, 77 UI tests, simulator + firmware built; NOT tried by the user, NOT flashed, NOT measured). See "Pads
   section, step 1" below for how to try it and its limits. On the board: measure 8 pad voices (streamed vs whole), PSRAM after the switch (from: user)
 - [ ] **Pads step 2 (clock, start on grid, tempo, metronome): try it**: BUILT 2026-10-10 (ADR-041 decisions 27-29; 11 pad engine tests,
   81 UI tests, simulator + firmware built; NOT tried by the user, NOT flashed). Play in Pads runs the clock; Grid row of a pad; right block
   row 3 = Tap, Click, BPM -1, BPM +1 (from: user)
+- [ ] **Pads loop crossfade, loop start, launch from, tail on the overview: try it**: BUILT 2026-10-10 (ADR-041 decisions 30-32; 12 pad
+  engine tests in the 6 configurations, 82 UI tests, sim + firmware built; NOT tried, NOT flashed) (from: user)
+- [ ] **Sample tools (next, before FX; design round first)**: chopping, stretching, tempo matching (fit to N beats, offline only),
+  offline processing (normalize, stretch, paulstretch, more). Needs writing .smp files to the card (capture needs it too) (from: user)
 - [ ] **Pads steps 3-5**: FXA-C, live synth (design round), song mode + backtrack (design round); "Next: the production workflow" (from: user)
 - [ ] **Confirm: the full synth stops in the Pads section** (my reading of ADR-041 decision 22) (from: notes)
 - [ ] **Joystick swap: try it**: a push on an already bound parameter swaps X and Y, each keeps its range / curve (built 2026-10-09, 71 UI

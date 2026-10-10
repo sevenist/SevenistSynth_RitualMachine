@@ -31,6 +31,10 @@ public:
     }
     // The Pads module drives its voices directly (same thread as process()): stop at once, and whether it still sounds (or waits for its sample).
     void halt() { want_start_ = false; active_ = false; if (bank_ && ring_) stream_.stop(); }
+    // The pads' loop details, read at the next start: the region loop's start (frames, -1 = the trim start) and a crossfade of `xfade`
+    // frames at the end of a forward loop (equal-power; Pre: the fade-in material is the frames before the loop start, Post: the loop's
+    // first frames, the wrap then lands after them). Capped at half the loop, and for Pre at the frames that exist before the loop start.
+    void set_loop_extra(int32_t lstart, int32_t xfade, bool post) { lstart_ = lstart; xfade_ = xfade; xpost_ = post; }
     bool playing() const { return active_ || want_start_; }
     bool init(Memory &m) override {
         bank_ = m.bank;
@@ -97,6 +101,15 @@ public:
             } else {
                 s = lerp15(y1, y2, frac);
             }
+            if (lxf_ && dir_ > 0) {                                                 // the loop crossfade: mix in the fade-in material
+                const int64_t fs = static_cast<int64_t>(loop_.end - lxf_) << 32;
+                if (pos_ >= fs) {
+                    const int64_t q = pos_ - (static_cast<int64_t>(loop_.end - loop_.start) << 32);
+                    const int32_t s2 = value_at(q);
+                    const uint32_t ph = static_cast<uint32_t>(((pos_ - fs) / lxf_) >> 2);         // 0 .. a quarter turn over the fade
+                    s = static_cast<int32_t>((static_cast<int64_t>(s) * sine(ph + 0x40000000u) + static_cast<int64_t>(s2) * sine(ph)) >> 15);
+                }
+            }
             // Underrun: the output keeps the value it had and decays by 1/64 per sample (a half-interpolated value would
             // click); the timeline keeps running. When the data is back, the output crosses over from the held value to
             // the live signal in 64 samples, so it is continuous at both ends whatever the length of the gap.
@@ -157,7 +170,7 @@ private:
 #endif
         if (dir_ < 0 || underrun_ || xf_ < 32767) return false;
         const int64_t pos_end = pos_ + rate * n;                                    // where the block ends: the general loop wraps / stops there
-        const int64_t limit = static_cast<int64_t>(loop_.active() ? loop_.end : frames_) << 32;
+        const int64_t limit = static_cast<int64_t>(loop_.active() ? loop_.end - lxf_ : frames_) << 32;    // (the crossfade runs in the general loop)
         if (pos_end >= limit || (stop_frame_ && (pos_end >> 32) >= stop_frame_)) return false;
         const int64_t f0 = pos_ >> 32, f_last = (pos_ + rate * (n - 1)) >> 32;
         if (f0 < 1 || f_last + 2 >= static_cast<int64_t>(frames_)) return false;    // the neighbours of the interpolator exist (outside the file they read as silence)
@@ -196,7 +209,7 @@ private:
 #endif
         if (dir_ < 0) return false;
         const int64_t pos_end = pos_ + rate * n;
-        const int64_t limit = static_cast<int64_t>(loop_.active() ? loop_.end : frames_) << 32;
+        const int64_t limit = static_cast<int64_t>(loop_.active() ? loop_.end - lxf_ : frames_) << 32;    // (the crossfade runs in the general loop)
         if (pos_end >= limit || (stop_frame_ && (pos_end >> 32) >= stop_frame_)) return false;
         const int64_t f0 = pos_ >> 32, f_last = (pos_ + rate * (n - 1)) >> 32;
         if (f0 < 1 || f_last + 2 >= static_cast<int64_t>(frames_)) return false;
@@ -256,10 +269,24 @@ private:
             start = static_cast<uint32_t>(fstart_);
             stop_frame_ = 0;
             const uint32_t end = fend_ > 0 && static_cast<uint32_t>(fend_) < frames_ ? static_cast<uint32_t>(fend_) : frames_;
-            if (region_ && end > start + 1) { loop_ = LoopInfo{}; loop_.start = start; loop_.end = end; loop_.mode = SMP_LOOP_FWD; }
+            if (region_ && end > start + 1) {
+                uint32_t ls = lstart_ >= 0 ? static_cast<uint32_t>(lstart_) : start;
+                if (ls < start) ls = start;
+                if (ls + 1 >= end) ls = end - 2;
+                loop_ = LoopInfo{}; loop_.start = ls; loop_.end = end; loop_.mode = SMP_LOOP_FWD;
+            }
             else if (end < frames_) stop_frame_ = end;
         }
         if (start >= frames_) return true;
+        lxf_ = 0;
+        if (xfade_ > 0 && loop_.mode == SMP_LOOP_FWD && loop_.active()) {
+            uint32_t x = static_cast<uint32_t>(xfade_);
+            const uint32_t len = loop_.end - loop_.start;
+            if (x > len / 2) x = len / 2;
+            if (xpost_) loop_.start += x;                                            // the first x frames of the loop are the fade-in
+            else if (x > loop_.start) x = loop_.start;                               // Pre: only what exists before the loop start
+            lxf_ = x;
+        }
         dir_ = reverse_ ? -1 : 1;
         pos_ = (reverse_ ? static_cast<int64_t>(frames_ > 0 ? frames_ - 1 : 0) : static_cast<int64_t>(start)) << 32;
 
@@ -278,6 +305,17 @@ private:
         stream_.start(slot, frames_, static_cast<uint32_t>(pos_ >> 32), dir_, static_cast<int32_t>(rate_for(0, 0) >> 16) , loop_);
         gen_ = stream_.generation();
         return true;
+    }
+
+    // The interpolated value at a position (Q32 frames); a frame that has not arrived reads as silence.
+    int32_t value_at(int64_t pos) {
+        const int64_t f = pos >> 32;
+        const uint32_t frac = static_cast<uint32_t>((pos >> 16) & 0xFFFF);
+        q15 y0 = 0, y1 = 0, y2 = 0, y3 = 0;
+        fetch(f, y1); fetch(f + 1, y2);
+        if (!hermite_) return lerp15(y1, y2, frac);
+        fetch(f - 1, y0); fetch(f + 2, y3);
+        return hermite15(y0, y1, y2, y3, frac);
     }
 
     // One source frame; out-of-range frames read as silence. false = the data has not arrived (underrun).
@@ -319,7 +357,9 @@ private:
     bool want_start_ = true, active_ = false, underrun_ = false;
     // parameters
     int32_t sample_ = -1, inst_ = -1, tune_ = 0, root_ = -1, start_ = 0, slice_ = -1, slice_mode_ = 0;
-    int32_t loop_param_ = -1, fstart_ = -1, fend_ = 0;
+    int32_t loop_param_ = -1, fstart_ = -1, fend_ = 0, lstart_ = -1, xfade_ = 0;
+    uint32_t lxf_ = 0;                          // the loop crossfade of this start, in frames (0: none)
+    bool xpost_ = false;
     q15 gain_ = kUnity, gain_eff_ = kUnity;
     bool reverse_ = false, hermite_ = true, track_ = true, region_ = false;
 };
@@ -560,11 +600,11 @@ private:
                 at_[pad] = (tr->beat_q32 + unit - 1) / unit * unit;
                 want_[pad] = 2;
             }
-            if (tr->sample_at(at_[pad], n) <= n / 2) { want_[pad] = 0; start(pad); }
+            if (tr->sample_at(at_[pad], n) <= n / 2) { want_[pad] = 0; start(pad, pads_[pad].from && pads_[pad].loop); }
         }
     }
 
-    void start(int pad) {
+    void start(int pad, bool at_loop = false) {
         const PadBlob &b = pads_[pad];
         if (b.slot < 0) return;
         if (Voice *cur = sounding(pad)) {
@@ -585,15 +625,17 @@ private:
         v->pad = pad;
         v->order = ++order_;
         v->smp->set_param(SMPR_SAMPLE, b.slot);
-        v->smp->set_param(SMPR_FSTART, b.start);
+        v->smp->set_param(SMPR_FSTART, at_loop ? b.lstart : b.start);          // a grid launch may start at the loop start
+        v->smp->set_loop_extra(b.loop == 1 ? b.lstart : -1, b.xfade, b.xpost != 0);
         v->smp->set_param(SMPR_FEND, b.end);
         v->smp->set_param(SMPR_LOOP, b.loop == 2 ? -1 : 0);                     // the file's loop points, or none (then maybe the region)
         v->smp->set_param(SMPR_REGION, b.loop == 1 ? 1 : 0);
         v->smp->set_param(SMPR_TUNE, b.tune);
         v->smp->reset();                                                         // starts at its next process()
         v->svf = SvfStateF{};
-        v->env = b.start > 0 ? 0 : 32767;                                        // a trimmed start may be mid-wave: 1 ms fade-in
-        v->env_step = b.start > 0 ? 32767 / (kSampleRate / 1000) + 1 : 0;
+        const bool mid = (at_loop ? b.lstart : b.start) > 0;
+        v->env = mid ? 0 : 32767;                                                // a trimmed start may be mid-wave: 1 ms fade-in
+        v->env_step = mid ? 32767 / (kSampleRate / 1000) + 1 : 0;
         v->gl = b.mute ? 0 : b.gain_l;
         v->gr = b.mute ? 0 : b.gain_r;
         v->vs.note = 60; v->vs.velocity = 32767; v->vs.gate = true; v->vs.active = true;

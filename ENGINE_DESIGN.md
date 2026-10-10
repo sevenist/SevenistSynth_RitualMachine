@@ -764,6 +764,22 @@ simulator + firmware built; NOT tried by the user, NOT flashed):**
   clock values (a second engine ignored the first `set_clock`) nor the pads' resident-sample budget; `SampleBank::shutdown` kept the
   loader's jobs, in-flight count and stream list, so a read in flight at shutdown left the next bank's queue "full" (no more card reads).
 
+**Pads: tried by the user in the simulator (2026-10-10): "all fine, I love the options".** Their next requests (2026-10-10, options
+offered):
+30. **The tail shows on the overview** (a fade after End, as long as Tail).
+31. **Loop crossfade**: XFad in ms (capped at half the loop), equal-power, **Pre** (the fade-in material ends at the loop start: taken
+   from before it) or **Post** (it starts at the loop start: after the wrap the play goes on from loop start + XFad). Trim and File loops.
+32. **Loop start apart from the sample start** (LStr, the Trim loop's), and a grid launch can start at the sample start or the loop
+   start (From).
+33. **Sample tools next, before FX** (design round first): chopping, stretching, tempo matching (fit to N beats: **offline only**, a
+   render to a new file; not live) and offline processing (normalize, stretch, paulstretch, more).
+- As built (host-tested, NOT tried by the user): the trims are **frames** now (1/1000 of the file was 10 ms on a 10 s file), stepped by
+  1/200 of the file (fine 1/1000); `pads.cfg` start / end / lstart in frames, xfade / xpos / from. The Sampler mixes the fade-in in its
+  general loop (two interpolated reads, sine-table gains; its fast paths stop where the fade begins); measured largest step at the wrap of a
+  broken 500 Hz loop: 9266 plain -> 986 Pre / 857 Post (48 kHz). Limit: a streamed sample's fade-in material may not be loaded in time
+  (the loader follows the playback path): at 96 kHz, where the 2 s test file streams, Post left a 1944 step (still far below 12107). The
+  editor has 19 rows (8 px, the loop rows only while it loops); `ui_screen.c` MAX_ELEMENTS 16 -> 24.
+
 ## Known limits and ideas for later
 
 - Not hooked to the UI yet: the **Sampler** and **Granular** modules and the sample bank (stage 6 is engine-level and

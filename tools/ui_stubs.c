@@ -47,6 +47,7 @@ bool audio_render_start(const char *src, const char *dst, int op, int amount) {
     for (int i = 0; i < 3 + stub_listed; i++) if (audio_sample_info(i, &in) && !strcmp(in.name, src)) frames = in.frames;
     snprintf(stub_extra[stub_n_extra], 24, "%s", dst);
     stub_extra_frames[stub_n_extra] = op == 7 && (uint32_t)amount > frames ? (uint32_t)amount : frames;
+    if (op == 8 || op == 9) stub_extra_frames[stub_n_extra] = (uint32_t)(((uint64_t)frames * (uint32_t)amount + 500000u) / 1000000u);   // Stretch / Resample
     stub_n_extra++;
     snprintf(ui_stub_render_src, sizeof ui_stub_render_src, "%s", src);
     ui_stub_renders++; ui_stub_render_op = op; ui_stub_render_amount = amount;

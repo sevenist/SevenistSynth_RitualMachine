@@ -834,7 +834,7 @@ built; NOT tried by the user, NOT flashed):**
   module publishes each pad's position (`pads_position`). The pad page has 20 rows now (overview 16 px).
 
 **Sample tools steps 2 + 3 as built (2026-10-10; 199 engine tests in the 6 configurations, 91 UI tests, simulator + firmware built;
-NOT tried by the user, NOT flashed: the first run on the board writes sample files to the card, back the card up first):**
+NOT tried by the user, NOT flashed: the first run on the board writes sample files to the card; the user: the card may be erased):**
 - **Offline processing** `engine/offline/process.*`: `Processor` runs block by block over a reader / writer (nothing the size of the
   sample in memory: the board has ~60 KB of PSRAM to spare). Level & cleanup: Normalize (two passes), Gain (saturating), Fade in / out
   (linear), Trim silence (threshold; 5 ms kept each side; the loop and the slices move with it), Reverse (the loop mirrored, slices
@@ -842,7 +842,7 @@ NOT tried by the user, NOT flashed: the first run on the board writes sample fil
 - **Card job** `platform/engine/render_job.cpp` (`engine_synth_render_start / _step / _poll / _done`, HAL `audio_render_*`): the UI posts
   one job; the thread that owns the card runs it 2-4 chunks at a time between the loader's reads (the board's card task, the desktop's
   loader thread), with C stdio on `<card root>/system/samples/<name>.smp`: the header is written last, the file is renamed into place
-  from `.tmp`. The job's 8 KB come from PSRAM on the board and are freed when the result is taken.
+  from `.tmp`. The job's memory (8 KB then, 26 KB since Time & pitch) comes from PSRAM on the board and is freed when the result is taken.
 - **Version history** `core/history.*`, `system/samples/history.cfg` (decision 37): versions `<root>~<n>`, parent links, Undo / Redo /
   branches; trimming after every new version (the root, what a pad uses, the last 8), the trimmed files deleted (`storage_remove`) and
   their library entries hidden (`audio_sample_hide`: the name goes, the index stays).
@@ -854,6 +854,34 @@ NOT tried by the user, NOT flashed: the first run on the board writes sample fil
   static RAM 70.8 % -> 65.8 %.
 - Limits: 32 library entries in all (versions included; a hidden entry's slot is not reused until a restart); no cancel of a running
   job; the processing reads the file's whole length, not the pad's trim; mono 16-bit only.
+
+**Sample tools step 4, Time & pitch, as built (2026-10-10; 204 engine tests in the 6 configurations, 93 UI tests, simulator + firmware
+built, firmware static RAM unchanged at 65.8 %; NOT tried by the user, NOT flashed, NOT listened to, NOT timed on the board):**
+- Five EDIT operations: **Stretch** (25..400 % of the length, the pitch kept), **Pitch** (+-24 semitones, a semitone per step, a cent
+  with fine; the length kept), **Speed** (25..400 %: the length and the pitch change together, like a tape), **Fit beats** (the pitch
+  kept) and **Fit speed** (by the speed): the pad's loop, or Start..End when it does not loop, is made to last N beats (1..128) at the
+  clock's tempo; the amount row shows the length factor ("8b x1.07"); beyond x0.25..x4 it is refused. A neutral amount (100 %, 0 cents,
+  a fit that already fits) writes nothing ("Nothing to change").
+- **The whole file is processed with one factor**, and the pad's Start / End / LStr are scaled with it (`render_adopt`), so the
+  lead-in before a loop stretches along and Sync still puts the loop start on the grid. Loop points and slices in the file's header
+  scale too.
+- Engine (`engine/offline/process.*`, ProcOp `Stretch`, `Resample`, `Pitch`; amounts: the new length in ppm, cents):
+  - Stretch = **WSOLA** in the time domain: Hann windows of ~43 ms (hop 1024 at 48 kHz, scaled with the file's rate) overlap-added at
+    50 %; each window is taken within +-10.7 ms of its ideal place, where it continues the previous one best (normalised
+    correlation over the overlap, on every 4th frame and every 4th offset, then refined to the frame; when going straight on is
+    within reach it is taken: x1 gives the file back, +-1 LSB). The first window does not fade in: the attack is the file's own.
+  - Resample = a 32-tap Hann-windowed sinc, 32 phases interpolated, the cutoff lowered to the new Nyquist when the result is shorter.
+  - Pitch = Stretch by the pitch ratio feeding the resampler, in one pass.
+  - Measured (tests, a pure tone at -6 dB): the level stays within 0.01 dB; a stretch's seams are 34..47 dB under the tone
+    (whole-frame alignment), a pitch shift's 36..52 dB; resampling leaves 63 dB or better, 15 kHz slowed to 10 kHz loses 0.00 dB,
+    and a tone that would fold over on a x2 speed-up is at -44 dB.
+- **My choice, open to the user (decision 36 names "WSOLA / phase vocoder"): only WSOLA is built.** It is the right tool for drums and
+  loops (transients stay sharp up to about +-30 %; further out a hit can double or smear) and it is weaker on sustained chords and
+  pads (a faint flutter at the window rate). A phase vocoder is the opposite (smooth on sustained sounds, soft on drums); it needs a
+  float FFT of 2048+ points, ~30 KB of working memory out of the ~59 KB of PSRAM the board has to spare. Paulstretch (the Texture
+  group) needs the same FFT, so a "Tonal" stretch mode is cheap to add with that step if the user wants it.
+- Memory: the job is 26 KB now (was 8), from PSRAM, only while a job runs. Card: a stretch reads about 3 times the result's size
+  (every hop reads its search range again); not timed on the board yet.
 
 ## Known limits and ideas for later
 

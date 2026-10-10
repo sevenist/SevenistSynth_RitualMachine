@@ -38,7 +38,8 @@ typedef struct {
 // library, then the pad takes it and the history records it.
 typedef struct {
     uint8_t  stage;                     // 0 none, 1 rendering, 2 waiting for the library to list the new file
-    int      pad, op;                   // op: engine/offline/process.h ProcOp (7 = Pad to)
+    int      pad, op;                   // op: engine/offline/process.h ProcOp (pads.h PROC_*)
+    uint32_t frames_in;                 // the source's length (Stretch / Resample: the pad's trim points scale with the result's)
     char     name[24], parent[24], what[16];
     uint32_t since;
     bool     chop;                      // then chop the new version (CHOP: a Grid chop that needed padding)

@@ -44,6 +44,19 @@ uint32_t pad_lstart(const pad_t *p, uint32_t frames) {
     return l + 1 < e ? l : e - 2;
 }
 
+uint32_t pad_fit_region(const pad_t *p, uint32_t frames, uint32_t file_ls, uint32_t file_le) {
+    if (p->loop == PAD_LOOP_FILE && file_le > file_ls && file_le <= frames) return file_le - file_ls;
+    const uint32_t e = pad_end(p, frames), s = p->loop == PAD_LOOP_TRIM ? pad_lstart(p, frames) : p->start;
+    return e > s ? e - s : 0;
+}
+
+uint32_t pad_fit_ppm(uint32_t region, uint32_t rate, int beats, int bpm) {
+    if (!region || !rate || beats < 1 || bpm < 1) return 0;
+    const uint64_t target = ((uint64_t)beats * 60u * rate + (uint32_t)bpm / 2) / (uint32_t)bpm;   // frames, at the file's rate
+    const uint64_t ppm = (target * 1000000u + region / 2) / region;
+    return ppm > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)ppm;
+}
+
 const char *pad_param_label(pad_param_t k) { return k >= 0 && k < PADP_COUNT ? labels[k] : "?"; }
 
 float pad_cut_hz(const pad_t *p) { return p->cut >= 100 ? 0.0f : 20.0f * powf(1000.0f, p->cut / 100.0f); }

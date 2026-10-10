@@ -29,11 +29,16 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
 - [ ] **Chop (sample tools 1) + Next: try it**: BUILT 2026-10-10 (ADR-041 decision 39 + "Sample tools step 1"; NOT tried, NOT flashed):
   in the pad editor Page - / + (Shift + encoder A) = CHOP; the pad row Next (from: user)
 - [ ] **EDIT page, version history, Grid chop padding: try it** (sample tools 2 + 3; ADR-041 "Sample tools steps 2 + 3 as built"):
-  BUILT 2026-10-10, host-tested (199 engine tests x 6, 91 UI tests), NOT tried, NOT flashed. **The first board run writes sample files:
-  back the card up first.** In the simulator the card is the folder `sdcard/` (from: user)
+  BUILT 2026-10-10, host-tested (199 engine tests x 6, 91 UI tests), NOT tried, NOT flashed. The first board run writes sample files; the user
+  (2026-10-10): the card holds nothing important and may be erased, no backup needed. In the simulator the card is the folder `sdcard/` (from: user)
+- [ ] **Time & pitch: try it, by ear** (sample tools 4; ADR-041 "Sample tools step 4"): EDIT ops Stretch, Pitch, Speed, Fit beats,
+  Fit speed. BUILT 2026-10-10, host-tested (204 engine tests x 6, 93 UI tests), NOT tried, NOT flashed, NOT listened to, not timed on
+  the board. Listen for: a drum loop stretched +-10..30 % (hits doubled or smeared?), a sustained chord (flutter?), Fit beats then
+  Loop + Sync against the metronome. **Open choice for the user: a "Tonal" (phase vocoder) stretch mode** for sustained sounds,
+  cheap to add with the Texture group's FFT (from: user)
 - [ ] **Sample tools (next, before FX)**: design round done (ADR-041 decisions 33-38). Order: (1) chop (built 2026-10-10);
-  (2) render-to-card + version history (built 2026-10-10); (3) Level & cleanup (built 2026-10-10); (4) Time & pitch (fit to N beats
-  offline); (5) Texture (paulstretch, freeze / smear, reverse reverb); (6) Color / lo-fi (from: user)
+  (2) render-to-card + version history (built 2026-10-10); (3) Level & cleanup (built 2026-10-10); (4) Time & pitch (built
+  2026-10-10, WSOLA + resampler); (5) Texture (paulstretch, freeze / smear, reverse reverb); (6) Color / lo-fi (from: user)
 - [ ] **Pads steps 3-5**: FXA-C, live synth (design round), song mode + backtrack (design round); "Next: the production workflow" (from: user)
 - [ ] **Confirm: the full synth stops in the Pads section** (my reading of ADR-041 decision 22) (from: notes)
 - [ ] **Joystick swap: try it**: a push on an already bound parameter swaps X and Y, each keeps its range / curve (built 2026-10-09, 71 UI
@@ -436,7 +441,7 @@ engine: the build made after these numbers adds a **fast path** (steady pitch an
   (last tab in both modular and FM). User decisions: the three layouts as presets, user keys on the TF card (`keys.cfg`, text), only keyboard keys in the page,
   lock-out escape = Reset row + F1 held 2 s within 4 s of boot. Details in DEVELOPING.md ("Key layouts").
 - Card writes: `sd_card_spi.cpp` got CMD24 single-block writes (+ CMD13 check); file jobs run on the `sd_io` task (`samples_esp32.cpp`, `hal/hal_storage.h`). **Risk the
-  user accepted: a write bug can damage the card's file system; back the card up before the first test.**
+  user accepted: a write bug can damage the card's file system.** (User, 2026-10-10: the card holds nothing important and may be erased; no backup needed.)
 - Verified: simulator + firmware build; a scratch test (all layouts, User copy, text round trip, save on menu close, card in / out, KEYS-tab key selection, boot reset;
   it found and fixed a wrap-around that fired the reset at once). Not verified: anything on the board (key map orientation of the right half, card writes, keys.cfg on a real card).
 - Board test (user, 2026-10-05): all keys OK, F1..F4 OK, `[SD] wrote /sdcard/keys.cfg (689 bytes)`, the layout survives a reboot, samples stream after a write. The F1 power-on

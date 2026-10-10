@@ -25,11 +25,21 @@ struct FrameWriter {
 //   Reverse     -                                                      RemoveDc   - (a 10 Hz one-pole high-pass)
 //   PadTo       the length in frames: silence appended up to it (a Grid chop that fills whole grid units, decision 43); a shorter
 //               length keeps the sample as it is
-enum class ProcOp : uint8_t { Normalize, Gain, FadeIn, FadeOut, TrimSilence, Reverse, RemoveDc, PadTo, Count };
+//
+// Time & pitch (the second group), all in the time domain:
+//   Stretch     the new length in ppm of the old one (250000..4000000 = x0.25..x4), the pitch kept: WSOLA (overlap-add of ~43 ms
+//               windows, each taken where it continues the previous one best; the first window keeps the attack untouched)
+//   Resample    the new length in ppm of the old one: the speed changes and the pitch with it (a tape's speed); a 32-tap windowed
+//               sinc, its cutoff lowered when the result is shorter
+//   Pitch       cents (-2400..+2400), the length kept: Stretch by the pitch ratio, then Resample back, in one pass
+// Loop and slices scale with the length.
+enum class ProcOp : uint8_t { Normalize, Gain, FadeIn, FadeOut, TrimSilence, Reverse, RemoveDc, PadTo, Stretch, Resample, Pitch, Count };
 
 class Processor {
 public:
     static constexpr uint32_t kChunk = kSmpBlockFrames;                   // frames per step unit
+    static constexpr int kWsHop = 1024, kWsSearch = kWsHop / 2;           // WSOLA at 48 kHz: the hop (half a window), the search each way
+    static constexpr int kRsTaps = 32, kRsPhases = 32, kRsBuf = 1024;     // the resampler: taps, table phases, its input window
     // The source's header and the operation. False when there is nothing to do (an empty sample).
     bool begin(const SmpHeader &in, ProcOp op, int32_t amount);
     // Up to `chunks` chunks of work (analysis first when the operation needs one, then the output). False on a read / write error.
@@ -43,6 +53,13 @@ public:
 private:
     enum class Phase : uint8_t { Analyze, Write, Done };
     uint32_t source_of(uint32_t o) const;                                 // the first source frame of output frame o's chunk (Reverse: see write)
+    bool timed() const { return op_ == ProcOp::Stretch || op_ == ProcOp::Resample || op_ == ProcOp::Pitch; }
+    bool fetch(FrameReader &r, int64_t start, uint32_t n, q15 *dst);      // source frames, zeros outside the file
+    int  ws_search() const;                                               // the offset in seg_ that continues the previous window best
+    bool ws_hop(FrameReader &r);                                          // the next hs_ stretched frames into ready_
+    bool ws_pull(FrameReader &r, q15 *dst, uint32_t n);                   // the next n frames of the stretched signal
+    bool stage1(FrameReader &r, q15 *dst, uint32_t n);                    // the next n frames of what the resampler reads
+    bool rs_fill(FrameReader &r, q15 *dst, uint32_t n);                   // the next n resampled frames (from output frame pos_)
     SmpHeader in_, out_;
     ProcOp op_ = ProcOp::Gain;
     int32_t amount_ = 0;
@@ -54,6 +71,22 @@ private:
     float dc_x_ = 0.0f, dc_y_ = 0.0f, dc_r_ = 0.999f;                     // the DC blocker's state
     uint32_t bucket_peak_[kSmpPeaks] = {};
     q15 buf_[kChunk];
+    // WSOLA (Stretch, and the first stage of Pitch)
+    int hs_ = kWsHop, srch_ = kWsSearch;                                  // hop and search at the file's rate
+    uint32_t ws_len_ = 0, ws_k_ = 0;                                      // the stretched length, the hop's number
+    int64_t ws_prev_ = 0;                                                 // where the previous window was taken
+    uint32_t ready_n_ = 0, ready_at_ = 0;
+    q15 seg_[2 * kWsHop + 2 * kWsSearch];                                 // the source around the hop's ideal position
+    q15 tail_[kWsHop];                                                    // the previous window's falling half
+    q15 ready_[kWsHop];
+    int16_t tgt_[kWsHop / 4];                                             // what the next window should continue (every 4th frame, 12 bits)
+    // the resampler (Resample, and the second stage of Pitch)
+    uint32_t s1_len_ = 0, s1_pos_ = 0;                                    // its input: length, frames taken
+    uint64_t rs_step_ = 0;                                                // input frames per output frame, Q32
+    int64_t rs_base_ = 0;                                                 // the input frame of rs_buf_[0]
+    uint32_t rs_n_ = 0;
+    q15 rs_buf_[kRsBuf];
+    float rs_tab_[(kRsPhases + 1) * kRsTaps];                             // the kernel at kRsPhases + 1 fractions
 };
 
 }  // namespace sc

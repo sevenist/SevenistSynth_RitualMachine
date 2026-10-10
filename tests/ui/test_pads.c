@@ -576,3 +576,93 @@ TEST(pads_grid_chop_pads_the_sample_to_whole_grid_units) {
     CHECK_EQ(ui_stub_renders, r2);
     CHECK_EQ(ui_app.pads.pad[2].end, 48000);                             // the second slice ends on the beat, with the file's own audio
 }
+
+// The EDIT page's Apply on pad A1 with operation `op` and amount `amt` (the stub renders at once).
+static void edit_apply(int op, int32_t amt) {
+    ui_app.ui.pad_page = 3;
+    ui_app.ui.edit_op = (uint8_t)op;
+    ui_app.ui.edit_amt[op] = amt;
+    ui_app.ui.pad_row = 3;
+    ev_tap(CTL_JOY_SW);
+    ev_idle(3);
+}
+
+TEST(pads_edit_stretch_pitch_speed_and_the_trim_points_follow) {
+    ui_stub_ramcard(false); ui_stub_ramcard(true);                       // an empty card
+    ui_fresh();
+    pad_t *p = &ui_app.pads.pad[0];
+    snprintf(p->file, PAD_NAME_MAX, "demo0");                            // 96000 frames at 48 kHz = 2 s
+    p->start = 10000; p->end = 40000; p->lstart = 20000;
+    shift_menu();
+    ev_tap(CTL_JOY_SW);
+    ui_app.ui.pad_page = 3;
+    ui_app.ui.pad_row = 1; ev_turn(CTL_ENC_B, 7);                         // Op: the 8th is Stretch
+    CHECK_STR(pads_ui_op_name(ui_app.ui.edit_op), "Stretch");
+    ui_app.ui.pad_row = 2; ev_turn(CTL_ENC_B, 1);                         // its amount: 100 % -> 105 %
+    CHECK_EQ(ui_app.ui.edit_amt[EDIT_STRETCH], 105);
+    const int renders = ui_stub_renders;
+    edit_apply(EDIT_STRETCH, 100);                                       // 100 %: nothing to do, no file written
+    CHECK_EQ(ui_stub_renders, renders);
+    CHECK_STR(p->file, "demo0");
+    edit_apply(EDIT_STRETCH, 150);
+    CHECK_EQ(ui_stub_renders, renders + 1);
+    CHECK_EQ(ui_stub_render_op, PROC_STRETCH);
+    CHECK_EQ(ui_stub_render_amount, 1500000);
+    CHECK_STR(p->file, "demo0~1");
+    CHECK_STR(ui_app.history.v[0].what, "Stretch 150%");
+    CHECK(p->start == 15000 && p->end == 60000 && p->lstart == 30000);   // the trim points went with the audio
+    edit_apply(EDIT_SPEED, 200);                                         // twice the speed: half the length
+    CHECK_EQ(ui_stub_render_op, PROC_RESAMPLE);
+    CHECK_EQ(ui_stub_render_amount, 500000);
+    CHECK(p->start == 7500 && p->end == 30000 && p->lstart == 15000);
+    CHECK_STR(ui_app.history.v[1].what, "Speed 200%");
+    edit_apply(EDIT_PITCH, -350);                                        // the length stays, the points too
+    CHECK_EQ(ui_stub_render_op, PROC_PITCH);
+    CHECK_EQ(ui_stub_render_amount, -350);
+    CHECK(p->start == 7500 && p->end == 30000);
+    CHECK_STR(ui_app.history.v[2].what, "Pitch -3.50st");
+    CHECK_STR(p->file, "demo0~3");
+    edit_apply(EDIT_PITCH, 0);                                           // 0 cents: nothing
+    CHECK_STR(p->file, "demo0~3");
+}
+
+TEST(pads_edit_fit_makes_the_loop_last_whole_beats) {
+    ui_stub_ramcard(false); ui_stub_ramcard(true);                       // an empty card
+    ui_fresh();
+    pad_t *p = &ui_app.pads.pad[0];
+    snprintf(p->file, PAD_NAME_MAX, "demo0");                            // 2 s
+    ui_app.seq.bpm = 120;                                                // a beat = 24000 frames
+    shift_menu();
+    ev_tap(CTL_JOY_SW);
+    CHECK_EQ(pad_fit_ppm(96000, 48000, 4, 120), 1000000u);
+    CHECK_EQ(pad_fit_ppm(96000, 48000, 5, 120), 1250000u);
+    CHECK_EQ(pad_fit_ppm(96000, 44100, 4, 120), 918750u);                // (at the file's own rate: 4 beats = 88200 of its frames)
+    const int renders = ui_stub_renders;
+    edit_apply(EDIT_FIT, 4);                                             // 2 s are 4 beats already
+    CHECK_EQ(ui_stub_renders, renders);
+    edit_apply(EDIT_FIT, 128);                                           // 64 s out of 2: refused
+    CHECK_EQ(ui_stub_renders, renders);
+    edit_apply(EDIT_FIT, 5);                                             // the whole pad to 5 beats
+    CHECK_EQ(ui_stub_render_op, PROC_STRETCH);
+    CHECK_EQ(ui_stub_render_amount, 1250000);
+    CHECK_STR(ui_app.history.v[0].what, "Fit 5b@120");
+    // a looping pad: the loop (loop start .. End) is what must fit, the lead-in before it stretches along
+    ui_stub_ramcard(false); ui_stub_ramcard(true);                       // (an empty card again: no history)
+    ui_fresh();
+    p = &ui_app.pads.pad[0];
+    snprintf(p->file, PAD_NAME_MAX, "demo0");
+    ui_app.seq.bpm = 100;                                                // a beat = 28800 frames
+    p->loop = PAD_LOOP_TRIM; p->lstart = 36000; p->end = 90000;           // a loop of 54000 frames
+    shift_menu();
+    ev_tap(CTL_JOY_SW);
+    edit_apply(EDIT_FIT_SPEED, 2);                                       // to 2 beats = 57600 frames, by the speed
+    CHECK_EQ(ui_stub_render_op, PROC_RESAMPLE);
+    CHECK_EQ(ui_stub_render_amount, 1066667);
+    CHECK_STR(ui_app.history.v[0].what, "FitSpd 2b@100");
+    audio_sample_info_t in;
+    bool found = false;
+    for (int i = 0; i < audio_sample_count() && !found; i++) found = audio_sample_info(i, &in) && !strcmp(in.name, p->file);
+    CHECK(found);
+    const uint32_t loop = pad_end(p, in.frames) - pad_lstart(p, in.frames);
+    CHECK(loop >= 57599 && loop <= 57601);                               // the loop is 2 beats long now
+}

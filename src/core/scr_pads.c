@@ -398,8 +398,9 @@ static const screen_def_t chop_screen = {chop_elements, N_CHOP, false, true, cho
 
 /* ---------------- EDIT (sample tools: processing into a new version, the version history; ADR-041 decisions 36-38) ---------------- */
 
-static const char *const op_names[PAD_EDIT_OPS] = {"Normalize", "Gain", "Fade in", "Fade out", "Trim sil.", "Reverse", "Remove DC"};
-static const int32_t op_default[PAD_EDIT_OPS] = {-3, 60, 100, 100, -40, 0, 0};
+static const char *const op_names[PAD_EDIT_OPS] = {"Normalize", "Gain", "Fade in", "Fade out", "Trim sil.", "Reverse", "Remove DC",
+                                                   "Stretch", "Pitch", "Speed", "Fit beats", "Fit speed"};
+static const int32_t op_default[PAD_EDIT_OPS] = {-3, 60, 100, 100, -40, 0, 0, 100, 0, 100, 4, 4};
 
 const char *pads_ui_op_name(int op) { return op >= 0 && op < PAD_EDIT_OPS ? op_names[op] : "?"; }
 
@@ -408,6 +409,9 @@ void pads_ui_op_amount(int op, int32_t a, char *out, int n) {
         case 0: case 1: snprintf(out, (size_t)n, "%+d.%ddB", a / 10, (a < 0 ? -a : a) % 10); if (a < 0 && a > -10) snprintf(out, (size_t)n, "-0.%ddB", -a % 10); break;
         case 2: case 3: snprintf(out, (size_t)n, "%dms", (int)a); break;
         case 4: snprintf(out, (size_t)n, "%ddB", (int)a); break;
+        case EDIT_STRETCH: case EDIT_SPEED: snprintf(out, (size_t)n, "%d%%", (int)a); break;
+        case EDIT_PITCH: snprintf(out, (size_t)n, "%s%d.%02dst", a < 0 ? "-" : "+", (int)((a < 0 ? -a : a) / 100), (int)((a < 0 ? -a : a) % 100)); break;
+        case EDIT_FIT: case EDIT_FIT_SPEED: snprintf(out, (size_t)n, "%db", (int)a); break;
         default: out[0] = 0; break;
     }
 }
@@ -421,11 +425,21 @@ void pads_ui_init(synth_ui_t *ui) {
 static void ed_op_value(const ui_ctx_t *c, char *out, int n) { snprintf(out, (size_t)n, "%s", pads_ui_op_name(c->ui->edit_op)); }
 static bool ed_op_adjust(const ui_ctx_t *c, int dir) { c->ui->edit_op = (uint8_t)((c->ui->edit_op + PAD_EDIT_OPS + (dir > 0 ? 1 : -1)) % PAD_EDIT_OPS); return false; }
 static const char *ed_amt_label(const ui_ctx_t *c) {
-    static const char *const l[PAD_EDIT_OPS] = {"Peak", "dB", "Len", "Len", "Thr", "", ""};
+    static const char *const l[PAD_EDIT_OPS] = {"Peak", "dB", "Len", "Len", "Thr", "", "", "Len", "Tune", "Spd", "Beat", "Beat"};
     return l[c->ui->edit_op % PAD_EDIT_OPS];
 }
-static bool en_amt(const ui_ctx_t *c) { return c->ui->edit_op < 5; }
-static void ed_amt_value(const ui_ctx_t *c, char *out, int n) { pads_ui_op_amount(c->ui->edit_op, c->ui->edit_amt[c->ui->edit_op % PAD_EDIT_OPS], out, n); }
+static bool en_amt(const ui_ctx_t *c) { return c->ui->edit_op != EDIT_REVERSE && c->ui->edit_op != EDIT_DC; }
+static void ed_amt_value(const ui_ctx_t *c, char *out, int n) {
+    const int op = c->ui->edit_op % PAD_EDIT_OPS;
+    const int32_t a = c->ui->edit_amt[op];
+    pads_ui_op_amount(op, a, out, n);
+    audio_sample_info_t in;
+    if ((op == EDIT_FIT || op == EDIT_FIT_SPEED) && file_info(cur_pad(c), &in) && !in.pending) {   // and what it does to the length
+        const uint32_t ppm = pad_fit_ppm(pad_fit_region(cur_pad(c), in.frames, in.loop_start, in.loop_end), in.rate, (int)a, c->ui->clock_bpm);
+        if (ppm < PROC_PPM_MIN || ppm > PROC_PPM_MAX) snprintf(out, (size_t)n, "%db too far", (int)a);
+        else snprintf(out, (size_t)n, "%db x%u.%02u", (int)a, (unsigned)(ppm / 1000000), (unsigned)(ppm / 10000 % 100));
+    }
+}
 static bool ed_amt_adjust(const ui_ctx_t *c, int dir) {
     const int op = c->ui->edit_op % PAD_EDIT_OPS, d = dir > 0 ? 1 : -1;
     int32_t a = c->ui->edit_amt[op];
@@ -434,6 +448,9 @@ static bool ed_amt_adjust(const ui_ctx_t *c, int dir) {
         case 1: a += d * (g_fine_step ? 1 : 10); a = a < -240 ? -240 : a > 240 ? 240 : a; break;
         case 2: case 3: a += d * (g_fine_step ? 1 : a < 200 || (d < 0 && a <= 200) ? 10 : 50); a = a < 0 ? 0 : a > 5000 ? 5000 : a; break;
         case 4: a += d; a = a < -90 ? -90 : a > -6 ? -6 : a; break;
+        case EDIT_STRETCH: case EDIT_SPEED: a += d * (g_fine_step ? 1 : 5); a = a < 25 ? 25 : a > 400 ? 400 : a; break;
+        case EDIT_PITCH: a += d * (g_fine_step ? 1 : 100); a = a < -2400 ? -2400 : a > 2400 ? 2400 : a; break;   // a semitone, fine: a cent
+        case EDIT_FIT: case EDIT_FIT_SPEED: a += d; a = a < 1 ? 1 : a > 128 ? 128 : a; break;
         default: break;
     }
     c->ui->edit_amt[op] = a;

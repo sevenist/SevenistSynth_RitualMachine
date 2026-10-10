@@ -20,7 +20,16 @@ extern "C" {
 #define PAD_COUNT      (PAD_BANKS * PADS_PER_BANK)
 #define PAD_NAME_MAX   24                       // = audio_sample_info_t.name
 #define PAD_CHOKES     4                        // choke groups 1..4 (0 = none)
-#define PAD_EDIT_OPS   7                        // the EDIT page's operations (engine/offline/process.h ProcOp without Pad to)
+// The EDIT page's operations. The first 7 are engine/offline/process.h ProcOp numbers as they are; the time & pitch ones go through
+// ProcOp Stretch / Resample / Pitch (app.c render_start): Stretch and Speed in percent, Pitch in cents, the two Fit in beats.
+enum { EDIT_NORMALIZE, EDIT_GAIN, EDIT_FADE_IN, EDIT_FADE_OUT, EDIT_TRIM, EDIT_REVERSE, EDIT_DC,
+       EDIT_STRETCH, EDIT_PITCH, EDIT_SPEED, EDIT_FIT, EDIT_FIT_SPEED, PAD_EDIT_OPS };
+#define PROC_PAD_TO    7                        // ProcOp numbers the app sends itself
+#define PROC_STRETCH   8
+#define PROC_RESAMPLE  9
+#define PROC_PITCH     10
+#define PROC_PPM_MIN   250000                   // Stretch / Resample: the new length, x0.25 .. x4 in ppm
+#define PROC_PPM_MAX   4000000
 #define PADS_FILE      STORAGE_DIR_CONFIG "/pads.cfg"
 
 typedef enum { PAD_ONESHOT, PAD_GATE, PAD_TOGGLE, PAD_MODE_COUNT } pad_mode_t;
@@ -89,6 +98,11 @@ bool pad_param_set_norm(pad_t *p, pad_param_t k, float x, uint32_t frames);
 // The trim as the engine plays it, for a file of `frames` frames: start < end <= frames, start <= loop start < end - 1.
 uint32_t pad_end(const pad_t *p, uint32_t frames);
 uint32_t pad_lstart(const pad_t *p, uint32_t frames);
+// Fit to beats (EDIT): the part of the pad that must last a number of beats = its loop when it loops (Trim: loop start..End; File: the
+// file's loop `file_ls`..`file_le`), else Start..End; and the length factor in ppm that makes `region` frames last `beats` at `bpm`
+// (0 = nothing to fit).
+uint32_t pad_fit_region(const pad_t *p, uint32_t frames, uint32_t file_ls, uint32_t file_le);
+uint32_t pad_fit_ppm(uint32_t region, uint32_t rate, int beats, int bpm);
 // A trim point (PADP_START / END / LSTART) set to `v` frames, kept in order (start < loop start < end - 1 <= frames).
 void pad_set_trim(pad_t *p, pad_param_t k, int64_t v, uint32_t frames);
 // The snap points of Beat / 1/16 (Attack and Zero need the file: the UI): the next point after `v` in the direction `dir` (+1 / -1), or the

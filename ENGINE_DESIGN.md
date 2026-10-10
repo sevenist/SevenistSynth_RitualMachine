@@ -853,7 +853,7 @@ NOT tried by the user, NOT flashed: the first run on the board writes sample fil
 - Internal RAM: the five settings modules shared nothing (5 x 4 KB text buffers); one `g_storage_buf` now (hal_storage.h): firmware
   static RAM 70.8 % -> 65.8 %.
 - Limits: 32 library entries in all (versions included; a hidden entry's slot is not reused until a restart); no cancel of a running
-  job; the processing reads the file's whole length, not the pad's trim; mono 16-bit only.
+  job; the processing reads the file's whole length, not the pad's trim (Crop, added later, makes the trim a file); mono 16-bit only.
 
 **Sample tools step 4, Time & pitch, as built (2026-10-10; 204 engine tests in the 6 configurations, 93 UI tests, simulator + firmware
 built, firmware static RAM unchanged at 65.8 %; NOT tried by the user, NOT flashed, NOT listened to, NOT timed on the board):**
@@ -882,6 +882,27 @@ built, firmware static RAM unchanged at 65.8 %; NOT tried by the user, NOT flash
   group) needs the same FFT, so a "Tonal" stretch mode is cheap to add with that step if the user wants it.
 - Memory: the job is 26 KB now (was 8), from PSRAM, only while a job runs. Card: a stretch reads about 3 times the result's size
   (every hop reads its search range again); not timed on the board yet.
+
+**Sample tools: Crop, the trim points per version, Color / lo-fi, as built (2026-10-10; 207 engine tests in the 6 configurations,
+95 UI tests, simulator + firmware built, firmware static RAM 66.0 %; NOT tried by the user, NOT flashed, NOT listened to):**
+- **Crop** (my addition, not asked for; it closes the limit "the processing reads the whole file, not the pad's trim"): a new version
+  that is the pad's Start..End only (ProcOp `Crop`, frames amount..amount2; loop and slices move with it). The pad then plays the whole
+  new file, its loop start moved along. For a slice of a chopped file: Crop first, then Reverse / Normalize / Stretch work on the slice
+  alone. The render call has a second amount now (`audio_render_start(src, dst, op, amount, amount2)`).
+- **A version remembers the pad's trim points** (`hist_ver_t.ptrim / ctrim`, `history_set_trim`, `history_trim_for`): Start, End and
+  loop start as they were on the parent when the version was made, and as they became on it. Undo / Redo / Ver put them back
+  (before: Undo after a Stretch, Crop, Trim or Reverse left points that belonged to another file). Going to an ancestor restores what
+  it had when the step away was made; anywhere else, what that version started with; a trimmed-away version hands its parent's points
+  to its children. `history.cfg` lines carry the 6 numbers (an older file is not read: the history starts empty). Limit: points moved
+  by hand on a version are not remembered when the pad leaves it.
+- **Color / lo-fi** (decision 36's fourth group), the length kept: **Lo-fi rate** (1..32 kHz: the sample held at that rate, no filter
+  before it, so the top folds over), **Bits** (2..15: rounded to that word length), **Drive** (0..+36 dB into a soft clipper, a
+  rational tanh; full scale stays full scale), **Low-pass / High-pass** (20 Hz..20 kHz, a step about a semitone, fine 1 %; 12 dB per
+  octave Butterworth as a state-variable filter: measured -3.01 dB at the cutoff, -12.4 / -24.5 dB one / two octaves past it).
+  **Not built: "print a pad's settings"** (the pad's tune, filter and level rendered into the file): it needs the pad's whole blob
+  passed to the job, to do with the capture path (phase 4), which renders the same thing live.
+- The EDIT page lists 18 operations in this order: Normalize, Gain, Fade in, Fade out, Trim sil., Crop, Reverse, Remove DC, Stretch,
+  Pitch, Speed, Fit beats, Fit speed, Lo-fi rate, Bits, Drive, Low-pass, High-pass (`pads.h` EDIT_*; `app.c` maps each to a ProcOp).
 
 ## Known limits and ideas for later
 

@@ -4,7 +4,9 @@
 // <root>~<n> (n counts up per root, the root cut to fit the 23-character library names). Undo = the parent, Redo = the newest child;
 // processing an older version makes a branch. Trimming (automatic, after every new version): kept are the root, every version a pad uses,
 // and the last HISTORY_KEEP versions of that root; the others are deleted, and a version whose parent goes re-links to the nearest kept
-// ancestor. Saved as text next to the samples:   v <seq> <name> <parent> <what was done>
+// ancestor. A version also remembers the pad's trim points (Start, End, loop start) around its making: what they were on its parent
+// and what they became on it (a crop, a stretch or a reverse moves them), so that Undo / Redo / Ver put them back.
+// Saved as text next to the samples:   v <seq> <name> <parent> <3 trim points on the parent> <3 on the version> <what was done>
 #include <stdbool.h>
 #include <stdint.h>
 #include "hal/hal_storage.h"
@@ -23,6 +25,7 @@ typedef struct {
     char     parent[HISTORY_NAME];
     char     what[16];                          // "Norm -0.3dB"
     uint32_t seq;                               // creation order
+    uint32_t ptrim[3], ctrim[3];                // the pad's Start, End, loop start: on the parent when this was made / on this version
 } hist_ver_t;
 
 typedef struct {
@@ -37,6 +40,10 @@ void history_root(const history_t *h, const char *name, char *out);           //
 // The name for a new version of `root` (<root>~<n>, n one past the highest used for that root).
 void history_new_name(const history_t *h, const char *root, char *out);
 bool history_add(history_t *h, const char *name, const char *parent, const char *what);
+void history_set_trim(history_t *h, const char *name, const uint32_t ptrim[3], const uint32_t ctrim[3]);
+// The trim points for a pad that goes from version `from` to version `to`: what `to` had when the step away from it was made (`to` an
+// ancestor of `from`), else what `to` started with. False (and zeros = the whole file) when nothing is known: a root that is no ancestor.
+bool history_trim_for(const history_t *h, const char *from, const char *to, uint32_t out[3]);
 // Undo / Redo: the parent ("" for a root) / the newest child ("" when none).
 void history_parent(const history_t *h, const char *name, char *out);
 void history_newest_child(const history_t *h, const char *name, char *out);

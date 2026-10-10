@@ -7,6 +7,7 @@ namespace sc {
 namespace {
 inline q15 sat(float v) { return static_cast<q15>(v > 32767.0f ? 32767 : v < -32768.0f ? -32768 : static_cast<int32_t>(std::lround(v))); }
 constexpr float kPi = 3.14159265f;
+inline float soft(float x) { return x >= 3.0f ? 1.0f : x <= -3.0f ? -1.0f : x * (27.0f + x * x) / (27.0f + 9.0f * x * x); }   // ~tanh
 inline uint32_t scaled(uint32_t v, uint32_t num, uint32_t den) { return den ? static_cast<uint32_t>((static_cast<uint64_t>(v) * num + den / 2) / den) : v; }
 }
 
@@ -122,7 +123,7 @@ bool Processor::rs_fill(FrameReader &r, q15 *dst, uint32_t n) {
     return true;
 }
 
-bool Processor::begin(const SmpHeader &in, ProcOp op, int32_t amount) {
+bool Processor::begin(const SmpHeader &in, ProcOp op, int32_t amount, int32_t amount2) {
     in_ = in;
     out_ = in;
     op_ = op;
@@ -170,8 +171,34 @@ bool Processor::begin(const SmpHeader &in, ProcOp op, int32_t amount) {
         return true;
     }
     if (op == ProcOp::Gain) gain_ = std::pow(10.0f, static_cast<float>(amount) / 200.0f);
+    const uint32_t rate = in.sample_rate ? in.sample_rate : 48000;
+    if (op == ProcOp::Decimate) {
+        dec_rate_ = amount < 100 ? 100u : static_cast<uint32_t>(amount) > rate ? rate : static_cast<uint32_t>(amount);
+        dec_acc_ = rate - dec_rate_;                                          // (the first frame is taken)
+        held_ = 0.0f;
+    } else if (op == ProcOp::Bits) {
+        k1_ = static_cast<float>(1 << (16 - (amount < 1 ? 1 : amount > 16 ? 16 : amount)));
+    } else if (op == ProcOp::Drive) {
+        const float g = std::pow(10.0f, static_cast<float>(amount < 0 ? 0 : amount > 360 ? 360 : amount) / 200.0f);
+        k1_ = g / 32768.0f;
+        k2_ = 32767.0f / soft(g);
+    } else if (op == ProcOp::LowPass || op == ProcOp::HighPass) {
+        const float top = 0.45f * static_cast<float>(rate), fc = static_cast<float>(amount) < 20.0f ? 20.0f : static_cast<float>(amount) > top ? top : static_cast<float>(amount);
+        const float g = std::tan(kPi * fc / static_cast<float>(rate)), k = 1.41421356f;
+        f_a1_ = 1.0f / (1.0f + g * (g + k));
+        f_a2_ = g * f_a1_;
+        f_a3_ = g * f_a2_;
+        f_s1_ = f_s2_ = 0.0f;
+    }
     phase_ = (op == ProcOp::Normalize || op == ProcOp::TrimSilence) ? Phase::Analyze : Phase::Write;
-    if (phase_ == Phase::Write) out_.frames = op == ProcOp::PadTo && amount > static_cast<int32_t>(in.frames) ? static_cast<uint32_t>(amount) : in.frames;
+    if (op == ProcOp::Crop) {
+        first_ = amount < 0 ? 0u : static_cast<uint32_t>(amount) >= in.frames ? in.frames - 1 : static_cast<uint32_t>(amount);
+        last_ = amount2 <= 0 || static_cast<uint32_t>(amount2) > in.frames ? in.frames : static_cast<uint32_t>(amount2);
+        if (last_ <= first_) last_ = first_ + 1;
+        out_.frames = last_ - first_;
+    } else if (phase_ == Phase::Write) {
+        out_.frames = op == ProcOp::PadTo && amount > static_cast<int32_t>(in.frames) ? static_cast<uint32_t>(amount) : in.frames;
+    }
     return true;
 }
 
@@ -183,7 +210,7 @@ float Processor::progress() const {
     return two ? (phase_ == Phase::Write ? 0.5f : 0.0f) + 0.5f * part : part;
 }
 
-uint32_t Processor::source_of(uint32_t o) const { return op_ == ProcOp::TrimSilence ? first_ + o : o; }
+uint32_t Processor::source_of(uint32_t o) const { return op_ == ProcOp::TrimSilence || op_ == ProcOp::Crop ? first_ + o : o; }
 
 bool Processor::step(FrameReader &r, FrameWriter &w, int chunks) {
     for (int c = 0; c < chunks && phase_ != Phase::Done; c++) {
@@ -240,6 +267,15 @@ bool Processor::step(FrameReader &r, FrameWriter &w, int chunks) {
                 case ProcOp::FadeIn:  if (fade > 0.0f && o < fade) v *= static_cast<float>(o) / fade; break;
                 case ProcOp::FadeOut: { const float left = static_cast<float>(out_.frames - 1 - o); if (fade > 0.0f && left < fade) v *= left / fade; } break;
                 case ProcOp::RemoveDc: { const float y = v - dc_x_ + dc_r_ * dc_y_; dc_x_ = v; dc_y_ = y; v = y; } break;
+                case ProcOp::Decimate: dec_acc_ += dec_rate_; if (dec_acc_ >= in_.sample_rate) { dec_acc_ -= in_.sample_rate; held_ = v; } v = held_; break;
+                case ProcOp::Bits: v = std::floor(v / k1_ + 0.5f) * k1_; break;
+                case ProcOp::Drive: v = soft(v * k1_) * k2_; break;
+                case ProcOp::LowPass: case ProcOp::HighPass: {
+                    const float v3 = v - f_s2_, v1 = f_a1_ * f_s1_ + f_a2_ * v3, v2 = f_s2_ + f_a2_ * f_s1_ + f_a3_ * v3;
+                    f_s1_ = 2.0f * v1 - f_s1_;
+                    f_s2_ = 2.0f * v2 - f_s2_;
+                    v = op_ == ProcOp::LowPass ? v2 : v - 1.41421356f * v1 - v2;
+                } break;
                 default: break;
             }
             buf_[i] = sat(v);
@@ -252,7 +288,7 @@ bool Processor::step(FrameReader &r, FrameWriter &w, int chunks) {
         if (pos_ >= out_.frames) {                                            // the header of the result
             for (int b = 0; b < kSmpPeaks; b++) out_.peaks[b] = static_cast<uint8_t>(bucket_peak_[b] >> 7 > 255 ? 255 : bucket_peak_[b] >> 7);
             if (!out_.peaks[0]) out_.peaks[0] = 1;                            // (all zero would read as "not stored")
-            if (op_ == ProcOp::TrimSilence) {                                 // loop and slices move with the cut; what falls outside goes
+            if (op_ == ProcOp::TrimSilence || op_ == ProcOp::Crop) {          // loop and slices move with the cut; what falls outside goes
                 const uint32_t f = first_, l = last_;
                 if (in_.has_loop() && in_.loop_start >= f && in_.loop_end <= l) { out_.loop_start = in_.loop_start - f; out_.loop_end = in_.loop_end - f; }
                 else { out_.loop_start = out_.loop_end = 0; out_.loop_mode = SMP_LOOP_OFF; }

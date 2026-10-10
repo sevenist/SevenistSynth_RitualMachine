@@ -50,6 +50,27 @@ bool history_add(history_t *h, const char *name, const char *parent, const char 
     return true;
 }
 
+void history_set_trim(history_t *h, const char *name, const uint32_t ptrim[3], const uint32_t ctrim[3]) {
+    for (int i = 0; i < h->n; i++)
+        if (!strcmp(h->v[i].name, name)) { memcpy(h->v[i].ptrim, ptrim, sizeof h->v[i].ptrim); memcpy(h->v[i].ctrim, ctrim, sizeof h->v[i].ctrim); }
+}
+
+bool history_trim_for(const history_t *h, const char *from, const char *to, uint32_t out[3]) {
+    out[0] = out[1] = out[2] = 0;
+    char cur[HISTORY_NAME];
+    snprintf(cur, sizeof cur, "%s", from ? from : "");
+    for (int guard = 0; guard < HISTORY_MAX; guard++) {                       // up from `from`: the step that left `to`
+        const hist_ver_t *v = history_find(h, cur);
+        if (!v) break;
+        if (!strcmp(v->parent, to)) { memcpy(out, v->ptrim, 3 * sizeof(uint32_t)); return true; }
+        snprintf(cur, sizeof cur, "%s", v->parent);
+    }
+    const hist_ver_t *t = history_find(h, to);
+    if (!t) return false;
+    memcpy(out, t->ctrim, 3 * sizeof(uint32_t));
+    return true;
+}
+
 void history_parent(const history_t *h, const char *name, char *out) {
     const hist_ver_t *v = history_find(h, name);
     snprintf(out, HISTORY_NAME, "%s", v ? v->parent : "");
@@ -91,9 +112,14 @@ int history_trim(history_t *h, const char *root, const char *const *used, int n_
         if (i >= first_kept || in_list(vers[i], used, n_used)) continue;
         const hist_ver_t *v = history_find(h, vers[i]);
         char parent[HISTORY_NAME];
+        uint32_t ptrim[3] = {0, 0, 0};
         snprintf(parent, sizeof parent, "%s", v ? v->parent : "");
-        for (int k = 0; k < h->n; k++)                                         // its children now come from its parent
-            if (!strcmp(h->v[k].parent, vers[i])) snprintf(h->v[k].parent, sizeof h->v[k].parent, "%s", parent);
+        if (v) memcpy(ptrim, v->ptrim, sizeof ptrim);
+        for (int k = 0; k < h->n; k++)                                         // its children now come from its parent (and its trim points there)
+            if (!strcmp(h->v[k].parent, vers[i])) {
+                snprintf(h->v[k].parent, sizeof h->v[k].parent, "%s", parent);
+                memcpy(h->v[k].ptrim, ptrim, sizeof ptrim);
+            }
         for (int k = 0; k < h->n; k++)
             if (!strcmp(h->v[k].name, vers[i])) { h->v[k] = h->v[h->n - 1]; h->n--; break; }
         snprintf(out[n++], HISTORY_NAME, "%s", vers[i]);
@@ -104,10 +130,13 @@ int history_trim(history_t *h, const char *root, const char *const *used, int n_
 /* ---------------- history.cfg ---------------- */
 
 int history_to_text(const history_t *h, char *buf, int cap) {
-    int n = snprintf(buf, (size_t)cap, "# SynthCore sample history: v <seq> <name> <parent or -> <what>\nhistory %lu\n", (unsigned long)h->seq);
+    int n = snprintf(buf, (size_t)cap, "# SynthCore sample history: v <seq> <name> <parent or -> <trim on the parent: 3> <trim on it: 3> <what>\nhistory %lu\n",
+                     (unsigned long)h->seq);
     for (int i = 0; i < h->n && n < cap; i++) {
         const hist_ver_t *v = &h->v[i];
-        n += snprintf(buf + n, (size_t)(cap - n), "v %lu %s %s %s\n", (unsigned long)v->seq, v->name, v->parent[0] ? v->parent : "-", v->what);
+        n += snprintf(buf + n, (size_t)(cap - n), "v %lu %s %s %lu %lu %lu %lu %lu %lu %s\n", (unsigned long)v->seq, v->name, v->parent[0] ? v->parent : "-",
+                      (unsigned long)v->ptrim[0], (unsigned long)v->ptrim[1], (unsigned long)v->ptrim[2],
+                      (unsigned long)v->ctrim[0], (unsigned long)v->ctrim[1], (unsigned long)v->ctrim[2], v->what);
     }
     return n < cap ? n : cap - 1;
 }
@@ -117,12 +146,13 @@ bool history_from_text(history_t *h, const char *txt) {
     history_init(&r);
     bool ok = false;
     for (const char *line = txt; line && *line; line = strchr(line, '\n'), line = line ? line + 1 : NULL) {
-        unsigned long seq = 0;
+        unsigned long seq = 0, t[6] = {0, 0, 0, 0, 0, 0};
         char name[HISTORY_NAME], parent[HISTORY_NAME];
         int used = 0;
         if (sscanf(line, "history %lu", &seq) == 1) { r.seq = (uint32_t)seq; ok = true; continue; }
-        if (sscanf(line, "v %lu %23s %23s %n", &seq, name, parent, &used) < 3 || r.n >= HISTORY_MAX) continue;
+        if (sscanf(line, "v %lu %23s %23s %lu %lu %lu %lu %lu %lu %n", &seq, name, parent, &t[0], &t[1], &t[2], &t[3], &t[4], &t[5], &used) < 9 || r.n >= HISTORY_MAX) continue;
         hist_ver_t *v = &r.v[r.n++];
+        for (int k = 0; k < 3; k++) { v->ptrim[k] = (uint32_t)t[k]; v->ctrim[k] = (uint32_t)t[3 + k]; }
         snprintf(v->name, sizeof v->name, "%s", name);
         snprintf(v->parent, sizeof v->parent, "%s", strcmp(parent, "-") ? parent : "");
         int len = 0;

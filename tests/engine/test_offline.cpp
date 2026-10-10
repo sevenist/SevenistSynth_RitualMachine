@@ -23,13 +23,14 @@ struct MemWriter : sc::FrameWriter {
     bool write(const sc::q15 *src, uint32_t n) override { y.insert(y.end(), src, src + n); return true; }
 };
 
-std::vector<int16_t> run(const std::vector<int16_t> &x, sc::ProcOp op, int32_t amount, sc::SmpHeader *out = nullptr, sc::SmpHeader in = {}, uint32_t rate = 48000) {
+std::vector<int16_t> run(const std::vector<int16_t> &x, sc::ProcOp op, int32_t amount, sc::SmpHeader *out = nullptr, sc::SmpHeader in = {}, uint32_t rate = 48000,
+                         int32_t amount2 = 0) {
     static sc::Processor p;                                               // (20 KB: not on the stack)
     in.sample_rate = rate;
     in.frames = static_cast<uint32_t>(x.size());
     MemReader r(x);
     MemWriter w;
-    p.begin(in, op, amount);
+    p.begin(in, op, amount, amount2);
     for (int guard = 0; guard < 100000 && !p.done(); guard++) CHECK(p.step(r, w, 3));
     CHECK(p.done());
     CHECK_EQ(w.y.size(), p.out_header().frames);
@@ -117,8 +118,8 @@ TEST(offline_render_job_writes_a_new_smp_on_the_card) {
     const std::vector<uint8_t> file = sc::smp_build(h, x.data());
     std::ofstream(root / STORAGE_DIR_SAMPLES / "src.smp", std::ios::binary).write(reinterpret_cast<const char *>(file.data()), static_cast<std::streamsize>(file.size()));
     engine_synth_set_card_root(root.string().c_str());
-    CHECK(engine_synth_render_start("src", "src~1", 0, -3));                // Normalize to -0.3 dBFS
-    CHECK(!engine_synth_render_start("src", "x", 0, 0));                     // one job at a time
+    CHECK(engine_synth_render_start("src", "src~1", 0, -3, 0));                // Normalize to -0.3 dBFS
+    CHECK(!engine_synth_render_start("src", "x", 0, 0, 0));                     // one job at a time
     int steps = 0, pct = 0;
     while (engine_synth_render_step() && steps < 10000) steps++;
     CHECK_EQ(engine_synth_render_poll(&pct), RENDER_DONE);
@@ -138,7 +139,7 @@ TEST(offline_render_job_writes_a_new_smp_on_the_card) {
     std::printf("    card job: %d steps, peak %d (target %d), %zu bytes\n", steps, p, static_cast<int>(32767 * std::pow(10.0, -0.3 / 20)), out.size());
     CHECK(std::abs(p - static_cast<int>(32767 * std::pow(10.0, -0.3 / 20))) <= 2);
     CHECK(!fs::exists(root / STORAGE_DIR_SAMPLES / "src~1.smp.tmp"));
-    CHECK(engine_synth_render_start("src", "src~2", 8, 1500000));           // Stretch to 150 %: reads all over the source file
+    CHECK(engine_synth_render_start("src", "src~2", 8, 1500000, 0));           // Stretch to 150 %: reads all over the source file
     steps = 0;
     while (engine_synth_render_step() && steps < 10000) steps++;
     CHECK_EQ(engine_synth_render_poll(nullptr), RENDER_DONE);
@@ -154,8 +155,8 @@ TEST(offline_render_job_writes_a_new_smp_on_the_card) {
     for (uint32_t i = 20000; i < 30000; i++) p = std::max(p, std::abs(static_cast<int>(static_cast<int16_t>(sc::get16(&out2[sc::kSmpBlockBytes + 2 * i])))));
     std::printf("    card job, stretch: %d steps, %u frames, peak %d (the tone's 3276)\n", steps, oh.frames, p);
     CHECK(std::abs(p - 3276) <= 40);
-    CHECK(!engine_synth_render_start("src", "x", 11, 0));                    // not an operation
-    CHECK(engine_synth_render_start("missing", "m~1", 0, 0));                // a source that is not there: FAILED, no file left
+    CHECK(!engine_synth_render_start("src", "x", 17, 0, 0));                    // not an operation
+    CHECK(engine_synth_render_start("missing", "m~1", 0, 0, 0));                // a source that is not there: FAILED, no file left
     while (engine_synth_render_step()) {}
     CHECK_EQ(engine_synth_render_poll(nullptr), RENDER_FAILED);
     engine_synth_render_done();
@@ -296,4 +297,62 @@ TEST(offline_pitch_shifts_and_keeps_the_length) {
         CHECK(std::fabs(level(p)) < 0.3);
         CHECK(under(p) > 30.0);
     }
+}
+
+/* ---------------- Crop, and color / lo-fi: Decimate, Bits, Drive, the filters ---------------- */
+
+TEST(offline_crop_keeps_a_region_and_moves_loop_and_slices) {
+    std::vector<int16_t> ramp(30000);
+    for (size_t i = 0; i < ramp.size(); i++) ramp[i] = static_cast<int16_t>(i);
+    sc::SmpHeader in, out;
+    in.loop_start = 12000; in.loop_end = 18000; in.loop_mode = sc::SMP_LOOP_FWD;
+    in.slice_count = 3; in.slice[0] = 0; in.slice[1] = 15000; in.slice[2] = 25000;
+    const std::vector<int16_t> y = run(ramp, sc::ProcOp::Crop, 10000, &out, in, 48000, 20000);
+    CHECK_EQ(y.size(), 10000u);
+    CHECK(y[0] == 10000 && y[9999] == 19999);
+    CHECK(out.loop_start == 2000 && out.loop_end == 8000);
+    CHECK(out.slice_count == 1 && out.slice[0] == 5000);
+    CHECK_EQ(run(ramp, sc::ProcOp::Crop, 25000).size(), 5000u);               // no end given: to the file's end
+    CHECK_EQ(run(ramp, sc::ProcOp::Crop, 5000, &out, in, 48000, 14000).size(), 9000u);
+    CHECK_EQ(out.loop_mode, sc::SMP_LOOP_OFF);                                // the loop is cut through: it goes
+}
+
+TEST(offline_lofi_rate_bits_and_drive) {
+    const std::vector<int16_t> x = tone(48000, 0.5, 300.0);
+    const std::vector<int16_t> d = run(x, sc::ProcOp::Decimate, 6000);       // held 8 frames at a time
+    bool held = true;
+    for (size_t i = 0; i < 4000; i += 8) for (size_t k = 1; k < 8; k++) held &= d[i + k] == d[i];
+    CHECK(held);
+    CHECK_EQ(d[800], x[800]);                                               // and each held value is the sample's own
+    const std::vector<int16_t> b = run(x, sc::ProcOp::Bits, 6);              // 6 bits: steps of 1024
+    bool stepped = true;
+    int worst = 0;
+    for (size_t i = 0; i < b.size(); i++) { stepped &= b[i] % 1024 == 0; worst = std::max(worst, std::abs(b[i] - x[i])); }
+    CHECK(stepped);
+    CHECK(worst <= 512);
+    CHECK(run(x, sc::ProcOp::Bits, 16) == x);                                 // 16 bits: unchanged
+    // Drive: full scale stays full scale, what is under it comes up, and nothing wraps
+    const std::vector<int16_t> full = tone(48000, 1.0, 300.0), quiet = tone(48000, 0.1, 300.0);
+    const std::vector<int16_t> df = run(full, sc::ProcOp::Drive, 240), dq = run(quiet, sc::ProcOp::Drive, 240);
+    std::printf("    drive +24 dB: full scale %d -> %d, a -20 dB tone %d -> %d\n", peak(full), peak(df), peak(quiet), peak(dq));
+    CHECK(peak(df) >= 32700);
+    CHECK(peak(dq) > 8 * peak(quiet) && peak(dq) < 32767);                   // (+24 dB is x15.8: most of it arrives, bent)
+    for (size_t i = 1; i < df.size(); i++) CHECK(!(df[i - 1] > 30000 && df[i] < -30000));
+    const std::vector<int16_t> d0 = run(quiet, sc::ProcOp::Drive, 0);        // no drive: a quiet tone passes almost as it is
+    CHECK(std::abs(peak(d0) - static_cast<int>(peak(quiet) / 0.7778)) <= 40);   // (the curve's own slope: 1 / soft(1))
+}
+
+TEST(offline_filters_are_second_order_butterworth) {
+    struct Case { sc::ProcOp op; double hz, want; };
+    const Case cases[] = {{sc::ProcOp::LowPass, 250.0, -0.017}, {sc::ProcOp::LowPass, 1000.0, -3.01}, {sc::ProcOp::LowPass, 2000.0, -12.3}, {sc::ProcOp::LowPass, 4000.0, -24.1},
+                          {sc::ProcOp::HighPass, 4000.0, -0.017}, {sc::ProcOp::HighPass, 1000.0, -3.01}, {sc::ProcOp::HighPass, 500.0, -12.3}, {sc::ProcOp::HighPass, 250.0, -24.1}};
+    for (const Case &c : cases) {
+        const std::vector<int16_t> y = run(tone(48000, 0.5, c.hz), c.op, 1000);   // the cutoff at 1 kHz
+        const Part p = measure(y, 12000, 44000, c.hz);
+        std::printf("    %s 1 kHz at %.0f Hz: %+.2f dB (ideal %+.2f)\n", c.op == sc::ProcOp::LowPass ? "low-pass" : "high-pass", c.hz, level(p), c.want);
+        CHECK(std::fabs(level(p) - c.want) < 0.5);
+    }
+    std::vector<int16_t> dc(48000, 8000);                                    // a high-pass removes a constant
+    const std::vector<int16_t> h = run(dc, sc::ProcOp::HighPass, 100);
+    CHECK(std::abs(h[47000]) <= 1);
 }

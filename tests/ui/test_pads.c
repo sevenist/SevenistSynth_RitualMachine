@@ -433,7 +433,7 @@ TEST(pads_sync_and_grid_units_in_the_file) {
 
 
 #include "core/history.h"
-extern int ui_stub_renders, ui_stub_render_op, ui_stub_render_amount, ui_stub_removed;
+extern int ui_stub_renders, ui_stub_render_op, ui_stub_render_amount, ui_stub_render_amount2, ui_stub_removed;
 extern char ui_stub_render_src[24], ui_stub_removed_last[64];
 
 TEST(history_tree_names_undo_redo_and_trim) {
@@ -497,7 +497,7 @@ TEST(pads_edit_page_renders_a_version_and_undo_goes_back) {
     CHECK_EQ(ui_app.history.n, 1);
     CHECK_STR(ui_app.history.v[0].what, "Norm -0.3dB");
     CHECK_EQ(ui_app.ui.render_pct, -1);
-    ui_app.ui.pad_row = 1; ev_turn(CTL_ENC_B, 5);                         // Op: Reverse
+    ui_app.ui.pad_row = 1; ev_turn(CTL_ENC_B, 6);                         // Op: Reverse
     CHECK_STR(pads_ui_op_name(ui_app.ui.edit_op), "Reverse");
     ui_app.pads.pad[0].start = 5000;
     ui_app.ui.pad_row = 3; ev_tap(CTL_JOY_SW); ev_idle(3);
@@ -596,7 +596,7 @@ TEST(pads_edit_stretch_pitch_speed_and_the_trim_points_follow) {
     shift_menu();
     ev_tap(CTL_JOY_SW);
     ui_app.ui.pad_page = 3;
-    ui_app.ui.pad_row = 1; ev_turn(CTL_ENC_B, 7);                         // Op: the 8th is Stretch
+    ui_app.ui.pad_row = 1; ev_turn(CTL_ENC_B, 8);                         // Op: the 9th is Stretch
     CHECK_STR(pads_ui_op_name(ui_app.ui.edit_op), "Stretch");
     ui_app.ui.pad_row = 2; ev_turn(CTL_ENC_B, 1);                         // its amount: 100 % -> 105 %
     CHECK_EQ(ui_app.ui.edit_amt[EDIT_STRETCH], 105);
@@ -665,4 +665,82 @@ TEST(pads_edit_fit_makes_the_loop_last_whole_beats) {
     CHECK(found);
     const uint32_t loop = pad_end(p, in.frames) - pad_lstart(p, in.frames);
     CHECK(loop >= 57599 && loop <= 57601);                               // the loop is 2 beats long now
+}
+
+TEST(pads_edit_crop_and_undo_puts_the_trim_points_back) {
+    ui_stub_ramcard(false); ui_stub_ramcard(true);                       // an empty card
+    ui_fresh();
+    pad_t *p = &ui_app.pads.pad[0];
+    snprintf(p->file, PAD_NAME_MAX, "demo0");                            // 96000 frames
+    shift_menu();
+    ev_tap(CTL_JOY_SW);
+    const int renders = ui_stub_renders;
+    edit_apply(EDIT_CROP, 0);                                            // not trimmed: nothing to crop
+    CHECK_EQ(ui_stub_renders, renders);
+    p->start = 10000; p->end = 40000; p->lstart = 20000;
+    edit_apply(EDIT_CROP, 0);
+    CHECK_EQ(ui_stub_render_op, PROC_CROP);
+    CHECK(ui_stub_render_amount == 10000 && ui_stub_render_amount2 == 40000);
+    CHECK_STR(p->file, "demo0~1");
+    CHECK_STR(ui_app.history.v[0].what, "Crop");
+    CHECK(p->start == 0 && p->end == 0 && p->lstart == 10000);           // the new file is the old region; the loop start moved with it
+    edit_apply(EDIT_STRETCH, 200);                                       // twice as long
+    CHECK_STR(p->file, "demo0~2");
+    CHECK_EQ(p->lstart, 20000u);
+    ui_app.ui.pad_row = 5; ev_tap(CTL_JOY_SW);                           // Undo: the crop, with its own loop start
+    CHECK_STR(p->file, "demo0~1");
+    CHECK(p->start == 0 && p->end == 0 && p->lstart == 10000);
+    ev_tap(CTL_JOY_SW);                                                  // Undo: the original, trimmed as it was
+    CHECK_STR(p->file, "demo0");
+    CHECK(p->start == 10000 && p->end == 40000 && p->lstart == 20000);
+    ui_app.ui.pad_row = 6; ev_tap(CTL_JOY_SW);                           // Redo
+    CHECK_STR(p->file, "demo0~1");
+    CHECK(p->start == 0 && p->end == 0 && p->lstart == 10000);
+    ui_app.ui.pad_row = 4; ev_turn(CTL_ENC_B, 1);                         // Ver: on to the stretched one
+    CHECK_STR(p->file, "demo0~2");
+    CHECK_EQ(p->lstart, 20000u);
+    ev_turn(CTL_ENC_B, 1);                                               // Ver wraps to the original: two steps up the chain
+    CHECK_STR(p->file, "demo0");
+    CHECK(p->start == 10000 && p->end == 40000 && p->lstart == 20000);
+    history_t h;                                                         // and the card remembers them
+    CHECK(history_load(&h) && h.n == 2);
+    CHECK(h.v[0].ptrim[0] == 10000 && h.v[0].ptrim[1] == 40000 && h.v[0].ctrim[2] == 10000);
+    CHECK_STR(h.v[1].what, "Stretch 200%");
+}
+
+TEST(pads_edit_color_operations_and_their_amounts) {
+    ui_stub_ramcard(false); ui_stub_ramcard(true);
+    ui_fresh();
+    pad_t *p = &ui_app.pads.pad[0];
+    snprintf(p->file, PAD_NAME_MAX, "demo0");
+    shift_menu();
+    ev_tap(CTL_JOY_SW);
+    char t[16];
+    CHECK_STR(pads_ui_op_name(EDIT_RATE), "Lo-fi rate");
+    pads_ui_op_amount(EDIT_RATE, ui_app.ui.edit_amt[EDIT_RATE], t, sizeof t);
+    CHECK_STR(t, "12000Hz");
+    edit_apply(EDIT_RATE, 8000);
+    CHECK(ui_stub_render_op == PROC_DECIMATE && ui_stub_render_amount == 8000);
+    CHECK_STR(ui_app.history.v[0].what, "Rate 8000Hz");
+    edit_apply(EDIT_BITS, 8);
+    CHECK(ui_stub_render_op == PROC_BITS && ui_stub_render_amount == 8);
+    CHECK_STR(ui_app.history.v[1].what, "Bits 8");
+    edit_apply(EDIT_DRIVE, 120);
+    CHECK(ui_stub_render_op == PROC_DRIVE && ui_stub_render_amount == 120);
+    CHECK_STR(ui_app.history.v[2].what, "Drive +12.0dB");
+    edit_apply(EDIT_LOWPASS, 4000);
+    CHECK(ui_stub_render_op == PROC_LOWPASS && ui_stub_render_amount == 4000);
+    CHECK_STR(ui_app.history.v[3].what, "LP 4000Hz");
+    edit_apply(EDIT_HIGHPASS, 200);
+    CHECK(ui_stub_render_op == PROC_HIGHPASS && ui_stub_render_amount == 200);
+    CHECK_STR(p->file, "demo0~5");
+    ui_app.ui.pad_page = 3;                                              // the cutoff moves by about a semitone a step, and stays in range
+    ui_app.ui.edit_op = EDIT_LOWPASS;
+    ui_app.ui.edit_amt[EDIT_LOWPASS] = 1000;
+    ui_app.ui.pad_row = 2; ev_turn(CTL_ENC_B, 1);
+    CHECK_EQ(ui_app.ui.edit_amt[EDIT_LOWPASS], 1060);
+    ui_app.ui.edit_amt[EDIT_LOWPASS] = 20000; ev_turn(CTL_ENC_B, 1);
+    CHECK_EQ(ui_app.ui.edit_amt[EDIT_LOWPASS], 20000);
+    ui_app.ui.edit_op = EDIT_BITS; ui_app.ui.edit_amt[EDIT_BITS] = 2; ev_turn(CTL_ENC_B, -1);
+    CHECK_EQ(ui_app.ui.edit_amt[EDIT_BITS], 2);
 }

@@ -398,20 +398,26 @@ static const screen_def_t chop_screen = {chop_elements, N_CHOP, false, true, cho
 
 /* ---------------- EDIT (sample tools: processing into a new version, the version history; ADR-041 decisions 36-38) ---------------- */
 
-static const char *const op_names[PAD_EDIT_OPS] = {"Normalize", "Gain", "Fade in", "Fade out", "Trim sil.", "Reverse", "Remove DC",
-                                                   "Stretch", "Pitch", "Speed", "Fit beats", "Fit speed"};
-static const int32_t op_default[PAD_EDIT_OPS] = {-3, 60, 100, 100, -40, 0, 0, 100, 0, 100, 4, 4};
+static const char *const op_names[PAD_EDIT_OPS] = {"Normalize", "Gain", "Fade in", "Fade out", "Trim sil.", "Crop", "Reverse", "Remove DC",
+                                                   "Stretch", "Pitch", "Speed", "Fit beats", "Fit speed",
+                                                   "Lo-fi rate", "Bits", "Drive", "Low-pass", "High-pass"};
+static const char *const op_labels[PAD_EDIT_OPS] = {"Peak", "dB", "Len", "Len", "Thr", "", "", "", "Len", "Tune", "Spd", "Beat", "Beat",
+                                                    "Rate", "Bits", "dB", "Cut", "Cut"};
+static const int32_t op_default[PAD_EDIT_OPS] = {-3, 60, 100, 100, -40, 0, 0, 0, 100, 0, 100, 4, 4, 12000, 8, 120, 4000, 200};
 
 const char *pads_ui_op_name(int op) { return op >= 0 && op < PAD_EDIT_OPS ? op_names[op] : "?"; }
 
 void pads_ui_op_amount(int op, int32_t a, char *out, int n) {
+    const int m = (int)(a < 0 ? -a : a);
     switch (op) {
-        case 0: case 1: snprintf(out, (size_t)n, "%+d.%ddB", a / 10, (a < 0 ? -a : a) % 10); if (a < 0 && a > -10) snprintf(out, (size_t)n, "-0.%ddB", -a % 10); break;
-        case 2: case 3: snprintf(out, (size_t)n, "%dms", (int)a); break;
-        case 4: snprintf(out, (size_t)n, "%ddB", (int)a); break;
+        case EDIT_NORMALIZE: case EDIT_GAIN: case EDIT_DRIVE: snprintf(out, (size_t)n, "%s%d.%ddB", a < 0 ? "-" : "+", m / 10, m % 10); break;
+        case EDIT_FADE_IN: case EDIT_FADE_OUT: snprintf(out, (size_t)n, "%dms", (int)a); break;
+        case EDIT_TRIM: snprintf(out, (size_t)n, "%ddB", (int)a); break;
         case EDIT_STRETCH: case EDIT_SPEED: snprintf(out, (size_t)n, "%d%%", (int)a); break;
-        case EDIT_PITCH: snprintf(out, (size_t)n, "%s%d.%02dst", a < 0 ? "-" : "+", (int)((a < 0 ? -a : a) / 100), (int)((a < 0 ? -a : a) % 100)); break;
+        case EDIT_PITCH: snprintf(out, (size_t)n, "%s%d.%02dst", a < 0 ? "-" : "+", m / 100, m % 100); break;
         case EDIT_FIT: case EDIT_FIT_SPEED: snprintf(out, (size_t)n, "%db", (int)a); break;
+        case EDIT_RATE: case EDIT_LOWPASS: case EDIT_HIGHPASS: snprintf(out, (size_t)n, "%dHz", (int)a); break;
+        case EDIT_BITS: snprintf(out, (size_t)n, "%d", (int)a); break;
         default: out[0] = 0; break;
     }
 }
@@ -424,11 +430,8 @@ void pads_ui_init(synth_ui_t *ui) {
 
 static void ed_op_value(const ui_ctx_t *c, char *out, int n) { snprintf(out, (size_t)n, "%s", pads_ui_op_name(c->ui->edit_op)); }
 static bool ed_op_adjust(const ui_ctx_t *c, int dir) { c->ui->edit_op = (uint8_t)((c->ui->edit_op + PAD_EDIT_OPS + (dir > 0 ? 1 : -1)) % PAD_EDIT_OPS); return false; }
-static const char *ed_amt_label(const ui_ctx_t *c) {
-    static const char *const l[PAD_EDIT_OPS] = {"Peak", "dB", "Len", "Len", "Thr", "", "", "Len", "Tune", "Spd", "Beat", "Beat"};
-    return l[c->ui->edit_op % PAD_EDIT_OPS];
-}
-static bool en_amt(const ui_ctx_t *c) { return c->ui->edit_op != EDIT_REVERSE && c->ui->edit_op != EDIT_DC; }
+static const char *ed_amt_label(const ui_ctx_t *c) { return op_labels[c->ui->edit_op % PAD_EDIT_OPS]; }
+static bool en_amt(const ui_ctx_t *c) { return c->ui->edit_op != EDIT_CROP && c->ui->edit_op != EDIT_REVERSE && c->ui->edit_op != EDIT_DC; }
 static void ed_amt_value(const ui_ctx_t *c, char *out, int n) {
     const int op = c->ui->edit_op % PAD_EDIT_OPS;
     const int32_t a = c->ui->edit_amt[op];
@@ -442,15 +445,23 @@ static void ed_amt_value(const ui_ctx_t *c, char *out, int n) {
 }
 static bool ed_amt_adjust(const ui_ctx_t *c, int dir) {
     const int op = c->ui->edit_op % PAD_EDIT_OPS, d = dir > 0 ? 1 : -1;
+    const bool fine = g_fine_step;
     int32_t a = c->ui->edit_amt[op];
     switch (op) {
-        case 0: a += d * (g_fine_step ? 1 : 5); a = a < -120 ? -120 : a > 0 ? 0 : a; break;
-        case 1: a += d * (g_fine_step ? 1 : 10); a = a < -240 ? -240 : a > 240 ? 240 : a; break;
-        case 2: case 3: a += d * (g_fine_step ? 1 : a < 200 || (d < 0 && a <= 200) ? 10 : 50); a = a < 0 ? 0 : a > 5000 ? 5000 : a; break;
-        case 4: a += d; a = a < -90 ? -90 : a > -6 ? -6 : a; break;
-        case EDIT_STRETCH: case EDIT_SPEED: a += d * (g_fine_step ? 1 : 5); a = a < 25 ? 25 : a > 400 ? 400 : a; break;
-        case EDIT_PITCH: a += d * (g_fine_step ? 1 : 100); a = a < -2400 ? -2400 : a > 2400 ? 2400 : a; break;   // a semitone, fine: a cent
-        case EDIT_FIT: case EDIT_FIT_SPEED: a += d; a = a < 1 ? 1 : a > 128 ? 128 : a; break;
+        case EDIT_NORMALIZE: a = clampi(a + d * (fine ? 1 : 5), -120, 0); break;
+        case EDIT_GAIN: a = clampi(a + d * (fine ? 1 : 10), -240, 240); break;
+        case EDIT_FADE_IN: case EDIT_FADE_OUT: a = clampi(a + d * (fine ? 1 : a < 200 || (d < 0 && a <= 200) ? 10 : 50), 0, 5000); break;
+        case EDIT_TRIM: a = clampi(a + d, -90, -6); break;
+        case EDIT_STRETCH: case EDIT_SPEED: a = clampi(a + d * (fine ? 1 : 5), 25, 400); break;
+        case EDIT_PITCH: a = clampi(a + d * (fine ? 1 : 100), -2400, 2400); break;       // a semitone, fine: a cent
+        case EDIT_FIT: case EDIT_FIT_SPEED: a = clampi(a + d, 1, 128); break;
+        case EDIT_RATE: a = clampi(a + d * (fine ? 100 : 1000), 1000, 32000); break;
+        case EDIT_BITS: a = clampi(a + d, 2, 15); break;
+        case EDIT_DRIVE: a = clampi(a + d * (fine ? 1 : 10), 0, 360); break;
+        case EDIT_LOWPASS: case EDIT_HIGHPASS: {                                         // about a semitone, fine: 1 %
+            const int32_t step = fine ? a / 100 : a * 6 / 100;
+            a = clampi(a + d * (step < 1 ? 1 : step), 20, 20000);
+        } break;
         default: break;
     }
     c->ui->edit_amt[op] = a;
@@ -469,6 +480,9 @@ static void ed_apply(const ui_ctx_t *c) {
 static void set_version(const ui_ctx_t *c, const char *name) {
     if (!name[0] || file_index(name) < 0) return;
     pad_t *p = cur_pad(c);
+    uint32_t t[3] = {0, 0, 0};                                            // the trim points go with the version (history.h)
+    if (c->ui->history) history_trim_for(c->ui->history, p->file, name, t);
+    p->start = t[0]; p->end = t[1]; p->lstart = t[2];
     snprintf(p->file, PAD_NAME_MAX, "%s", name);
 }
 static void ed_ver_value(const ui_ctx_t *c, char *out, int n) { snprintf(out, (size_t)n, "%s", cur_pad(c)->file[0] ? cur_pad(c)->file : "--"); }

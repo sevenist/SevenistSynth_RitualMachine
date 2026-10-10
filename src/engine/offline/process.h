@@ -33,7 +33,16 @@ struct FrameWriter {
 //               sinc, its cutoff lowered when the result is shorter
 //   Pitch       cents (-2400..+2400), the length kept: Stretch by the pitch ratio, then Resample back, in one pass
 // Loop and slices scale with the length.
-enum class ProcOp : uint8_t { Normalize, Gain, FadeIn, FadeOut, TrimSilence, Reverse, RemoveDc, PadTo, Stretch, Resample, Pitch, Count };
+//
+//   Crop        frames [amount, amount2) only (amount2 0 = to the end); loop and slices move with it, what falls outside goes
+//
+// Color / lo-fi (the fourth group), the length kept:
+//   Decimate    the rate in Hz the sample is held at (no filter before it: the folding is the point)
+//   Bits        the word length (1..16): rounded to that many bits
+//   Drive       0.1 dB of gain into a soft clipper (0..360); full scale stays full scale
+//   LowPass / HighPass   the cutoff in Hz, 12 dB per octave (Butterworth)
+enum class ProcOp : uint8_t { Normalize, Gain, FadeIn, FadeOut, TrimSilence, Reverse, RemoveDc, PadTo, Stretch, Resample, Pitch,
+                              Crop, Decimate, Bits, Drive, LowPass, HighPass, Count };
 
 class Processor {
 public:
@@ -41,7 +50,7 @@ public:
     static constexpr int kWsHop = 1024, kWsSearch = kWsHop / 2;           // WSOLA at 48 kHz: the hop (half a window), the search each way
     static constexpr int kRsTaps = 32, kRsPhases = 32, kRsBuf = 1024;     // the resampler: taps, table phases, its input window
     // The source's header and the operation. False when there is nothing to do (an empty sample).
-    bool begin(const SmpHeader &in, ProcOp op, int32_t amount);
+    bool begin(const SmpHeader &in, ProcOp op, int32_t amount, int32_t amount2 = 0);
     // Up to `chunks` chunks of work (analysis first when the operation needs one, then the output). False on a read / write error.
     bool step(FrameReader &r, FrameWriter &w, int chunks);
     bool done() const { return phase_ == Phase::Done; }
@@ -69,6 +78,10 @@ private:
     int32_t peak_ = 0;                                                    // the analysis: the largest |sample|
     float gain_ = 1.0f;
     float dc_x_ = 0.0f, dc_y_ = 0.0f, dc_r_ = 0.999f;                     // the DC blocker's state
+    uint32_t dec_rate_ = 0, dec_acc_ = 0;                                 // Decimate: the hold's rate and its phase
+    float held_ = 0.0f;
+    float k1_ = 1.0f, k2_ = 1.0f;                                         // Bits: the step; Drive: gain in, gain out
+    float f_a1_ = 0.0f, f_a2_ = 0.0f, f_a3_ = 0.0f, f_s1_ = 0.0f, f_s2_ = 0.0f;   // the filter (a state-variable one) and its state
     uint32_t bucket_peak_[kSmpPeaks] = {};
     q15 buf_[kChunk];
     // WSOLA (Stretch, and the first stage of Pitch)

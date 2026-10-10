@@ -20,14 +20,15 @@ extern "C" {
 #define PAD_COUNT      (PAD_BANKS * PADS_PER_BANK)
 #define PAD_NAME_MAX   24                       // = audio_sample_info_t.name
 #define PAD_CHOKES     4                        // choke groups 1..4 (0 = none)
-// The EDIT page's operations. The first 7 are engine/offline/process.h ProcOp numbers as they are; the time & pitch ones go through
-// ProcOp Stretch / Resample / Pitch (app.c render_start): Stretch and Speed in percent, Pitch in cents, the two Fit in beats.
-enum { EDIT_NORMALIZE, EDIT_GAIN, EDIT_FADE_IN, EDIT_FADE_OUT, EDIT_TRIM, EDIT_REVERSE, EDIT_DC,
-       EDIT_STRETCH, EDIT_PITCH, EDIT_SPEED, EDIT_FIT, EDIT_FIT_SPEED, PAD_EDIT_OPS };
-#define PROC_PAD_TO    7                        // ProcOp numbers the app sends itself
-#define PROC_STRETCH   8
-#define PROC_RESAMPLE  9
-#define PROC_PITCH     10
+// The EDIT page's operations, in the order the Op row shows them; app.c render_start turns each into an engine operation (PROC_*)
+// and its amount. Amounts as the page shows them: Normalize / Gain / Drive 0.1 dB, the fades ms, Trim dBFS, Stretch and Speed percent,
+// Pitch cents, the two Fit beats, Lo-fi rate and the filters Hz, Bits bits; Crop (the pad's Start..End), Reverse and Remove DC none.
+enum { EDIT_NORMALIZE, EDIT_GAIN, EDIT_FADE_IN, EDIT_FADE_OUT, EDIT_TRIM, EDIT_CROP, EDIT_REVERSE, EDIT_DC,
+       EDIT_STRETCH, EDIT_PITCH, EDIT_SPEED, EDIT_FIT, EDIT_FIT_SPEED,
+       EDIT_RATE, EDIT_BITS, EDIT_DRIVE, EDIT_LOWPASS, EDIT_HIGHPASS, PAD_EDIT_OPS };
+// engine/offline/process.h ProcOp numbers
+enum { PROC_NORMALIZE, PROC_GAIN, PROC_FADE_IN, PROC_FADE_OUT, PROC_TRIM, PROC_REVERSE, PROC_DC, PROC_PAD_TO, PROC_STRETCH, PROC_RESAMPLE,
+       PROC_PITCH, PROC_CROP, PROC_DECIMATE, PROC_BITS, PROC_DRIVE, PROC_LOWPASS, PROC_HIGHPASS };
 #define PROC_PPM_MIN   250000                   // Stretch / Resample: the new length, x0.25 .. x4 in ppm
 #define PROC_PPM_MAX   4000000
 #define PADS_FILE      STORAGE_DIR_CONFIG "/pads.cfg"

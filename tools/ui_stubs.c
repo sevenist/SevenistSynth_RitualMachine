@@ -37,10 +37,10 @@ bool audio_sample_info(int i, audio_sample_info_t *o) {
 }
 int audio_samples_rescan(void) { stub_listed = stub_n_extra; return 3 + stub_listed; }
 // The processing: done at once, a new library entry of the source's length (Pad to: the amount) once the app rescans.
-int ui_stub_renders, ui_stub_render_op, ui_stub_render_amount, ui_stub_removed;
+int ui_stub_renders, ui_stub_render_op, ui_stub_render_amount, ui_stub_render_amount2, ui_stub_removed;
 char ui_stub_render_src[24], ui_stub_removed_last[64];
 static int stub_render_state;
-bool audio_render_start(const char *src, const char *dst, int op, int amount) {
+bool audio_render_start(const char *src, const char *dst, int op, int amount, int amount2) {
     if (stub_render_state == 1 || stub_n_extra >= STUB_EXTRA) return false;
     audio_sample_info_t in;
     uint32_t frames = 96000;
@@ -48,9 +48,10 @@ bool audio_render_start(const char *src, const char *dst, int op, int amount) {
     snprintf(stub_extra[stub_n_extra], 24, "%s", dst);
     stub_extra_frames[stub_n_extra] = op == 7 && (uint32_t)amount > frames ? (uint32_t)amount : frames;
     if (op == 8 || op == 9) stub_extra_frames[stub_n_extra] = (uint32_t)(((uint64_t)frames * (uint32_t)amount + 500000u) / 1000000u);   // Stretch / Resample
+    if (op == 11) stub_extra_frames[stub_n_extra] = (uint32_t)(amount2 - amount);                    // Crop
     stub_n_extra++;
     snprintf(ui_stub_render_src, sizeof ui_stub_render_src, "%s", src);
-    ui_stub_renders++; ui_stub_render_op = op; ui_stub_render_amount = amount;
+    ui_stub_renders++; ui_stub_render_op = op; ui_stub_render_amount = amount; ui_stub_render_amount2 = amount2;
     stub_render_state = 2;
     return true;
 }

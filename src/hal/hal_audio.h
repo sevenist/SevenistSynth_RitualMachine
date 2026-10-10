@@ -51,10 +51,11 @@ int64_t audio_sample_zero(int index, uint32_t frame, int dir);
 
 // Sample processing to the card (the pads' EDIT page, engine_synth.h render_*): `src` through `op` (0 Normalize, 1 Gain, 2 Fade in,
 // 3 Fade out, 4 Trim silence, 5 Reverse, 6 Remove DC, 7 Pad to (frames), 8 Stretch / 9 Resample (the new length in ppm), 10 Pitch
-// (cents): engine/offline/process.h ProcOp) with `amount` into a new library file `dst` (names without extension). poll: 0 idle,
+// (cents), 11 Crop (frames amount..amount2), 12 Decimate (Hz), 13 Bits, 14 Drive (0.1 dB), 15 Low-pass / 16 High-pass (Hz):
+// engine/offline/process.h ProcOp, core/pads.h PROC_*) with `amount` into a new library file `dst` (names without extension). poll: 0 idle,
 // 1 running, 2 done, 3 failed, and 0..100; after done the app rescans the library (audio_samples_rescan) and calls audio_render_done.
 enum { RENDER_STATE_IDLE, RENDER_STATE_RUNNING, RENDER_STATE_DONE, RENDER_STATE_FAILED };
-bool audio_render_start(const char *src, const char *dst, int op, int amount);
+bool audio_render_start(const char *src, const char *dst, int op, int amount, int amount2);
 int  audio_render_poll(int *percent);
 void audio_render_done(void);
 // A library entry whose file was deleted (a trimmed version): its name goes, so no list shows it; the index stays (the rack's samplers keep theirs).

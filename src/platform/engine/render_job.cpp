@@ -32,7 +32,7 @@ struct FileWriter : FrameWriter {
 struct Job {
     char src[224], dst[224], tmp[232];                                    // paths on the card (root + folder + a 23-character name)
     ProcOp op = ProcOp::Gain;
-    int32_t amount = 0;
+    int32_t amount = 0, amount2 = 0;
     Processor proc;
     FileReader in;
     FileWriter out;
@@ -82,7 +82,7 @@ extern "C" {
 
 void engine_synth_set_card_root(const char *root) { std::snprintf(g_root, sizeof g_root, "%s", root ? root : ""); }
 
-bool engine_synth_render_start(const char *src_name, const char *dst_name, int op, int amount) {
+bool engine_synth_render_start(const char *src_name, const char *dst_name, int op, int amount, int amount2) {
     if (g_state.load() == RENDER_RUNNING || !src_name || !dst_name || op < 0 || op >= static_cast<int>(ProcOp::Count)) return false;
     if (!g_job) g_job = job_new();
     if (!g_job) return false;
@@ -92,6 +92,7 @@ bool engine_synth_render_start(const char *src_name, const char *dst_name, int o
     std::snprintf(j.tmp, sizeof j.tmp, "%s.tmp", j.dst);
     j.op = static_cast<ProcOp>(op);
     j.amount = amount;
+    j.amount2 = amount2;
     j.in.f = j.out.f = nullptr;
     g_percent.store(0);
     g_state.store(RENDER_RUNNING);
@@ -118,7 +119,7 @@ bool engine_synth_render_step(void) {
         j.in.f = std::fopen(j.src, "rb");
         SmpHeader h;
         if (!j.in.f || std::fread(j.hdr, 1, kSmpBlockBytes, j.in.f) != kSmpBlockBytes || !smp_parse_header(j.hdr, kSmpBlockBytes, h)) { finish(j, false); return false; }
-        if (!j.proc.begin(h, j.op, j.amount)) { finish(j, false); return false; }
+        if (!j.proc.begin(h, j.op, j.amount, j.amount2)) { finish(j, false); return false; }
         j.out.f = std::fopen(j.tmp, "wb");
         std::memset(j.hdr, 0, sizeof j.hdr);                               // the header is written last: a zero block holds its place
         if (!j.out.f || std::fwrite(j.hdr, 1, kSmpBlockBytes, j.out.f) != kSmpBlockBytes) { finish(j, false); return false; }

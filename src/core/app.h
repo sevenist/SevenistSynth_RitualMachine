@@ -73,6 +73,11 @@ void app_init(app_t *app, u8g2_t *display);
 // Handles one hardware input event (kind == IN_NONE: none) and redraws. Returns false when the app should exit.
 bool app_step(app_t *app, input_event_t event);
 
+// For the dev serial commands (the board's tests): the section (Synth / Pads) as Shift + Menu switches it, and a pad's settings changed
+// from outside the UI (sent to the engine, saved later).
+void app_set_section(app_t *app, bool pads);
+void app_pad_changed(app_t *app, int pad);
+
 #ifdef __cplusplus
 }
 #endif

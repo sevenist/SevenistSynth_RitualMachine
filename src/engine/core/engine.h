@@ -37,6 +37,7 @@ public:
     Err load(const GraphDesc &g, int nvoices = 0);      // [CONTROL]
     bool set_voice_mode(VoiceMode mode, bool legato, int glide_ms);   // [CONTROL] posted like a note; glide_ms 0 = jump
     void gc();                                          // [CONTROL]
+    bool switching() const { return pending_.load(std::memory_order_acquire) != nullptr; }   // a loaded plan waits for the audio thread
 
     bool note_on(int note, int velocity127 = 100);      // [CONTROL] false = the command queue was full
     bool note_off(int note);

@@ -488,3 +488,32 @@ TEST(pads_sync_lands_the_loop_start_on_the_grid) {
     CHECK(power_at(roll, 300.0) > 100.0 * power_at(roll, 500.0));
     CHECK(power_at(loop, 500.0) > 100.0 * power_at(loop, 300.0));
 }
+
+TEST(pads_switching_sections_frees_the_old_graph) {
+    PadsApp a;
+    a.add("tone", sine(440.0, 1.0));
+    a.pad(0, "tone");
+    synth_params_t params;
+    synth_params_default(&params);
+    rack_init(&a.rack);
+    engine_synth_build(&a.rack, &params);
+    a.run(0.1);
+    engine_synth_housekeeping();
+    size_t fast0 = 0, bulk0 = 0;
+    engine_synth_heap_stats(&fast0, nullptr, nullptr, &bulk0, nullptr);
+    size_t bulk_r1 = 0;
+    for (int round = 0; round < 3; round++) {
+        engine_synth_pads_build(&a.pads, &a.rack);
+        a.run(0.1);
+        engine_synth_housekeeping();
+        engine_synth_build(&a.rack, &params);
+        a.run(0.1);
+        engine_synth_housekeeping();
+        if (!round) engine_synth_heap_stats(nullptr, nullptr, nullptr, &bulk_r1, nullptr);   // (the pad's sample is loaded now, and stays)
+    }
+    size_t fast1 = 0, bulk1 = 0;
+    engine_synth_heap_stats(&fast1, nullptr, nullptr, &bulk1, nullptr);
+    std::printf("    synth -> pads -> synth x3: fast heap %zu -> %zu, bulk %zu -> %zu bytes\n", fast0, fast1, bulk0, bulk1);
+    CHECK(fast1 <= fast0 + 256);
+    CHECK_EQ(bulk1, bulk_r1);                                                 // more switches: nothing more
+}

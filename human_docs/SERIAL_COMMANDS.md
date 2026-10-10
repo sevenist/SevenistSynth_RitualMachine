@@ -66,6 +66,21 @@ C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --cmd "chord 3" --ra
 | `samples` | the sample catalog of the TF card: index, name, frames, rate, root note, loop points and mode (the index is the F of `patch sampler`) |
 | `dump N` | captures the next N output samples (1..16384, before the dev output gain) and prints them as `[DUMP] @index v v v ...` lines, 32 per line, between `[DUMP] begin` and `[DUMP] end`. For offline spectrum checks |
 
+### The Pads section
+
+| Command | What it does |
+|---|---|
+| `pad on` / `pad off` | the Pads section / the synth (as Shift + Menu) |
+| `pad fill F N` | catalog file F (see `samples`) on pads A1.. (N pads, default settings) |
+| `pad def A1 <words>` | pad A1 as a `pads.cfg` line: `pad def A1 loop 1 xfade 20 file kick` (the file name last) |
+| `pad push K` / `pad rel K` | push / release pad K (0..63), as its key |
+| `pad stop` | Stop all |
+| `pad clock 1` / `pad clock 0` | the clock in the Pads section (Play) |
+| `pad mem` | internal RAM and PSRAM free / largest block, the engine's heaps, the pads sounding |
+
+`tools/pads_test.py` uses them: 1 / 4 / 8 pads looping on a short (whole in memory) and a long (streamed) sample, a crossfade, the
+heaps before and after the section switch.
+
 ### Key LEDs (HWV1)
 
 | Command | Does |

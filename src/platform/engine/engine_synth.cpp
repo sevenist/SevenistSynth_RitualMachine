@@ -46,6 +46,7 @@ struct Synth {
     bool pads_mode = false;                   // the pads player is loaded instead of the synth (engine_synth_pads_build)
     int32_t pad_events = 0;                   // the counter of the pad events (sampler_modules.h: (n << 8) | pad)
     size_t resident_bytes = 0;                // pad samples kept whole in memory (kPadResidentBudget)
+    bool gc_due = false;                      // a graph was loaded: free the old one once the audio thread has switched
 };
 
 Synth s_synth;
@@ -271,6 +272,14 @@ const char *engine_synth_build_reason(void) { return s_reason; }
 
 unsigned engine_synth_build_count(void) { return s_builds; }
 
+void engine_synth_housekeeping(void) {
+    Synth &s = s_synth;
+    if (!s_ready || !s.gc_due || s.eng.switching()) return;
+    std::lock_guard<std::mutex> lk(s.mx);                                       // (a freed Sampler leaves the loader's stream list)
+    s.eng.gc();
+    s.gc_due = s.eng.switching();
+}
+
 void engine_synth_heap_stats(size_t *fast_used, size_t *fast_cap, size_t *fast_high, size_t *bulk_used, size_t *spilled) {
     if (spilled) *spilled = s_synth.fast.spilled();
     if (fast_used) *fast_used = s_synth.fast.used();
@@ -301,6 +310,7 @@ void engine_synth_build(const rack_t *rack, const synth_params_t *params) {
     if (!rack_graph_build(*rack, *params, s.eng.registry(), s.cur, s.slot_of, s.cat_n)) return;
     const int nv = synth_config_voices(&rack->cfg);
     if (s.eng.load(s.cur.g, nv) != Err::Ok) return;
+    s.gc_due = true;
     s.last_nv = nv;
     send_voice_mode(*rack);
     send_blob(s.cur);
@@ -397,6 +407,7 @@ void engine_synth_pads_build(const pads_t *pads, const rack_t *rack) {
     g.connect(RP_PADS, 0, RP_MASTER, Dst::In, 0);
     g.connect(RP_PADS, 1, RP_MASTER, Dst::In, 1);
     if (s.eng.load(g, 1) != Err::Ok) return;
+    s.gc_due = true;
     s.pads_mode = true;
     s.have_last = false;                                    // the synth's graph is gone: the next set_params is a build
     s.last_nv = 1;

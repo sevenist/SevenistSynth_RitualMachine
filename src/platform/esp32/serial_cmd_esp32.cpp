@@ -10,6 +10,7 @@
 #include <esp_cpu.h>
 #include <esp_heap_caps.h>
 #include "core/ui_settings.h"
+#include "core/pads.h"
 #include "platform/esp32/serial_cmd_esp32.h"
 #ifdef HWV1
 #include "platform/esp32/leds_esp32.h"
@@ -232,6 +233,57 @@ void run(char *line) {
         Serial.printf("[CMD] str %s %g\n", f, (double)x);
         return;
     }
+    if (!strcmp(line, "pad") && g_app) {                  // the Pads section for tests: pad on|off, fill F N, def <A1> <pads.cfg words>, push|rel K, stop, clock 0|1, mem
+        char sub[8] = {};
+        int used = 0;
+        const char *s = arg ? arg : "";
+        if (sscanf(s, "%7s%n", sub, &used) < 1) { Serial.println("[CMD] pad on|off|fill F N|def A1 ...|push K|rel K|stop|clock 0/1|mem"); return; }
+        s += used;
+        while (*s == ' ') s++;
+        const int a = atoi(s);
+        if (!strcmp(sub, "on") || !strcmp(sub, "off")) { app_set_section(g_app, !strcmp(sub, "on")); Serial.printf("[CMD] pad section %s\n", sub); return; }
+        if (!strcmp(sub, "fill")) {                       // fill F N: catalog file F on pads 0..N-1 (one-shot, default settings)
+            int f = 0, n = 0;
+            sscanf(s, "%d %d", &f, &n);
+            audio_sample_info_t in;
+            if (!audio_sample_info(f, &in)) { Serial.printf("[CMD] pad fill: no sample %d\n", f); return; }
+            for (int k = 0; k < n && k < PAD_COUNT; k++) {
+                pad_default(&g_app->pads.pad[k]);
+                snprintf(g_app->pads.pad[k].file, PAD_NAME_MAX, "%s", in.name);
+                app_pad_changed(g_app, k);
+            }
+            Serial.printf("[CMD] pad fill %s x %d\n", in.name, n);
+            return;
+        }
+        if (!strcmp(sub, "def")) {                        // def A1 <words>: that pad as a pads.cfg line ("loop 1 xfade 20 file name")
+            static char txt[160];
+            snprintf(txt, sizeof txt, "pads@pad %s\n", s);
+            for (char *c = txt; *c; c++) if (*c == '@') *c = 10;
+            static pads_t tmp;
+            int label = -1;
+            if (s[0] >= 'A' && s[0] <= 'D') label = (s[0] - 'A') * PADS_PER_BANK + atoi(s + 1) - 1;
+            if (label < 0 || label >= PAD_COUNT || !pads_from_text(&tmp, txt)) { Serial.println("[CMD] pad def: A1..D16 then pads.cfg words"); return; }
+            g_app->pads.pad[label] = tmp.pad[label];
+            app_pad_changed(g_app, label);
+            Serial.printf("[CMD] pad def %s\n", s);
+            return;
+        }
+        if (!strcmp(sub, "push")) { audio_pad_push(a); Serial.printf("[CMD] pad push %d\n", a); return; }
+        if (!strcmp(sub, "rel"))  { audio_pad_release(a); Serial.printf("[CMD] pad rel %d\n", a); return; }
+        if (!strcmp(sub, "stop")) { audio_pads_stop(); Serial.println("[CMD] pad stop"); return; }
+        if (!strcmp(sub, "clock")) { g_app->pads_run = a != 0; Serial.printf("[CMD] pad clock %d\n", a); return; }
+        if (!strcmp(sub, "mem")) {                        // the heaps: internal RAM and PSRAM free / largest block, the engine's two heaps
+            size_t fu = 0, fc = 0, fh = 0, bu = 0, sp = 0;
+            engine_synth_heap_stats(&fu, &fc, &fh, &bu, &sp);
+            Serial.printf("[CMD] pad mem: internal free %u largest %u, PSRAM free %u largest %u, fast heap %u / %u (high %u), bulk used %u, spilled %u, playing %llx\n",
+                          (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                          (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM),
+                          (unsigned)fu, (unsigned)fc, (unsigned)fh, (unsigned)bu, (unsigned)sp, (unsigned long long)audio_pads_playing());
+            return;
+        }
+        Serial.printf("[CMD] pad: unknown '%s'\n", sub);
+        return;
+    }
     if (!strcmp(line, "fx") && g_app) {                   // fx clear | fx <code> [v0 .. v7]: append an FX module to row M (code as on the RACK tab: DL RV CH ...; values in the module's units, missing = default)
         char code[8] = {};
         int used = 0;
@@ -270,7 +322,7 @@ void run(char *line) {
 extern "C" void serial_cmd_attach(app_t *app) { g_app = app; }
 
 extern "C" void serial_cmd_poll(void) {
-    static char buf[48];
+    static char buf[112];
     static int n = 0;
     while (Serial.available() > 0) {
         const int ch = Serial.read();

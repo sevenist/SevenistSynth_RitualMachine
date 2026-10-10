@@ -71,6 +71,24 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
 - [x] Commit of the 2026-10-07 work: b55a1ea, e93f03e, 8101b57 (done 2026-10-08)
 - Set aside (user, 2026-10-07): unformatted card "format?" ASK (a mount without a file system is still "no card"; needs FATFS mkfs)
 
+## Pads on the board (2026-10-10; flashed and measured by Claude with the user's permission, `tools/pads_test.py`, 44.1 kHz)
+
+Cycles per engine block (budget 174149), the Pads section alone (Pads + MasterOut), pads looping (Trim):
+
+| case | cycles | % | DMA underruns | card underruns |
+|---|---|---|---|---|
+| kick (42 KB, whole in memory) x 1 / 4 / 8 | 13.1k / 23.9k / 38.4k | 8 / 14 / 22 % | 0 | 0 |
+| x 8 with a 200 ms crossfade | 38.4k | 22 % | 0 | 0 |
+| pad_c4 (225 KB, streamed) x 1 / 4 / 8 | 13.3k / 28.6k / 57.4k | 8 / 16 / 33 % | 0 | 0 / 0 / 117-224 |
+
+- About 3.6k cycles per voice (whole sample) and ~9k fixed (the 64-pad bookkeeping per block: a candidate for an exact optimization).
+  8 streamed pads hit the card (534 KB/s: the known ~500 KB/s limit, "SD options" in the todo): fades, no DMA dropout.
+- Memory: synth 48.6 KB fast / 187 KB bulk; Pads 10 KB / 467 KB (8 rings x 48 KB + samples). **Fixed**: the old graph stayed allocated
+  after a switch until the next rebuild (both graphs in PSRAM: 773 KB bulk back in the synth); `engine_synth_housekeeping()` (called by
+  `audio_update`) frees it once the audio task runs the new graph: back to exactly 48.6 KB / 187 KB. PSRAM outside the engine: 59 KB free.
+- The board runs the measuring build (HWV1_DEBUG_AUDIO + ENGINE_PROFILE passed by PLATFORMIO_BUILD_FLAGS; platformio.ini untouched):
+  the user's next upload builds without them.
+
 ## Pads section, step 1 (2026-10-10; built and host-tested, NOT tried by the user, NOT flashed)
 
 - Try it in the simulator: **Shift + Menu** (BTN 3 + BTN 1) = Pads; joystick / encoder A select a pad, encoder B = bank, push = its editor:

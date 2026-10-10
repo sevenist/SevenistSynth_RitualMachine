@@ -329,6 +329,9 @@ static void pads_knob(app_t *app, int row, int value) {
     app->dirty = true;
 }
 
+void app_set_section(app_t *app, bool pads) { section_set(app, pads); }
+void app_pad_changed(app_t *app, int pad) { if (pad >= 0 && pad < PAD_COUNT) pad_changed(app, pad); }
+
 /* ---------------- the machine clock (ADR-041 decision 24): one tempo, the sequencer's BPM ---------------- */
 
 static bool clock_running(const app_t *app) { return in_pads(app) ? app->pads_run : app->seq.running; }

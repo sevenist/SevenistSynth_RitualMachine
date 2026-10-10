@@ -305,5 +305,5 @@ extern "C" int32_t audio_pad_position(int pad)                              { re
 extern "C" int audio_sample_onsets(int i, uint32_t *f, uint16_t *s, int max) { return engine_synth_sample_onsets(i, f, s, max); }
 extern "C" int64_t audio_sample_zero(int i, uint32_t frame, int dir)        { return engine_synth_sample_zero(i, frame, dir); }
 extern "C" uint32_t audio_millis(void)                                     { return engine_synth_millis(); }
-extern "C" void audio_update(void)                                         {}     // nothing to pump: the audio task is independent
+extern "C" void audio_update(void)                                         { engine_synth_housekeeping(); }     // frees an old graph once the audio task runs the new one
 #endif // ARDUINO_ARCH_ESP32

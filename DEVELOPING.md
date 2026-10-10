@@ -340,6 +340,7 @@ Rack -> engine mapping and the master chain are described in ENGINE_DESIGN.md (A
 | `build_engine_tests.ps1` | builds and runs the engine tests; `-Matrix` for all configurations, `-Filter name` for a few | see the file header |
 | `build_ui_tests.ps1` | builds and runs the UI tests (`tests/ui/*.c`, C: `TEST(name)` in `ui_test.h`; each test starts a fresh app with `ui_fresh()` and sends control events; `ui_stub_ramcard(true)` gives a card in RAM, `ui_board(true)` the prototype's controls); `-Filter name` for a few | see the file header |
 | `ui_dump.c` | renders the screens to ASCII without SDL or audio (layout checks); its platform stand-ins are `ui_stubs.c`, shared with the UI tests | command at the top of the file |
+| `pads_test.py` | the Pads section on the prototype (the `pad` serial command): 1 / 4 / 8 looping pads, short and streamed, a crossfade, the heaps | `C:/.platformio/penv/Scripts/python.exe tools/pads_test.py` |
 | `serial_test.py` | talks to the prototype over its serial port: holds chords of 1 / 3 / 6 notes, switches oscillator engines live, prints render time, cycles per module and the memory use | `C:/.platformio/penv/Scripts/python.exe tools/serial_test.py` (see "ESP32 firmware and performance work") |
 
 The generated files are committed, so the generators are only needed when their inputs change. The FM loudness table

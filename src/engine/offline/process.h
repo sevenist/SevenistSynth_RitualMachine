@@ -3,6 +3,8 @@
 // holds the file, nothing the size of the sample is ever in memory (the prototype has ~60 KB of PSRAM to spare). The caller supplies the
 // reader (any frame range of the source) and the writer (the destination, frames in order); Processor runs in steps of a few blocks so
 // the card task can keep the sample streams fed in between (platform/engine/render_job.cpp). Not the audio thread: floats are fine here.
+// The time, pitch and texture operations need working memory (work_bytes: 6 to 43 KB by operation); the caller lends it for the job.
+#include <cstddef>
 #include <cstdint>
 #include "engine/dsp/q.h"
 #include "engine/sampler/smp_format.h"
@@ -41,16 +43,28 @@ struct FrameWriter {
 //   Bits        the word length (1..16): rounded to that many bits
 //   Drive       0.1 dB of gain into a soft clipper (0..360); full scale stays full scale
 //   LowPass / HighPass   the cutoff in Hz, 12 dB per octave (Butterworth)
+//
+// The spectral ones (a 4096-point FFT, engine/offline/rfft.h: windows of 85 ms at 48 kHz):
+//   StretchTonal  as Stretch, by a phase vocoder (75 % overlap, the phases of each spectral peak carried on and its neighbours locked
+//                 to it): smooth on sustained and polyphonic sounds, soft on attacks (WSOLA is the opposite)
+//   PitchTonal    as Pitch, StretchTonal feeding the resampler
+//   Paul          paulstretch: the new length in ppm (x1 .. x64); every window keeps its spectrum's magnitudes and gets random
+//                 phases, so the sound becomes a slow, smooth wash. The result is 6 dB under the source's level (the peaks of the
+//                 random phases need the room)
 enum class ProcOp : uint8_t { Normalize, Gain, FadeIn, FadeOut, TrimSilence, Reverse, RemoveDc, PadTo, Stretch, Resample, Pitch,
-                              Crop, Decimate, Bits, Drive, LowPass, HighPass, Count };
+                              Crop, Decimate, Bits, Drive, LowPass, HighPass, StretchTonal, PitchTonal, Paul, Count };
 
 class Processor {
 public:
     static constexpr uint32_t kChunk = kSmpBlockFrames;                   // frames per step unit
     static constexpr int kWsHop = 1024, kWsSearch = kWsHop / 2;           // WSOLA at 48 kHz: the hop (half a window), the search each way
     static constexpr int kRsTaps = 32, kRsPhases = 32, kRsBuf = 1024;     // the resampler: taps, table phases, its input window
-    // The source's header and the operation. False when there is nothing to do (an empty sample).
-    bool begin(const SmpHeader &in, ProcOp op, int32_t amount, int32_t amount2 = 0);
+    // The working memory `op` needs (0 for most), and the source's header and the operation with that memory (aligned for a float,
+    // the caller's until done). False when there is nothing to do (an empty sample) or the memory is missing.
+    static size_t work_bytes(ProcOp op);
+    bool begin(const SmpHeader &in, ProcOp op, int32_t amount, int32_t amount2 = 0, void *work = nullptr);
+    // One block (kChunk frames = a .smp block) the caller may use before begin and after done (the card job's header block).
+    q15 *scratch() { return buf_; }
     // Up to `chunks` chunks of work (analysis first when the operation needs one, then the output). False on a read / write error.
     bool step(FrameReader &r, FrameWriter &w, int chunks);
     bool done() const { return phase_ == Phase::Done; }
@@ -62,11 +76,20 @@ public:
 private:
     enum class Phase : uint8_t { Analyze, Write, Done };
     uint32_t source_of(uint32_t o) const;                                 // the first source frame of output frame o's chunk (Reverse: see write)
-    bool timed() const { return op_ == ProcOp::Stretch || op_ == ProcOp::Resample || op_ == ProcOp::Pitch; }
+    static bool uses_ws(ProcOp op) { return op == ProcOp::Stretch || op == ProcOp::Pitch; }
+    static bool uses_rs(ProcOp op) { return op == ProcOp::Resample || op == ProcOp::Pitch || op == ProcOp::PitchTonal; }
+    static bool uses_pv(ProcOp op) { return op == ProcOp::StretchTonal || op == ProcOp::PitchTonal; }
+    static bool uses_fft(ProcOp op) { return uses_pv(op) || op == ProcOp::Paul; }
+    static size_t layout(ProcOp op, Processor *p, uint8_t *base);         // the working memory's parts (p: set its pointers)
+    bool timed() const { return uses_ws(op_) || uses_rs(op_) || uses_fft(op_); }
     bool fetch(FrameReader &r, int64_t start, uint32_t n, q15 *dst);      // source frames, zeros outside the file
     int  ws_search() const;                                               // the offset in seg_ that continues the previous window best
     bool ws_hop(FrameReader &r);                                          // the next hs_ stretched frames into ready_
-    bool ws_pull(FrameReader &r, q15 *dst, uint32_t n);                   // the next n frames of the stretched signal
+    bool load_frame(FrameReader &r, int64_t centre);                      // fx_ = a Hann-windowed frame of the source, as its spectrum
+    bool pv_frame(FrameReader &r);                                        // one phase vocoder frame overlap-added into ola_
+    bool paul_frame(FrameReader &r);                                      // one paulstretch frame overlap-added into ola_
+    bool st_hop(FrameReader &r);                                          // the next hop of the stretched signal (any method) into ready_
+    bool st_pull(FrameReader &r, q15 *dst, uint32_t n);                   // the next n frames of the stretched signal
     bool stage1(FrameReader &r, q15 *dst, uint32_t n);                    // the next n frames of what the resampler reads
     bool rs_fill(FrameReader &r, q15 *dst, uint32_t n);                   // the next n resampled frames (from output frame pos_)
     SmpHeader in_, out_;
@@ -89,17 +112,25 @@ private:
     uint32_t ws_len_ = 0, ws_k_ = 0;                                      // the stretched length, the hop's number
     int64_t ws_prev_ = 0;                                                 // where the previous window was taken
     uint32_t ready_n_ = 0, ready_at_ = 0;
-    q15 seg_[2 * kWsHop + 2 * kWsSearch];                                 // the source around the hop's ideal position
-    q15 tail_[kWsHop];                                                    // the previous window's falling half
-    q15 ready_[kWsHop];
-    int16_t tgt_[kWsHop / 4];                                             // what the next window should continue (every 4th frame, 12 bits)
+    const q15 *ready_ = nullptr;                                          // the hop just made (ws_out_, or the head of ola_)
+    // (the arrays below live in the caller's working memory: layout())
+    q15 *seg_ = nullptr;                                                  // 2 kWsHop + 2 kWsSearch: the source around the hop's ideal position
+    q15 *tail_ = nullptr;                                                 // kWsHop: the previous window's falling half
+    q15 *ws_out_ = nullptr;                                               // kWsHop
+    int16_t *tgt_ = nullptr;                                              // kWsHop / 4: what the next window should continue (every 4th frame, 12 bits)
+    // the spectral methods (StretchTonal, PitchTonal, Paul): N = kRfftN
+    float *fx_ = nullptr;                                                 // N + 2: the frame, its spectrum, the frame again
+    float *sin_ = nullptr;                                                // N / 4 + 1: the FFT's table (also the windows and the rotations)
+    q15 *ola_ = nullptr;                                                  // N: the overlap-add; its head is the finished hop
+    uint16_t *ph_ = nullptr, *th_ = nullptr;                              // N / 2 + 1 each: every bin's last phase, and how far it was turned (65536 = a turn)
+    uint32_t rng_ = 0;                                                    // paulstretch's phases
     // the resampler (Resample, and the second stage of Pitch)
     uint32_t s1_len_ = 0, s1_pos_ = 0;                                    // its input: length, frames taken
     uint64_t rs_step_ = 0;                                                // input frames per output frame, Q32
     int64_t rs_base_ = 0;                                                 // the input frame of rs_buf_[0]
     uint32_t rs_n_ = 0;
-    q15 rs_buf_[kRsBuf];
-    float rs_tab_[(kRsPhases + 1) * kRsTaps];                             // the kernel at kRsPhases + 1 fractions
+    q15 *rs_buf_ = nullptr;                                               // kRsBuf
+    float *rs_tab_ = nullptr;                                             // (kRsPhases + 1) * kRsTaps: the kernel at kRsPhases + 1 fractions
 };
 
 }  // namespace sc

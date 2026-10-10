@@ -119,18 +119,32 @@ static void render_start(app_t *app, int pad, int op, int32_t amount, bool chop)
     const int idx = lib_index(p->file);
     if (r->stage || idx < 0 || !audio_sample_info(idx, &in)) return;
     static const char *const shortname[PAD_EDIT_OPS] = {"Norm", "Gain", "FadeIn", "FadeOut", "Trim", "Crop", "Reverse", "DC", "Stretch", "Pitch", "Speed", "Fit", "FitSpd",
-                                                        "Rate", "Bits", "Drive", "LP", "HP"};
+                                                        "Paul", "Rate", "Bits", "Drive", "LP", "HP"};
     static const uint8_t proc_of[PAD_EDIT_OPS] = {PROC_NORMALIZE, PROC_GAIN, PROC_FADE_IN, PROC_FADE_OUT, PROC_TRIM, PROC_CROP, PROC_REVERSE, PROC_DC,
-                                                  PROC_STRETCH, PROC_PITCH, PROC_RESAMPLE, PROC_STRETCH, PROC_RESAMPLE,
+                                                  PROC_STRETCH, PROC_PITCH, PROC_RESAMPLE, PROC_STRETCH, PROC_RESAMPLE, PROC_PAUL,
                                                   PROC_DECIMATE, PROC_BITS, PROC_DRIVE, PROC_LOWPASS, PROC_HIGHPASS};
     char amt[14] = "";
+    const char *name = "Pad";
     int proc = PROC_PAD_TO;                                                 // what the engine runs (ProcOp) and its amounts
     int32_t arg = amount, arg2 = 0;
     if (!chop) {
         op %= PAD_EDIT_OPS;
         proc = proc_of[op];
+        name = shortname[op];
+        if (app->ui.edit_tonal && (op == EDIT_STRETCH || op == EDIT_PITCH || op == EDIT_FIT)) {   // Algo: Tonal (the phase vocoder)
+            static const char *const tonal[3] = {"StretchT", "PitchT", "FitT"};
+            proc = op == EDIT_PITCH ? PROC_PITCH_TONAL : PROC_STRETCH_TONAL;
+            name = tonal[op == EDIT_STRETCH ? 0 : op == EDIT_PITCH ? 1 : 2];
+        }
         pads_ui_op_amount(op, amount, amt, sizeof amt);
         switch (op) {
+            case EDIT_PAUL:                                                 // x1.5 .. x64, as far as the card and the patience go
+                arg = amount * 100000;
+                if ((uint64_t)in.frames * (uint32_t)amount / 10u > PAUL_FRAMES_MAX) {
+                    popup_info(&app->popup, "EDIT", "Too long: 2 min 46 at most", 0, audio_millis(), POPUP_INFO_MS);
+                    return;
+                }
+                break;
             case EDIT_STRETCH: arg = amount * 10000; break;
             case EDIT_SPEED:   arg = 100000000 / (amount > 0 ? amount : 100); break;   // twice the speed = half the length
             case EDIT_CROP:                                                 // the pad's Start..End
@@ -152,7 +166,7 @@ static void render_start(app_t *app, int pad, int op, int32_t amount, bool chop)
             } break;
             default: break;
         }
-        if (((proc == PROC_STRETCH || proc == PROC_RESAMPLE) && arg == 1000000) || (proc == PROC_PITCH && arg == 0)) {
+        if (((proc == PROC_STRETCH || proc == PROC_RESAMPLE || proc == PROC_STRETCH_TONAL) && arg == 1000000) || ((proc == PROC_PITCH || proc == PROC_PITCH_TONAL) && arg == 0)) {
             popup_info(&app->popup, "EDIT", "Nothing to change", 0, audio_millis(), POPUP_INFO_MS);
             return;
         }
@@ -165,11 +179,11 @@ static void render_start(app_t *app, int pad, int op, int32_t amount, bool chop)
         snprintf(stem, sizeof stem, "%s", root);
         snprintf(r->name, sizeof r->name, "%s~%d", stem, k);
     }
-    snprintf(r->what, sizeof r->what, "%s%s%s", chop ? "Pad" : shortname[op], amt[0] ? " " : "", amt);
+    snprintf(r->what, sizeof r->what, "%s%s%s", name, amt[0] ? " " : "", amt);
     snprintf(r->parent, sizeof r->parent, "%s", p->file);
     r->pad = pad; r->op = proc; r->chop = chop; r->frames_in = in.frames;
     if (!audio_render_start(p->file, r->name, proc, arg, arg2)) {
-        popup_info(&app->popup, "EDIT", "Busy or no card", 0, audio_millis(), POPUP_INFO_MS);
+        popup_info(&app->popup, "EDIT", "Busy, no card or no memory", 0, audio_millis(), POPUP_INFO_MS);
         return;
     }
     r->stage = 1;
@@ -191,7 +205,8 @@ static void render_adopt(app_t *app) {
     if (r->op == PROC_PAD_TO) p->end = 0;                                    // padded: to the new end
     audio_sample_info_t made;
     const int made_idx = lib_index(r->name);
-    if ((r->op == PROC_STRETCH || r->op == PROC_RESAMPLE) && r->frames_in && made_idx >= 0 && audio_sample_info(made_idx, &made)) {
+    if ((r->op == PROC_STRETCH || r->op == PROC_RESAMPLE || r->op == PROC_STRETCH_TONAL || r->op == PROC_PAUL) && r->frames_in && made_idx >= 0 &&
+        audio_sample_info(made_idx, &made)) {
         const uint64_t f = made.frames, was = r->frames_in;                  // the length changed: the trim points go with the audio
         p->start = (uint32_t)((p->start * f + was / 2) / was);
         p->lstart = (uint32_t)((p->lstart * f + was / 2) / was);

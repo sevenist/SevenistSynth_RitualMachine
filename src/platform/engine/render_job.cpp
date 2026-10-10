@@ -36,7 +36,8 @@ struct Job {
     Processor proc;
     FileReader in;
     FileWriter out;
-    uint8_t hdr[kSmpBlockBytes];
+    void *work = nullptr;                                                 // the operation's working memory (Processor::work_bytes)
+    uint8_t *hdr() { return reinterpret_cast<uint8_t *>(proc.scratch()); }   // the header block: read before the job, written after it
 };
 
 char g_root[160] = "";                                                     // the card's root on this platform ("/sdcard", the desktop folder)
@@ -45,23 +46,32 @@ std::atomic<int> g_state{RENDER_IDLE};                                    // ren
 std::atomic<int> g_percent{0};
 std::atomic<bool> g_posted{false};                                        // a job waits for the card thread to open its files
 
-// The job's ~8 KB: in PSRAM on the board (internal RAM is the scarce one), only while a job exists.
-Job *job_new() {
+// The job (~5 KB) and its operation's working memory (0..43 KB): in PSRAM on the board (internal RAM is the scarce one), only
+// while a job exists.
+void *mem_new(size_t bytes) {
 #ifdef ARDUINO_ARCH_ESP32
-    void *m = heap_caps_malloc(sizeof(Job), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
 #else
-    void *m = ::operator new(sizeof(Job), std::nothrow);
+    return ::operator new(bytes, std::nothrow);
 #endif
+}
+void mem_free(void *m) {
+    if (!m) return;
+#ifdef ARDUINO_ARCH_ESP32
+    heap_caps_free(m);
+#else
+    ::operator delete(m);
+#endif
+}
+Job *job_new() {
+    void *m = mem_new(sizeof(Job));
     return m ? new (m) Job : nullptr;
 }
 void job_free(Job *j) {
     if (!j) return;
+    mem_free(j->work);
     j->~Job();
-#ifdef ARDUINO_ARCH_ESP32
-    heap_caps_free(j);
-#else
-    ::operator delete(j);
-#endif
+    mem_free(j);
 }
 
 void path_of(const char *name, char *out, size_t n) { std::snprintf(out, n, "%s/%s/%s.smp", g_root, STORAGE_DIR_SAMPLES, name); }
@@ -87,6 +97,10 @@ bool engine_synth_render_start(const char *src_name, const char *dst_name, int o
     if (!g_job) g_job = job_new();
     if (!g_job) return false;
     Job &j = *g_job;
+    mem_free(j.work);
+    const size_t need = Processor::work_bytes(static_cast<ProcOp>(op));
+    j.work = need ? mem_new(need) : nullptr;
+    if (need && !j.work) return false;                                     // not enough memory for this operation
     path_of(src_name, j.src, sizeof j.src);
     path_of(dst_name, j.dst, sizeof j.dst);
     std::snprintf(j.tmp, sizeof j.tmp, "%s.tmp", j.dst);
@@ -118,11 +132,11 @@ bool engine_synth_render_step(void) {
     if (g_posted.exchange(false)) {                                        // open the files here: only this thread touches the card
         j.in.f = std::fopen(j.src, "rb");
         SmpHeader h;
-        if (!j.in.f || std::fread(j.hdr, 1, kSmpBlockBytes, j.in.f) != kSmpBlockBytes || !smp_parse_header(j.hdr, kSmpBlockBytes, h)) { finish(j, false); return false; }
-        if (!j.proc.begin(h, j.op, j.amount, j.amount2)) { finish(j, false); return false; }
+        if (!j.in.f || std::fread(j.hdr(), 1, kSmpBlockBytes, j.in.f) != kSmpBlockBytes || !smp_parse_header(j.hdr(), kSmpBlockBytes, h)) { finish(j, false); return false; }
         j.out.f = std::fopen(j.tmp, "wb");
-        std::memset(j.hdr, 0, sizeof j.hdr);                               // the header is written last: a zero block holds its place
-        if (!j.out.f || std::fwrite(j.hdr, 1, kSmpBlockBytes, j.out.f) != kSmpBlockBytes) { finish(j, false); return false; }
+        std::memset(j.hdr(), 0, kSmpBlockBytes);                           // the header is written last: a zero block holds its place
+        if (!j.out.f || std::fwrite(j.hdr(), 1, kSmpBlockBytes, j.out.f) != kSmpBlockBytes) { finish(j, false); return false; }
+        if (!j.proc.begin(h, j.op, j.amount, j.amount2, j.work)) { finish(j, false); return false; }
         return true;
     }
     if (!j.proc.step(j.in, j.out, 2)) { finish(j, false); return false; }
@@ -132,8 +146,9 @@ bool engine_synth_render_step(void) {
     const uint32_t tail = oh.blocks() * kSmpBlockFrames - oh.frames;
     static const q15 zero[64] = {};
     for (uint32_t k = 0; k < tail; k += 64) if (std::fwrite(zero, 2, tail - k < 64 ? tail - k : 64, j.out.f) == 0) { finish(j, false); return false; }
-    smp_write_header(j.hdr, oh);
-    const bool ok = std::fseek(j.out.f, 0, SEEK_SET) == 0 && std::fwrite(j.hdr, 1, kSmpBlockBytes, j.out.f) == kSmpBlockBytes && std::fflush(j.out.f) == 0;
+    std::memset(j.hdr(), 0, kSmpBlockBytes);
+    smp_write_header(j.hdr(), oh);
+    const bool ok = std::fseek(j.out.f, 0, SEEK_SET) == 0 && std::fwrite(j.hdr(), 1, kSmpBlockBytes, j.out.f) == kSmpBlockBytes && std::fflush(j.out.f) == 0;
     finish(j, ok);
     return false;
 }

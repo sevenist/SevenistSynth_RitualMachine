@@ -399,11 +399,11 @@ static const screen_def_t chop_screen = {chop_elements, N_CHOP, false, true, cho
 /* ---------------- EDIT (sample tools: processing into a new version, the version history; ADR-041 decisions 36-38) ---------------- */
 
 static const char *const op_names[PAD_EDIT_OPS] = {"Normalize", "Gain", "Fade in", "Fade out", "Trim sil.", "Crop", "Reverse", "Remove DC",
-                                                   "Stretch", "Pitch", "Speed", "Fit beats", "Fit speed",
+                                                   "Stretch", "Pitch", "Speed", "Fit beats", "Fit speed", "Paulstr.",
                                                    "Lo-fi rate", "Bits", "Drive", "Low-pass", "High-pass"};
-static const char *const op_labels[PAD_EDIT_OPS] = {"Peak", "dB", "Len", "Len", "Thr", "", "", "", "Len", "Tune", "Spd", "Beat", "Beat",
+static const char *const op_labels[PAD_EDIT_OPS] = {"Peak", "dB", "Len", "Len", "Thr", "", "", "", "Len", "Tune", "Spd", "Beat", "Beat", "Len",
                                                     "Rate", "Bits", "dB", "Cut", "Cut"};
-static const int32_t op_default[PAD_EDIT_OPS] = {-3, 60, 100, 100, -40, 0, 0, 0, 100, 0, 100, 4, 4, 12000, 8, 120, 4000, 200};
+static const int32_t op_default[PAD_EDIT_OPS] = {-3, 60, 100, 100, -40, 0, 0, 0, 100, 0, 100, 4, 4, 80, 12000, 8, 120, 4000, 200};
 
 const char *pads_ui_op_name(int op) { return op >= 0 && op < PAD_EDIT_OPS ? op_names[op] : "?"; }
 
@@ -416,6 +416,7 @@ void pads_ui_op_amount(int op, int32_t a, char *out, int n) {
         case EDIT_STRETCH: case EDIT_SPEED: snprintf(out, (size_t)n, "%d%%", (int)a); break;
         case EDIT_PITCH: snprintf(out, (size_t)n, "%s%d.%02dst", a < 0 ? "-" : "+", m / 100, m % 100); break;
         case EDIT_FIT: case EDIT_FIT_SPEED: snprintf(out, (size_t)n, "%db", (int)a); break;
+        case EDIT_PAUL: snprintf(out, (size_t)n, "x%d.%d", m / 10, m % 10); break;
         case EDIT_RATE: case EDIT_LOWPASS: case EDIT_HIGHPASS: snprintf(out, (size_t)n, "%dHz", (int)a); break;
         case EDIT_BITS: snprintf(out, (size_t)n, "%d", (int)a); break;
         default: out[0] = 0; break;
@@ -455,6 +456,7 @@ static bool ed_amt_adjust(const ui_ctx_t *c, int dir) {
         case EDIT_STRETCH: case EDIT_SPEED: a = clampi(a + d * (fine ? 1 : 5), 25, 400); break;
         case EDIT_PITCH: a = clampi(a + d * (fine ? 1 : 100), -2400, 2400); break;       // a semitone, fine: a cent
         case EDIT_FIT: case EDIT_FIT_SPEED: a = clampi(a + d, 1, 128); break;
+        case EDIT_PAUL: a = clampi(a + d * (fine ? 1 : a < 40 || (d < 0 && a <= 40) ? 5 : 10), 15, 640); break;   // x1.5 .. x64
         case EDIT_RATE: a = clampi(a + d * (fine ? 100 : 1000), 1000, 32000); break;
         case EDIT_BITS: a = clampi(a + d, 2, 15); break;
         case EDIT_DRIVE: a = clampi(a + d * (fine ? 1 : 10), 0, 360); break;
@@ -467,6 +469,10 @@ static bool ed_amt_adjust(const ui_ctx_t *c, int dir) {
     c->ui->edit_amt[op] = a;
     return false;
 }
+// Beat / Tonal: which stretch runs under Stretch, Pitch and Fit beats.
+static bool en_algo(const ui_ctx_t *c) { return c->ui->edit_op == EDIT_STRETCH || c->ui->edit_op == EDIT_PITCH || c->ui->edit_op == EDIT_FIT; }
+static void ed_algo_value(const ui_ctx_t *c, char *out, int n) { snprintf(out, (size_t)n, "%s", c->ui->edit_tonal ? "Tonal" : "Beat"); }
+static bool ed_algo_adjust(const ui_ctx_t *c, int dir) { (void)dir; c->ui->edit_tonal = !c->ui->edit_tonal; return false; }
 static void ed_apply_value(const ui_ctx_t *c, char *out, int n) {
     if (c->ui->render_pct >= 0) snprintf(out, (size_t)n, "Working %d%%", c->ui->render_pct);
     else snprintf(out, (size_t)n, "Apply");
@@ -515,19 +521,25 @@ static void ed_redo(const ui_ctx_t *c) {
 static const el_def_t edit_elements[] = {
     {"Op",    EL_VALUE,  0, 0, 2, ed_op_value, ed_op_adjust, NULL, NULL, NULL, NULL, 0, 0},
     {"",      EL_VALUE,  1, 0, 2, ed_amt_value, ed_amt_adjust, NULL, NULL, en_amt, ed_amt_label, 0, EF_HIDE_WHEN_DISABLED},
-    {"Apply", EL_BUTTON, 2, 0, 2, ed_apply_value, NULL, ed_apply, NULL, NULL, NULL, 0, 0},
-    {"Ver",   EL_VALUE,  3, 0, 2, ed_ver_value, ed_ver_adjust, NULL, NULL, NULL, NULL, 0, 0},
-    {"Undo",  EL_BUTTON, 4, 0, 1, NULL, NULL, ed_undo, NULL, NULL, NULL, 0, 0},
-    {"Redo",  EL_BUTTON, 4, 1, 1, NULL, NULL, ed_redo, NULL, NULL, NULL, 0, 0},
+    {"Algo",  EL_VALUE,  2, 0, 2, ed_algo_value, ed_algo_adjust, NULL, NULL, en_algo, NULL, 0, EF_HIDE_WHEN_DISABLED},
+    {"Apply", EL_BUTTON, 3, 0, 2, ed_apply_value, NULL, ed_apply, NULL, NULL, NULL, 0, 0},
+    {"Ver",   EL_VALUE,  4, 0, 2, ed_ver_value, ed_ver_adjust, NULL, NULL, NULL, NULL, 0, 0},
+    {"Undo",  EL_BUTTON, 5, 0, 1, NULL, NULL, ed_undo, NULL, NULL, NULL, 0, 0},
+    {"Redo",  EL_BUTTON, 5, 1, 1, NULL, NULL, ed_redo, NULL, NULL, NULL, 0, 0},
 };
 #define N_EDIT ((int)(sizeof edit_elements / sizeof edit_elements[0]))
 
 static void edit_layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, gui_rect_t *rect) {
-    (void)g; (void)st; (void)c;
+    (void)g; (void)st;
     const int y0 = area.y + WAVE_H + 12, half = area.w / 2, rh = 11;
     for (int i = 0; i < N_EDIT; i++) {
         const el_def_t *e = &edit_elements[i];
-        rect[i] = gui_rect(area.x + e->col * half, y0 + e->row * rh, e->span * half - 1, rh - 1);
+        int row = e->row;                                                 // the rows close up over a hidden one (the amount, Algo)
+        for (int k = 0; k < N_EDIT; k++) {
+            const el_def_t *h = &edit_elements[k];
+            if (h->row < e->row && (h->flags & EF_HIDE_WHEN_DISABLED) && h->enabled && !h->enabled(c)) row--;
+        }
+        rect[i] = gui_rect(area.x + e->col * half, y0 + row * rh, e->span * half - 1, rh - 1);
     }
 }
 

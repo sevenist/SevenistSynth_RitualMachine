@@ -74,7 +74,8 @@ void engine_synth_sampler_stats(uint32_t *underruns, uint32_t *block_reads);
 // Sample processing to the card (the pads' sample tools, ADR-041 decisions 36-38; platform/engine/render_job.cpp): library file `src`
 // through operation `op` (engine/offline/process.h ProcOp: 0 Normalize, 1 Gain, 2 Fade in, 3 Fade out, 4 Trim silence, 5 Reverse, 6
 // Remove DC, 7 Pad to (amount = frames), 8 Stretch, 9 Resample (ppm of the length), 10 Pitch (cents), 11 Crop (frames amount..amount2),
-// 12 Decimate (Hz), 13 Bits, 14 Drive (0.1 dB), 15 Low-pass, 16 High-pass (Hz)) with `amount` into a new file `dst` (names without extension, in the samples folder). One job at a time; the thread that
+// 12 Decimate (Hz), 13 Bits, 14 Drive (0.1 dB), 15 Low-pass, 16 High-pass (Hz), 17 Tonal stretch (ppm), 18 Tonal pitch (cents),
+// 19 Paulstretch (ppm)) with `amount` into a new file `dst` (names without extension, in the samples folder). One job at a time; the thread that
 // owns the card runs it (render_step, a few chunks per call: true while there is more). poll: the state and 0..100; DONE / FAILED stay
 // until render_done (the UI then rescans the library). set_card_root: where the card is on this platform ("/sdcard", the desktop folder).
 typedef enum { RENDER_IDLE, RENDER_RUNNING, RENDER_DONE, RENDER_FAILED } render_state_t;

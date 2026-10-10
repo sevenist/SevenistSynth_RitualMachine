@@ -1,6 +1,7 @@
 #include "engine/offline/process.h"
 #include <cmath>
 #include <cstring>
+#include "engine/offline/rfft.h"
 
 namespace sc {
 
@@ -9,7 +10,75 @@ inline q15 sat(float v) { return static_cast<q15>(v > 32767.0f ? 32767 : v < -32
 constexpr float kPi = 3.14159265f;
 inline float soft(float x) { return x >= 3.0f ? 1.0f : x <= -3.0f ? -1.0f : x * (27.0f + x * x) / (27.0f + 9.0f * x * x); }   // ~tanh
 inline uint32_t scaled(uint32_t v, uint32_t num, uint32_t den) { return den ? static_cast<uint32_t>((static_cast<uint64_t>(v) * num + den / 2) / den) : v; }
+
+constexpr int kN = kRfftN, kM = kRfftN / 2;
+
+// The phase of (re, im) with 65536 = a turn. atan by a polynomial (Abramowitz & Stegun 4.4.49, within 1e-5 rad): the board's FPU
+// has no atan, and 2049 of them are needed per frame.
+inline uint16_t phase16(float re, float im) {
+    const float ax = std::fabs(re), ay = std::fabs(im);
+    if (ax + ay < 1e-20f) return 0;
+    const float z = ax > ay ? ay / ax : ax / ay, z2 = z * z;
+    float a = z * (0.99997726f + z2 * (-0.33262347f + z2 * (0.19354346f + z2 * (-0.11643287f + z2 * (0.05265332f + z2 * -0.01172120f)))));
+    if (ay > ax) a = 0.5f * kPi - a;
+    if (re < 0.0f) a = kPi - a;
+    if (im < 0.0f) a = -a;
+    return static_cast<uint16_t>(static_cast<int32_t>(std::lround(a * (32768.0f / kPi))));
 }
+// (re, im) turned by `th` (65536 = a turn): the table has 4096 steps a turn, the 16 between two are interpolated.
+inline void turn(const float *t, uint16_t th, float &re, float &im) {
+    float c0, s0, c1, s1;
+    const int j = th >> 4;
+    rfft_cs(t, j, c0, s0);
+    rfft_cs(t, (j + 1) & (kN - 1), c1, s1);
+    const float u = static_cast<float>(th & 15) * (1.0f / 16.0f), c = c0 + u * (c1 - c0), s = s0 + u * (s1 - s0);
+    const float r = re * c - im * s;
+    im = re * s + im * c;
+    re = r;
+}
+// The Hann window 0.5 - 0.5 cos(2 pi n / N), and its square root sin(pi n / N) (for odd n the mean of the two table entries
+// around it, exact once divided by cos(pi / N)).
+inline float hann(const float *t, int n) { float c, s; rfft_cs(t, n, c, s); return 0.5f - 0.5f * c; }
+inline float sine_win(const float *t, int n, float odd_gain) {
+    float c, s0, s1;
+    rfft_cs(t, n >> 1, c, s0);
+    if (!(n & 1)) return s0;
+    rfft_cs(t, (n >> 1) + 1, c, s1);                                          // (n < N: the index stays under N / 2 + 1)
+    return (s0 + s1) * odd_gain;
+}
+}
+
+// The working memory, part by part (floats first: the caller's memory is 8-byte aligned, every part a multiple of 8 bytes).
+size_t Processor::layout(ProcOp op, Processor *p, uint8_t *base) {
+    size_t at = 0;
+    auto take = [&](size_t bytes) { uint8_t *m = base ? base + at : nullptr; at += (bytes + 7) & ~static_cast<size_t>(7); return m; };
+    if (uses_fft(op)) {
+        float *fx = reinterpret_cast<float *>(take(sizeof(float) * (kN + 2)));
+        float *sn = reinterpret_cast<float *>(take(sizeof(float) * (kN / 4 + 1)));
+        q15 *ola = reinterpret_cast<q15 *>(take(sizeof(q15) * kN));
+        if (p) { p->fx_ = fx; p->sin_ = sn; p->ola_ = ola; }
+    }
+    if (uses_pv(op)) {
+        uint16_t *ph = reinterpret_cast<uint16_t *>(take(sizeof(uint16_t) * (kM + 1)));
+        uint16_t *th = reinterpret_cast<uint16_t *>(take(sizeof(uint16_t) * (kM + 1)));
+        if (p) { p->ph_ = ph; p->th_ = th; }
+    }
+    if (uses_rs(op)) {
+        float *tab = reinterpret_cast<float *>(take(sizeof(float) * (kRsPhases + 1) * kRsTaps));
+        q15 *buf = reinterpret_cast<q15 *>(take(sizeof(q15) * kRsBuf));
+        if (p) { p->rs_tab_ = tab; p->rs_buf_ = buf; }
+    }
+    if (uses_ws(op)) {
+        q15 *seg = reinterpret_cast<q15 *>(take(sizeof(q15) * (2 * kWsHop + 2 * kWsSearch)));
+        q15 *tail = reinterpret_cast<q15 *>(take(sizeof(q15) * kWsHop));
+        q15 *out = reinterpret_cast<q15 *>(take(sizeof(q15) * kWsHop));
+        int16_t *tgt = reinterpret_cast<int16_t *>(take(sizeof(int16_t) * (kWsHop / 4)));
+        if (p) { p->seg_ = seg; p->tail_ = tail; p->ws_out_ = out; p->tgt_ = tgt; }
+    }
+    return at;
+}
+
+size_t Processor::work_bytes(ProcOp op) { return layout(op, nullptr, nullptr); }
 
 /* ---------------- time & pitch: WSOLA and the resampler ---------------- */
 
@@ -61,7 +130,7 @@ bool Processor::ws_hop(FrameReader &r) {
     float c = 1.0f, sn = 0.0f;
     for (int n = 0; n < hs; n++) {
         const float w = 0.5f - 0.5f * c;
-        ready_[n] = ws_k_ ? sat(w * static_cast<float>(s[n]) + static_cast<float>(tail_[n])) : s[n];
+        ws_out_[n] = ws_k_ ? sat(w * static_cast<float>(s[n]) + static_cast<float>(tail_[n])) : s[n];
         tail_[n] = sat((1.0f - w) * static_cast<float>(s[hs + n]));
         const float c2 = c * ct - sn * st;
         sn = sn * ct + c * st;
@@ -70,14 +139,123 @@ bool Processor::ws_hop(FrameReader &r) {
     for (int i = 0; i < hs / 4; i++) tgt_[i] = static_cast<int16_t>(s[hs + 4 * i] >> 4);
     ws_prev_ = a0 + d;
     ws_k_++;
+    ready_ = ws_out_;
     ready_n_ = static_cast<uint32_t>(hs);
     ready_at_ = 0;
     return true;
 }
 
-bool Processor::ws_pull(FrameReader &r, q15 *dst, uint32_t n) {
+/* ---------------- the spectral methods: the phase vocoder and paulstretch ---------------- */
+
+// The frame of kN source frames around `centre`, Hann-windowed, as its spectrum in fx_. The 16-bit frames are read into the start of
+// fx_ itself, half a frame at a time (buf_ may hold output already): the second half first, converted into the upper floats; then
+// the first half, converted where it lies, from its end (float n covers the bytes of frames 2n and 2n + 1, both read by then).
+bool Processor::load_frame(FrameReader &r, int64_t centre) {
+    uint8_t *raw = reinterpret_cast<uint8_t *>(fx_);
+    for (int h = 1; h >= 0; h--) {
+        if (!fetch(r, centre - kM + h * kM, static_cast<uint32_t>(kM), reinterpret_cast<q15 *>(raw))) return false;
+        for (int n = kM - 1; n >= 0; n--) {
+            q15 v;
+            std::memcpy(&v, raw + 2 * n, sizeof v);
+            fx_[h * kM + n] = static_cast<float>(v) * hann(sin_, h * kM + n);
+        }
+    }
+    rfft_forward(fx_, sin_);
+    return true;
+}
+
+// Frame number ws_k_ - 1 (the first one lies before the file's start, so that the start gets its four overlapping windows): centred
+// on output frame k * N/4 and on the source place that belongs to it. Each spectral peak (a bin over its two neighbours each side)
+// goes on turning at the frequency its phase advance since the last frame shows, scaled from the source's hop to the output's; the
+// bins around it, up to half way to the next peak, are turned by the same angle, so the partial keeps its shape (identity phase
+// locking, Laroche & Dolson 1999). th_ holds the angle every bin was turned by, ph_ its phase in the source.
+bool Processor::pv_frame(FrameReader &r) {
+    const int H = kN / 4;
+    const int64_t k = static_cast<int64_t>(ws_k_) - 1;
+    const int64_t centre = k * H * static_cast<int64_t>(in_.frames) / static_cast<int64_t>(ws_len_);
+    if (!load_frame(r, centre)) return false;
+    const int64_t hop = centre - ws_prev_;                                    // the source's hop since the last frame
+    if (ws_k_ == 0) {
+        for (int b = 0; b <= kM; b++) { ph_[b] = phase16(fx_[2 * b], fx_[2 * b + 1]); th_[b] = 0; }
+    } else {
+        auto pw = [&](int b) { return b < 0 || b > kM ? -1.0f : fx_[2 * b] * fx_[2 * b] + fx_[2 * b + 1] * fx_[2 * b + 1]; };
+        auto next_peak = [&](int from) {
+            for (int b = from; b <= kM; b++) { const float v = pw(b); if (v > 0.0f && v > pw(b - 1) && v > pw(b - 2) && v >= pw(b + 1) && v >= pw(b + 2)) return b; }
+            return -1;
+        };
+        auto angle = [&](int p) {                                             // how far peak p is turned now (its ph_ / th_ are still the last frame's)
+            const uint16_t phi = phase16(fx_[2 * p], fx_[2 * p + 1]);
+            const int64_t expect = static_cast<int64_t>(p) * hop * 16;        // bin p's own advance over the hop (65536 / N = 16 per frame of a bin)
+            const int16_t dev = static_cast<int16_t>(static_cast<uint16_t>(phi - ph_[p] - static_cast<uint16_t>(expect)));
+            const int64_t adv = hop > 0 ? (expect + dev) * H / hop : static_cast<int64_t>(p) * H * 16;
+            return static_cast<uint16_t>(ph_[p] + th_[p] + static_cast<uint16_t>(adv) - phi);
+        };
+        int p = next_peak(0);
+        uint16_t th = p >= 0 ? angle(p) : 0;
+        for (int b = 0; b <= kM;) {
+            const int q = p >= 0 ? next_peak(p + 1) : -1;
+            const uint16_t thq = q >= 0 ? angle(q) : 0;                       // (before its bins are written: q lies past the boundary)
+            const int end = q >= 0 ? (p + q) / 2 : kM;
+            for (; b <= end; b++) {
+                ph_[b] = phase16(fx_[2 * b], fx_[2 * b + 1]);
+                th_[b] = th;
+                if (th) turn(sin_, th, fx_[2 * b], fx_[2 * b + 1]);
+            }
+            p = q; th = thq;
+        }
+    }
+    fx_[1] = 0.0f; fx_[kN + 1] = 0.0f;                                        // (the two real bins stay real)
+    rfft_inverse(fx_, sin_);
+    // overlap-add at 75 %: Hann twice (analysis, synthesis) sums to 1.5; the inverse gave kM times the frame
+    std::memmove(ola_, ola_ + H, sizeof(q15) * 3 * H);
+    std::memset(ola_ + 3 * H, 0, sizeof(q15) * H);
+    const float g = 1.0f / (1.5f * kM);
+    for (int n = 0; n < kN; n++) ola_[n] = sat(static_cast<float>(ola_[n]) + fx_[n] * hann(sin_, n) * g);
+    ws_prev_ = centre;
+    ws_k_++;
+    return true;
+}
+
+// Paulstretch (Nasca Octavian Paul): frame ws_k_ is centred on output frame k * N/2 and on the source place that belongs to it; its
+// spectrum keeps the magnitudes and gets random phases; the frames overlap by half under a sine window, whose squares sum to 1
+// (the frames are unrelated, so it is their powers that add). sqrt(8/3) makes up for the analysis window, 0.5 leaves room for the
+// peaks (random phases turn a steady tone into a noise band of the same power).
+bool Processor::paul_frame(FrameReader &r) {
+    const int64_t centre = static_cast<int64_t>(ws_k_) * kM * static_cast<int64_t>(in_.frames) / static_cast<int64_t>(ws_len_);
+    if (!load_frame(r, centre)) return false;
+    for (int b = 1; b < kM; b++) {
+        const float mag = std::sqrt(fx_[2 * b] * fx_[2 * b] + fx_[2 * b + 1] * fx_[2 * b + 1]);
+        rng_ ^= rng_ << 13; rng_ ^= rng_ >> 17; rng_ ^= rng_ << 5;
+        float c, s;
+        rfft_cs(sin_, static_cast<int>(rng_ >> 20), c, s);
+        fx_[2 * b] = mag * c; fx_[2 * b + 1] = mag * s;
+    }
+    fx_[0] = fx_[1] = fx_[kN] = fx_[kN + 1] = 0.0f;
+    rfft_inverse(fx_, sin_);
+    std::memmove(ola_, ola_ + kM, sizeof(q15) * kM);
+    std::memset(ola_ + kM, 0, sizeof(q15) * kM);
+    const float g = 0.5f * 1.63299316f / kM, odd = 0.5f / std::cos(kPi / kN);
+    for (int n = 0; n < kN; n++) ola_[n] = sat(static_cast<float>(ola_[n]) + fx_[n] * sine_win(sin_, n, odd) * g);
+    ws_k_++;
+    return true;
+}
+
+// The next hop of the stretched signal. The spectral methods' first hop needs the frames that overlap it: what they finish before
+// the file's start is dropped.
+bool Processor::st_hop(FrameReader &r) {
+    if (uses_ws(op_)) return ws_hop(r);
+    const bool paul = op_ == ProcOp::Paul;
+    const uint32_t lead = paul ? 2u : 4u;
+    do { if (!(paul ? paul_frame(r) : pv_frame(r))) return false; } while (ws_k_ < lead);
+    ready_ = ola_;
+    ready_n_ = static_cast<uint32_t>(paul ? kM : kN / 4);
+    ready_at_ = 0;
+    return true;
+}
+
+bool Processor::st_pull(FrameReader &r, q15 *dst, uint32_t n) {
     while (n) {
-        if (ready_at_ >= ready_n_ && !ws_hop(r)) return false;
+        if (ready_at_ >= ready_n_ && !st_hop(r)) return false;
         const uint32_t k = ready_n_ - ready_at_ < n ? ready_n_ - ready_at_ : n;
         std::memcpy(dst, ready_ + ready_at_, k * sizeof(q15));
         ready_at_ += k; dst += k; n -= k;
@@ -86,7 +264,7 @@ bool Processor::ws_pull(FrameReader &r, q15 *dst, uint32_t n) {
 }
 
 bool Processor::stage1(FrameReader &r, q15 *dst, uint32_t n) {
-    const bool ok = op_ == ProcOp::Pitch ? ws_pull(r, dst, n) : fetch(r, s1_pos_, n, dst);
+    const bool ok = op_ == ProcOp::Resample ? fetch(r, s1_pos_, n, dst) : st_pull(r, dst, n);
     if (ok && s1_pos_ + n > s1_len_) {                                        // past its end: silence
         const uint32_t keep = s1_pos_ < s1_len_ ? s1_len_ - s1_pos_ : 0;
         std::memset(dst + keep, 0, (n - keep) * sizeof(q15));
@@ -123,7 +301,7 @@ bool Processor::rs_fill(FrameReader &r, q15 *dst, uint32_t n) {
     return true;
 }
 
-bool Processor::begin(const SmpHeader &in, ProcOp op, int32_t amount, int32_t amount2) {
+bool Processor::begin(const SmpHeader &in, ProcOp op, int32_t amount, int32_t amount2, void *work) {
     in_ = in;
     out_ = in;
     op_ = op;
@@ -138,26 +316,36 @@ bool Processor::begin(const SmpHeader &in, ProcOp op, int32_t amount, int32_t am
     std::memset(bucket_peak_, 0, sizeof bucket_peak_);
     if (!in.frames) { phase_ = Phase::Done; return false; }
     if (timed()) {
+        if (!work) { phase_ = Phase::Done; return false; }
+        layout(op, this, static_cast<uint8_t *>(work));
+        const bool pitch = op == ProcOp::Pitch || op == ProcOp::PitchTonal;
         const uint32_t rate = in.sample_rate ? in.sample_rate : 48000;
         hs_ = static_cast<int>(static_cast<uint64_t>(kWsHop) * rate / 48000) & ~3;   // ~21 ms, a multiple of 4 (the search's stride)
         hs_ = hs_ < 64 ? 64 : hs_ > kWsHop ? kWsHop : hs_;
         srch_ = hs_ / 2;
         double ratio = 1.0;                                                   // of the stretch
-        if (op == ProcOp::Pitch) ratio = std::pow(2.0, static_cast<double>(amount < -2400 ? -2400 : amount > 2400 ? 2400 : amount) / 1200.0);
+        if (pitch) ratio = std::pow(2.0, static_cast<double>(amount < -2400 ? -2400 : amount > 2400 ? 2400 : amount) / 1200.0);
+        else if (op == ProcOp::Paul) ratio = static_cast<double>(amount < 1000000 ? 1000000 : amount > 64000000 ? 64000000 : amount) / 1e6;
         else ratio = static_cast<double>(amount < 250000 ? 250000 : amount > 4000000 ? 4000000 : amount) / 1e6;
         const double len = static_cast<double>(in.frames) * ratio;
         const uint32_t scaled_len = len < 1.0 ? 1u : static_cast<uint32_t>(len + 0.5);
         ws_len_ = scaled_len;
         ws_k_ = 0; ws_prev_ = 0; ready_n_ = ready_at_ = 0;
-        out_.frames = op == ProcOp::Pitch ? in.frames : scaled_len;
-        s1_len_ = op == ProcOp::Pitch ? scaled_len : in.frames;               // the resampler: s1_len_ frames in, out_.frames out
+        ready_ = nullptr;
+        out_.frames = pitch ? in.frames : scaled_len;
+        s1_len_ = pitch ? scaled_len : in.frames;                             // the resampler: s1_len_ frames in, out_.frames out
         s1_pos_ = 0;
+        if (uses_fft(op)) {
+            rfft_table(sin_);
+            std::memset(ola_, 0, sizeof(q15) * kN);
+            rng_ = 0x9E3779B9u;
+        }
         rs_step_ = (static_cast<uint64_t>(s1_len_) << 32) / out_.frames;
         rs_base_ = -(kRsTaps / 2); rs_n_ = kRsTaps / 2;                       // (silence before the first frame)
-        std::memset(rs_buf_, 0, sizeof rs_buf_);
+        if (uses_rs(op)) std::memset(rs_buf_, 0, sizeof(q15) * kRsBuf);
         // the kernel: a Hann-windowed sinc, its cutoff at the lower of the two Nyquists, every phase normalised to a gain of 1
         const float fc = s1_len_ > out_.frames ? static_cast<float>(out_.frames) / static_cast<float>(s1_len_) : 1.0f;
-        for (int p = 0; p <= kRsPhases; p++) {
+        for (int p = 0; uses_rs(op) && p <= kRsPhases; p++) {
             float sum = 0.0f, *t = rs_tab_ + p * kRsTaps;
             for (int j = 0; j < kRsTaps; j++) {
                 const float x = static_cast<float>(j - (kRsTaps / 2 - 1)) - static_cast<float>(p) / kRsPhases;
@@ -244,10 +432,10 @@ bool Processor::step(FrameReader &r, FrameWriter &w, int chunks) {
             continue;
         }
         // the output, a chunk at a time
-        const uint32_t unit = op_ == ProcOp::Stretch || op_ == ProcOp::Pitch ? static_cast<uint32_t>(hs_) : kChunk;   // (a hop is the heavy unit)
+        const uint32_t unit = uses_ws(op_) ? static_cast<uint32_t>(hs_) : uses_pv(op_) ? static_cast<uint32_t>(kN / 4) : kChunk;   // (a hop is the heavy unit)
         const uint32_t n = out_.frames - pos_ < unit ? out_.frames - pos_ : unit;
         if (timed()) {
-            if (!(op_ == ProcOp::Stretch ? ws_pull(r, buf_, n) : rs_fill(r, buf_, n))) return false;
+            if (!(uses_rs(op_) ? rs_fill(r, buf_, n) : st_pull(r, buf_, n))) return false;
         } else if (op_ == ProcOp::Reverse) {                                         // output [pos_, pos_ + n) = the source's [frames - pos_ - n, frames - pos_) backwards
             if (!r.read(in_.frames - pos_ - n, n, buf_)) return false;
             for (uint32_t i = 0; i < n / 2; i++) { const q15 t = buf_[i]; buf_[i] = buf_[n - 1 - i]; buf_[n - 1 - i] = t; }
@@ -300,7 +488,7 @@ bool Processor::step(FrameReader &r, FrameWriter &w, int chunks) {
                 if (in_.has_loop()) { out_.loop_start = in_.frames - in_.loop_end; out_.loop_end = in_.frames - in_.loop_start; }
                 out_.slice_count = 0;
                 for (auto &s : out_.slice) s = 0;
-            } else if (op_ == ProcOp::Stretch || op_ == ProcOp::Resample) {   // loop and slices scale with the length
+            } else if (timed() && out_.frames != in_.frames) {                // loop and slices scale with the length
                 out_.loop_start = scaled(in_.loop_start, out_.frames, in_.frames);
                 out_.loop_end = scaled(in_.loop_end, out_.frames, in_.frames);
                 for (int s = 0; s < in_.slice_count; s++) out_.slice[s] = scaled(in_.slice[s], out_.frames, in_.frames);

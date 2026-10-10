@@ -150,6 +150,7 @@ typedef struct {
     // EDIT page (sample tools, ADR-041 decisions 36-38): the operation and the amount of each, the Apply request (the app renders),
     // the progress the app shows (-1: no job), the library's version history (the app's)
     uint8_t edit_op;
+    uint8_t edit_tonal;        // Stretch / Pitch / Fit beats: 0 = Beat (WSOLA), 1 = Tonal (phase vocoder)
     int32_t edit_amt[PAD_EDIT_OPS];
     bool    pad_render_req;
     bool    pad_ver_changed;   // Ver / Undo / Redo picked another version of the pad's sample: the app sends the pad

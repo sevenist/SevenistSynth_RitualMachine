@@ -486,7 +486,7 @@ TEST(pads_edit_page_renders_a_version_and_undo_goes_back) {
     ev_tap(CTL_JOY_LEFT);                                                // the header: PLAY <- EDIT
     CHECK_EQ(ui_app.ui.pad_page, 3);
     const int renders = ui_stub_renders;
-    ui_app.ui.pad_row = 3;                                               // Apply (Normalize to -0.3 dB by default)
+    ui_app.ui.pad_row = 4;                                               // Apply (Normalize to -0.3 dB by default)
     ev_tap(CTL_JOY_SW);
     ev_idle(3);                                                          // rendered, listed, adopted
     CHECK_EQ(ui_stub_renders, renders + 1);
@@ -500,16 +500,16 @@ TEST(pads_edit_page_renders_a_version_and_undo_goes_back) {
     ui_app.ui.pad_row = 1; ev_turn(CTL_ENC_B, 6);                         // Op: Reverse
     CHECK_STR(pads_ui_op_name(ui_app.ui.edit_op), "Reverse");
     ui_app.pads.pad[0].start = 5000;
-    ui_app.ui.pad_row = 3; ev_tap(CTL_JOY_SW); ev_idle(3);
+    ui_app.ui.pad_row = 4; ev_tap(CTL_JOY_SW); ev_idle(3);
     CHECK_STR(ui_app.pads.pad[0].file, "demo0~2");
     CHECK_EQ(ui_app.pads.pad[0].start, 0);                               // reversed: the old trim means nothing
-    ui_app.ui.pad_row = 5; ev_tap(CTL_JOY_SW);                           // Undo: the parent
+    ui_app.ui.pad_row = 6; ev_tap(CTL_JOY_SW);                           // Undo: the parent
     CHECK_STR(ui_app.pads.pad[0].file, "demo0~1");
     ev_tap(CTL_JOY_SW);
     CHECK_STR(ui_app.pads.pad[0].file, "demo0");
-    ui_app.ui.pad_row = 6; ev_tap(CTL_JOY_SW);                           // Redo: the newest child
+    ui_app.ui.pad_row = 7; ev_tap(CTL_JOY_SW);                           // Redo: the newest child
     CHECK_STR(ui_app.pads.pad[0].file, "demo0~1");
-    ui_app.ui.pad_row = 4; ev_turn(CTL_ENC_B, 1);                         // Ver: the next version
+    ui_app.ui.pad_row = 5; ev_turn(CTL_ENC_B, 1);                         // Ver: the next version
     CHECK_STR(ui_app.pads.pad[0].file, "demo0~2");
     history_t h;                                                         // history.cfg was written
     CHECK(history_load(&h) && h.n == 2);
@@ -527,7 +527,7 @@ TEST(pads_edit_trims_old_versions_and_deletes_their_files) {
     ev_tap(CTL_JOY_SW);
     ui_app.ui.pad_page = 3;
     const int removed = ui_stub_removed;
-    for (int k = 0; k < 10; k++) { ui_app.ui.pad_row = 3; ev_tap(CTL_JOY_SW); ev_idle(3); }
+    for (int k = 0; k < 10; k++) { ui_app.ui.pad_row = 4; ev_tap(CTL_JOY_SW); ev_idle(3); }
     CHECK_STR(ui_app.pads.pad[0].file, "demo0~10");
     CHECK_EQ(ui_app.history.n, HISTORY_KEEP);                            // the last 8 of 10
     CHECK_EQ(ui_stub_removed, removed + 2);                              // ~1 and ~2: their files deleted
@@ -582,7 +582,7 @@ static void edit_apply(int op, int32_t amt) {
     ui_app.ui.pad_page = 3;
     ui_app.ui.edit_op = (uint8_t)op;
     ui_app.ui.edit_amt[op] = amt;
-    ui_app.ui.pad_row = 3;
+    ui_app.ui.pad_row = 4;
     ev_tap(CTL_JOY_SW);
     ev_idle(3);
 }
@@ -687,16 +687,16 @@ TEST(pads_edit_crop_and_undo_puts_the_trim_points_back) {
     edit_apply(EDIT_STRETCH, 200);                                       // twice as long
     CHECK_STR(p->file, "demo0~2");
     CHECK_EQ(p->lstart, 20000u);
-    ui_app.ui.pad_row = 5; ev_tap(CTL_JOY_SW);                           // Undo: the crop, with its own loop start
+    ui_app.ui.pad_row = 6; ev_tap(CTL_JOY_SW);                           // Undo: the crop, with its own loop start
     CHECK_STR(p->file, "demo0~1");
     CHECK(p->start == 0 && p->end == 0 && p->lstart == 10000);
     ev_tap(CTL_JOY_SW);                                                  // Undo: the original, trimmed as it was
     CHECK_STR(p->file, "demo0");
     CHECK(p->start == 10000 && p->end == 40000 && p->lstart == 20000);
-    ui_app.ui.pad_row = 6; ev_tap(CTL_JOY_SW);                           // Redo
+    ui_app.ui.pad_row = 7; ev_tap(CTL_JOY_SW);                           // Redo
     CHECK_STR(p->file, "demo0~1");
     CHECK(p->start == 0 && p->end == 0 && p->lstart == 10000);
-    ui_app.ui.pad_row = 4; ev_turn(CTL_ENC_B, 1);                         // Ver: on to the stretched one
+    ui_app.ui.pad_row = 5; ev_turn(CTL_ENC_B, 1);                         // Ver: on to the stretched one
     CHECK_STR(p->file, "demo0~2");
     CHECK_EQ(p->lstart, 20000u);
     ev_turn(CTL_ENC_B, 1);                                               // Ver wraps to the original: two steps up the chain
@@ -743,4 +743,48 @@ TEST(pads_edit_color_operations_and_their_amounts) {
     CHECK_EQ(ui_app.ui.edit_amt[EDIT_LOWPASS], 20000);
     ui_app.ui.edit_op = EDIT_BITS; ui_app.ui.edit_amt[EDIT_BITS] = 2; ev_turn(CTL_ENC_B, -1);
     CHECK_EQ(ui_app.ui.edit_amt[EDIT_BITS], 2);
+}
+
+TEST(pads_edit_tonal_algo_and_paulstretch) {
+    ui_stub_ramcard(false); ui_stub_ramcard(true);
+    ui_fresh();
+    pad_t *p = &ui_app.pads.pad[0];
+    snprintf(p->file, PAD_NAME_MAX, "demo0");                            // 96000 frames
+    p->start = 10000; p->end = 40000;
+    shift_menu();
+    ev_tap(CTL_JOY_SW);
+    ui_app.ui.pad_page = 3;
+    ui_app.ui.edit_op = EDIT_STRETCH;
+    ui_app.ui.pad_row = 3; ev_turn(CTL_ENC_B, 1);                         // the Algo row: Beat -> Tonal
+    CHECK_EQ(ui_app.ui.edit_tonal, 1);
+    edit_apply(EDIT_STRETCH, 150);
+    CHECK(ui_stub_render_op == PROC_STRETCH_TONAL && ui_stub_render_amount == 1500000);
+    CHECK_STR(ui_app.history.v[0].what, "StretchT 150%");
+    CHECK(p->start == 15000 && p->end == 60000);
+    edit_apply(EDIT_PITCH, 700);
+    CHECK(ui_stub_render_op == PROC_PITCH_TONAL && ui_stub_render_amount == 700);
+    CHECK_STR(ui_app.history.v[1].what, "PitchT +7.00st");
+    edit_apply(EDIT_SPEED, 50);                                          // Speed has no Algo: the resampler as before
+    CHECK_EQ(ui_stub_render_op, PROC_RESAMPLE);
+    ui_app.ui.edit_tonal = 0;
+    edit_apply(EDIT_PITCH, 100);
+    CHECK_EQ(ui_stub_render_op, PROC_PITCH);
+    // paulstretch: x8 by default, the trim points go along, a result past the limit is refused
+    ui_stub_ramcard(false); ui_stub_ramcard(true);
+    ui_fresh();
+    p = &ui_app.pads.pad[0];
+    snprintf(p->file, PAD_NAME_MAX, "demo0");
+    p->start = 10000; p->end = 40000;
+    shift_menu();
+    ev_tap(CTL_JOY_SW);
+    char t[16];
+    pads_ui_op_amount(EDIT_PAUL, ui_app.ui.edit_amt[EDIT_PAUL], t, sizeof t);
+    CHECK_STR(t, "x8.0");
+    edit_apply(EDIT_PAUL, 80);
+    CHECK(ui_stub_render_op == PROC_PAUL && ui_stub_render_amount == 8000000);
+    CHECK_STR(ui_app.history.v[0].what, "Paul x8.0");
+    CHECK(p->start == 80000 && p->end == 320000);
+    const int renders = ui_stub_renders;
+    edit_apply(EDIT_PAUL, 640);                                          // 768000 frames x64 = 49 million: too long
+    CHECK_EQ(ui_stub_renders, renders);
 }

@@ -842,7 +842,7 @@ NOT tried by the user, NOT flashed: the first run on the board writes sample fil
 - **Card job** `platform/engine/render_job.cpp` (`engine_synth_render_start / _step / _poll / _done`, HAL `audio_render_*`): the UI posts
   one job; the thread that owns the card runs it 2-4 chunks at a time between the loader's reads (the board's card task, the desktop's
   loader thread), with C stdio on `<card root>/system/samples/<name>.smp`: the header is written last, the file is renamed into place
-  from `.tmp`. The job's memory (8 KB then, 26 KB since Time & pitch) comes from PSRAM on the board and is freed when the result is taken.
+  from `.tmp`. The job's memory (8 KB then; ~5 KB plus the operation's own since step 5) comes from PSRAM on the board and is freed when the result is taken.
 - **Version history** `core/history.*`, `system/samples/history.cfg` (decision 37): versions `<root>~<n>`, parent links, Undo / Redo /
   branches; trimming after every new version (the root, what a pad uses, the last 8), the trimmed files deleted (`storage_remove`) and
   their library entries hidden (`audio_sample_hide`: the name goes, the index stays).
@@ -880,8 +880,8 @@ built, firmware static RAM unchanged at 65.8 %; NOT tried by the user, NOT flash
   pads (a faint flutter at the window rate). A phase vocoder is the opposite (smooth on sustained sounds, soft on drums); it needs a
   float FFT of 2048+ points, ~30 KB of working memory out of the ~59 KB of PSRAM the board has to spare. Paulstretch (the Texture
   group) needs the same FFT, so a "Tonal" stretch mode is cheap to add with that step if the user wants it.
-- Memory: the job is 26 KB now (was 8), from PSRAM, only while a job runs. Card: a stretch reads about 3 times the result's size
-  (every hop reads its search range again); not timed on the board yet.
+- Memory: per operation since step 5 (below): Stretch 10.8 KB, Pitch 17 KB, Speed 6.3 KB, from PSRAM, only while a job runs. Card:
+  a stretch reads about 3 times the result's size (every hop reads its search range again); not timed on the board yet.
 
 **Sample tools: Crop, the trim points per version, Color / lo-fi, as built (2026-10-10; 207 engine tests in the 6 configurations,
 95 UI tests, simulator + firmware built, firmware static RAM 66.0 %; NOT tried by the user, NOT flashed, NOT listened to):**
@@ -903,6 +903,38 @@ built, firmware static RAM unchanged at 65.8 %; NOT tried by the user, NOT flash
   passed to the job, to do with the capture path (phase 4), which renders the same thing live.
 - The EDIT page lists 18 operations in this order: Normalize, Gain, Fade in, Fade out, Trim sil., Crop, Reverse, Remove DC, Stretch,
   Pitch, Speed, Fit beats, Fit speed, Lo-fi rate, Bits, Drive, Low-pass, High-pass (`pads.h` EDIT_*; `app.c` maps each to a ProcOp).
+
+**Texture, design round (user, 2026-10-11; options offered):**
+44. **Paulstretch with a 4096-point window** (the user's own answer; offered: 2048 always fitting / up to 8192 with memory borrowed
+   from the pads' samples / not on the board). 85 ms at 48 kHz: smoother than 2048, still shorter than the classic's 0.25 s and more.
+   Risk: the memory is tight on the board (below).
+45. **A Tonal stretch (phase vocoder)** next to the WSOLA one, as a Beat / Tonal choice for Stretch, Pitch and Fit beats (my
+   recommendation, taken).
+46. **Reverse reverb and freeze / smear come from the FX chains + resampling** (my recommendation, taken): reverse, play through an
+   FX chain, capture, reverse again. No offline operation for them; they arrive with Pads step 3 (FXA-C) and the capture path.
+
+**Sample tools step 5, Texture, as built (2026-10-11; 211 engine tests in the 6 configurations, 96 UI tests, simulator + firmware
+built, firmware static RAM 66.0 %; NOT tried by the user, NOT flashed, NOT listened to, NOT timed or memory-checked on the board):**
+- **`engine/offline/rfft.*`**: a float FFT of a real signal, 4096 points, in place (one complex FFT of 2048 points and the even / odd
+  split), its quarter-wave sine table in the caller's memory. Checked against a direct transform (5e-5 on bins of ~1800) and its
+  inverse (6e-7).
+- **Paulstretch** (EDIT op "Paulstr.", x1.5..x64, x8 by default; ProcOp `Paul`): Hann-windowed frames of 4096, magnitudes kept,
+  phases random, overlapped by half under a sine window (the frames are unrelated: their powers add to 1). The result is 6 dB under
+  the source (the random phases turn a tone into a noise band with higher peaks); Normalize after. The result is capped at 8 million
+  frames (2 min 46 at 48 kHz, 16 MB). Measured: a 440 Hz tone x4 keeps 100 % of its energy within 60 Hz, level -6.2 dB.
+- **Tonal** (the EDIT page's Algo row, shown for Stretch, Pitch, Fit beats; ProcOps `StretchTonal`, `PitchTonal`): a phase vocoder,
+  frames of 4096 at 75 % overlap; each spectral peak goes on at the frequency its phase advance shows and its neighbours are turned
+  with it (identity phase locking), phases kept as 16-bit angles, atan by a polynomial (the FPU has none). x1 gives the sample back
+  (+-1 LSB). Measured on tones: level within 0.01 dB, everything else 45..85 dB under (WSOLA: 34..47); a three-note chord at x1.5
+  keeps every note within 0.04 dB. Expect soft attacks (a window is 85 ms) and, below about x0.5, a rougher result.
+- **The working memory is per operation now** (`Processor::work_bytes`, lent by the card job from PSRAM for the job's time; the
+  processor itself is 4.9 KB and its block doubles as the job's header block): none for the level / color operations, Resample
+  6.3 KB, Stretch 10.8 KB, Pitch 17 KB, Paulstretch 28.7 KB, Tonal stretch 36.9 KB, Tonal pitch 43.2 KB. **With the job's ~5 KB the
+  worst case is ~48 KB of the ~59 KB the board has to spare: not checked on the board.** If the memory is not there the job is
+  refused ("Busy, no card or no memory"), nothing else breaks. If it turns out too tight: 16 KB less sample memory, or Tonal pitch
+  in two passes.
+- Card: a spectral frame reads its 4096 frames again every hop (8 KB read per 2 KB written for Tonal, per 4 KB for Paulstretch).
+  Not timed on the board; the card task runs two hops per call, so streamed pads may underrun while a job runs (to measure).
 
 ## Known limits and ideas for later
 

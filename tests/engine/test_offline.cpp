@@ -30,7 +30,8 @@ std::vector<int16_t> run(const std::vector<int16_t> &x, sc::ProcOp op, int32_t a
     in.frames = static_cast<uint32_t>(x.size());
     MemReader r(x);
     MemWriter w;
-    p.begin(in, op, amount, amount2);
+    std::vector<uint64_t> work((sc::Processor::work_bytes(op) + 7) / 8 + 1);  // the operation's working memory
+    p.begin(in, op, amount, amount2, work.data());
     for (int guard = 0; guard < 100000 && !p.done(); guard++) CHECK(p.step(r, w, 3));
     CHECK(p.done());
     CHECK_EQ(w.y.size(), p.out_header().frames);
@@ -155,7 +156,17 @@ TEST(offline_render_job_writes_a_new_smp_on_the_card) {
     for (uint32_t i = 20000; i < 30000; i++) p = std::max(p, std::abs(static_cast<int>(static_cast<int16_t>(sc::get16(&out2[sc::kSmpBlockBytes + 2 * i])))));
     std::printf("    card job, stretch: %d steps, %u frames, peak %d (the tone's 3276)\n", steps, oh.frames, p);
     CHECK(std::abs(p - 3276) <= 40);
-    CHECK(!engine_synth_render_start("src", "x", 17, 0, 0));                    // not an operation
+    CHECK(engine_synth_render_start("src", "src~3", 19, 2000000, 0));       // Paulstretch x2: a job with working memory of its own
+    while (engine_synth_render_step()) {}
+    CHECK_EQ(engine_synth_render_poll(nullptr), RENDER_DONE);
+    engine_synth_render_done();
+    std::ifstream in3(root / STORAGE_DIR_SAMPLES / "src~3.smp", std::ios::binary);
+    std::vector<uint8_t> out3((std::istreambuf_iterator<char>(in3)), std::istreambuf_iterator<char>());
+    in3.close();
+    CHECK(out3.size() >= sc::kSmpBlockBytes && sc::smp_parse_header(out3.data(), static_cast<uint32_t>(out3.size()), oh));
+    CHECK_EQ(oh.frames, 60000u);
+    CHECK(oh.loop_start == 2000 && oh.loop_end == 40000 && oh.has_peaks());
+    CHECK(!engine_synth_render_start("src", "x", 20, 0, 0));                    // not an operation
     CHECK(engine_synth_render_start("missing", "m~1", 0, 0, 0));                // a source that is not there: FAILED, no file left
     while (engine_synth_render_step()) {}
     CHECK_EQ(engine_synth_render_poll(nullptr), RENDER_FAILED);
@@ -355,4 +366,123 @@ TEST(offline_filters_are_second_order_butterworth) {
     std::vector<int16_t> dc(48000, 8000);                                    // a high-pass removes a constant
     const std::vector<int16_t> h = run(dc, sc::ProcOp::HighPass, 100);
     CHECK(std::abs(h[47000]) <= 1);
+}
+
+/* ---------------- the spectral methods: the 4096-point FFT, the Tonal stretch (phase vocoder), paulstretch ---------------- */
+#include "engine/offline/rfft.h"
+
+TEST(offline_rfft_matches_a_direct_transform_and_inverts) {
+    const int N = sc::kRfftN;
+    std::vector<float> t(N / 4 + 1), x(N + 2);
+    std::vector<double> ref(N);
+    sc::rfft_table(t.data());
+    uint32_t rng = 12345;
+    for (int n = 0; n < N; n++) {                                             // two tones (one between bins) and noise
+        rng = rng * 1664525u + 1013904223u;
+        ref[n] = std::sin(6.283185307179586 * 37.3 * n / N) + 0.5 * std::cos(6.283185307179586 * 801.0 * n / N) + ((rng >> 8) / 16777216.0 - 0.5);
+        x[n] = static_cast<float>(ref[n]);
+    }
+    sc::rfft_forward(x.data(), t.data());
+    double worst = 0, big = 0;
+    for (int k : {0, 1, 2, 37, 38, 500, 801, 1024, 1025, 2047, 2048}) {
+        double re = 0, im = 0;
+        for (int n = 0; n < N; n++) { re += ref[n] * std::cos(6.283185307179586 * n * k / N); im -= ref[n] * std::sin(6.283185307179586 * n * k / N); }
+        worst = std::max(worst, std::max(std::fabs(x[2 * k] - re), std::fabs(x[2 * k + 1] - im)));
+        big = std::max(big, std::hypot(re, im));
+    }
+    sc::rfft_inverse(x.data(), t.data());
+    double back = 0;
+    for (int n = 0; n < N; n++) back = std::max(back, std::fabs(x[n] / (N / 2) - ref[n]));
+    std::printf("    rfft 4096: worst bin error %.2e (largest bin %.0f), round trip error %.2e\n", worst, big, back);
+    CHECK(worst < 2e-3 * big / 1000.0 + 5e-3);
+    CHECK(back < 2e-5);
+}
+
+TEST(offline_tonal_stretch_keeps_tones_and_a_chord) {
+    std::vector<int16_t> x(60000);
+    for (size_t i = 0; i < x.size(); i++) {
+        const double t = static_cast<double>(i) / 48000.0;
+        x[i] = static_cast<int16_t>(9000.0 * (0.4 + 0.6 * t) * (std::sin(6.283185307 * 440.0 * t) + 0.7 * std::sin(6.283185307 * 617.3 * t)));
+    }
+    const std::vector<int16_t> same = run(x, sc::ProcOp::StretchTonal, 1000000);   // x1: the windows add up to the sample again
+    CHECK_EQ(same.size(), x.size());
+    int worst = 0;
+    for (size_t i = 0; i < same.size() && i < x.size(); i++) worst = std::max(worst, std::abs(same[i] - x[i]));
+    std::printf("    tonal stretch x1: largest difference %d\n", worst);
+    CHECK(worst <= 3);
+    struct Case { double hz; int32_t ppm; };
+    const Case cases[] = {{440.0, 1500000}, {440.0, 500000}, {440.0, 730000}, {55.0, 2000000}, {3000.0, 1250000}, {110.0, 4000000}};
+    for (const Case &c : cases) {
+        const std::vector<int16_t> y = run(tone(96000, 0.5, c.hz), sc::ProcOp::StretchTonal, c.ppm);
+        CHECK_EQ(y.size(), static_cast<size_t>(96000.0 * c.ppm / 1e6 + 0.5));
+        const Part p = measure(y, y.size() / 8, y.size() * 7 / 8, c.hz);
+        std::printf("    tonal stretch x%.2f of %.0f Hz: level %+.2f dB, everything else %.1f dB under it\n", c.ppm / 1e6, c.hz, level(p), under(p));
+        CHECK(std::fabs(level(p)) < 0.3);
+        CHECK(under(p) > (c.hz < 200.0 ? 30.0 : 40.0));                       // (under 200 Hz the 4096-frame measure itself stops near 35 dB)
+    }
+    // a chord: every note keeps its level (the weakest window of each, against the 0.2 it had)
+    std::vector<int16_t> chord(96000);
+    const double notes[3] = {220.0, 277.18, 329.63};
+    for (size_t i = 0; i < chord.size(); i++) {
+        double v = 0;
+        for (double hz : notes) v += 0.2 * std::sin(6.283185307 * hz * static_cast<double>(i) / 48000.0);
+        chord[i] = static_cast<int16_t>(32767.0 * v);
+    }
+    const std::vector<int16_t> c15 = run(chord, sc::ProcOp::StretchTonal, 1500000);
+    for (double hz : notes) {
+        const Part p = measure(c15, 18000, 126000, hz);
+        std::printf("    tonal stretch x1.5 of a chord, %.0f Hz: %+.2f .. %+.2f dB\n", hz, tst::db(p.amp / 6553.4), tst::db(p.top / 6553.4));
+        CHECK(std::fabs(tst::db(p.amp / 6553.4)) < 0.5 && std::fabs(tst::db(p.top / 6553.4)) < 0.5);
+    }
+    sc::SmpHeader in, out;
+    in.loop_start = 1000; in.loop_end = 3000; in.loop_mode = sc::SMP_LOOP_FWD;
+    run(chord, sc::ProcOp::StretchTonal, 2000000, &out, in);
+    CHECK(out.loop_start == 2000 && out.loop_end == 6000);
+}
+
+TEST(offline_tonal_pitch_shifts_and_keeps_the_length) {
+    struct Case { int32_t cents; double hz; };
+    const Case cases[] = {{1200, 440.0}, {-1200, 440.0}, {-700, 440.0}, {300, 110.0}, {0, 440.0}};
+    for (const Case &c : cases) {
+        const std::vector<int16_t> x = tone(96000, 0.5, c.hz);
+        const std::vector<int16_t> y = run(x, sc::ProcOp::PitchTonal, c.cents);
+        CHECK_EQ(y.size(), x.size());
+        const double want = c.hz * std::pow(2.0, c.cents / 1200.0);
+        const Part p = measure(y, 12000, 84000, want);
+        std::printf("    tonal pitch %+d cents of %.0f Hz -> %.1f Hz: level %+.2f dB, everything else %.1f dB under it\n", c.cents, c.hz, want, level(p), under(p));
+        CHECK(std::fabs(level(p)) < 0.3);
+        CHECK(under(p) > 40.0);
+    }
+}
+
+TEST(offline_paulstretch_smears_a_tone_into_a_band_at_the_same_pitch) {
+    const std::vector<int16_t> x = tone(48000, 0.5, 440.0);
+    sc::SmpHeader in, out;
+    in.loop_start = 1000; in.loop_end = 3000; in.loop_mode = sc::SMP_LOOP_FWD;
+    const std::vector<int16_t> y = run(x, sc::ProcOp::Paul, 4000000, &out, in);   // 4 times as long
+    CHECK_EQ(y.size(), 192000u);
+    CHECK(out.loop_start == 4000 && out.loop_end == 12000);
+    double e = 0;
+    for (size_t i = 24000; i < 168000; i++) e += static_cast<double>(y[i]) * y[i];
+    const double rms = std::sqrt(e / 144000.0), in_rms = 16383.5 / 1.41421356;
+    // where the energy lies: the spectrum of 4096 frames from the middle, the bins around 440 Hz (bin 37.5) against all
+    const int N = sc::kRfftN;
+    std::vector<float> t(N / 4 + 1), f(N + 2);
+    sc::rfft_table(t.data());
+    for (int n = 0; n < N; n++) f[n] = static_cast<float>(y[90000 + n]) * (0.5f - 0.5f * static_cast<float>(std::cos(6.283185307 * n / N)));
+    sc::rfft_forward(f.data(), t.data());
+    double near = 0, all = 0;
+    for (int k = 0; k <= N / 2; k++) { const double pw = static_cast<double>(f[2 * k]) * f[2 * k] + static_cast<double>(f[2 * k + 1]) * f[2 * k + 1]; all += pw; if (k >= 33 && k <= 42) near += pw; }
+    const Part p = measure(y, 24000, 168000, 440.0);                        // a steady tone would give the same amplitude in every window
+    std::printf("    paulstretch x4 of 440 Hz: level %+.2f dB against the tone, %.1f %% of the energy within 60 Hz of it, peak %d, windows %.2f .. %.2f of the tone\n",
+                tst::db(rms / in_rms), 100.0 * near / all, peak(y), p.amp / 16383.5, p.top / 16383.5);
+    CHECK(std::fabs(tst::db(rms / in_rms) + 6.0) < 1.5);                     // 6 dB under the source, by design
+    CHECK(near / all > 0.97);
+    CHECK(peak(y) < 32767);                                                  // and the peaks had the room
+    CHECK(p.top / p.amp > 1.5);                                              // not a steady tone any more
+    std::printf("    working memory: stretch %zu, pitch %zu, resample %zu, tonal stretch %zu, tonal pitch %zu, paulstretch %zu bytes; the processor %zu\n",
+                sc::Processor::work_bytes(sc::ProcOp::Stretch), sc::Processor::work_bytes(sc::ProcOp::Pitch), sc::Processor::work_bytes(sc::ProcOp::Resample),
+                sc::Processor::work_bytes(sc::ProcOp::StretchTonal), sc::Processor::work_bytes(sc::ProcOp::PitchTonal), sc::Processor::work_bytes(sc::ProcOp::Paul),
+                sizeof(sc::Processor));
+    CHECK_EQ(sc::Processor::work_bytes(sc::ProcOp::Gain), 0u);
 }

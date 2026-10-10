@@ -39,12 +39,13 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
 - [ ] **Crop, Undo with its trim points, Color / lo-fi: try it** (ADR-041 "Sample tools: Crop, the trim points per version, Color"):
   EDIT ops Crop, Lo-fi rate, Bits, Drive, Low-pass, High-pass; Undo / Redo / Ver put Start / End / LStr back. BUILT 2026-10-10,
   host-tested (207 engine tests x 6, 95 UI tests), NOT tried, NOT flashed, NOT listened to. Crop is my addition (from: notes)
-- [ ] **Sample tools (next, before FX)**: design round done (ADR-041 decisions 33-38). Order: (1) chop (built 2026-10-10);
-  (2) render-to-card + version history (built 2026-10-10); (3) Level & cleanup (built 2026-10-10); (4) Time & pitch (built
-  2026-10-10, WSOLA + resampler); (6) Color / lo-fi (built 2026-10-10, out of order: it needed no decision; "print a pad's settings"
-  left for the capture path); **(5) Texture is next and needs the user's choices first**: paulstretch and a Tonal stretch need a float
-  FFT (2048 points = ~30 KB of the ~59 KB of spare PSRAM, 4096 = ~60 KB: does not fit beside the job), reverse reverb needs a
-  reverb's delay lines (~40 KB) and a second pass over a temporary file; freeze / smear (from: user)
+- [ ] **Texture: try it, by ear, and check it on the board** (sample tools 5; ADR-041 decisions 44-46 + "Sample tools step 5"):
+  EDIT op Paulstr. (x1.5..x64, a 4096-point window) and the Algo row Beat / Tonal for Stretch, Pitch, Fit beats. BUILT 2026-10-11,
+  host-tested (211 engine tests x 6, 96 UI tests), NOT tried, NOT flashed, NOT listened to. **On the board: does the memory fit
+  (Tonal pitch needs ~48 KB of the ~59 KB of spare PSRAM; a refusal shows "Busy, no card or no memory"), how long does a job take,
+  do streamed pads underrun meanwhile.** Reverse reverb and freeze / smear: from the FX chains + resampling (decision 46) (from: user)
+- [x] **Sample tools**: all six groups built 2026-10-10 / 11 (chop, render + history, Level, Time & pitch, Texture, Color); left for
+  the capture path: "print a pad's settings", reverse reverb, freeze / smear (done 2026-10-11)
 - [ ] **Pads steps 3-5**: FXA-C, live synth (design round), song mode + backtrack (design round); "Next: the production workflow" (from: user)
 - [ ] **Confirm: the full synth stops in the Pads section** (my reading of ADR-041 decision 22) (from: notes)
 - [ ] **Joystick swap: try it**: a push on an already bound parameter swaps X and Y, each keeps its range / curve (built 2026-10-09, 71 UI

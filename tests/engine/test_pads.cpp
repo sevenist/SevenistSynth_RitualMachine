@@ -462,3 +462,29 @@ TEST(pads_onset_scan_finds_the_attacks_of_a_drum_loop) {
         for (int i = 0; i < n; i++) if (std::fabs(static_cast<double>(f[i]) / kSampleRate - at[h]) < 0.012) { found++; break; }
     CHECK_EQ(found, 4);
 }
+
+TEST(pads_sync_lands_the_loop_start_on_the_grid) {
+    PadsApp a;
+    std::vector<int16_t> pcm = sine(300.0, 0.5);                              // a 0.5 s pre-roll at 300 Hz ...
+    const std::vector<int16_t> body = sine(500.0, 1.5);                       // ... then the loop at 500 Hz
+    pcm.insert(pcm.end(), body.begin(), body.end());
+    a.add("swell", pcm);
+    pad_t &p = a.pad(0, "swell");
+    p.loop = PAD_LOOP_TRIM; p.lstart = static_cast<uint32_t>(kSampleRate / 2); p.sync = 1; p.grid = PAD_GRID_BAR;
+    a.build();
+    engine_synth_set_clock(120, 16, 0, 1);                                    // a bar = 2 s
+    const long t0 = a.frames;
+    a.run(0.1);
+    engine_synth_pad_push(0);                                                 // 0.1 s in: the loop start can make the bar at 2.0 s
+    const long from = a.frames;
+    const Stereo s = a.run(2.4);
+    const long bar = t0 + static_cast<long>(2 * kSampleRate) - from, pre = bar - static_cast<long>(kSampleRate / 2);
+    const long on = onset(s.l, 0);
+    auto win = [&](long x0, long x1) { return std::vector<double>(s.l.begin() + x0, s.l.begin() + x1); };
+    const std::vector<double> roll = win(pre + 1000, bar - 1000), loop = win(bar + 1000, bar + static_cast<long>(0.3 * kSampleRate));
+    std::printf("    sync: pre-roll starts %ld samples from 1.5 s; 300 Hz %.1e / 500 Hz %.1e before the bar, 500 Hz %.1e / 300 Hz %.1e after\n",
+                on - pre, power_at(roll, 300.0), power_at(roll, 500.0), power_at(loop, 500.0), power_at(loop, 300.0));
+    CHECK(on >= pre - kBlock / 2 - 1 && on <= pre + kBlock / 2 + 2);
+    CHECK(power_at(roll, 300.0) > 100.0 * power_at(roll, 500.0));
+    CHECK(power_at(loop, 500.0) > 100.0 * power_at(loop, 300.0));
+}

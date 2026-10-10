@@ -77,6 +77,9 @@ public:
     // frame and returns how many, or -1 while it is not done (a failed sample: 0).
     void scan(int id);
     int onsets(int id, Onset *out, int max) const;
+    // The zero crossing (a sign change between two frames) nearest to `frame` (dir 0), or the first one after (+1) / before (-1) it, within
+    // 2048 frames, in the sample's data held in memory (its heads; a resident sample: all of it). -1 when there is none there.
+    int64_t zero_near(int id, uint32_t frame, int dir) const;
     bool ready(int id) const { return id >= 0 && id < kMaxSamples && slot_[id].state == SLOT_READY; }
     bool failed(int id) const { return id >= 0 && id < kMaxSamples && slot_[id].state == SLOT_FAILED; }
     const SampleSlot *slot(int id) const { return id >= 0 && id < kMaxSamples ? &slot_[id] : nullptr; }

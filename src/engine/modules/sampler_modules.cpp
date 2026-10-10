@@ -596,7 +596,7 @@ private:
     void push(int pad) {
         const PadBlob &b = pads_[pad];
         if (b.slot < 0) return;
-        if (b.grid) {
+        if (b.grid || b.sync) {
             if (want_[pad]) { if (b.mode == PADM_TOGGLE) want_[pad] = 0; return; }   // waiting: a toggle pushed again cancels, the others wait on
             if (b.mode == PADM_TOGGLE) if (Voice *cur = sounding(pad)) { stop(*cur, b.tail); follow(pad); return; }
             want_[pad] = 1;                                                      // its beat is found at the next process() (the clock is there)
@@ -612,8 +612,11 @@ private:
             if (!want_[pad]) continue;
             if (!tr || !tr->running) { want_[pad] = 0; start(pad); continue; }
             if (want_[pad] == 1) {
-                const uint64_t unit = pads_[pad].grid == 2 ? 4ull << 32 : 1ull << 32;
-                at_[pad] = (tr->beat_q32 + unit - 1) / unit * unit;
+                const PadBlob &b = pads_[pad];
+                const uint64_t unit = static_cast<uint64_t>(b.grid ? b.grid : 4) << 32;           // Sync without a grid: the bar
+                const uint64_t pre = b.sync ? static_cast<uint64_t>(b.preroll > 0 ? b.preroll : 0) * tr->inc_q32 : 0;   // beats before the anchor
+                const uint64_t line = (tr->beat_q32 + pre + unit - 1) / unit * unit;              // the first grid line the anchor can reach
+                at_[pad] = line - pre;
                 want_[pad] = 2;
             }
             if (tr->sample_at(at_[pad], n) <= n / 2) { want_[pad] = 0; start(pad, pads_[pad].from && pads_[pad].loop); }

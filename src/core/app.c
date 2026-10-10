@@ -317,7 +317,10 @@ static void pads_knob(app_t *app, int row, int value) {
     uint32_t frames = 0, rate = 0;
     for (int i = 0; p->file[0] && i < audio_sample_count(); i++)
         if (audio_sample_info(i, &in) && !strcmp(in.name, p->file)) { if (!in.pending) { frames = in.frames; rate = in.rate; } break; }
-    if (pad_param_set_norm(p, k, (float)value / INPUT_VALUE_MAX, frames)) pad_changed(app, pad);
+    app->ui.clock_bpm = app->seq.bpm;
+    const bool trim = k == PADP_START || k == PADP_END || k == PADP_LSTART;
+    if (trim ? pads_ui_trim(&app->ui, pad, k, 0, (float)value / INPUT_VALUE_MAX) : pad_param_set_norm(p, k, (float)value / INPUT_VALUE_MAX, frames))
+        pad_changed(app, pad);
     char t[24], v[16];
     pad_label(pad, t, sizeof t);
     snprintf(t + strlen(t), sizeof t - strlen(t), " %s", pad_param_label(k));
@@ -330,11 +333,12 @@ static void pads_knob(app_t *app, int row, int value) {
 
 static bool clock_running(const app_t *app) { return in_pads(app) ? app->pads_run : app->seq.running; }
 
+// The tempo; a popup only for Tap (the Pads header shows the BPM: user, 2026-10-10) and in the synth section, which has no BPM on screen.
 static void set_tempo(app_t *app, int bpm, const char *title) {
     app->seq.bpm = bpm < 40 ? 40 : bpm > 240 ? 240 : bpm;
     char t[16];
     snprintf(t, sizeof t, "%d BPM", app->seq.bpm);
-    popup_info(&app->popup, title, t, 0, audio_millis(), POPUP_INFO_MS);
+    if (!in_pads(app) || !strcmp(title, "TAP")) popup_info(&app->popup, title, t, 0, audio_millis(), POPUP_INFO_MS);
     app->dirty = true;
     catch_stale = true;                                     // a knob on the BPM row re-measures it
 }

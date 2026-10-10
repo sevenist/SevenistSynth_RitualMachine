@@ -11,6 +11,8 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
 Order: the Pads section first (user, 2026-10-09), the rest as chosen by Claude earlier (user: "I let you choose the order"). The user has made no sound design yet: **no saved patch or data to keep, old
 patches can be deleted, no migration code** (user, 2026-10-09). The rest of the workflow plan: "Next: the production workflow" below.
 
+- [ ] **Sync (loop start on the grid), Snap (Beat / 1/16 / Attack / Zero), grid units 1 beat .. 8 bars, editor pages PLAY / TONE / CHOP
+  from the header, no tempo popup in Pads: try it** (ADR-041 decisions 40-42; built 2026-10-10, 193 engine tests x 6, 87 UI tests) (from: user)
 - [ ] **Board test of 2026-10-10 (user, test list items 1-17)**: OK: section switch, grid, editor, layout, modes, mixing, knobs, loops
   (Off / Trim / File, crossfade), pads.cfg after reboot, Next. Fixed after it: BPM at the top left of the Pads header, the Stop key's popup,
   a muted pad that sounds pulses red <-> its colour, a "Chop >" button (Page - / + was not found). Open: voice steal and streaming not

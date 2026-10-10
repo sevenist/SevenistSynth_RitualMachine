@@ -185,7 +185,12 @@ PadBlob pad_blob(int idx, const pad_t &p) {
     b.mode = p.mode == PAD_GATE ? PADM_GATE : p.mode == PAD_TOGGLE ? PADM_TOGGLE : PADM_ONESHOT;
     b.loop = p.loop == PAD_LOOP_FILE ? 2 : p.loop == PAD_LOOP_TRIM ? 1 : 0;
     b.choke = p.choke;
-    b.grid = p.grid;
+    b.grid = static_cast<uint8_t>(pad_grid_beats(p.grid));
+    if (f >= 0 && s.bank_on && !s.cat[f].pending && p.sync && p.loop != PAD_LOOP_OFF && b.lstart > b.start) {
+        b.sync = 1;                                                             // the anchor: the loop start, reached after the pre-roll
+        const double ratio = std::pow(2.0, (p.tune * 100 + p.fine) / 1200.0) * s.cat[f].rate / kSampleRate;
+        b.preroll = p.from ? 0 : static_cast<int32_t>((b.lstart - b.start) / ratio);
+    }
     if (p.next) {                                                               // a neighbour on the bank's 4 x 4 grid (none past an edge)
         const int bank = idx / PADS_PER_BANK * PADS_PER_BANK, k = idx % PADS_PER_BANK, r = k / 4, c = k % 4;
         const int nr = r + (p.next == PAD_NEXT_DOWN) - (p.next == PAD_NEXT_UP), nc = c + (p.next == PAD_NEXT_RIGHT) - (p.next == PAD_NEXT_LEFT);
@@ -423,6 +428,13 @@ void engine_synth_pad_release(int pad) { if (pad >= 0 && pad < PAD_COUNT) pad_ev
 void engine_synth_pads_stop(void)      { pad_event(PADS_STOP, 0); }
 uint64_t engine_synth_pads_playing(void) { return s_ready && s_synth.pads_mode ? pads_playing() : 0; }
 int32_t engine_synth_pad_position(int pad) { return s_ready && s_synth.pads_mode ? pads_position(pad) : -1; }
+
+int64_t engine_synth_sample_zero(int index, uint32_t frame, int dir) {
+    if (!s_ready) return -1;
+    std::lock_guard<std::mutex> lk(s_synth.mx);
+    if (index < 0 || index >= s_synth.cat_n || s_synth.slot_of[index] < 0) return -1;
+    return s_synth.bank.zero_near(s_synth.slot_of[index], frame, dir);
+}
 
 int engine_synth_sample_onsets(int index, uint32_t *frames, uint16_t *strength, int max) {
     if (!s_ready) return 0;

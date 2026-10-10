@@ -48,6 +48,9 @@ int32_t  engine_synth_pad_position(int pad);         // where a pad's sound is i
 // The attacks of a library file (the transient chop): asks the loader to scan it (once) and returns how many onsets it copied (frame,
 // strength = log10 of the energy rise x 1000), -1 while the scan is not done (call again), 0 for none / a file that is not there.
 int engine_synth_sample_onsets(int index, uint32_t *frames, uint16_t *strength, int max);
+// The zero crossing nearest to `frame` of a library file (dir 0), or the next one after (+1) / before (-1) it; only where the sample is in
+// memory (a resident pad sample, the start of a streamed one): -1 elsewhere.
+int64_t engine_synth_sample_zero(int index, uint32_t frame, int dir);
 
 // [AUDIO THREAD] renders `frames` stereo frames of interleaved signed 16-bit samples (any frame count).
 void engine_synth_render(int16_t *stereo, int frames);

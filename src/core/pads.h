@@ -27,8 +27,14 @@ typedef enum { PAD_ONESHOT, PAD_GATE, PAD_TOGGLE, PAD_MODE_COUNT } pad_mode_t;
 // points of the file itself, exact (the pad plays from its start and loops there; a ping-pong file loop stays ping-pong). Assigning a file
 // that has loop points sets File; a file without them never offers File.
 typedef enum { PAD_LOOP_OFF, PAD_LOOP_TRIM, PAD_LOOP_FILE, PAD_LOOP_COUNT } pad_loop_t;
-// Start on grid (decision 24): with the clock running (Play) the pad waits for the next beat / bar; stopped, it starts at once.
-typedef enum { PAD_GRID_OFF, PAD_GRID_BEAT, PAD_GRID_BAR, PAD_GRID_COUNT } pad_grid_t;
+// Start on grid (decision 24): with the clock running (Play) the pad waits for the next grid line; stopped, it starts at once. The grid
+// unit (decision 41): 1 or 2 beats, 1 .. 8 bars of 4/4.
+typedef enum { PAD_GRID_OFF, PAD_GRID_BEAT, PAD_GRID_2BEAT, PAD_GRID_BAR, PAD_GRID_2BAR, PAD_GRID_3BAR, PAD_GRID_4BAR, PAD_GRID_5BAR,
+               PAD_GRID_6BAR, PAD_GRID_7BAR, PAD_GRID_8BAR, PAD_GRID_COUNT } pad_grid_t;
+int pad_grid_beats(int grid);                              // 0 (off), 1, 2, 4, 8 .. 32
+// Snap (decision 40): where Start / End / LStr go when they move: Off, a beat at the clock's tempo, 1/16 of the sample, the attacks of the
+// onset scan, a zero crossing. Start counts from the file's start, LStr from Start, End from LStr when the pad loops (else from Start).
+typedef enum { PAD_SNAP_OFF, PAD_SNAP_BEAT, PAD_SNAP_16TH, PAD_SNAP_ATTACK, PAD_SNAP_ZERO, PAD_SNAP_COUNT } pad_snap_t;
 // Next (user, 2026-10-10): the neighbour on the bank's 4 x 4 grid that starts when this pad ends by itself or is stopped by hand (toggle
 // off, gate release); not on Stop all or Play / Stop. None past the grid's edge.
 typedef enum { PAD_NEXT_OFF, PAD_NEXT_UP, PAD_NEXT_DOWN, PAD_NEXT_LEFT, PAD_NEXT_RIGHT, PAD_NEXT_COUNT } pad_next_t;
@@ -42,6 +48,9 @@ typedef struct {
     uint8_t  xpost;               // 0 Pre: the fade-in comes from before the loop start (and ends there); 1 Post: it starts at the loop start
     uint8_t  from;                // a grid launch starts at 0 the sample start, 1 the loop start (user, 2026-10-10)
     uint8_t  next;                // pad_next_t
+    uint8_t  sync;                // 1 = the loop start is the anchor (decision 41): with the clock running the pad starts early enough for its
+                                  // loop start to land on the grid (a stopped clock: at once)
+    uint8_t  snap;                // pad_snap_t
     uint8_t  mode;                // pad_mode_t: one-shot (plays to its end), gate (stops on release), toggle (a push starts, the next stops)
     uint8_t  loop;                // pad_loop_t: loops until stopped (Trim: start..end, File: the file's loop points)
     uint16_t tail_ms;             // fade-out after a stop (gate release, toggle off, Stop all)
@@ -60,7 +69,8 @@ typedef struct { pad_t pad[PAD_COUNT]; } pads_t;
 
 // The pad settings, in the order the pad editor shows them.
 typedef enum { PADP_FILE, PADP_MODE, PADP_START, PADP_END, PADP_LOOP, PADP_TAIL, PADP_TUNE, PADP_FINE, PADP_LEVEL, PADP_PAN,
-               PADP_CUT, PADP_RES, PADP_CHOKE, PADP_MUTE, PADP_GRID, PADP_LSTART, PADP_XFADE, PADP_XPOS, PADP_FROM, PADP_NEXT, PADP_COUNT } pad_param_t;
+               PADP_CUT, PADP_RES, PADP_CHOKE, PADP_MUTE, PADP_GRID, PADP_LSTART, PADP_XFADE, PADP_XPOS, PADP_FROM, PADP_NEXT, PADP_SYNC,
+               PADP_SNAP, PADP_COUNT } pad_param_t;
 
 void pad_default(pad_t *p);
 void pads_init(pads_t *ps);                                // every pad empty, default settings
@@ -78,6 +88,13 @@ bool pad_param_set_norm(pad_t *p, pad_param_t k, float x, uint32_t frames);
 // The trim as the engine plays it, for a file of `frames` frames: start < end <= frames, start <= loop start < end - 1.
 uint32_t pad_end(const pad_t *p, uint32_t frames);
 uint32_t pad_lstart(const pad_t *p, uint32_t frames);
+// A trim point (PADP_START / END / LSTART) set to `v` frames, kept in order (start < loop start < end - 1 <= frames).
+void pad_set_trim(pad_t *p, pad_param_t k, int64_t v, uint32_t frames);
+// The snap points of Beat / 1/16 (Attack and Zero need the file: the UI): the next point after `v` in the direction `dir` (+1 / -1), or the
+// nearest one (dir 0), for the trim point k. -1 when the snap has no points here (Off, Attack, Zero, no tempo).
+int64_t pad_snap_grid(const pad_t *p, pad_param_t k, uint32_t v, int dir, uint32_t frames, uint32_t rate, int bpm);
+// Where k counts from (the snap's origin): 0 for Start, Start for LStr, LStr (looping) or Start for End.
+uint32_t pad_snap_origin(const pad_t *p, pad_param_t k, uint32_t frames);
 float pad_cut_hz(const pad_t *p);                          // the cutoff in Hz (pad.cut 100: 0 = off)
 
 /* ---- chopping (ADR-041 decisions 34-35): cuts inside a pad's trim, then the slices onto consecutive pads (same file) ---- */

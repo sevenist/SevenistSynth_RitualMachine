@@ -20,12 +20,16 @@ void pad_label(int pad, char *out, int n) {
     snprintf(out, (size_t)n, "%c%d", 'A' + pad / PADS_PER_BANK, pad % PADS_PER_BANK + 1);
 }
 
-static const char *const labels[PADP_COUNT] = {"Smp", "Mode", "Strt", "End", "Loop", "Tail", "Tune", "Fine", "Lvl", "Pan", "Cut", "Res", "Chok", "Mute", "Grid", "LStr", "XFad", "XPos", "From", "Next"};
+static const char *const labels[PADP_COUNT] = {"Smp", "Mode", "Strt", "End", "Loop", "Tail", "Tune", "Fine", "Lvl", "Pan", "Cut", "Res", "Chok", "Mute", "Grid", "LStr", "XFad", "XPos", "From", "Next", "Sync", "Snap"};
 static const char *const mode_names[PAD_MODE_COUNT] = {"One", "Gate", "Togl"};
 static const char *const mode_toks[PAD_MODE_COUNT]  = {"one", "gate", "toggle"};
 static const char *const loop_names[PAD_LOOP_COUNT] = {"Off", "Trim", "File"};
-static const char *const grid_names[PAD_GRID_COUNT] = {"Off", "Beat", "Bar"};
-static const char *const grid_toks[PAD_GRID_COUNT]  = {"off", "beat", "bar"};
+static const char *const grid_names[PAD_GRID_COUNT] = {"Off", "Beat", "2Bt", "Bar", "2Bar", "3Bar", "4Bar", "5Bar", "6Bar", "7Bar", "8Bar"};
+static const char *const grid_toks[PAD_GRID_COUNT]  = {"off", "beat", "2beat", "bar", "2bar", "3bar", "4bar", "5bar", "6bar", "7bar", "8bar"};
+static const char *const snap_names[PAD_SNAP_COUNT] = {"Off", "Beat", "1/16", "Atk", "Zero"};
+static const char *const snap_toks[PAD_SNAP_COUNT]  = {"off", "beat", "16th", "attack", "zero"};
+
+int pad_grid_beats(int grid) { return grid <= PAD_GRID_OFF || grid >= PAD_GRID_COUNT ? 0 : grid == PAD_GRID_BEAT ? 1 : grid == PAD_GRID_2BEAT ? 2 : 4 * (grid - PAD_GRID_BAR + 1); }
 static const char *const next_names[PAD_NEXT_COUNT] = {"Off", "Up", "Down", "Left", "Right"};
 static const char *const next_toks[PAD_NEXT_COUNT]  = {"off", "up", "down", "left", "right"};
 
@@ -63,6 +67,8 @@ void pad_param_format(const pad_t *p, pad_param_t k, uint32_t frames, uint32_t r
         case PADP_XPOS:  snprintf(out, (size_t)n, "%s", p->xpost ? "Post" : "Pre"); break;
         case PADP_FROM:  snprintf(out, (size_t)n, "%s", p->from ? "Loop" : "Start"); break;
         case PADP_NEXT:  snprintf(out, (size_t)n, "%s", next_names[p->next % PAD_NEXT_COUNT]); break;
+        case PADP_SYNC:  snprintf(out, (size_t)n, "%s", p->sync ? "Loop" : "Off"); break;
+        case PADP_SNAP:  snprintf(out, (size_t)n, "%s", snap_names[p->snap % PAD_SNAP_COUNT]); break;
         case PADP_LOOP:  snprintf(out, (size_t)n, "%s", loop_names[p->loop % PAD_LOOP_COUNT]); break;
         case PADP_TAIL:  snprintf(out, (size_t)n, "%dms", p->tail_ms); break;
         case PADP_TUNE:  snprintf(out, (size_t)n, "%+dst", p->tune); break;
@@ -94,7 +100,7 @@ static int tail_step(int ms, int dir) {
 static int64_t clampl(int64_t v, int64_t lo, int64_t hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 // A trim point moved to `v` (frames), kept in order: start < loop start < end - 1 <= the file.
-static void set_trim(pad_t *p, pad_param_t k, int64_t v, uint32_t frames) {
+void pad_set_trim(pad_t *p, pad_param_t k, int64_t v, uint32_t frames) {
     if (frames < 4) return;
     const uint32_t e = pad_end(p, frames);
     switch (k) {
@@ -114,13 +120,15 @@ bool pad_param_adjust(pad_t *p, pad_param_t k, int dir, uint32_t frames) {
     const int64_t tstep = g_fine_step ? (frames / 1000 ? frames / 1000 : 1) : (frames / 200 ? frames / 200 : 1);
     switch (k) {
         case PADP_MODE:  p->mode = (uint8_t)((p->mode + PAD_MODE_COUNT + d) % PAD_MODE_COUNT); break;
-        case PADP_START: set_trim(p, k, (int64_t)p->start + d * tstep, frames); break;
-        case PADP_END:   set_trim(p, k, (int64_t)pad_end(p, frames) + d * tstep, frames); break;
-        case PADP_LSTART: set_trim(p, k, (int64_t)pad_lstart(p, frames) + d * tstep, frames); break;
+        case PADP_START: pad_set_trim(p, k, (int64_t)p->start + d * tstep, frames); break;
+        case PADP_END:   pad_set_trim(p, k, (int64_t)pad_end(p, frames) + d * tstep, frames); break;
+        case PADP_LSTART: pad_set_trim(p, k, (int64_t)pad_lstart(p, frames) + d * tstep, frames); break;
         case PADP_XFADE: p->xfade_ms = (uint16_t)tail_step(p->xfade_ms, d); break;
         case PADP_XPOS:  p->xpost = !p->xpost; break;
         case PADP_FROM:  p->from = !p->from; break;
         case PADP_NEXT:  p->next = (uint8_t)((p->next + PAD_NEXT_COUNT + d) % PAD_NEXT_COUNT); break;
+        case PADP_SYNC:  p->sync = !p->sync; break;
+        case PADP_SNAP:  p->snap = (uint8_t)((p->snap + PAD_SNAP_COUNT + d) % PAD_SNAP_COUNT); break;
         case PADP_LOOP:  p->loop = (uint8_t)((p->loop + PAD_LOOP_COUNT + d) % PAD_LOOP_COUNT); break;
         case PADP_TAIL:  p->tail_ms = (uint16_t)tail_step(p->tail_ms, d); break;
         case PADP_TUNE:  p->tune = (int8_t)clampi(p->tune + d, -24, 24); break;
@@ -131,7 +139,7 @@ bool pad_param_adjust(pad_t *p, pad_param_t k, int dir, uint32_t frames) {
         case PADP_RES:   p->res = (uint8_t)clampi(p->res + d * fine_int_step(5), 0, 100); break;
         case PADP_CHOKE: p->choke = (uint8_t)((p->choke + PAD_CHOKES + 1 + d) % (PAD_CHOKES + 1)); break;
         case PADP_MUTE:  p->mute = !p->mute; break;
-        case PADP_GRID:  p->grid = (uint8_t)((p->grid + PAD_GRID_COUNT + d) % PAD_GRID_COUNT); break;
+        case PADP_GRID:  p->grid = (uint8_t)clampi(p->grid + d, 0, PAD_GRID_COUNT - 1); break;
         default: break;
     }
     return memcmp(&old, p, sizeof old) != 0;
@@ -144,11 +152,13 @@ bool pad_param_set_norm(pad_t *p, pad_param_t k, float x, uint32_t frames) {
     const int64_t at = (int64_t)((double)x * frames + 0.5);
     switch (k) {
         case PADP_MODE:  p->mode = (uint8_t)clampi((int)(x * PAD_MODE_COUNT), 0, PAD_MODE_COUNT - 1); break;
-        case PADP_START: case PADP_END: case PADP_LSTART: set_trim(p, k, at, frames); break;
+        case PADP_START: case PADP_END: case PADP_LSTART: pad_set_trim(p, k, at, frames); break;
         case PADP_XFADE: p->xfade_ms = (uint16_t)(x * x * 2000.0f + 0.5f); break;
         case PADP_XPOS:  p->xpost = x >= 0.5f; break;
         case PADP_FROM:  p->from = x >= 0.5f; break;
         case PADP_NEXT:  p->next = (uint8_t)clampi((int)(x * PAD_NEXT_COUNT), 0, PAD_NEXT_COUNT - 1); break;
+        case PADP_SYNC:  p->sync = x >= 0.5f; break;
+        case PADP_SNAP:  p->snap = (uint8_t)clampi((int)(x * PAD_SNAP_COUNT), 0, PAD_SNAP_COUNT - 1); break;
         case PADP_LOOP:  p->loop = (uint8_t)clampi((int)(x * PAD_LOOP_COUNT), 0, PAD_LOOP_COUNT - 1); break;
         case PADP_TAIL:  p->tail_ms = (uint16_t)(x * x * 2000.0f + 0.5f); break;
         case PADP_TUNE:  p->tune = (int8_t)clampi((int)lroundf(x * 48.0f) - 24, -24, 24); break;
@@ -163,6 +173,27 @@ bool pad_param_set_norm(pad_t *p, pad_param_t k, float x, uint32_t frames) {
         default: break;
     }
     return memcmp(&old, p, sizeof old) != 0;
+}
+
+/* ---------------- snap ---------------- */
+
+uint32_t pad_snap_origin(const pad_t *p, pad_param_t k, uint32_t frames) {
+    if (k == PADP_START) return 0;
+    if (k == PADP_END && p->loop == PAD_LOOP_TRIM) return pad_lstart(p, frames);
+    return p->start;
+}
+
+int64_t pad_snap_grid(const pad_t *p, pad_param_t k, uint32_t v, int dir, uint32_t frames, uint32_t rate, int bpm) {
+    uint64_t unit = 0;
+    if (p->snap == PAD_SNAP_BEAT && rate && bpm > 0) unit = (uint64_t)rate * 60u / (uint64_t)bpm;
+    if (p->snap == PAD_SNAP_16TH) unit = frames / 16;
+    if (!unit) return -1;
+    const int64_t o = pad_snap_origin(p, k, frames), rel = (int64_t)v - o;
+    int64_t q;
+    if (dir > 0)      q = (rel >= 0 ? rel / (int64_t)unit + 1 : -((-rel) / (int64_t)unit));
+    else if (dir < 0) q = (rel > 0 ? (rel - 1) / (int64_t)unit : -((-rel) / (int64_t)unit) - 1);
+    else              q = (rel + (int64_t)unit / 2) / (int64_t)unit - (rel < 0 && (-rel) % (int64_t)unit > (int64_t)unit / 2 ? 1 : 0);
+    return o + q * (int64_t)unit;
 }
 
 /* ---------------- chopping ---------------- */
@@ -297,6 +328,8 @@ int pads_to_text(const pads_t *ps, char *buf, int cap) {
         FIELD(p->xpost != d.xpost, " xpos %s", p->xpost ? "post" : "pre");
         FIELD(p->from != d.from, " from %s", p->from ? "loop" : "start");
         FIELD(p->next != d.next, " next %s", next_toks[p->next % PAD_NEXT_COUNT]);
+        FIELD(p->sync != d.sync, " sync %d", p->sync);
+        FIELD(p->snap != d.snap, " snap %s", snap_toks[p->snap % PAD_SNAP_COUNT]);
         FIELD(p->tail_ms != d.tail_ms, " tail %d", p->tail_ms);
         FIELD(p->tune != d.tune, " tune %d", p->tune);
         FIELD(p->fine != d.fine, " fine %d", p->fine);
@@ -353,6 +386,8 @@ static void parse_pad(pad_t *p, const char *s) {
         else if (!strcmp(key, "xpos"))  p->xpost = !strcmp(val, "post");
         else if (!strcmp(key, "from"))  p->from = !strcmp(val, "loop");
         else if (!strcmp(key, "next")) { for (int k = 0; k < PAD_NEXT_COUNT; k++) if (!strcmp(val, next_toks[k])) p->next = (uint8_t)k; }
+        else if (!strcmp(key, "sync"))  p->sync = v != 0;
+        else if (!strcmp(key, "snap")) { for (int k = 0; k < PAD_SNAP_COUNT; k++) if (!strcmp(val, snap_toks[k])) p->snap = (uint8_t)k; }
         else if (!strcmp(key, "tail"))  p->tail_ms = (uint16_t)clampi(v, 0, 2000);
         else if (!strcmp(key, "tune"))  p->tune = (int8_t)clampi(v, -24, 24);
         else if (!strcmp(key, "fine"))  p->fine = (int8_t)clampi(v, -50, 50);

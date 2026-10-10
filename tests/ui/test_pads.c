@@ -112,11 +112,14 @@ TEST(pads_grid_and_editor) {
     ev_turn(CTL_ENC_B, 1);
     CHECK_EQ(ui_app.pads.pad[pad].mode, PAD_GATE);
     CHECK_EQ(ui_app.ui.row, 0);                                          // the synth screens' focus was not touched
-    ev_turn(CTL_ENC_A, -2);                                              // the header: encoder B steps to the next pad
+    ev_turn(CTL_ENC_A, -2);                                              // the header: encoder B steps the page (PLAY, TONE, CHOP)
     CHECK_EQ(ui_app.ui.pad_row, 0);
     ev_turn(CTL_ENC_B, 1);
-    CHECK_EQ(ui_app.ui.pad_cur, 6);
-    ev_tap(BACK);                                                        // Back: the grid
+    CHECK_EQ(ui_app.ui.pad_page, 1);
+    CHECK_EQ(ui_app.ui.pad_cur, 5);                                      // the pad stays (a pad key changes it)
+    ev_tap(BACK);                                                        // Back: TONE -> PLAY -> the grid
+    CHECK(ui_app.ui.pad_edit && ui_app.ui.pad_page == 0);
+    ev_tap(BACK);
     CHECK(!ui_app.ui.pad_edit);
     ev_tap(MENU);
     CHECK_EQ(ui_app.section, SECTION_PADS);
@@ -225,7 +228,7 @@ TEST(pads_tempo_keys_tap_click_and_bindings) {
     CHECK_EQ(ui_app.seq.bpm, bpm + 1);
     ev_tap(BPM_DN_KEY); ev_tap(BPM_DN_KEY);
     CHECK_EQ(ui_app.seq.bpm, bpm - 1);
-    CHECK_STR(ui_app.popup.info.title, "TEMPO");
+    CHECK(strcmp(ui_app.popup.info.title, "TEMPO") != 0);                // no popup: the Pads header shows the BPM
     ev_tap(CLICK_KEY);
     CHECK_EQ(ui_stub_metronome, 1);
     ev_tap(CLICK_KEY);
@@ -261,7 +264,7 @@ TEST(pads_grid_setting_in_the_editor_and_the_file) {
     shift_menu();
     ev_tap(CTL_JOY_SW);
     ev_turn(CTL_ENC_A, 6);                                               // Grid: Mode Strt End Loop Tail Grid (the loop rows are hidden)
-    ev_turn(CTL_ENC_B, 2);
+    ev_turn(CTL_ENC_B, 3);                                               // Beat, 2 beats, a bar
     CHECK_EQ(ui_app.pads.pad[0].grid, PAD_GRID_BAR);
     static char txt[STORAGE_FILE_MAX];
     pads_to_text(&ui_app.pads, txt, sizeof txt);
@@ -294,8 +297,8 @@ TEST(pads_loop_rows_show_while_the_pad_loops) {
     ev_turn(CTL_ENC_A, 2);                                               // Tail, Grid
     ev_turn(CTL_ENC_B, 1);                                               // Beat: From appears in the right column
     CHECK_EQ(ui_app.pads.pad[0].grid, PAD_GRID_BEAT);
-    ev_turn(CTL_ENC_A, 9);                                               // Lvl Pan Tune Fine Cut Res Chok Mute From
-    CHECK_EQ(ui_app.ui.pad_row, 19);
+    ev_turn(CTL_ENC_A, 2);                                               // Sync, From
+    CHECK_EQ(ui_app.ui.pad_row, pads_ui_row(0, PADP_FROM));
     ev_turn(CTL_ENC_B, 1);
     CHECK_EQ(ui_app.pads.pad[0].from, 1);
 }
@@ -307,8 +310,8 @@ TEST(pads_chop_equal_grid_transient_manual_and_apply) {
     ui_app.pads.pad[0].level = 55;
     shift_menu();
     ev_tap(CTL_JOY_SW);                                                  // the editor of A1
-    ev_press(SHIFT); ev_turn(CTL_ENC_A, 1); ev_release(SHIFT);           // Shift + encoder A = Page: CHOP
-    CHECK_EQ(ui_app.ui.pad_page, 1);
+    ev_press(SHIFT); ev_turn(CTL_ENC_A, 2); ev_release(SHIFT);           // Shift + encoder A = Page: TONE, CHOP
+    CHECK_EQ(ui_app.ui.pad_page, 2);
     CHECK_EQ(ui_app.ui.chop.mode, CHOP_EQUAL);
     CHECK_EQ(ui_app.ui.chop.n_cuts, 3);                                  // Equal 4: 3 cuts
     CHECK_EQ(ui_app.ui.chop.cut[0], 24000);
@@ -358,7 +361,7 @@ TEST(pads_next_setting_and_file) {
     ui_fresh();
     shift_menu();
     ev_tap(CTL_JOY_SW);
-    ui_app.ui.pad_row = 20;                                              // Next (the last row of the left column)
+    ui_app.ui.pad_row = pads_ui_row(0, PADP_NEXT);
     ev_turn(CTL_ENC_B, 4);
     CHECK_EQ(ui_app.pads.pad[0].next, PAD_NEXT_RIGHT);
     static char txt[STORAGE_FILE_MAX];
@@ -366,14 +369,14 @@ TEST(pads_next_setting_and_file) {
     CHECK(strstr(txt, "pad A1 next right") != NULL);
 }
 
-TEST(pads_chop_button_back_path_and_stop_popup) {
+TEST(pads_chop_page_back_path_and_stop_popup) {
     ui_fresh();
     snprintf(ui_app.pads.pad[0].file, PAD_NAME_MAX, "demo0");
     shift_menu();
     ev_tap(CTL_JOY_SW);                                                  // the pad page
-    ui_app.ui.pad_row = 21;                                              // "Chop >" (after Next)
-    ev_tap(CTL_JOY_SW);
-    CHECK_EQ(ui_app.ui.pad_page, 1);
+    ui_app.ui.pad_row = 0;                                               // the header: left = CHOP (PLAY <- CHOP)
+    ev_tap(CTL_JOY_LEFT);
+    CHECK_EQ(ui_app.ui.pad_page, 2);
     CHECK_EQ(ui_app.ui.chop.n_cuts, 3);
     ev_tap(BACK);                                                        // CHOP -> the pad page
     CHECK(ui_app.ui.pad_edit && ui_app.ui.pad_page == 0);
@@ -381,4 +384,49 @@ TEST(pads_chop_button_back_path_and_stop_popup) {
     CHECK(!ui_app.ui.pad_edit);
     ev_tap(STOP_KEY);                                                    // the Stop key says so, like Shift + Back
     CHECK_STR(ui_app.popup.info.text, "Stop all");
+}
+
+
+TEST(pads_snap_moves_the_trim_to_beats_sixteenths_attacks_and_zeros) {
+    ui_fresh();
+    snprintf(ui_app.pads.pad[0].file, PAD_NAME_MAX, "demo0");               // 96000 frames at 48 kHz
+    ui_app.seq.bpm = 120;                                                // a beat = 24000 frames
+    shift_menu();
+    ev_tap(CTL_JOY_SW);
+    pad_t *p = &ui_app.pads.pad[0];
+    const int strt = pads_ui_row(0, PADP_START), snap = pads_ui_row(0, PADP_SNAP), end = pads_ui_row(0, PADP_END);
+    ui_app.ui.pad_row = snap; ev_turn(CTL_ENC_B, 1);                      // Beat
+    ui_app.ui.pad_row = strt; ev_turn(CTL_ENC_B, 1);
+    CHECK_EQ(p->start, 24000);
+    ui_app.ui.pad_row = end; ev_turn(CTL_ENC_B, -1);                      // End counts from Start: 72000 (2 beats), then 48000
+    CHECK_EQ(pad_end(p, 96000), 72000);
+    ev_turn(CTL_ENC_B, -1);
+    CHECK_EQ(pad_end(p, 96000), 48000);
+    ui_app.ui.pad_row = snap; ev_turn(CTL_ENC_B, 1);                      // 1/16 of the sample: 6000 frames
+    ui_app.ui.pad_row = strt; ev_turn(CTL_ENC_B, 1);
+    CHECK_EQ(p->start, 30000);
+    ui_app.ui.pad_row = snap; ev_turn(CTL_ENC_B, 1);                      // Attack (the stub's onsets: 12000 30000 48000 72000)
+    ui_app.ui.pad_row = strt; ev_turn(CTL_ENC_B, -1);
+    CHECK_EQ(p->start, 12000);
+    ui_app.ui.pad_row = snap; ev_turn(CTL_ENC_B, 1);                      // Zero (the stub's: every 1000 frames)
+    ui_app.ui.pad_row = strt; ev_turn(CTL_ENC_B, 1);                      // a step of 480, then the next crossing
+    CHECK_EQ(p->start, 13000);
+    ev_knob(CTL_COL_KNOB_0, 5);                                          // a knob: the nearest crossing to where it points
+    CHECK_EQ(p->start % 1000, 0);
+}
+
+TEST(pads_sync_and_grid_units_in_the_file) {
+    pads_t a, b;
+    pads_init(&a);
+    a.pad[0].sync = 1; a.pad[0].grid = PAD_GRID_3BAR; a.pad[0].snap = PAD_SNAP_ZERO;
+    static char txt[STORAGE_FILE_MAX];
+    pads_to_text(&a, txt, sizeof txt);
+    CHECK(strstr(txt, " grid 3bar") && strstr(txt, " sync 1") && strstr(txt, " snap zero"));
+    pads_init(&b);
+    CHECK(pads_from_text(&b, txt));
+    CHECK(!memcmp(&a, &b, sizeof a));
+    CHECK_EQ(pad_grid_beats(PAD_GRID_BEAT), 1);
+    CHECK_EQ(pad_grid_beats(PAD_GRID_2BEAT), 2);
+    CHECK_EQ(pad_grid_beats(PAD_GRID_BAR), 4);
+    CHECK_EQ(pad_grid_beats(PAD_GRID_8BAR), 32);
 }

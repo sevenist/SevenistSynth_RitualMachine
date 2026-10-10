@@ -54,6 +54,13 @@ void audio_pad_release(int pad) { ui_stub_pad_releases++; if (pad >= 0 && pad < 
 void audio_pads_stop(void) { ui_stub_pads_stops++; stub_playing = 0; }
 uint64_t audio_pads_playing(void) { return stub_playing; }
 int32_t audio_pad_position(int pad) { (void)pad; return -1; }
+// zero crossings of the demo files: every 1000 frames
+int64_t audio_sample_zero(int index, uint32_t frame, int dir) {
+    if (index < 0 || index > 2) return -1;
+    if (dir > 0) return (frame / 1000 + 1) * 1000;
+    if (dir < 0) return frame % 1000 ? frame / 1000 * 1000 : (int64_t)frame - 1000;
+    return (frame + 500) / 1000 * 1000;
+}
 // the transient scan of a demo file: 4 attacks, two strong (60 % of the way at sensitivity 50) and two faint
 int audio_sample_onsets(int index, uint32_t *frames, uint16_t *strength, int max) {
     static const uint32_t f[4] = {12000, 30000, 48000, 72000};

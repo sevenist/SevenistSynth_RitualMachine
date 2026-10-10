@@ -797,6 +797,24 @@ offered):
    the pad ends by itself or is stopped by hand (a toggle pushed again; my reading: a gate released too), not on Stop all or Play / Stop
    (none past the grid's edge; a grid pad waits for its beat as when pushed).
 
+**After the first board test (user, 2026-10-10):**
+40. **Snap** for Start / End / LStr, configurable per pad: Off, Beat (at the clock's tempo), 1/16 of the sample, Attack (the onset scan),
+   Zero crossing.
+41. **Sync = Loop: the loop start is the pad's anchor**: with the clock running the pad's start is delayed so that its loop start lands
+   on the grid (a reverse-reverb pre-roll leads into the downbeat); with the clock stopped it starts at once like any pad. (First asked:
+   the playhead reaching the loop start also starts a stopped clock; dropped by the user the same day as too complicated.) **Grid
+   units**: 1 / 2 beats, 1 .. 8 bars (odd counts too).
+42. The tempo popup goes (the header shows the BPM). The editor gets pages PLAY / TONE / CHOP switched from its header (the board has no
+   Page control); the edited pad = the pad key pushed (or Select + pad).
+
+- Decisions 40-42 as built (2026-10-10, host-tested, NOT tried on the board): pad rows Sync (Off / Loop: shown while the pad loops) and
+  Snap; Grid has 11 units (`pad_grid_beats`); the Pads module waits for the grid line the loop start can reach (`PadBlob.preroll` = the
+  output samples from the start to the loop start at the pad's tune; 0 with From = Loop) and starts that much before it (measured: the
+  pre-roll starts within 1 sample of the expected time, the loop on the bar). Snap: `pads_ui_trim` (scr_pads.c) for the editor and the
+  knobs; Zero uses `SampleBank::zero_near`, only where the sample is in memory (a resident pad sample, a streamed one's first 150 ms):
+  elsewhere the plain step. Editor pages PLAY / TONE (with the filter's response) / CHOP from the header; Back: a page -> PLAY -> the grid.
+  Fixed on the way: `fix_focus` (ui_screen.c) read past the element table when the focus was beyond a shorter screen's last row.
+
 **Sample tools step 1 (chop) + Next, as built (2026-10-10; 14 pad engine tests in the 6 configurations, 84 UI tests, sim + firmware
 built; NOT tried by the user, NOT flashed):**
 - **Onset scan** in the SampleBank's loader (`SampleBank::scan / onsets`, `engine_synth_sample_onsets`, HAL `audio_sample_onsets`): one

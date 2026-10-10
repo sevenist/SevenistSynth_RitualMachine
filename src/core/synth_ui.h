@@ -141,7 +141,7 @@ typedef struct {
     bool    pad_edit;
     int     pad_row;
     bool    pad_latched;
-    uint8_t pad_page;      // the editor's page: 0 the pad's settings, 1 CHOP (Page - / + switch)
+    uint8_t pad_page;      // the editor's page: 0 PLAY, 1 TONE, 2 CHOP (its header or Page - / + switch)
     pad_chop_t chop;       // CHOP: the cuts of pad chop_pad (another pad starts a new chop)
     int     chop_pad;
     bool    pad_chop_req;  // the Chop button was pushed: the app asks, then writes the slices (pad_chop_apply)
@@ -217,6 +217,11 @@ bool pads_ui_handle(synth_ui_t *ui, rack_t *rack, ui_event_t e);
 void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t playing, int bpm);
 // Call every step in the Pads section: true when the CHOP page got new cuts (a transient scan finished): redraw.
 bool pads_ui_tick(synth_ui_t *ui);
+// A trim point of pad `pad` (PADP_START / END / LSTART) moved one step (dir +1 / -1) or set from a knob (dir 0, x 0..1), through the pad's
+// Snap. True when it changed. (The column knobs use it.)
+bool pads_ui_trim(synth_ui_t *ui, int pad, int param, int dir, float x);
+// The editor row (1..) of a pad setting on a page (0 PLAY, 1 TONE, 2 CHOP), -1 when it is not there (for the tests).
+int pads_ui_row(int page, int param);
 static inline int pads_ui_pad(const synth_ui_t *ui) { return ui->pad_bank * PADS_PER_BANK + ui->pad_cur; }   // the selected pad, 0..PAD_COUNT-1
 
 // Jump slots (see jump_slot_t). save: the page / tab on screen goes into slot k. resolve: finds every slot's page again (called by

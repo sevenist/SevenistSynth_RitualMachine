@@ -30,7 +30,8 @@ enum { GRN_SAMPLE, GRN_POSITION, GRN_SPEED, GRN_SIZE, GRN_DENSITY, GRN_PITCH, GR
 // stops its other pads; the oldest voice is stolen when all are busy. The pads' settings come as PadBlob (set_blob, one per pad, at build and
 // on every change); the pushes as parameters whose value is (n << 8) | pad, n a counter that starts at 1 (0 = nothing: the value a rebuild
 // re-applies), so two pushes of the same pad in one block are two events. A pad with a grid (beat / bar) waits for the next beat / bar of
-// the running clock (ProcessCtx::transport), block-accurate (it starts in the block nearest to it); with the clock stopped it starts at
+// the running clock (ProcessCtx::transport), block-accurate (it starts in the block nearest to it), or with Sync early enough for its loop
+// start to land on the grid (a bar when it has no grid of its own); with the clock stopped it starts at
 // once. A gate pad released while it waits, or a toggle pad pushed again, does not start; a sounding toggle pad stops at its push.
 enum { T_PADS = 80 };
 enum { PADS_PUSH, PADS_RELEASE, PADS_STOP, PADS_N };
@@ -41,7 +42,9 @@ enum PadMode : uint8_t { PADM_ONESHOT, PADM_GATE, PADM_TOGGLE };
 struct PadBlob {
     uint8_t pad = 0;                            // 0..kPadCount-1
     uint8_t mode = PADM_ONESHOT, loop = 0, choke = 0, mute = 0, filter = 0;   // loop: 0 off, 1 start..end, 2 the file's loop points
-    uint8_t grid = 0;                           // start on: 0 the push, 1 the next beat, 2 the next bar
+    uint8_t grid = 0;                           // start on the grid: 0 off (the push), else its unit in beats (1, 2, 4 .. 32)
+    uint8_t sync = 0;                           // 1: the loop start lands on the grid (the pad starts `preroll` samples before it)
+    int32_t preroll = 0;                        // output samples from the start to the loop start (at the pad's tune)
     uint8_t from = 0;                           // a grid start plays from 0 the start, 1 the loop start (when it loops)
     uint8_t xpost = 0;                          // the crossfade's fade-in: 0 before the loop start, 1 from it
     int32_t lstart = 0;                         // the loop start in frames (the Trim loop's own, or the file's)

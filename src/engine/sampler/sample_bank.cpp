@@ -319,6 +319,26 @@ void SampleBank::issue_streams(uint64_t now_us) {
     }
 }
 
+/* ---------------- zero crossings ---------------- */
+
+int64_t SampleBank::zero_near(int id, uint32_t frame, int dir) const {
+    if (id < 0 || id >= kMaxSamples || slot_[id].state != SLOT_READY) return -1;
+    const SampleSlot &s = slot_[id];
+    for (int h = 0; h < s.n_heads; h++) {
+        const Head &hd = s.head[h];
+        if (frame < hd.start_frame || frame >= hd.start_frame + hd.frames) continue;
+        const q15 *d = hd.data;
+        const int64_t lo = hd.start_frame + 1, hi = static_cast<int64_t>(hd.start_frame) + hd.frames - 1;
+        auto cross = [&](int64_t f) { return f >= lo && f <= hi && ((d[f - 1 - hd.start_frame] < 0) != (d[f - hd.start_frame] < 0)); };
+        for (int64_t k = 0; k <= 2048; k++) {
+            if (dir >= 0 && cross(static_cast<int64_t>(frame) + k + (dir > 0))) return static_cast<int64_t>(frame) + k + (dir > 0);
+            if (dir <= 0 && cross(static_cast<int64_t>(frame) - k - (dir < 0))) return static_cast<int64_t>(frame) - k - (dir < 0);
+        }
+        return -1;
+    }
+    return -1;
+}
+
 /* ---------------- the onset scan ---------------- */
 
 void SampleBank::scan(int id) {

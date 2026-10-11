@@ -63,8 +63,27 @@ C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --cmd "chord 3" --ra
 | `ping` | answers `[CMD] pong`: the board runs a firmware with commands |
 | `status` | notes held by `chord`, uptime, free heap |
 | `pieconv` | checks the Convolver's PIE dot products (`pie_conv2_s16`) against the C sums at full scale, 1..64 vectors, and prints the cost of a 128-tap call for both channels |
-| `samples` | the sample catalog of the TF card: index, name, frames, rate, root note, loop points and mode (the index is the F of `patch sampler`) |
+| `samples` | takes the samples of the library's root folder into the catalog (it holds the files in use, 32 at most; nothing is scanned at start), then prints the catalog: index, name, frames, rate, root note, loop points and mode (the index is the F of `patch sampler`) |
 | `dump N` | captures the next N output samples (1..16384, before the dev output gain) and prints them as `[DUMP] @index v v v ...` lines, 32 per line, between `[DUMP] begin` and `[DUMP] end`. For offline spectrum checks |
+
+### The Pads section
+
+| Command | What it does |
+|---|---|
+| `pad on` / `pad off` | the Pads section / the synth (as Shift + Menu) |
+| `pad fill F N` | catalog file F (see `samples`) on pads A1.. (N pads, default settings) |
+| `pad def A1 <words>` | pad A1 as a `pads.cfg` line: `pad def A1 loop 1 xfade 20 file kick` (the file name last) |
+| `pad push K` / `pad rel K` | push / release pad K (0..63), as its key |
+| `pad stop` | Stop all |
+| `pad clock 1` / `pad clock 0` | the clock in the Pads section (Play) |
+| `pad mem` | internal RAM and PSRAM free / largest block, the engine's heaps, the pads sounding |
+| `pad fx clear`, `pad fx route N`, `pad fx <A\|B\|C> <code> [values]` | the Pads section's FX chains: empty them, set the routing (0 A/B/C, 1 A+B/C, 2 A+B+C, 3 A+C/A+B), append a module to a chain (the codes of the RACK page: DL RV CH EQ CP PH FG TR FL SA ...; values in the module's units, missing = default). Not saved. A pad enters a chain with `pad def A1 bus a ...`. `tools/padsfx_test.py` measures a set of chains |
+| `pad rec S` | records what plays for S seconds (1..60, default 5) into a scratch file `zzrec.smp`, waits, and prints the frames recorded, the frames the card could not take in time and the stream underruns meanwhile. `tools/capture_test.py` runs a set |
+| `pad verify 1` / `pad verify 0` | the card driver reads every sector it writes back and compares it (slow); prints the sectors compared and those that differed so far |
+| `pad edit F OP AMOUNT [AMOUNT2]` | runs one sample processing job (the EDIT page's) on catalog file F: OP is the engine operation number (0 Normalize, 5 Reverse, 8 Stretch, 9 Resample, 10 Pitch, 15 Low-pass, 17 Tonal stretch, 18 Tonal pitch, 19 Paulstretch...), waits for it and prints the time, the PSRAM it borrowed and the stream underruns meanwhile. Writes and deletes `zzedit.smp`. `tools/edit_test.py` runs the set |
+
+`tools/pads_test.py` uses them: 1 / 4 / 8 pads looping on a short (whole in memory) and a long (streamed) sample, a crossfade, the
+heaps before and after the section switch.
 
 ### Key LEDs (HWV1)
 

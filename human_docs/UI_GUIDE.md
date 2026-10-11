@@ -17,6 +17,7 @@ Files, all in `src/core/`:
 | `ui_graphs.c` | the pictures of the graph box: waveform, envelope, filter response, effect sketches, algorithm diagram... |
 | `ui_screen.c/.h` | the declarative-screen engine: element tables, focus navigation, latch, drawing of elements, the tab -> screen lookup |
 | `scr_rack.c`, `scr_general.c`, `scr_samples.c`, `scr_fm.c` | the menu tabs, written with that engine: RACK, GENERAL, SAMPLES, the FM tab ALGORITHM (the operator tree), KEYS, MODIFIERS |
+| `scr_browse.c` | the sample browser: one folder of the card's library as a full-screen list (its own event and draw functions, not a table screen), opened over either section by the pad editor's Smp row and the SAMPLES tab's File row; the app (`app.c`: `browse_open / _load / _close / _poll`) reads the highlighted file and puts it on the pad |
 | `gui.c/.h` | the drawing toolkit and style (rectangles, text, fields, buttons, sprites, animations) |
 | `app.c` | calls the UI, decides when to redraw |
 | `bindings.c/.h` | which hardware control triggers which action (not part of the UI) |
@@ -197,7 +198,7 @@ The tabs and their files:
 | --- | --- | --- | --- |
 | RACK | `scr_rack.c` | rows 1, 2 and M (FM / Strings: M only); the push menu: Type, Insert, Tgt, Prm, Dpth, Row, Para, PEnv, Lvl1 / Pan1 / Lvl2 / Pan2 (MIX), Delete | the rows, their links, a description line |
 | GENERAL | `scr_general.c` | Type, Patch (FM), Voices, Glide / Legato (Voices 1), Vol, Out, Spk, Knob | info box (`draw_synth_info`) |
-| SAMPLES | `scr_samples.c` | File, Tgt, Assign, Scan | overview of the highlighted file, its length and root note |
+| SAMPLES | `scr_samples.c` | File (opens the sample browser), Tgt, Assign | overview of the file, its length and root note |
 | ALGORITHM (FM) | `scr_fm.c` | Algo / Fb / Op (a selector: left / right pick an operator, push opens its OPn page) | the operator tree with the selected operator inverted, the patch name under the list |
 
 Edits that change the structure (module insert / delete, target, type, voices, the FM patch) set `rack_dirty` or `rebuild`; the audio graph is rebuilt when the menu closes. Edits that are live

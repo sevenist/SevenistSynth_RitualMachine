@@ -127,3 +127,16 @@ void seq_note_name(int note, char *buf, int size) {
     if (note <= 0) snprintf(buf, size, "--");
     else snprintf(buf, size, "%s%d", names[note % 12], note / 12 - 1);
 }
+
+int seq_tap(seq_tap_t *t, uint32_t now_ms) {
+    if (!t->on || now_ms - t->last_ms > SEQ_TAP_RESET_MS) { t->on = true; t->n = 0; t->last_ms = now_ms; return 0; }
+    for (int i = 3; i > 0; i--) t->iv[i] = t->iv[i - 1];
+    t->iv[0] = now_ms - t->last_ms;
+    t->last_ms = now_ms;
+    if (t->n < 4) t->n++;
+    uint32_t sum = 0;
+    for (int i = 0; i < t->n; i++) sum += t->iv[i];
+    if (!sum) return 0;
+    const int bpm = (int)((60000u * (uint32_t)t->n + sum / 2) / sum);
+    return bpm < 40 ? 40 : bpm > 240 ? 240 : bpm;
+}

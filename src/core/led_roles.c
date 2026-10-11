@@ -11,7 +11,7 @@ static const struct { const char *name; led_color_t rgb; } palette[LED_PALETTE] 
 };
 enum { P_OFF, P_WHITE, P_RED, P_ORANGE, P_AMBER, P_YELLOW, P_LIME, P_GREEN, P_MINT, P_TEAL, P_SKY, P_BLUE, P_INDIGO, P_VIOLET, P_PINK, P_ROSE };
 
-static const char *const role_names[LR_COUNT] = {"Note", "Sharp", "Root", "Shift", "Mod", "Menu", "Back", "Play", "Octave", "Jump", "Nav", "None"};
+static const char *const role_names[LR_COUNT] = {"Note", "Sharp", "Root", "Shift", "Mod", "Menu", "Back", "Play", "Octave", "Jump", "Nav", "Pad", "Bank", "None"};
 
 #define SH(c, p) ((led_shade_t){(c), (p)})
 // The colours of the first version as they looked on the board (dim when idle, full when active), as palette colour + brightness. That
@@ -29,6 +29,8 @@ static const led_role_def_t defaults[LR_COUNT] = {
     [LR_OCTAVE] = {SH(P_TEAL, 30),   SH(P_TEAL, 100)},
     [LR_JUMP]   = {SH(P_PINK, 16),   SH(P_PINK, 63)},
     [LR_NAV]    = {SH(P_WHITE, 12),  SH(P_WHITE, 12)},
+    [LR_PAD]    = {SH(P_WHITE, 18),  SH(P_AMBER, 100)},
+    [LR_BANK]   = {SH(P_SKY, 16),    SH(P_SKY, 100)},
     [LR_NONE]   = {SH(P_OFF, 0),     SH(P_OFF, 0)},
 };
 
@@ -66,6 +68,8 @@ int led_role_of(key_fn_t f) {
         case ACT_PLAY:   return LR_PLAY;
         case ACT_OCTAVE: return LR_OCTAVE;
         case ACT_JUMP:   return LR_JUMP;
+        case ACT_PAD:    return LR_PAD;
+        case ACT_PAD_BANK: return LR_BANK;
         case ACT_NONE:   return LR_NONE;
         default:         return LR_NAV;                                     // navigation and the other control actions
     }

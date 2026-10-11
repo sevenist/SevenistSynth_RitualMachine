@@ -4,15 +4,19 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "u8g2.h"
+#include "core/history.h"
+#include "core/pads.h"
 #include "core/rack.h"
 #include "core/seq.h"
 #include "core/synth_params.h"
+#include "hal/hal_audio.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #define SYNTH_UI_MAX_PAGES (RACK_MAX * 4 + 4)
+#define BROWSE_PAGE 12                      // the sample browser: the entries it holds at once (at least the rows it shows)
 
 // What the user interface understands. The input layer (core/bindings.c) turns hardware controls into these.
 typedef enum {
@@ -133,6 +137,49 @@ typedef struct {
     bool rebuild;          // set when the RACK page is left with edits: app must audio_build()
     int run_anim;   // gui animation id shown while the sequencer runs (owned by app.c)
     jump_slot_t jump[SYNTH_UI_JUMP_SLOTS]; // rapid-navigation slots: save with Shift+key, recall with key
+    // The Pads section (core/pads.h, scr_pads.c): the pads (the app's), the bank shown and its selected pad, the grid or that pad's editor,
+    // and the editor's focus row (0 = the header: left / right change the pad) and latch, kept apart from the synth screens' row / latch.
+    pads_t *pads;
+    uint8_t pad_bank, pad_cur;
+    bool    pad_edit;
+    int     pad_row;
+    bool    pad_latched;
+    uint8_t pad_page;      // the editor's page: 0 PLAY, 1 TONE, 2 CHOP (its header or Page - / + switch)
+    pad_chop_t chop;       // CHOP: the cuts of pad chop_pad (another pad starts a new chop)
+    int     chop_pad;
+    bool    pad_chop_req;  // the Chop button was pushed: the app asks, then writes the slices (pad_chop_apply)
+    int     clock_bpm;     // the machine clock's tempo (the app sets it): the Grid chop
+    // EDIT page (sample tools, ADR-041 decisions 36-38): the operation and the amount of each, the Apply request (the app renders),
+    // the progress the app shows (-1: no job), the library's version history (the app's)
+    uint8_t edit_op;
+    uint8_t edit_tonal;        // Stretch / Pitch / Fit beats: 0 = Beat (WSOLA), 1 = Tonal (phase vocoder)
+    int32_t edit_amt[PAD_EDIT_OPS];
+    bool    pad_render_req;
+    bool    pad_ver_changed;   // Ver / Undo / Redo picked another version of the pad's sample: the app sends the pad
+    int     render_pct;
+    const history_t *history;
+    // The FX chains (ADR-041 decisions 23, 47-49): 0 = not shown, 1 = the chains (the RACK page on pads->fx), 2 = the values of the
+    // module fx_edit_id (its rack id; the chains page's Edit sets it). fx_row / fx_latched: the focus on these two pages.
+    uint8_t cap_state;         // capture (the app sets them): hal_audio.h CAPTURE_ST_*, and the seconds recorded
+    uint16_t cap_secs;
+    uint8_t pad_fx;
+    uint8_t fx_edit_id;
+    int     fx_row;
+    bool    fx_latched;
+    // The sample browser (scr_browse.c): one folder of the library as a full-screen list, over either section. br_open: 0 = closed,
+    // BROWSE_PAD = for pad br_target (the highlighted file goes onto it at once, so its key plays it; br_pad = the pad as it was, which
+    // Back puts back), BROWSE_RACK = for the SAMPLES tab (the choice becomes its File). br_req: a screen asks the app to open it.
+    uint8_t br_open, br_req;
+    uint8_t br_done;           // set by the screen: 1 = the highlighted file was chosen, 2 = cancelled (the app closes the browser)
+    uint8_t br_state;          // the highlighted entry: BR_FRESH = just reached, BR_SHOWN = its file is in br_info, BR_NONE = a folder / no sample
+    uint8_t br_tries;
+    int8_t  br_target;
+    char    br_dir[PAD_NAME_MAX];           // the folder shown ("" = the library's root)
+    int     br_total, br_cur, br_first, br_n;   // its entries, the highlighted row, and the rows held in br_page: br_n from row br_first
+    audio_dir_entry_t br_page[BROWSE_PAGE];
+    uint32_t br_ms;            // when the highlight last moved (its file is read once it has rested for BROWSE_REST_MS)
+    audio_sample_info_t br_info;
+    pad_t   br_pad;
 } synth_ui_t;
 
 void synth_ui_init(synth_ui_t *ui, const rack_t *rack);
@@ -183,7 +230,7 @@ void synth_ui_macros_prune(synth_ui_t *ui, const rack_t *rack);               //
 // The joystick as an XY controller (user design, 2026-10-07). On a page, a push on a parameter row binds it (joy_click):
 //   a new parameter     replaces the older binding (X, then Y, then X ...)                    JOY_CLICK_BOUND
 //   the same, again     moves it to the other axis and brings back what it replaced            JOY_CLICK_MOVED   (again: back)
-//   a bound one         (not the one just bound) inverts its axis (Min <-> Max)               JOY_CLICK_INVERTED
+//   a bound one         (not the one just bound) swaps X and Y; each keeps its range / curve  JOY_CLICK_SWAPPED
 //   not a parameter     JOY_CLICK_NONE (the push keeps its old meaning)
 // *axis = the axis concerned. joy_mode: XY mode on / off (the app: Shift + push, ACT_JOY_MODE). joy_axis: the stick's raw axis value
 // (0..INPUT_VALUE_MAX) moves the parameter from the value it has when the stick leaves the centre (so a value set by a knob, an encoder or the
@@ -191,10 +238,49 @@ void synth_ui_macros_prune(synth_ui_t *ui, const rack_t *rack);               //
 // push: kept). Returns true when a sound value changed. Ranges / curves: the JOY menu tab.
 #define JOY_XY_DEADZONE 48
 #define JOY_POS_CENTRE  128
-typedef enum { JOY_CLICK_NONE, JOY_CLICK_BOUND, JOY_CLICK_MOVED, JOY_CLICK_INVERTED } joy_click_t;
+typedef enum { JOY_CLICK_NONE, JOY_CLICK_BOUND, JOY_CLICK_MOVED, JOY_CLICK_SWAPPED } joy_click_t;
 joy_click_t synth_ui_joy_click(synth_ui_t *ui, const rack_t *rack, int *axis);
 void synth_ui_joy_mode(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, bool on);
 bool synth_ui_joy_axis(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int axis, int value);
+
+// The Pads section's screens (scr_pads.c): the grid of the bank shown (the joystick moves the selection, encoder B / pages change the bank,
+// a push opens the pad's editor), or that editor (a declarative screen; Back returns to the grid). pads_ui_handle returns true when the
+// selected pad's settings changed: the app sends them to the engine and saves pads.cfg. `playing`: audio_pads_playing(); the grid's header
+// shows the bank, the tempo and, while the clock runs, bar.beat (the beat inverted for its first quarter: audio_transport()).
+bool pads_ui_handle(synth_ui_t *ui, rack_t *rack, ui_event_t e);
+void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t playing, int bpm);
+// Call every step in the Pads section: true when the CHOP page got new cuts (a transient scan finished): redraw.
+bool pads_ui_tick(synth_ui_t *ui);
+// The Pads screens' starting state (no chop yet, the EDIT page's default amounts). The app calls it once.
+void pads_ui_init(synth_ui_t *ui);
+void pads_ui_fx_open(synth_ui_t *ui, bool on);   // the FX chains page (the Menu key in the Pads section), or back to the pads
+// Knob k (0..3) on a module's values page: its k-th value from 0..1; false when that page is not shown or the value is a list.
+bool pads_ui_fx_knob(synth_ui_t *ui, int k, float x, char *label, int ln, char *val, int vn);
+void pads_ui_chop_refresh(synth_ui_t *ui);     // the CHOP page's cuts again (after the app changed the pad: a padded version)
+// The EDIT page's operations (the order of engine/offline/process.h ProcOp, without Pad to which the Grid chop uses): their name, and the
+// amount's text ("-0.3dB", "100ms"; "" for none).
+const char *pads_ui_op_name(int op);
+void pads_ui_op_amount(int op, int32_t amount, char *out, int n);
+// A trim point of pad `pad` (PADP_START / END / LSTART) moved one step (dir +1 / -1) or set from a knob (dir 0, x 0..1), through the pad's
+// Snap. True when it changed. (The column knobs use it.)
+bool pads_ui_trim(synth_ui_t *ui, int pad, int param, int dir, float x);
+// The editor row (1..) of a pad setting on a page (0 PLAY, 1 TONE, 2 CHOP), -1 when it is not there (for the tests).
+int pads_ui_row(int page, int param);
+static inline int pads_ui_pad(const synth_ui_t *ui) { return ui->pad_bank * PADS_PER_BANK + ui->pad_cur; }   // the selected pad, 0..PAD_COUNT-1
+
+// The sample browser (scr_browse.c): the folders and samples of one folder of the library (audio_dir_open), the overview of the
+// highlighted sample on top. Up / down (joystick, either encoder) move the highlight, Page - / + by a screen; a push or right opens a
+// folder, left or the ".." row goes back to its parent; a push on a sample chooses it (br_done = 1), Back cancels (br_done = 2).
+// open: on the folder of `current` (a library name, "" = the root) with that sample highlighted; false when the library cannot be read.
+// file: the highlighted sample's library name; false for a folder, an empty folder or a path too long to be a name.
+// The app (app.c) reads the highlighted file once it rests, plays it and closes the browser.
+enum { BROWSE_PAD = 1, BROWSE_RACK };
+enum { BR_FRESH, BR_SHOWN, BR_NONE };
+#define BROWSE_REST_MS 150
+bool browse_ui_open(synth_ui_t *ui, int what, const char *current, uint32_t now);
+void browse_ui_event(synth_ui_t *ui, ui_event_t e, uint32_t now);
+void browse_ui_draw(const synth_ui_t *ui, u8g2_t *g);
+bool browse_ui_file(const synth_ui_t *ui, char *out, int n);
 
 // Jump slots (see jump_slot_t). save: the page / tab on screen goes into slot k. resolve: finds every slot's page again (called by
 // synth_ui_rebuild_pages; a slot whose module was deleted is cleared). ready: the slot can be jumped to now (its LED is bright).

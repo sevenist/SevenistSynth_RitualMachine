@@ -290,6 +290,67 @@ struct Biquad {                                                              // 
     void reset() { z1 = z2 = 0; }
 };
 
+// The same three sections in float32, for the audio loop: on the S3 the int64 tick costs ~140 cycles (five 64-bit multiplies), these
+// a handful of FPU multiply-adds (the figures: ENGINE_DESIGN.md, ADR-041 "Speed"). A channel runs in float from one conversion to the
+// next, so the signal is rounded to 16 bits once, not after every section: against the same filters in double precision the EQ is
+// off by ~0.3 LSB rms, where the int64 loop was off by 1.0 .. 2.6 (test eq3_matches_its_cookbook_sections_in_double_precision).
+// The high shelf (6 kHz) is the biquad as it was, in float. The low shelf (150 Hz) and the peak (down to 65 Hz) are NOT: a float32
+// direct form loses its accuracy when the poles come close to z = 1 (measured: 6.7 LSB rms on a 30 Hz tone through the shelf). They
+// are the same transfer functions as a trapezoidal state-variable filter (the cookbook prototypes written as 1 + m1 BP + m2 LP), whose
+// states stay well scaled at any frequency. ENGINE_EQ_EXACT=1 keeps the int64 loop.
+#ifndef ENGINE_EQ_EXACT
+#define ENGINE_EQ_EXACT 0
+#endif
+struct EqSvf {
+    float a1 = 1.0f, a2 = 0.0f, a3 = 0.0f, m1 = 0.0f, m2 = 0.0f, ic1 = 0.0f, ic2 = 0.0f;
+    float tick(float x) {
+        const float v3 = x - ic2, v1 = a1 * ic1 + a2 * v3, v2 = ic2 + a2 * ic1 + a3 * v3;
+        ic1 = 2.0f * v1 - ic1;
+        ic2 = 2.0f * v2 - ic2;
+        return x + m1 * v1 + m2 * v2;
+    }
+    void set(double g, double k, double M1, double M2) {
+        const double A1 = 1.0 / (1.0 + g * (g + k));
+        a1 = static_cast<float>(A1); a2 = static_cast<float>(g * A1); a3 = static_cast<float>(g * g * A1);
+        m1 = static_cast<float>(M1); m2 = static_cast<float>(M2);
+    }
+    // the cookbook's low shelf (slope 1, as Biquad::low_shelf) and peak (as Biquad::peak): A = 10^(dB / 40)
+    void low_shelf(double f, double gain_db) {
+        const double A = std::pow(10.0, gain_db / 40.0), k = std::sqrt(2.0);
+        set(std::tan(kPi * f / kSampleRate) / std::sqrt(A), k, k * (A - 1.0), A * A - 1.0);
+    }
+    void peak(double f, double gain_db, double Q) {
+        const double A = std::pow(10.0, gain_db / 40.0), k = 1.0 / (Q * A);
+        set(std::tan(kPi * f / kSampleRate), k, k * (A * A - 1.0), 0.0);
+    }
+    void settle() {                                                         // a state that has died away is put to zero (no subnormal arithmetic in silence)
+        if (ic1 < 1e-15f && ic1 > -1e-15f) ic1 = 0.0f;
+        if (ic2 < 1e-15f && ic2 > -1e-15f) ic2 = 0.0f;
+    }
+    void reset() { ic1 = ic2 = 0.0f; }
+};
+struct BiquadF {
+    float b0 = 1.0f, b1 = 0.0f, b2 = 0.0f, a1 = 0.0f, a2 = 0.0f, z1 = 0.0f, z2 = 0.0f;
+    float tick(float x) {
+        const float y = b0 * x + z1;
+        z1 = b1 * x - a1 * y + z2;
+        z2 = b2 * x - a2 * y;
+        return y;
+    }
+    void from(const Biquad &q) {                                            // (the Q32 coefficients: exact in a double, then the nearest float)
+        const double k = 1.0 / 4294967296.0;
+        b0 = static_cast<float>(static_cast<double>(q.b0) * k); b1 = static_cast<float>(static_cast<double>(q.b1) * k);
+        b2 = static_cast<float>(static_cast<double>(q.b2) * k); a1 = static_cast<float>(static_cast<double>(q.a1) * k);
+        a2 = static_cast<float>(static_cast<double>(q.a2) * k);
+    }
+    void settle() {
+        if (z1 < 1e-15f && z1 > -1e-15f) z1 = 0.0f;
+        if (z2 < 1e-15f && z2 > -1e-15f) z2 = 0.0f;
+    }
+    void reset() { z1 = z2 = 0.0f; }
+};
+inline q15 eq_out(float v) { return sat16(static_cast<int32_t>(v + (v >= 0.0f ? 0.5f : -0.5f))); }
+
 template <int CH>
 class Eq3 : public Module {
 public:
@@ -299,7 +360,7 @@ public:
         return i;
     }
     bool init(Memory &) override { update(); return true; }
-    void reset() override { for (auto &b : bq_) b.reset(); }
+    void reset() override { for (auto &b : bq_) b.reset(); for (auto &b : hi_) b.reset(); for (auto &b : lo_) b.reset(); for (auto &b : pk_) b.reset(); }
     void set_param(int idx, int32_t v) override {
         switch (idx) {
             case EQ_LOW: low_ = v; break;
@@ -309,7 +370,8 @@ public:
         }
         update();
     }
-    void process(const ProcessCtx &ctx, const Ports &p) override {
+    SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
+#if ENGINE_EQ_EXACT
         if constexpr (CH == 1) {
             for (int i = 0; i < ctx.frames; i++) {
                 q15 l = p.in[0][i];
@@ -324,6 +386,21 @@ public:
             p.out[0][i] = l;
             p.out[1][i] = r;
         }
+#else
+        if constexpr (CH == 1) {
+            for (int i = 0; i < ctx.frames; i++) p.out[0][i] = eq_out(hi_[0].tick(pk_[0].tick(lo_[0].tick(static_cast<float>(p.in[0][i])))));
+        } else {
+            for (int i = 0; i < ctx.frames; i++) {                            // the two channels side by side: their chains do not wait on each other
+                float l = static_cast<float>(p.in[0][i]), r = static_cast<float>(p.in[1][i]);
+                l = lo_[0].tick(l); r = lo_[1].tick(r);
+                l = pk_[0].tick(l); r = pk_[1].tick(r);
+                l = hi_[0].tick(l); r = hi_[1].tick(r);
+                p.out[0][i] = eq_out(l);
+                p.out[1][i] = eq_out(r);
+            }
+        }
+        for (int c = 0; c < 2; c++) { lo_[c].settle(); pk_[c].settle(); hi_[c].settle(); }
+#endif
     }
 private:
     void update() {
@@ -333,8 +410,15 @@ private:
             bq_[3 * c + 1].peak(fm, mid_ / 10.0, 0.9);
             bq_[3 * c + 2].high_shelf(6000.0, high_ / 10.0);
         }
+        for (int c = 0; c < 2; c++) {                                        // the float sections (they keep their state)
+            lo_[c].low_shelf(150.0, low_ / 10.0);
+            pk_[c].peak(fm, mid_ / 10.0, 0.9);
+            hi_[c].from(bq_[3 * c + 2]);
+        }
     }
     Biquad bq_[6];
+    EqSvf lo_[2], pk_[2];
+    BiquadF hi_[2];
     int32_t low_ = 0, mid_ = 0, midf_ = 84 * kSemi, high_ = 0;
 };
 

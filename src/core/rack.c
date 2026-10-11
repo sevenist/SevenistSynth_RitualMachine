@@ -247,6 +247,32 @@ void rack_clear(rack_t *r) {
     synth_config_init(&r->cfg);
 }
 
+void rack_init_fx(rack_t *r) {
+    rack_clear(r);
+    r->fx = 1;
+    r->fx_route = RACK_ROUTE_A_B_C;
+}
+
+const char *rack_route_name(int route) {
+    static const char *const n[RACK_ROUTE_COUNT] = {"A/B/C", "A+B/C", "A+B+C", "A+C/A+B"};
+    return n[route >= 0 && route < RACK_ROUTE_COUNT ? route : 0];
+}
+
+// Cycles per 32-frame engine block of each module in a chain (stereo), measured on the prototype 2026-10-11 (tools/padsfx_test.py,
+// ESP32-S3 at 240 MHz, 48 kHz); the 8 pad voices and the output; the block's budget as the firmware reports it.
+int rack_fx_load_pct(const rack_t *fx) {
+    static const uint16_t cost[MOD_TYPE_COUNT] = {
+        [MOD_FILTER] = 8300, [MOD_SAT] = 3700, [MOD_TREM] = 4500, [MOD_EQ] = 5900, [MOD_RING] = 5000, [MOD_PHASER] = 19500,
+        [MOD_FLANGER] = 15900, [MOD_COMP] = 8700, [MOD_DELAY] = 8800, [MOD_REVERB] = 26000, [MOD_CHORUS] = 12900, [MOD_SPECTRAL] = 19300,
+        [MOD_CAB] = 15600, [MOD_ENSEMBLE] = 17800,
+    };
+    uint32_t sum = 45000 + 1400;
+    for (int i = 0; i < fx->count; i++) sum += cost[fx->slot[i].type < MOD_TYPE_COUNT ? fx->slot[i].type : 0];
+    return (int)((sum * 100 + 87000) / 174000);
+}
+
+int rack_fx_param_count(module_type_t t) { return t == MOD_FILTER ? MP_FL_RES + 1 : rack_mparam_count(t); }
+
 // Row M of the demo and startup patches: delay 1000 ms at 40 % mix, reverb at 40 % mix.
 static void add_delay_reverb(rack_t *r) {
     int k = rack_add_m(r, MOD_DELAY);
@@ -370,13 +396,14 @@ static bool starts_shared(const rack_slot_t *s) {
 }
 
 int rack_shared_start(const rack_t *r, int row) {
-    if (row < 0 || row >= RACK_BRANCHES) return RACK_NONE;
+    if (row < 0 || row >= RACK_BRANCHES || r->fx) return RACK_NONE;
     for (int i = 0; i < r->count; i++) if (r->slot[i].row == row && starts_shared(&r->slot[i])) return i;
     return RACK_NONE;
 }
 
 bool rack_slot_is_shared(const rack_t *r, int slot) {
     const rack_slot_t *s = &r->slot[slot];
+    if (r->fx) return true;
     if (!info[s->type].audio) {                                                 // a modulator runs where its target runs
         const int ti = s->tgt_id ? rack_find(r, s->tgt_id) : RACK_NONE;
         return ti != RACK_NONE && ti != slot && info[r->slot[ti].type].audio && rack_slot_is_shared(r, ti);
@@ -387,7 +414,7 @@ bool rack_slot_is_shared(const rack_t *r, int slot) {
 }
 
 bool rack_can_para(const rack_t *r, int slot) {
-    if (slot < 0 || slot >= r->count) return false;
+    if (slot < 0 || slot >= r->count || r->fx) return false;
     const module_type_t t = (module_type_t)r->slot[slot].type;
     return r->slot[slot].row < RACK_BRANCHES && rack_is_processor(t) && !rack_type_voice_only(t) && !rack_type_shared_only(t);
 }
@@ -416,6 +443,11 @@ bool rack_set_para(rack_t *r, int slot, bool on) {
 bool rack_can_insert(const rack_t *r, int pos, int row, module_type_t t) {
     if (r->count >= RACK_MAX || pos < 0 || pos > r->count || t >= MOD_TYPE_COUNT || row < 0 || row >= RACK_ROWS) return false;
     if (t == MOD_MSEQ && ms_pool_free(r) < 0) return false;
+    if (r->fx) {                                                             // a chain of the pads: effects only, RACK_FX_SLOTS of them
+        int n = 0;
+        for (int i = 0; i < r->count; i++) n += r->slot[i].row == row;
+        return rack_is_processor(t) && !rack_type_voice_only(t) && n < RACK_FX_SLOTS;
+    }
     if (!synth_type_is_rack(r->cfg.type) && (row != ROW_M || !rack_is_processor(t))) return false;   // FM / Strings: effects in row M only
     if (rack_type_voice_only(t)) {
         if (row >= ROW_M) return false;
@@ -452,6 +484,13 @@ bool rack_set_row(rack_t *r, int slot, int row) {
     rack_slot_t *s = &r->slot[slot];
     const uint8_t from = s->row;
     if (from == row) return true;
+    if (r->fx) {                                                             // to another chain, while it has room
+        int n = 0;
+        for (int i = 0; i < r->count; i++) n += r->slot[i].row == row;
+        if (n >= RACK_FX_SLOTS) return false;
+        s->row = (uint8_t)row;
+        return true;
+    }
     if (!synth_type_is_rack(r->cfg.type)) return false;                      // FM / Strings: row M only
     s->row = (uint8_t)row;
     if (rows_ok(r)) return true;
@@ -461,6 +500,7 @@ bool rack_set_row(rack_t *r, int slot, int row) {
 
 bool rack_has_signal(const rack_t *r, int slot) {
     const int row = r->slot[slot].row;
+    if (r->fx) return true;                                                  // the pads feed every chain
     if (row >= ROW_M && !synth_type_is_rack(r->cfg.type)) return true;      // FM / Strings voices feed row M
     for (int i = 0; i < r->count; i++) {
         if (row < ROW_M && (i > slot || r->slot[i].row != row)) continue;   // a branch: its own sources up to the slot; row M: any branch's

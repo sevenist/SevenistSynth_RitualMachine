@@ -1,7 +1,7 @@
 #include "core/ui_screen.h"
 #include <stdio.h>
 
-#define MAX_ELEMENTS 16
+#define MAX_ELEMENTS 24                 // the pad editor has 19
 
 // The context for the callbacks of element i: the same, with that element's `arg`.
 static ui_ctx_t ctx_for(const screen_def_t *s, const ui_ctx_t *c, int i) { ui_ctx_t x = *c; x.arg = s->el[i].arg; return x; }
@@ -66,6 +66,7 @@ static int linear(const screen_def_t *s, const ui_ctx_t *c, int row, int step) {
 // After an edit the focused element may have become unavailable (an effect with fewer parameters): move the focus back to the nearest one before it.
 static void fix_focus(const screen_def_t *s, const ui_ctx_t *c) {
     synth_ui_t *ui = c->ui;
+    if (ui->row > s->n) { ui->row = s->n; ui->latched = false; }        // a focus past this screen's last element (a shorter page)
     while (ui->row >= 1 && !el_enabled(s, c, ui->row - 1)) { ui->row--; ui->latched = false; }
 }
 

@@ -90,6 +90,7 @@ static const struct { uint8_t act; int8_t arg; const char *name; const char *tok
     {ACT_VALUE_FINE,    1, "Val fine", "valuefine"},          // 1/5 steps (core/fine_step.h)
     {ACT_OCTAVE,        1, "Octave",   "octave"},
     {ACT_VOLUME_STEP,   1, "Volume",   "volume"},
+    {ACT_TEMPO,         1, "Tempo",    "tempo"},                // the machine clock's BPM, 1 per step
     {ACT_MACRO,         0, "Macro 1",  "macro1"},               // plays macro 1..8 (what it drives: learned with "Learn M1..8")
     {ACT_MACRO,         1, "Macro 2",  "macro2"},
     {ACT_MACRO,         2, "Macro 3",  "macro3"},

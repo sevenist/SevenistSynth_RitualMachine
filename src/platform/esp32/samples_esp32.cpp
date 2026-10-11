@@ -1,17 +1,20 @@
-// Sample library of the ESP32 build: the .smp files in SD_SAMPLE_DIR of the TF card (cook them on the PC with tools/wav2smp.py; there is no
-// .wav / .mp3 import on the board). One task on core 0 at low priority does everything that touches the card: mount, scan, and the loader
-// (engine_synth_io_pump, ADR-022), so the audio task never waits for it. It also watches the card: inserted, too slow (then it is left alone and
-// the synth runs as if there were none), removed or swapped, and queues those as card events for the UI (hal_storage.h) with the result of
-// its two checks: the read speed and the folders of STORAGE_FOLDERS (made on request, storage_make_folders). Like the desktop's samples/ folder, new files are appended to the
-// catalog after the known ones, so the index a rack stores stays valid. The settings files of hal_storage.h (keys.cfg) are read and
-// written here too, as jobs the UI posts: the card driver has no locks, so nothing else may touch the card.
+// Sample library of the ESP32 build: the .smp files below SD_SAMPLE_DIR of the TF card, in folders of any depth (cook them on the PC with
+// tools/wav2smp.py; there is no .wav / .mp3 import on the board). One task on core 0 at low priority does everything that touches the
+// card: mount, the loader (engine_synth_io_pump, ADR-022), so the audio task never waits for it, and the jobs the UI posts: a sample's
+// header when a file is asked for by name (nothing is scanned at start: the engine's catalog holds the files in use), a folder's list for
+// the browser, and the settings files of hal_storage.h (keys.cfg ...). The card driver has no locks, so nothing else may touch the card.
+// The task also watches the card: inserted, too slow (then it is left alone and the synth runs as if there were none), removed or
+// swapped, and queues those as card events for the UI (hal_storage.h) with the result of its two checks: the read speed and the folders
+// of STORAGE_FOLDERS (made on request, storage_make_folders).
 #if defined(ARDUINO_ARCH_ESP32)
 #include <Arduino.h>
 #include <ctype.h>
 #include <dirent.h>
+#include <esp_heap_caps.h>
 #include <esp_timer.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -36,8 +39,6 @@ constexpr int kStackBytes = 8192;                 // long file names (FATFS LFN 
 constexpr UBaseType_t kPriority = HWV1_SD_IO_PRIO;
 constexpr int kBurst = 8;
 SdStorage g_storage;
-audio_sample_info_t g_cat[AUDIO_SAMPLES_MAX];
-volatile int g_n = 0;
 bool g_attached = false;
 TaskHandle_t g_task = nullptr;
 uint8_t g_blk[kSmpBlockBytes];                    // one card block: the header, then a block per bucket of the amplitude overview
@@ -53,21 +54,20 @@ bool read_at(int fd, uint32_t offset, void *dst, uint32_t bytes) {
     return ok;
 }
 
-bool known(const char *stem) {
-    for (int i = 0; i < g_n; i++) if (!strcmp(g_cat[i].name, stem)) return true;
-    return false;
-}
-
-// Header + amplitude overview of one file into entry `i`. The overview comes from the header; only an older file without it costs 64 reads.
-bool fill_entry(int i, const char *stem, const char *path) {
+// Header + amplitude overview of the sample `name` (its path below SD_SAMPLE_DIR, no extension) into `in`. The overview comes from the
+// header; only an older file without it costs 64 reads.
+bool read_info(const char *name, audio_sample_info_t &in) {
+    char path[sizeof SD_SAMPLE_DIR + AUDIO_NAME_MAX + 8];
+    snprintf(path, sizeof path, SD_SAMPLE_DIR "/%s.smp", name);
     const int fd = ::open(path, O_RDONLY);
     if (fd < 0) return false;
     SmpHeader h;
-    audio_sample_info_t &in = g_cat[i];
+    g_scan_reads = g_scan_worst_us = 0;
+    const uint32_t t0 = millis();
     bool ok = read_at(fd, 0, g_blk, kSmpBlockBytes) && smp_parse_header(g_blk, kSmpBlockBytes, h);
     if (ok) {
         memset(&in, 0, sizeof in);
-        snprintf(in.name, sizeof in.name, "%s", stem);
+        snprintf(in.name, sizeof in.name, "%s", name);
         in.frames = h.frames; in.rate = h.sample_rate;
         in.root = static_cast<uint8_t>(h.root_note > 127 ? 127 : h.root_note);
         in.slices = h.slice_count; in.loop_mode = h.loop_mode; in.loop_start = h.loop_start; in.loop_end = h.loop_end;
@@ -90,35 +90,83 @@ bool fill_entry(int i, const char *stem, const char *path) {
         }
     }
     ::close(fd);
+    Serial.printf("[SD] read %s: %u ms, %u reads, slowest read %u us%s\n", path, (unsigned)(millis() - t0), (unsigned)g_scan_reads, (unsigned)g_scan_worst_us, ok ? "" : " (not a valid .smp)");
     return ok;
 }
 
-void scan() {
-    DIR *d = opendir(SD_SAMPLE_DIR);
-    if (!d) { Serial.println("[SD] no " SD_SAMPLE_DIR " folder"); return; }
-    int added = 0;
+// ---- the library jobs (hal_audio.h audio_sample_use, audio_dir_open): posted by the UI task, run here, like the settings files ----
+// state: 0 = free, 1 = posted (this task owns the job), 2 = done (the poster owns it); see FileJob below.
+struct LibJob {
+    char name[AUDIO_NAME_MAX];                    // the sample, or the folder to list ("" = SD_SAMPLE_DIR itself)
+    bool list;
+    int  result;                                  // a sample: 1 = `info` holds it, 0 = no such sample; a folder: its entries, -1 = no such folder
+    audio_sample_info_t info;
+    volatile int state;
+};
+LibJob g_lib;
+// The folder the browser shows: its sub-folders and samples, sorted, in PSRAM (16 KB, taken at the first listing). A folder with more
+// entries than kDirMax shows its first kDirMax (in the card's order), sorted.
+constexpr int kDirMax = 320;
+audio_dir_entry_t *g_dir = nullptr;
+int g_dir_cap = 0;
+volatile int g_dir_n = 0;
+
+int dir_cmp(const void *a, const void *b) {
+    const audio_dir_entry_t *x = static_cast<const audio_dir_entry_t *>(a), *y = static_cast<const audio_dir_entry_t *>(b);
+    if (x->dir != y->dir) return x->dir ? -1 : 1;                           // folders first
+    return strcasecmp(x->name, y->name);
+}
+
+int list_folder(const char *dir) {
+    g_dir_n = 0;
+    if (!g_dir) {
+        g_dir = static_cast<audio_dir_entry_t *>(heap_caps_malloc(kDirMax * sizeof(audio_dir_entry_t), MALLOC_CAP_SPIRAM));
+        g_dir_cap = g_dir ? kDirMax : 0;
+        if (!g_dir) {                                                       // no PSRAM to spare: a short list from the internal heap
+            g_dir = static_cast<audio_dir_entry_t *>(malloc(64 * sizeof(audio_dir_entry_t)));
+            g_dir_cap = g_dir ? 64 : 0;
+        }
+        if (!g_dir) return -1;
+    }
+    char path[sizeof SD_SAMPLE_DIR + AUDIO_NAME_MAX + 2];
+    if (dir[0]) snprintf(path, sizeof path, SD_SAMPLE_DIR "/%s", dir); else snprintf(path, sizeof path, SD_SAMPLE_DIR);
+    DIR *d = opendir(path);
+    if (!d) return -1;
+    const uint32_t t0 = millis();
+    int n = 0, seen = 0, left_out = 0;
     while (const dirent *e = readdir(d)) {
+        if ((++seen & 15) == 0) engine_synth_io_pump();                     // a long folder: the streams still get their blocks
+        if ((seen & 63) == 0) vTaskDelay(1);                                // ... and the idle task its time (watchdog)
         const size_t len = strlen(e->d_name);
-        if (len < 5 || len - 4 > sizeof g_cat[0].name - 1 || strcasecmp(e->d_name + len - 4, ".smp") != 0) continue;   // *.smp with a stem that fits the catalog name
-        char stem[sizeof g_cat[0].name];
-        memcpy(stem, e->d_name, len - 4);
-        stem[len - 4] = 0;
-        if (known(stem)) continue;
-        if (g_n >= AUDIO_SAMPLES_MAX) { Serial.printf("[SD] library full (%d files), skipping %s\n", AUDIO_SAMPLES_MAX, e->d_name); break; }
-        char path[sizeof(e->d_name) + sizeof SD_SAMPLE_DIR + 2];
-        snprintf(path, sizeof path, SD_SAMPLE_DIR "/%s", e->d_name);
-        g_scan_reads = g_scan_worst_us = 0;
-        const uint32_t t0 = millis();
-        const bool ok = fill_entry(g_n, stem, path);
-        Serial.printf("[SD] scan %s: %u ms, %u reads, slowest read %u us%s\n", e->d_name, (unsigned)(millis() - t0), (unsigned)g_scan_reads, (unsigned)g_scan_worst_us, ok ? "" : " (not a valid .smp)");
-        if (!ok) continue;
-        g_n = g_n + 1;
-        added++;
-        vTaskDelay(1);
-        engine_synth_catalog_set(g_cat, g_n);       // listed as soon as it is read: the screen fills in while the rest is scanned
+        if (!len || e->d_name[0] == '.') continue;
+        audio_dir_entry_t ent;
+        if (e->d_type == DT_DIR) {
+            if (len >= sizeof ent.name) continue;
+            memcpy(ent.name, e->d_name, len + 1);
+            ent.dir = 1;
+        } else {                                                            // *.smp with a stem that fits a library name; no versions (name~n)
+            if (len < 5 || len - 4 >= sizeof ent.name || strcasecmp(e->d_name + len - 4, ".smp") != 0) continue;
+            memcpy(ent.name, e->d_name, len - 4);
+            ent.name[len - 4] = 0;
+            if (strchr(ent.name, '~')) continue;
+            ent.dir = 0;
+        }
+        if (n >= g_dir_cap) { left_out++; continue; }
+        g_dir[n++] = ent;
     }
     closedir(d);
-    Serial.printf("[SD] %d new sample(s), %d in the library\n", added, (int)g_n);
+    qsort(g_dir, static_cast<size_t>(n), sizeof *g_dir, dir_cmp);
+    g_dir_n = n;
+    Serial.printf("[SD] folder %s: %d entries in %u ms%s\n", path, n, (unsigned)(millis() - t0), left_out ? " (more than the list holds: the rest is left out)" : "");
+    return n;
+}
+
+void run_lib_job() {
+    LibJob &j = g_lib;
+    if (!sd_card_mounted()) j.result = j.list ? -1 : 0;                     // (a slow card is not read: the posters check)
+    else if (j.list) j.result = list_folder(j.name);
+    else j.result = read_info(j.name, j.info) ? 1 : 0;
+    j.state = 2;
 }
 
 #ifdef HWV1_SD_BENCH
@@ -201,13 +249,13 @@ void make_folders() {
     e.ok = missing_folders() == 0;
     Serial.printf("[SD] folders %s%s\n", e.ok ? "ready" : "NOT all made", e.moved ? ", old layout moved into /system" : "");
     push_event(e);
-    if (g_state == SD_OK) scan();                 // the library folder may hold files now
     g_gen = g_gen + 1;                            // the application reads keys.cfg again and looks its samples up
 }
 
 void card_gone() {
     g_storage.close_all();
     sd_card_unmount();
+    g_dir_n = 0;
     g_state = SD_NONE;
     g_gen = g_gen + 1;
     Serial.println("[SD] card removed");
@@ -228,11 +276,11 @@ void card_in() {
         sd_card_unmount();
         return;
     }
-    if (id != g_catalog_card && g_n > 0) {        // another card: its files are not the ones the catalog lists
+    if (id != g_catalog_card && engine_synth_sample_count() > 0) {   // another card: its files are not the ones the catalog lists
         engine_synth_catalog_reset();
-        g_n = 0;
         g_catalog_card = 0;
     }
+    g_dir_n = 0;                                  // (the browser reads its folder again)
     storage_event_t e = {};                       // the two checks of a new card: its read speed and its folders
     e.kind = STORAGE_EV_INSERTED;
     e.read_us = us;
@@ -252,8 +300,7 @@ void card_in() {
     if (!g_attached) g_attached = engine_synth_attach_storage(&g_storage);
     g_state = SD_OK;
     Serial.printf("[SD] card ready: a sector read takes %u us\n", (unsigned)us);
-    scan();
-    g_gen = g_gen + 1;                            // the application looks the samples of its rack up again
+    g_gen = g_gen + 1;                            // the application looks the samples of its pads and its rack up again
 }
 
 void poll_card() {
@@ -295,10 +342,11 @@ void report() {
 // state: 0 = free, 1 = posted (the card task owns the job), 2 = done (the poster owns it). A poster that gave up waiting leaves it at 1 or 2;
 // the next post waits for / takes it over, so the card task never writes into a job that is being refilled.
 struct FileJob {
-    char name[32];
+    char name[48];
     char data[STORAGE_FILE_MAX];
     int  len;                                      // write: bytes in data; read: capacity in, bytes read out (-1 = failed)
     bool write;
+    bool remove;                                   // delete the file (storage_remove)
     volatile int state;
 };
 FileJob g_job;
@@ -316,11 +364,14 @@ bool write_file(const char *path, const char *tmp, const char *data, int len) {
 
 void run_file_job() {
     FileJob &j = g_job;
-    char path[48], tmp[52];
+    char path[64], tmp[68];
     snprintf(path, sizeof path, SD_MOUNT_POINT "/%s", j.name);
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     if (!sd_card_mounted()) {
         j.len = -1;
+    } else if (j.remove) {
+        j.len = ::unlink(path) == 0 ? 0 : -1;
+        Serial.printf("[SD] %s %s\n", j.len == 0 ? "removed" : "could not remove", path);
     } else if (j.write) {
         const bool ok = write_file(path, tmp, j.data, j.len);
         Serial.printf("[SD] %s %s (%d bytes)\n", ok ? "wrote" : "could not write", path, j.len);
@@ -358,15 +409,22 @@ void io_task(void *) {
     uint32_t t_poll = 0;
     bool first = true;
     int burst = 0;
+    bool reading = false;                           // the loader still had reads in flight after its last pump
     for (;;) {
         const uint32_t now = millis();
         if (first || now - t_poll >= (g_state == SD_SLOW ? kPollSlowMs : kPollMs)) { first = false; t_poll = now; poll_card(); }
-        if (ulTaskNotifyTake(pdTRUE, 0) && g_state == SD_OK) scan();      // the Scan row of the sample list
+        if (g_lib.state == 1) run_lib_job();       // a sample's header or a folder's list, asked by the UI
         if (g_job.state == 1) run_file_job();      // a settings file (keys.cfg ...), also on a card too slow for samples
         if (g_mkdirs) make_folders();
+        // A processing job: one chunk, and only while the loader has nothing waiting. The streams come first: a chunk holds the card
+        // for ~50 ms (4 KB read, 4 KB written), and measured with two chunks before every pump, 4 streamed pads lost 13..48 blocks per job.
+        if (g_state == SD_OK) engine_synth_capture_step();          // a recording: its chunk first, every time (what waits in its ring is lost when it fills)
+        if (g_state == SD_OK && !reading) engine_synth_render_step();
         if (g_state == SD_OK) {
             const bool more = engine_synth_io_pump();   // reads still in flight: go on at once, a stream may be about to run dry
+            reading = more;
             if (more && ++burst < kBurst) continue;
+            if (more) reading = false;                  // a long run of reads: the job still gets its chunk (it has to end)
             burst = 0;
         }
 #ifdef HWV1_DEBUG_AUDIO
@@ -378,18 +436,66 @@ void io_task(void *) {
 }  // namespace
 
 void samples_esp32_start() {
+    engine_synth_set_card_root(SD_MOUNT_POINT);                // the processing jobs write next to the library
     if (!g_task) xTaskCreatePinnedToCore(io_task, "sd_io", kStackBytes, nullptr, kPriority, &g_task, 0);
 }
 
-int samples_esp32_rescan() {
-    if (g_task) xTaskNotifyGive(g_task);
-    return g_n;
+// Posts the library job and waits for it (as post_job / job_free do for the settings files).
+static bool lib_post() {
+    if (!g_task) return false;
+    g_lib.state = 1;
+    for (uint32_t t0 = millis(); g_lib.state != 2;) {
+        if (millis() - t0 > kJobWaitMs) return false;
+        vTaskDelay(1);
+    }
+    return true;
+}
+static bool lib_free() {
+    for (uint32_t t0 = millis(); g_lib.state == 1;) {
+        if (millis() - t0 > kJobWaitMs) return false;
+        vTaskDelay(1);
+    }
+    return true;
+}
+
+int samples_esp32_find(const char *name) { return engine_synth_catalog_find(name); }
+
+int samples_esp32_use(const char *name) {
+    if (!name || !name[0] || strlen(name) >= AUDIO_NAME_MAX) return -1;
+    const int have = engine_synth_catalog_find(name);
+    if (have >= 0) return have;
+    if (g_state != SD_OK || !lib_free()) return -1;
+    snprintf(g_lib.name, sizeof g_lib.name, "%s", name);
+    g_lib.list = false;
+    if (!lib_post()) return -1;
+    int index = -1;                                                         // no such sample
+    if (g_lib.result == 1 && (index = engine_synth_catalog_add(&g_lib.info)) < 0) index = -2;   // the catalog is full
+    g_lib.state = 0;
+    return index;
+}
+
+int samples_esp32_dir_open(const char *dir) {
+    if (g_state != SD_OK || (dir && strlen(dir) >= AUDIO_NAME_MAX) || !lib_free()) return -1;
+    snprintf(g_lib.name, sizeof g_lib.name, "%s", dir ? dir : "");
+    g_lib.list = true;
+    if (!lib_post()) return -1;
+    const int n = g_lib.result;
+    g_lib.state = 0;
+    return n;
+}
+
+int samples_esp32_dir_read(int first, audio_dir_entry_t *out, int max) {
+    if (g_lib.state == 1 || !g_dir || first < 0) return 0;                  // (a listing still runs: nothing to show yet)
+    int n = 0;
+    for (; n < max && first + n < g_dir_n; n++) out[n] = g_dir[first + n];
+    return n;
 }
 
 extern "C" int storage_read(const char *name, char *buf, int cap) {
     if (g_state == SD_NONE || !job_free()) return -1;
     snprintf(g_job.name, sizeof g_job.name, "%s", name);
     g_job.write = false;
+    g_job.remove = false;
     if (!post_job() || g_job.len < 0) return -1;
     const int n = g_job.len < cap - 1 ? g_job.len : cap - 1;
     memcpy(buf, g_job.data, n);
@@ -404,11 +510,25 @@ extern "C" bool storage_write(const char *name, const char *data, int len) {
     memcpy(g_job.data, data, len);
     g_job.len = len;
     g_job.write = true;
+    g_job.remove = false;
     if (!post_job()) return false;
     const bool ok = g_job.len >= 0;
     g_job.state = 0;
     return ok;
 }
+
+extern "C" bool storage_remove(const char *name) {
+    if (g_state == SD_NONE || !job_free()) return false;
+    snprintf(g_job.name, sizeof g_job.name, "%s", name);
+    g_job.write = false;
+    g_job.remove = true;
+    if (!post_job()) return false;
+    const bool ok = g_job.len == 0;
+    g_job.state = 0;
+    return ok;
+}
+
+void samples_esp32_hide(int index) { engine_synth_catalog_remove(index); }
 
 extern "C" bool storage_poll_event(storage_event_t *e) {
     if (g_ev_r == g_ev_w) return false;
@@ -420,7 +540,10 @@ extern "C" bool storage_poll_event(storage_event_t *e) {
 
 extern "C" void storage_make_folders(void) { g_mkdirs = true; }
 
-bool samples_esp32_ready(int index) { return index >= 0 && index < g_n && !g_cat[index].pending; }
+bool samples_esp32_ready(int index) {
+    audio_sample_info_t in;
+    return engine_synth_sample_info(index, &in) && in.name[0] && !in.pending;
+}
 sd_state_t samples_esp32_sd_state() { return g_state; }
 uint32_t samples_esp32_sd_read_us() { return g_slow_us; }
 uint32_t samples_esp32_sd_generation() { return g_gen; }

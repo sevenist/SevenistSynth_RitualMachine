@@ -3,8 +3,10 @@
 // Why not ESP-IDF's sdspi host: on this board it spends about 40 ms before EVERY command (a plain CMD13 status takes 40 ms, with both pins
 // quiet until the 55 us transfer at the very end; same for two different cards, both SPI hosts, any clock), which made a 4 KB read cost
 // 80 ms. A bare SPI transfer on the same bus takes the time the clock says, so this driver uses only the SPI master layer and does the
-// SD protocol itself: initialisation (CMD0 / CMD8 / ACMD41 / CMD58), CMD17 / CMD18 reads, CMD24 single-block writes (each one checked with
-// CMD13), CMD9 / CMD10 for capacity and identity. Writes are for the small settings files (hal_storage.h): one block per command is plenty.
+// SD protocol itself: initialisation (CMD0 / CMD8 / ACMD41 / CMD58), CMD17 / CMD18 reads, CMD24 single-block and CMD25 multi-block writes
+// (each command checked with CMD13), CMD9 / CMD10 for capacity and identity. Single blocks carry the small settings files and the file
+// system's own sectors; a run of sectors (a sample being processed or recorded: 4 KB at a time) goes as one CMD25, which the card
+// programs several times faster than the same sectors one command each.
 // (The IDF host stays available with -DHWV1_SD_IDF, see sd_card.cpp.)
 //
 // Everything runs on the caller's task (the sample I/O task), polling transfers, no locks. Loops that can wait on a slow card give the
@@ -51,6 +53,8 @@ bool g_bus = false, g_up = false, g_sdhc = false;
 uint32_t g_sectors = 0, g_serial = 0;
 int g_khz = 400;                                    // the clock in use
 uint32_t g_crc_errors = 0;                          // data blocks whose CRC did not match (each was read again)
+bool g_verify = false;                              // dev: every write is read back and compared (sd_card_verify)
+uint32_t g_verify_sectors = 0, g_verify_bad = 0;    // ... sectors compared, sectors that differed
 uint16_t g_crc_tab[256];
 char g_name[8] = {};
 uint8_t g_pdrv = 0xFF;
@@ -235,6 +239,42 @@ bool write_sector(uint32_t sector, const uint8_t *src) {
     return r1 == 0x00 && r2 == 0x00;
 }
 
+// A run of blocks through CMD25: ACMD23 tells the card how many come (it can erase them ahead), then per block the token 0xFC, the data,
+// the CRC, the data response and the programming's busy time; the stop token 0xFD ends the run. CMD13 afterwards as for one block.
+bool write_sectors(uint32_t sector, const uint8_t *src, uint32_t count) {
+    if (!g_up || count == 0) return false;
+    if (count == 1) return write_sector(sector, src);
+    const uint32_t addr = g_sdhc ? sector : sector * kSector;
+    app_command(23, count);                          // (a hint: a card that refuses it still takes the run)
+    deselect();
+    cs(true);
+    bool ok = command(25, addr, 0xFF) == 0x00;
+    for (uint32_t i = 0; ok && i < count; i++) {
+        xfer_byte();
+        g_tx[0] = 0xFC;
+        memcpy(g_tx + 1, src + i * kSector, kSector);
+        g_tx[kSector + 1] = g_tx[kSector + 2] = 0xFF;
+        ok = xfer(g_tx, g_rx, kSector + 3);
+        uint8_t resp = 0xFF;
+        for (int k = 0; ok && k < 16 && resp == 0xFF; k++) resp = xfer_byte();
+        ok = ok && (resp & 0x1F) == 0x05;
+        ok = wait_ready(600) && ok;
+    }
+    {                                                // the stop token even after a failure: the card must leave the write state
+        const uint8_t stop[2] = {0xFD, 0xFF};
+        uint8_t in[2];
+        xfer(stop, in, 2);
+        ok = wait_ready(600) && ok;
+    }
+    deselect();
+    if (!ok) return false;
+    cs(true);
+    const uint8_t r1 = command(13, 0, 0xFF);
+    const uint8_t r2 = xfer_byte();
+    deselect();
+    return r1 == 0x00 && r2 == 0x00;
+}
+
 /* ---------------- FATFS glue ---------------- */
 
 DSTATUS ff_status(BYTE) { return 0; }
@@ -252,8 +292,19 @@ DRESULT ff_read(BYTE, BYTE *buff, LBA_t sector, UINT count) {
     return RES_OK;
 }
 DRESULT ff_write(BYTE, const BYTE *buff, LBA_t sector, UINT count) {
-    for (UINT i = 0; i < count; i++)
-        if (!write_sector(static_cast<uint32_t>(sector) + i, buff + i * kSector)) return RES_ERROR;
+    UINT done = 0;
+    while (done < count) {                           // at most 16 sectors (8 KB) per command, as the reads
+        const UINT n = count - done > 16 ? 16 : count - done;
+        if (!write_sectors(static_cast<uint32_t>(sector) + done, buff + done * kSector, n)) return RES_ERROR;
+        done += n;
+    }
+    if (g_verify) {                                  // dev: what the card holds now against what was sent
+        static uint8_t back[kSector];
+        for (UINT i = 0; i < count; i++) {
+            g_verify_sectors++;
+            if (!read_sectors(static_cast<uint32_t>(sector) + i, back, 1) || memcmp(back, buff + i * kSector, kSector) != 0) g_verify_bad++;
+        }
+    }
     return RES_OK;
 }
 DRESULT ff_ioctl(BYTE, BYTE cmd, void *buf) {
@@ -435,6 +486,11 @@ bool sd_card_alive() {
 
 uint32_t sd_card_id() { return g_up ? g_serial : 0; }
 uint32_t sd_card_crc_errors() { return g_crc_errors; }
+void sd_card_verify(bool on, uint32_t *sectors, uint32_t *bad) {
+    g_verify = on;
+    if (sectors) *sectors = g_verify_sectors;
+    if (bad) *bad = g_verify_bad;
+}
 
 // Raw reads below the filesystem, one command each: the cost of a command and of a sector (dev, HWV1_SD_BENCH).
 void sd_card_bench() {

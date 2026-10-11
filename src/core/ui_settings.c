@@ -178,17 +178,17 @@ bool ui_settings_from_text(synth_ui_t *ui, rack_t *rack, const char *txt) {
     return true;
 }
 
-static char g_buf[STORAGE_FILE_MAX];
+#define g_buf g_storage_buf                      // the shared settings buffer (hal_storage.h)
 
 bool ui_settings_load(synth_ui_t *ui, rack_t *rack) {
-    const bool ok = storage_read(UI_SETTINGS_FILE, g_buf, sizeof g_buf) >= 0 && ui_settings_from_text(ui, rack, g_buf);
+    const bool ok = storage_read(UI_SETTINGS_FILE, g_buf, STORAGE_FILE_MAX) >= 0 && ui_settings_from_text(ui, rack, g_buf);
     capture(ui, rack, &g_saved);                                 // loaded, or nothing to load: the current state is the reference
     g_have_saved = true;
     return ok;
 }
 
 bool ui_settings_save(const synth_ui_t *ui, const rack_t *rack) {
-    const int n = ui_settings_to_text(ui, rack, g_buf, sizeof g_buf);
+    const int n = ui_settings_to_text(ui, rack, g_buf, STORAGE_FILE_MAX);
     if (!storage_write(UI_SETTINGS_FILE, g_buf, n)) return false;
     capture(ui, rack, &g_saved);
     g_have_saved = true;

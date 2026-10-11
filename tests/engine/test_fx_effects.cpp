@@ -244,3 +244,54 @@ TEST(comb_follows_the_key_and_rings_at_the_harmonics) {
     std::printf("    comb on noise at A3: autocorrelation at one period %.2f; strongest lag %zu (period %zu), %.2f\n", ac, best, period, bestv);
     CHECK(ac > 0.3 && best + 2 >= period && best <= period + 2);                  // resonates at the played pitch
 }
+
+// The EQ against its three cookbook sections computed here in double precision (the same formulas as the module: a 150 Hz low shelf,
+// a peak of Q 0.9, a 6 kHz high shelf). The input is what a flat EQ lets through (it is then an exact pass-through); the difference
+// between the module and the reference is what its arithmetic adds, in output steps (LSB of 16 bits).
+namespace {
+struct RefBiquad {
+    double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0;
+    void set(double B0, double B1, double B2, double A0, double A1, double A2) { b0 = B0 / A0; b1 = B1 / A0; b2 = B2 / A0; a1 = A1 / A0; a2 = A2 / A0; }
+    double tick(double x) { const double y = b0 * x + z1; z1 = b1 * x - a1 * y + z2; z2 = b2 * x - a2 * y; return y; }
+};
+std::vector<double> ref_eq(const std::vector<double> &x, double low_db, double mid_db, double mid_hz, double high_db) {
+    const double pi = 3.14159265358979323846;
+    RefBiquad s[3];
+    {   const double A = std::pow(10.0, low_db / 40.0), w = 2 * pi * 150.0 / kSampleRate, c = std::cos(w), al = std::sin(w) / 2 * std::sqrt(2.0), sA = 2 * std::sqrt(A) * al;
+        s[0].set(A * ((A + 1) - (A - 1) * c + sA), 2 * A * ((A - 1) - (A + 1) * c), A * ((A + 1) - (A - 1) * c - sA), (A + 1) + (A - 1) * c + sA, -2 * ((A - 1) + (A + 1) * c), (A + 1) + (A - 1) * c - sA); }
+    {   const double A = std::pow(10.0, mid_db / 40.0), w = 2 * pi * mid_hz / kSampleRate, al = std::sin(w) / (2 * 0.9), c = std::cos(w);
+        s[1].set(1 + al * A, -2 * c, 1 - al * A, 1 + al / A, -2 * c, 1 - al / A); }
+    {   const double A = std::pow(10.0, high_db / 40.0), w = 2 * pi * 6000.0 / kSampleRate, c = std::cos(w), al = std::sin(w) / 2 * std::sqrt(2.0), sA = 2 * std::sqrt(A) * al;
+        s[2].set(A * ((A + 1) + (A - 1) * c + sA), -2 * A * ((A - 1) + (A + 1) * c), A * ((A + 1) + (A - 1) * c - sA), (A + 1) - (A - 1) * c + sA, 2 * ((A - 1) - (A + 1) * c), (A + 1) - (A - 1) * c - sA); }
+    std::vector<double> y(x.size());
+    for (size_t i = 0; i < x.size(); i++) { double v = x[i]; for (auto &b : s) v = b.tick(v); y[i] = v; }
+    return y;
+}
+}  // namespace
+
+TEST(eq3_matches_its_cookbook_sections_in_double_precision) {
+    struct Case { bool noise; double hz, level; int low, mid, high; const char *what; };
+    const Case cases[] = {
+        {true, 1000.0, 0.2, -120, 60, 90, "noise, low -12 mid +6 high +9"},
+        {false, 30.0, 0.2, 120, 0, 0, "30 Hz, low +12 (the poles nearest to 1)"},
+        {false, 5000.0, 0.02, 60, -90, 120, "a quiet 5 kHz, all three bands"},
+    };
+    for (const Case &c : cases) {
+        std::vector<double> in, out;
+        {   FxBench flat(T_EQ3, c.noise, c.hz, c.level);
+            flat.run(0.6, &in); }
+        {   FxBench b(T_EQ3, c.noise, c.hz, c.level);
+            b.set(EQ_LOW, c.low); b.set(EQ_MID, c.mid); b.set(EQ_MIDF, 84 * 256); b.set(EQ_HIGH, c.high);
+            b.run(0.6, &out); }
+        const std::vector<double> ref = ref_eq(in, c.low / 10.0, c.mid / 10.0, 440.0 * std::pow(2.0, (84.0 - 69.0) / 12.0), c.high / 10.0);
+        double e = 0, s = 0, worst = 0;
+        size_t n = 0;
+        for (size_t i = S(0.2); i < out.size() && i < ref.size(); i++) {
+            const double want = std::max(-32768.0, std::min(32767.0, ref[i])), d = out[i] - want;
+            e += d * d; s += want * want; worst = std::max(worst, std::fabs(d)); n++;
+        }
+        std::printf("    eq, %s: off by %.2f LSB rms (worst %.1f), %.1f dB under the signal\n", c.what, std::sqrt(e / n), worst, 10.0 * std::log10(s / (e + 1e-9)));
+        CHECK(std::sqrt(e / n) < 0.9);                                           // about the rounding to 16 bits (the int64 loop: 1.0 .. 2.6)
+        CHECK(worst < 2.5);
+    }
+}

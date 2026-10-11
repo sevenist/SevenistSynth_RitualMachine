@@ -326,6 +326,8 @@ LINEAR, bipolar / unipolar) travels as one `MotionBlob` with `set_blob`; target,
 - **Library** (`hal_audio.h`): `audio_sample_count / audio_sample_info / audio_samples_rescan`, entries with name, length, rate, root, slices,
   loop and 64 amplitude peaks. The order is stable and only grows (a rescan appends), because the rack stores the index. Up to 32 files
   (the bank has 32 slots). The rack refers to the file by index, not by name: saving racks (later) must store the name.
+  **Since 2026-10-11 the library is read on demand** (folders, the catalog = the 32 files in use, `audio_sample_use`, a browser
+  screen; `audio_samples_rescan` and the Scan row are gone): ADR-041, decisions 51-52.
 - **Engine side** (`engine_synth`): `engine_synth_attach_storage(dev)` + `engine_synth_catalog_set()` (C++ header `sample_catalog.h`); the
   mapper receives `slot_of_file[]` and the engine loads a file into a bank slot the first time a rack uses it (`resolve_samples`); loaded
   samples stay loaded (unloading while a voice might still read them is not safe), so playing every file of a full library costs about
@@ -643,7 +645,7 @@ Phaser, Flanger, Comp) and the FX module types / pages of stage 1 are kept. Modu
 12. **The Para envelope (Legato / Retrig / Voice) is set per Para point** (a row of the module where Para is on; each branch its own). Leaves GENERAL.
 13. **16 slots shared by the three rows** (as built for lanes); the MIX cell does not take a slot.
 
-**Phase 1 as built (2026-10-09; 71 UI tests incl. `tests/ui/test_rows.c`, 172 engine tests, simulator builds; NOT seen by the user):**
+**Phase 1 as built (2026-10-09; 71 UI tests incl. `tests/ui/test_rows.c`, 172 engine tests, simulator builds; GUI checked and synth heard by the user 2026-10-09):**
 - Model (`rack.h/.c`): `slot.row` (0, 1 = branches, `ROW_M`), `slot.para`, `slot.penv` (para_env_t), `rack_t.br_lvl / br_pan` (the MIX); `MOD_SUM`
   removed (the type list shifted: no saved data). Rules: `rack_can_insert`, `rack_set_row`, `rack_set_para` (checked in place, undone when
   refused); `rack_shared_start` (Para on, or the first heavy FX), `rack_slot_is_shared` (a modulator: its target's), `rack_type_voice_only`
@@ -662,7 +664,7 @@ Phaser, Flanger, Comp) and the FX module types / pages of stage 1 are kept. Modu
 - Serial (`serial_cmd_esp32.cpp`): `mode mono|poly|para`, `patch para`, `fx <code> [values]` / `fx clear` reworked (SERIAL_COMMANDS.md).
 
 **Phase 2, step 1 as built (2026-10-09, user report "the second lane has no sound"; host-tested in the 6 configurations, simulator +
-firmware built, NOT flashed, NOT listened to):** both branches sound.
+firmware built; flashed and heard by the user 2026-10-09):** both branches sound.
 - Engine: a **second voice bus** (`ProcessCtx::bus2_l / bus2_r`, `Engine::bus2_*`, cleared per block); `VoiceOut` has a second input
   (`VO_IN2` = 1 when it is used) that accumulates into it, and keeps the voice alive while either input sounds; `BusIn` reads bus 0 or 1
   (`BUS_SEL`).
@@ -676,7 +678,7 @@ firmware built, NOT flashed, NOT listened to):** both branches sound.
   live (no rebuild), Para none / 1 / 2 / both (shared filters are global nodes, both keys on both branches, everything stops after the release).
 - Step 1 tried by the user on the prototype: works ("very cool", 2026-10-09).
 
-**Phase 2, step 2 as built (2026-10-09; host-tested in the 6 configurations, simulator + firmware built, NOT flashed, NOT listened to):**
+**Phase 2, step 2 as built (2026-10-09; host-tested in the 6 configurations, simulator + firmware built; flashed and heard by the user 2026-10-09, cost not measured):**
 - Per-voice effects: Phaser, Flanger, Tremolo, Compressor, Eq3, Shifter are templates on their channel count (`fx2_modules.cpp`):
   CH 2 = the global stereo module (unchanged code path), CH 1 = a mono voice-scope version (`T_PHASER_V` .. `T_SHIFTER_V`, ids 74-79).
   Per voice, Trem's Pan mode is a plain tremolo. A cheap effect before a branch's Para point uses it.
@@ -693,6 +695,444 @@ firmware built, NOT flashed, NOT listened to):** both branches sound.
 - Costs: per-voice effects multiply by the voice count (a 4-voice phaser = 4 phasers; a per-voice flanger takes a 2 KB line per voice);
   after a stereo effect the branch's shared filter costs twice. +2 KB static RAM (the probes of the six new module types). Not measured
   on the board. Flashed and tried by the user 2026-10-09: Osc -> Phaser -> Filter (per-voice phaser) and the modulators work.
+
+**Phase 5 (Pads), round 1 answers (user, 2026-10-09; options with pros / cons offered, all four my recommendation):** Pads started before
+phases 3 / 4 (the clock and capture come later: "start on grid" needs the clock, pads take card files until capture exists).
+14. **16 pads per bank (4 x 4)**: half of prototype 1's 32 note keys, the other 16 free for pad-section functions; fits the 4-column board.
+15. **4 banks, 64 pads, all ready to play**: every pad's head stays in PSRAM (2 MB on the board, shared with the synth), so any pad of any
+   bank starts at once. More banks later = heads loaded per bank (a card read on a bank switch).
+16. **Synth / Pads switch = Shift + Menu**, a Shift-layer entry (editable in MODIFIERS) plus a key function "Section" for the KEYS layouts.
+17. **SM stays in the rack; one shared sample library**: the SAMPLES browser serves both the rack's SM and the pads (the auto-sampler's
+   multisamples will play through SM). Risk: two ways to play a sample.
+
+**Phase 5, round 2 answers (user, 2026-10-09; all my recommendation):**
+18. **Built-in "Pads" key layout** (editable in KEYS): on prototype 1 the left 4 x 4 are the pads, the right 4 x 4 the functions; on the
+   4-column board all 16 keys are pads and the functions are Shift + pad.
+19. **Function keys**: Bank A-D (4 keys, lit in the bank colour), Stop all, Select (hold + pad: show its settings, no sound), Mute (hold +
+   pad: mute / unmute).
+20. **The synth keeps sounding in the Pads section** (latched notes, later its sequencer); only the keys go to the pads. Risk: the synth's
+   CPU stays in use, fewer pad voices fit.
+21. **Each pad mono (a push restarts it), 8 pad voices**, the oldest stolen. Risk: a fast roll cuts the previous hit's tail.
+
+**Phase 5, round 3 answers (user, 2026-10-10):**
+22. **A "live synth" in the Pads section**: a simpler, optimized synth for live play; the full synth and its row M are not loaded there
+   (replaces decision 20; my reading: the full synth stops while in Pads, to confirm). Its design (voices, engine, how it is played) is open.
+23. **Three FX chains FXA / FXB / FXC** in the Pads section, routings A/B/C, A+B/C, A+B+C, A+C/A+B ('+' = series, '/' = parallel;
+   A+C/A+B = A, then split into C and B in parallel), like the SP-404 / Elektron buses. **Each source (a pad, the live synth) picks its
+   entry Dry / A / B / C** (in A+B+C a pad on B goes through B and C). **Each chain is a short chain of modules** (against my
+   recommendation "one effect per chain"): risk = up to ~12 effect modules next to 8 pad voices and the live synth; measure on the board.
+24. **A minimal clock now**: internal BPM and a 4/4 bar / beat position, shown in the Pads header, used by "start on grid"; the sequencer,
+   capture and MIDI clock build on it later.
+25. **Pads screen = the grid full screen**; a push (or Select + pad) opens the pad's settings pages (against my recommendation "grid on
+   top, pad below"): risk = editing a pad hides the others.
+26. **Song mode + backtrack**: in the Pads section the user sets start / end edit points in a song mode; the performance is recorded as a
+   sample and offered as a **backtrack** in the Synth section (the answer to "hearing the other section while working"). Design open.
+
+**Phase 5, step 1 as built (2026-10-10; 7 engine tests `test_pads.cpp` in the 6 configurations, 6 UI tests `tests/ui/test_pads.c`,
+simulator + firmware built; NOT tried by the user, NOT flashed):**
+- Model `core/pads.c/.h`: 64 `pad_t` (file name, start / end in 1/1000, mode, loop, tail, tune, fine, level, pan, cut, res, choke 1..4,
+  mute), `pads.cfg` (one line per changed pad, the file name last), saved 2 s after a change.
+- Engine: module **Pads** (`T_PADS` 80, global, `sampler_modules.cpp`): 8 voices, each an internal `Sampler` at a fixed pitch (new Sampler
+  parameters `fstart` / `fend` / `region`: a trim in frames and a loop over it), then a 12 dB SVF low-pass (float, the ADR-035 filter
+  exception), a fade envelope, level / pan / mute ramped per block, into L / R. Pad settings as `PadBlob` (set_blob), pushes / releases /
+  Stop as parameters `(n << 8) | pad`. Mono restart and choke fade the old sound in 5 ms; a gate release / toggle off / Stop all fade in
+  the pad's tail; the oldest voice (the quietest fading one first) is stolen at once. `pads_playing()` publishes the sounding pads.
+- `engine_synth_pads_build` loads Pads -> MasterOut (the rack's volume / Out) in place of the synth (decision 22: the full synth stops);
+  `engine_synth_build` brings the synth back; in between `set_params` only follows the master volume. Every pad's sample is loaded at
+  build (decision 15): whole in memory up to 192 KB each and 768 KB in total, else a 150 ms head and streaming.
+- Decision 16 as built: Shift + Menu is the **Default** of the Menu key's Shift entry (like Shift + Back), not a separate layer entry; a
+  Shift entry set on that key in MODIFIERS takes over. Key function "Sectn". Decision 18: the Pads layout is built in and **not editable
+  yet**. Decision 19 + 4-column boards: Shift + pad = select, Shift + Back = Stop all. Decision 25: push or Select + pad opens the editor.
+- **Loop = Off / Trim / File** (user, 2026-10-10): assigning a file with loop points sets File (the Sampler plays from the trim start and
+  loops at the file's own points, exact; `PadBlob.loop` 2 = `SMPR_LOOP` -1); Trim loops start..end (a sample recorded from the synth has
+  no loop points); File is not offered for a file without them. Pads start empty (the user: the sound designer fills them).
+- Not yet: the clock / start on grid (step 2), FX entry (step 3), root note / zone stretch, reverse, live tune changes of a sounding pad
+  (tune / trim apply at the next push), the Pads layout in the KEYS tab, an LED for Select / Mute held.
+
+**Phase 5, step 2: the clock (user answers 2026-10-10; built 2026-10-10, host-tested, NOT tried by the user, NOT flashed):**
+27. **One clock for the machine**: the sequencer's BPM (40..240). **Play** starts / stops it (Pads: the clock; the synth: the sequencer
+   and the clock with it); a start is bar 1 beat 1; leaving / entering the Pads section stops it.
+28. **Tempo**: Tap (key function), BPM -1 / +1 / -5 / +5 key functions (bindable as Shift / Mod + any key, MODIFIERS), a "Tempo" step
+   function for encoders / knobs, the SEQ SETUP page's BPM row is learnable as before; a Clock row in the settings page comes in phase 6.
+29. **Beat display**: Pads header "BANK A ... 120 3.2" (bar.beat inverted for the first quarter of the beat, "--" when stopped); the Play
+   LED flashes on every beat (longer on beat 1, both sections); a metronome click (key function Click, off by default).
+- As built: `Transport` in the engine (`module.h`, `Engine::set_transport`, `Cmd::Transport`): the position in beats (Q32) advanced per
+  block, read by modules through `ProcessCtx::transport`, published for the UI (`engine_synth_transport`, HAL `audio_transport`). The click
+  (1.5 kHz, 3 kHz on beat 1, about -12 dBFS) is added after the master output. Start on grid (pad setting Grid Off / Beat / Bar):
+  **block-accurate** (the pad starts in the block nearest to its beat: within half a block, 0.36 ms at 44.1 kHz / 32), a stopped clock
+  starts it at once (also a pad still waiting when the clock stops), a gate released or a toggle pushed again before its beat cancels it.
+  The sequencer still counts its steps in milliseconds of the audio clock beside it (phase 3 moves it onto the transport).
+- Fixed on the way (both only bite when the engine is started again, which the tests do): `engine_synth_init` did not reset the stored
+  clock values (a second engine ignored the first `set_clock`) nor the pads' resident-sample budget; `SampleBank::shutdown` kept the
+  loader's jobs, in-flight count and stream list, so a read in flight at shutdown left the next bank's queue "full" (no more card reads).
+
+**Pads: tried by the user in the simulator (2026-10-10): "all fine, I love the options".** Their next requests (2026-10-10, options
+offered):
+30. **The tail shows on the overview** (a fade after End, as long as Tail).
+31. **Loop crossfade**: XFad in ms (capped at half the loop), equal-power, **Pre** (the fade-in material ends at the loop start: taken
+   from before it) or **Post** (it starts at the loop start: after the wrap the play goes on from loop start + XFad). Trim and File loops.
+32. **Loop start apart from the sample start** (LStr, the Trim loop's), and a grid launch can start at the sample start or the loop
+   start (From).
+33. **Sample tools next, before FX** (design round first): chopping, stretching, tempo matching (fit to N beats: **offline only**, a
+   render to a new file; not live) and offline processing (normalize, stretch, paulstretch, more).
+- As built (host-tested, NOT tried by the user): the trims are **frames** now (1/1000 of the file was 10 ms on a 10 s file), stepped by
+  1/200 of the file (fine 1/1000); `pads.cfg` start / end / lstart in frames, xfade / xpos / from. The Sampler mixes the fade-in in its
+  general loop (two interpolated reads, sine-table gains; its fast paths stop where the fade begins); measured largest step at the wrap of a
+  broken 500 Hz loop: 9266 plain -> 986 Pre / 857 Post (48 kHz). Limit: a streamed sample's fade-in material may not be loaded in time
+  (the loader follows the playback path): at 96 kHz, where the 2 s test file streams, Post left a 1944 step (still far below 12107). The
+  editor has 19 rows (8 px, the loop rows only while it loops); `ui_screen.c` MAX_ELEMENTS 16 -> 24.
+
+**Sample tools, design round (user, 2026-10-10; options offered):**
+34. **Chop modes: all four**: equal slices (N), on transients (onset detection, a sensitivity), on the beat grid (N beats / steps at a
+   BPM), manual markers (drop cuts while it plays, move them; also edits what the automatic modes found).
+35. **Slices go onto consecutive pads**: slice k = the pad after the selected one + k, start / end in the SAME file (no card write).
+36. **Processing: all four groups**: Level & cleanup (normalize, gain, fades, trim silence, DC, reverse, mono), Time & pitch (stretch
+   WSOLA / phase vocoder, pitch shift, fit to N beats: offline, decision 33), Texture (paulstretch, granular freeze / smear, reverse
+   reverb), Color / lo-fi (resample / decimate, bit crush, tape / saturation, filter, print a pad's settings).
+37. **A version history per sample on the card**: every processing writes a child version (the original is the root; undo = the parent;
+   processing an older version = a branch). **Trimming, automatic**: kept = the original, every version a pad uses, and the last K (8)
+   versions per sample; the others are deleted when a new one is written; a version whose parent goes re-links to its nearest kept
+   ancestor.
+38. **Order**: chop (no card writes) -> render-to-card + the history tree (shared with capture, phase 4) -> Level & cleanup -> Time &
+   pitch -> Texture -> Color.
+39. **Next** (user, 2026-10-10): a pad setting Off / Up / Down / Left / Right = the neighbour on the bank's 4 x 4 grid that starts when
+   the pad ends by itself or is stopped by hand (a toggle pushed again; my reading: a gate released too), not on Stop all or Play / Stop
+   (none past the grid's edge; a grid pad waits for its beat as when pushed).
+
+**After the first board test (user, 2026-10-10):**
+40. **Snap** for Start / End / LStr, configurable per pad: Off, Beat (at the clock's tempo), 1/16 of the sample, Attack (the onset scan),
+   Zero crossing. **Changed 2026-10-11 (user: "the snap function isn't sync with set tempo"): 1/16 = a 16th note at the clock's tempo**,
+   not 1/16 of the file. Beat and 1/16 are the notes as the pad plays them: its Tune / Fine count (an octave down = half the frames),
+   and a point is the whole count times the exact beat, rounded once (the beat was cut to whole frames first: up to a frame per beat).
+41. **Sync = Loop: the loop start is the pad's anchor**: with the clock running the pad's start is delayed so that its loop start lands
+   on the grid (a reverse-reverb pre-roll leads into the downbeat); with the clock stopped it starts at once like any pad. (First asked:
+   the playhead reaching the loop start also starts a stopped clock; dropped by the user the same day as too complicated.) **Grid
+   units**: 1 / 2 beats, 1 .. 8 bars (odd counts too).
+43. **Grid chop fills whole grid units** (user, 2026-10-10): when the slices of a Grid chop do not fill whole units (a sample shorter than
+   the grid unit, or a last slice cut short), Chop to pads extends them to the next grid line: with the file's own audio when it is there,
+   else with a padded version of the sample (silence appended, a new version in the history) so the pads loop on the grid at the current
+   tempo (a later BPM change does not follow: chop again).
+42. The tempo popup goes (the header shows the BPM). The editor gets pages PLAY / TONE / CHOP switched from its header (the board has no
+   Page control); the edited pad = the pad key pushed (or Select + pad).
+
+- Decisions 40-42 as built (2026-10-10, host-tested, NOT tried on the board): pad rows Sync (Off / Loop: shown while the pad loops) and
+  Snap; Grid has 11 units (`pad_grid_beats`); the Pads module waits for the grid line the loop start can reach (`PadBlob.preroll` = the
+  output samples from the start to the loop start at the pad's tune; 0 with From = Loop) and starts that much before it (measured: the
+  pre-roll starts within 1 sample of the expected time, the loop on the bar). Snap: `pads_ui_trim` (scr_pads.c) for the editor and the
+  knobs; Zero uses `SampleBank::zero_near`, only where the sample is in memory (a resident pad sample, a streamed one's first 150 ms):
+  elsewhere the plain step. Editor pages PLAY / TONE (with the filter's response) / CHOP from the header; Back: a page -> PLAY -> the grid.
+  Fixed on the way: `fix_focus` (ui_screen.c) read past the element table when the focus was beyond a shorter screen's last row.
+
+**Sample tools step 1 (chop) + Next, as built (2026-10-10; 14 pad engine tests in the 6 configurations, 84 UI tests, sim + firmware
+built; NOT tried by the user, NOT flashed):**
+- **Onset scan** in the SampleBank's loader (`SampleBank::scan / onsets`, `engine_synth_sample_onsets`, HAL `audio_sample_onsets`): one
+  block per pump at the lowest priority (after headers, heads and the streams; resident blocks from memory), the rise of the log energy
+  over 256-frame windows, candidates over 3 dB, the strongest within 40 ms, the 64 strongest kept per file (bulk heap). Measured on 4 noise
+  hits at 0.1 / 0.35 / 0.6 / 0.85 s (one at -24 dB): all 4 found, about 4 ms early (the window start: the cut keeps the attack).
+- **CHOP page** of the pad editor (Page - / + = the pad's settings <-> CHOP): Mode Equal (N 2..16) / Trans (Sens: 30 dB .. 3 dB rises)
+  / Grid (1/16 .. a bar at the clock's tempo) / Manual (the selected cut), Pos (moves the selected cut, 1/400 of the file), To (the
+  first target pad), Add (at the playhead while the pad sounds, `audio_pad_position`; else in the middle of the selected slice), Del,
+  Chop to pads (asks; the slices replace the pads To.. : copies of the source pad, the same file, their start / end, no loop, no Next).
+  Pos / Add / Del on an automatic chop turn it into Manual with its cuts. Cuts at least 64 frames apart; 16 slices at most.
+- **Next**: `PadBlob.next` (engine_synth finds the neighbour), started after a natural end, a toggle off or a gate release; the Pads
+  module publishes each pad's position (`pads_position`). The pad page has 20 rows now (overview 16 px).
+
+**Sample tools steps 2 + 3 as built (2026-10-10; 199 engine tests in the 6 configurations, 91 UI tests, simulator + firmware built;
+NOT tried by the user, NOT flashed: the first run on the board writes sample files to the card; the user: the card may be erased):**
+- **Offline processing** `engine/offline/process.*`: `Processor` runs block by block over a reader / writer (nothing the size of the
+  sample in memory: the board has ~60 KB of PSRAM to spare). Level & cleanup: Normalize (two passes), Gain (saturating), Fade in / out
+  (linear), Trim silence (threshold; 5 ms kept each side; the loop and the slices move with it), Reverse (the loop mirrored, slices
+  dropped), Remove DC (10 Hz one-pole high-pass), Pad to (silence appended: decision 43). Tests `test_offline.cpp`.
+- **Card job** `platform/engine/render_job.cpp` (`engine_synth_render_start / _step / _poll / _done`, HAL `audio_render_*`): the UI posts
+  one job; the thread that owns the card runs it 2-4 chunks at a time between the loader's reads (the board's card task, the desktop's
+  loader thread), with C stdio on `<card root>/system/samples/<name>.smp`: the header is written last, the file is renamed into place
+  from `.tmp`. The job's memory (8 KB then; ~5 KB plus the operation's own since step 5) comes from PSRAM on the board and is freed when the result is taken.
+- **Version history** `core/history.*`, `system/samples/history.cfg` (decision 37): versions `<root>~<n>`, parent links, Undo / Redo /
+  branches; trimming after every new version (the root, what a pad uses, the last 8), the trimmed files deleted (`storage_remove`) and
+  their library entries hidden (`audio_sample_hide`: the name goes, the index stays).
+- **EDIT page** (the editor's 4th page): Op, its amount, Apply ("Working n %"), Ver (steps through the versions), Undo, Redo, and where
+  the version comes from. The Smp row no longer offers versions or hidden entries. After a Trim / Reverse the pad's trim points reset.
+- **Grid chop fills whole grid units** (decision 43): End moves to the next grid line when the file has the audio, else a padded
+  version is rendered first and the chop runs on it.
+- Internal RAM: the five settings modules shared nothing (5 x 4 KB text buffers); one `g_storage_buf` now (hal_storage.h): firmware
+  static RAM 70.8 % -> 65.8 %.
+- Limits: 32 library entries in all (versions included; a hidden entry's slot is not reused until a restart); no cancel of a running
+  job; the processing reads the file's whole length, not the pad's trim (Crop, added later, makes the trim a file); mono 16-bit only.
+
+**Sample tools step 4, Time & pitch, as built (2026-10-10; 204 engine tests in the 6 configurations, 93 UI tests, simulator + firmware
+built, firmware static RAM unchanged at 65.8 %; NOT tried by the user, NOT flashed, NOT listened to, NOT timed on the board):**
+- Five EDIT operations: **Stretch** (25..400 % of the length, the pitch kept), **Pitch** (+-24 semitones, a semitone per step, a cent
+  with fine; the length kept), **Speed** (25..400 %: the length and the pitch change together, like a tape), **Fit beats** (the pitch
+  kept) and **Fit speed** (by the speed): the pad's loop, or Start..End when it does not loop, is made to last N beats (1..128) at the
+  clock's tempo; the amount row shows the length factor ("8b x1.07"); beyond x0.25..x4 it is refused. A neutral amount (100 %, 0 cents,
+  a fit that already fits) writes nothing ("Nothing to change").
+- **The whole file is processed with one factor**, and the pad's Start / End / LStr are scaled with it (`render_adopt`), so the
+  lead-in before a loop stretches along and Sync still puts the loop start on the grid. Loop points and slices in the file's header
+  scale too.
+- Engine (`engine/offline/process.*`, ProcOp `Stretch`, `Resample`, `Pitch`; amounts: the new length in ppm, cents):
+  - Stretch = **WSOLA** in the time domain: Hann windows of ~43 ms (hop 1024 at 48 kHz, scaled with the file's rate) overlap-added at
+    50 %; each window is taken within +-10.7 ms of its ideal place, where it continues the previous one best (normalised
+    correlation over the overlap, on every 4th frame and every 4th offset, then refined to the frame; when going straight on is
+    within reach it is taken: x1 gives the file back, +-1 LSB). The first window does not fade in: the attack is the file's own.
+  - Resample = a 32-tap Hann-windowed sinc, 32 phases interpolated, the cutoff lowered to the new Nyquist when the result is shorter.
+  - Pitch = Stretch by the pitch ratio feeding the resampler, in one pass.
+  - Measured (tests, a pure tone at -6 dB): the level stays within 0.01 dB; a stretch's seams are 34..47 dB under the tone
+    (whole-frame alignment), a pitch shift's 36..52 dB; resampling leaves 63 dB or better, 15 kHz slowed to 10 kHz loses 0.00 dB,
+    and a tone that would fold over on a x2 speed-up is at -44 dB.
+- **My choice, open to the user (decision 36 names "WSOLA / phase vocoder"): only WSOLA is built.** It is the right tool for drums and
+  loops (transients stay sharp up to about +-30 %; further out a hit can double or smear) and it is weaker on sustained chords and
+  pads (a faint flutter at the window rate). A phase vocoder is the opposite (smooth on sustained sounds, soft on drums); it needs a
+  float FFT of 2048+ points, ~30 KB of working memory out of the ~59 KB of PSRAM the board has to spare. Paulstretch (the Texture
+  group) needs the same FFT, so a "Tonal" stretch mode is cheap to add with that step if the user wants it.
+- Memory: per operation since step 5 (below): Stretch 10.8 KB, Pitch 17 KB, Speed 6.3 KB, from PSRAM, only while a job runs. Card:
+  a stretch reads about 3 times the result's size (every hop reads its search range again); not timed on the board yet.
+
+**Sample tools: Crop, the trim points per version, Color / lo-fi, as built (2026-10-10; 207 engine tests in the 6 configurations,
+95 UI tests, simulator + firmware built, firmware static RAM 66.0 %; NOT tried by the user, NOT flashed, NOT listened to):**
+- **Crop** (my addition, not asked for; it closes the limit "the processing reads the whole file, not the pad's trim"): a new version
+  that is the pad's Start..End only (ProcOp `Crop`, frames amount..amount2; loop and slices move with it). The pad then plays the whole
+  new file, its loop start moved along. For a slice of a chopped file: Crop first, then Reverse / Normalize / Stretch work on the slice
+  alone. The render call has a second amount now (`audio_render_start(src, dst, op, amount, amount2)`).
+- **A version remembers the pad's trim points** (`hist_ver_t.ptrim / ctrim`, `history_set_trim`, `history_trim_for`): Start, End and
+  loop start as they were on the parent when the version was made, and as they became on it. Undo / Redo / Ver put them back
+  (before: Undo after a Stretch, Crop, Trim or Reverse left points that belonged to another file). Going to an ancestor restores what
+  it had when the step away was made; anywhere else, what that version started with; a trimmed-away version hands its parent's points
+  to its children. `history.cfg` lines carry the 6 numbers (an older file is not read: the history starts empty). Limit: points moved
+  by hand on a version are not remembered when the pad leaves it.
+- **Color / lo-fi** (decision 36's fourth group), the length kept: **Lo-fi rate** (1..32 kHz: the sample held at that rate, no filter
+  before it, so the top folds over), **Bits** (2..15: rounded to that word length), **Drive** (0..+36 dB into a soft clipper, a
+  rational tanh; full scale stays full scale), **Low-pass / High-pass** (20 Hz..20 kHz, a step about a semitone, fine 1 %; 12 dB per
+  octave Butterworth as a state-variable filter: measured -3.01 dB at the cutoff, -12.4 / -24.5 dB one / two octaves past it).
+  **Not built: "print a pad's settings"** (the pad's tune, filter and level rendered into the file): it needs the pad's whole blob
+  passed to the job, to do with the capture path (phase 4), which renders the same thing live.
+- The EDIT page lists 18 operations in this order: Normalize, Gain, Fade in, Fade out, Trim sil., Crop, Reverse, Remove DC, Stretch,
+  Pitch, Speed, Fit beats, Fit speed, Lo-fi rate, Bits, Drive, Low-pass, High-pass (`pads.h` EDIT_*; `app.c` maps each to a ProcOp).
+
+**Texture, design round (user, 2026-10-11; options offered):**
+44. **Paulstretch with a 4096-point window** (the user's own answer; offered: 2048 always fitting / up to 8192 with memory borrowed
+   from the pads' samples / not on the board). 85 ms at 48 kHz: smoother than 2048, still shorter than the classic's 0.25 s and more.
+   Risk: the memory is tight on the board (below).
+45. **A Tonal stretch (phase vocoder)** next to the WSOLA one, as a Beat / Tonal choice for Stretch, Pitch and Fit beats (my
+   recommendation, taken).
+46. **Reverse reverb and freeze / smear come from the FX chains + resampling** (my recommendation, taken): reverse, play through an
+   FX chain, capture, reverse again. No offline operation for them; they arrive with Pads step 3 (FXA-C) and the capture path.
+
+**Sample tools step 5, Texture, as built (2026-10-11; 211 engine tests in the 6 configurations, 96 UI tests, simulator + firmware
+built, firmware static RAM 66.0 %; NOT tried by the user, NOT listened to; timed and memory-checked on the board the same day: the
+table further down):**
+- **`engine/offline/rfft.*`**: a float FFT of a real signal, 4096 points, in place (one complex FFT of 2048 points and the even / odd
+  split), its quarter-wave sine table in the caller's memory. Checked against a direct transform (5e-5 on bins of ~1800) and its
+  inverse (6e-7).
+- **Paulstretch** (EDIT op "Paulstr.", x1.5..x64, x8 by default; ProcOp `Paul`): Hann-windowed frames of 4096, magnitudes kept,
+  phases random, overlapped by half under a sine window (the frames are unrelated: their powers add to 1). The result is 6 dB under
+  the source (the random phases turn a tone into a noise band with higher peaks); Normalize after. The result is capped at 8 million
+  frames (2 min 46 at 48 kHz, 16 MB). Measured: a 440 Hz tone x4 keeps 100 % of its energy within 60 Hz, level -6.2 dB.
+- **Tonal** (the EDIT page's Algo row, shown for Stretch, Pitch, Fit beats; ProcOps `StretchTonal`, `PitchTonal`): a phase vocoder,
+  frames of 4096 at 75 % overlap; each spectral peak goes on at the frequency its phase advance shows and its neighbours are turned
+  with it (identity phase locking), phases kept as 16-bit angles, atan by a polynomial (the FPU has none). x1 gives the sample back
+  (+-1 LSB). Measured on tones: level within 0.01 dB, everything else 45..85 dB under (WSOLA: 34..47); a three-note chord at x1.5
+  keeps every note within 0.04 dB. Expect soft attacks (a window is 85 ms) and, below about x0.5, a rougher result.
+- **The working memory is per operation now** (`Processor::work_bytes`, lent by the card job from PSRAM for the job's time; the
+  processor itself is 4.9 KB and its block doubles as the job's header block): none for the level / color operations, Resample
+  6.3 KB, Stretch 10.8 KB, Pitch 17 KB, Paulstretch 28.7 KB, Tonal stretch 36.9 KB, Tonal pitch 43.2 KB. **With the job's ~5 KB the
+  worst case is ~48 KB of the ~59 KB the board has to spare (checked on the board: it fits, 48.5 of 59.3 KB).** If the memory is
+  not there the job is refused ("Busy, no card or no memory"), nothing else breaks.
+- Card: a spectral frame reads its 4096 frames again every hop (8 KB read per 2 KB written for Tonal, per 4 KB for Paulstretch).
+  Timed on the board (the table further down), and the card task now runs a job's chunks between the streams' reads.
+
+**The sample tools on the board (2026-10-11, flashed by me with the user's go-ahead; `tools/edit_test.py`, serial `pad edit`; the
+sample: pluck_c4, 1.5 s, 140 KB; NOT listened to):**
+
+| operation | result | time | memory borrowed |
+|---|---|---|---|
+| Normalize | 1.50 s | 2.3 s | 5.5 KB |
+| Reverse / Low-pass | 1.50 s | 1.8 s | 5.5 KB |
+| Speed 200 % | 0.75 s | 1.5 s | 11.8 KB |
+| Stretch 150 % (Beat) | 2.25 s | 4.6 s | 16.3 KB |
+| Pitch +7 (Beat) | 1.50 s | 4.8 s | 22.5 KB |
+| Stretch 150 % (Tonal) | 2.25 s | 8.0 s | 42.5 KB |
+| Pitch +7 (Tonal) | 1.50 s | 8.1 s | 48.5 KB |
+| Paulstretch x4 | 6.00 s | 12.1 s | 34.0 KB |
+
+- **Every operation fits**: PSRAM free 59.3 KB (largest block 58.4 KB) before a job, the worst case takes 48.5 KB.
+- **Every job is slower than real time** (0.2 to 0.8 of it). Where the time goes, from the numbers: the card writes at about
+  100 KB/s (single-block writes, CMD24) against ~500 KB/s read, and a spectral frame costs about 30 ms of CPU (estimated 6 to 8:
+  not profiled). Candidates, both exact: multi-block writes (CMD25) in `sd_card_spi.cpp`, and a profile of the FFT (its memory is
+  in PSRAM and the loop order strides across it).
+- **Streamed pads and a job**: with two chunks of the job before every pump of the loader, 4 streamed pads lost 13 blocks during
+  a Normalize and 48 during a Tonal stretch. Now the card task gives the job one chunk at a time and only while the loader has no
+  read waiting (one chunk anyway after 8 reads in a row, so a job always ends): **0 and 1 lost blocks**; the job then takes about
+  twice as long (4.5 s, 16.2 s). Pads held in memory are not concerned.
+
+**Pads step 3, FX chains, design round (user, 2026-10-11; options offered):**
+47. **4 slots per chain** (against my recommendation "2"): up to 12 effect modules in the three chains. Risk: the board will not
+   run 12 heavy effects next to 8 pad voices and the live synth; the limit becomes what is loaded (measure, show the load).
+48. **A slot takes any of the rack's effect modules** (row M's: my recommendation, taken): same sound and parameters as in the synth.
+49. **A rack-style FX page** in the Pads section (my recommendation, taken): three rows FXA / FXB / FXC, slots as cells, the routing
+   on top.
+
+**Pads step 3, the FX chains, as built (2026-10-11; 214 engine tests in the 6 configurations, 98 UI tests, simulator + firmware
+built, firmware static RAM 65.5 %; flashed and measured by me; NOT tried by the user, NOT listened to):**
+- **Model**: the chains are a `rack_t` with `fx` set (`pads_t.fx`, `core/rack.h`): its three rows are FXA / FXB / FXC, each up to
+  `RACK_FX_SLOTS` (4) modules; the rules let in what row M takes (the effects, the filter, the saturator), no source, no modulator,
+  no Para; `fx_route` = A/B/C, A+B/C, A+B+C, A+C/A+B. A filter in a chain has no envelope (Type, Cut, Res only: there are no keys).
+  A pad's **Bus** (PLAY page: Dry, FXA, FXB, FXC; `pad_t.bus`, `bus` in pads.cfg) says where it enters. Saved in `padsfx.cfg`
+  ("route N", then "fx <A|B|C> <code> <values>" per module), by itself a moment after a change.
+- **Engine**: the Pads player has four stereo buses (8 outputs; `kMaxOut` 4 -> 8); `pads_graph_build` (rack_graph.cpp) wires
+  Pads -> the chains in the routing's order -> MasterOut, with the rack's own module mapping (`fx_params`, a filter / saturator as a
+  node per channel). An empty chain passes its input on. `engine_synth_pads_fx`: the same shape = only the values that moved are sent
+  (a knob never reloads the graph); another shape (a module, the routing) = a reload, through which the pads keep playing and the
+  untouched effects keep their tails (instances are kept by id and type; the chains' nodes are 300 + 2 x the module's id).
+- **UI**: **Menu in the Pads section opens the FX page** = the RACK page (scr_rack.c) on that rack: rows A / B / C, a push on a cell
+  opens its menu (Edit, Type, Insert, Row, Delete; Type only offers what a chain takes); **the header is the routing** (left / right
+  on it) with the load next to it. **Edit** opens the module's values (a list and the effect's sketch); there the four column knobs
+  drive its first four values. Back: values -> chains -> pads.
+- **On the board** (`tools/padsfx_test.py`, serial `pad fx`; 8 looping pads into chain A, 48 kHz, cycles per 32-frame block of
+  174 000):
+
+  | chains | cycles | load | dropouts |
+  |---|---|---|---|
+  | none | 41 200 | 24 % | 0 |
+  | filter + saturator | 53 000 | 30 % | 0 |
+  | delay + reverb | 75 300 | 43 % | 0 |
+  | EQ, compressor, delay, reverb | 114 200 | 66 % | 0 |
+  | 12 light ones (4 a chain, A+B+C) | 208 800 | 120 % | 520..700 per run |
+  | delay, reverb, chorus in each chain (9) | 192 700 | 111 % | 360..470 |
+  | 12 heavy ones | 215 500 | 124 % | 540..550 |
+
+  Per module (stereo): saturator 3.7 k, tremolo 4.5 k, ring / shift 5.0 k, filter 8.3 k, compressor 8.7 k, delay 8.8 k, chorus
+  12.9 k, cab 15.6 k, flanger 15.9 k, ensemble 17.8 k, spectral 19.3 k, phaser 19.5 k, reverb 26 k, **EQ 26.5 k** (as much as the
+  reverb for three bands; fixed the same day: 5.9 k, see "Speed" below); the 8 pad voices 40..48 k.
+  **So decision 47's risk is real: four to six effects fit next to 8 pads, twelve never do.** Nothing is refused; the FX page's
+  header shows the load estimated from these costs with all 8 pads sounding ("FX A+B/C 66%", a "!" from 90 %).
+- Static RAM: the chains cost 2 KB (the rack in `pads_t`); loading pads.cfg and the serial `pad def` no longer keep a spare copy of
+  the 64 pads (two passes over the text, `pad_parse`), so the firmware went from 66.0 % to 65.5 %.
+- Not built yet: the live synth's entry into the chains (step 4), modulators on an effect's values, a per-chain level or on / off,
+  a tempo-synced delay time.
+
+**Capture / resampling, design (user, 2026-10-11; options offered):**
+50. **Capture next** (before the live synth and song mode; my recommendation, taken), and **it records the whole Pads output** (all
+   pads, all chains; "from a Record key until Stop or for a set number of bars on the clock").
+- My choices inside that, open to the user: a **Rec** key on the Pads layout's free key (right block, row 2, between Mute and Stop;
+  a key function, so it can move); the recording goes to **the selected pad when it is empty, else to the next empty one**; it starts
+  at the **first sound** (about -50 dB), or with a length on the **next bar line** of the running clock; **Shift + Rec** sets the
+  length (until Rec again / 1 / 2 / 4 / 8 bars at the tempo); a recording with a length becomes a pad that **loops on the bar**;
+  the pad plays it at **full level** (a copy of a copy must not fade); files are named rec1, rec2 ...
+- **Mono**: the library's samples are mono, so the recording is (L + R) / 2: a ping-pong delay or a wide reverb folds to the middle.
+  Stereo samples would be a format change through the whole sampler (to decide separately).
+
+**Capture as built (2026-10-11; 216 engine tests in the 6 configurations, 100 UI tests, simulator + firmware built, RAM 65.7 %;
+flashed and measured by me; NOT tried by the user, NOT listened to):**
+- **The tap** `engine/sampler/capture.*`: MasterOut hands it every block it receives, before the volume (the volume knob and the
+  metronome do not reach the recording); it mixes to mono into a ring (16384 frames, 0.37 s) that the card thread empties. Armed, it
+  waits for the bar line (to the sample) or for a block over the threshold; with a limit it stops after exactly that many frames.
+  What does not fit in the ring is counted as lost.
+- **The card job** `platform/engine/capture_job.cpp` (`engine_synth_capture_start / stop / poll / done / step`, HAL
+  `audio_capture_*`): 8 KB at a time into `<name>.smp.tmp`, the overview kept while the length is unknown (64 windows that merge in
+  pairs when they are full), the header last, then the rename. Its memory (41 KB of PSRAM) only while it runs; not together with a
+  processing job. The card task writes a recording's chunk first on every round.
+- **The app** (`capture_key`, `capture_poll`): arms, stops, finds the file in the library, puts it on its pad and selects it. The
+  grid's header shows "REC ready" / "REC 0:07"; the Rec key is dim, blinks while armed, is lit while it records. A recording ends
+  when the section is left; one without a length stops by itself after 5 minutes.
+- **SD driver: multi-block writes (CMD25 with ACMD23)** for runs of sectors, single blocks as before: it was the precondition (a
+  recording needs 88 KB/s sustained) and it speeds the sample jobs up by 15..30 % (Reverse of 1.5 s: 1.8 -> 1.3 s; Normalize 2.3 ->
+  1.8 s; Paulstretch x4 12.1 -> 10.3 s). Checked with a read-back of every write (serial `pad verify 1`): 1922 sectors, none differed.
+- **On the board** (`tools/capture_test.py`, serial `pad rec`; 6 s each, 264 600 frames at 44.1 kHz): silence, 8 pads in memory,
+  the same through delay + reverb, 1 / 2 / 4 streamed pads: **0 frames lost, 0 stream underruns in every case**.
+- Not built: capture in the Synth section (the tap is there: MasterOut feeds it in both), threshold / pre-roll settings, a count-in,
+  choosing the destination pad by hand, overdub.
+
+**Speed: the EQ and the sample jobs (2026-10-11, while the user tests; 218 engine tests in the 6 configurations, 100 UI tests,
+simulator + firmware built, RAM 65.8 %; flashed and measured by me; the sound is meant to be unchanged: see each check):**
+- **EQ: 26.5 k -> 5.9 k cycles a block** (stereo). Its three sections were int64 biquads with Q32 coefficients (five 64-bit
+  multiplies a tick, ~140 cycles on the S3); they run in float32 now, a channel from one conversion to the next. The high shelf
+  (6 kHz) is the same biquad in float. The low shelf (150 Hz) and the peak (down to 65 Hz) are the same transfer functions as a
+  trapezoidal state-variable filter (the cookbook prototypes as 1 + m1 BP + m2 LP): a float32 direct form loses its accuracy near
+  z = 1 (measured: 6.7 LSB rms on a 30 Hz tone through the shelf, against 0.8 for this form). Checked against the same filters in
+  double precision (`eq3_matches_its_cookbook_sections_in_double_precision`): **0.3 .. 0.8 LSB rms, where the int64 loop was off by
+  1.0 .. 2.6** (it rounded to 16 bits after every section). `ENGINE_EQ_EXACT=1` keeps the old loop.
+  On the board: EQ + compressor + delay + reverb 66 % -> 53 %; twelve light effects 120 % with dropouts -> 81 % without.
+- **Sample jobs**, a profile first (`ENGINE_PROFILE`: the stages of a spectral frame, printed by the serial `pad edit`): of a frame's
+  58 ms, 35 went to **reading its whole 4096-frame window from the card again**, 4..5 to each FFT. Four exact changes, each checked
+  by a fingerprint of the output (`offline_time_ops_fingerprint_and_source_reads`: the same 8 numbers before and after):
+  1. the window is **kept between frames** and only its new end is read (`Processor::slide`; WSOLA's search range too): the source
+     is read once instead of 4 to 8 times;
+  2. the job's file reader keeps **one block** and asks the card for whole aligned blocks (a small unaligned request cost three
+     card commands, ~12 ms);
+  3. a spectral operation's **frame and sine table lie in internal RAM** while the job runs (20.5 KB, plus the reader's 4 KB), when
+     there is room: a pass over a block in PSRAM costs milliseconds. Without it the job runs as before, in PSRAM (the same result).
+     It also frees PSRAM: Tonal pitch got the kept window too (it had no room for it), and the largest job borrows 37 KB of PSRAM
+     instead of 48.5;
+  4. no `lround` in the per-sample loops (a library call on the S3), one cos / sin per spectral region instead of per bin, one
+     power per bin in the peak search instead of five.
+
+  | operation (a 1.5 s sample) | 2026-10-11 first | after CMD25 | now |
+  |---|---|---|---|
+  | Normalize | 2.3 s | 1.8 s | 1.9 s |
+  | Reverse | 1.8 s | 1.3 s | 1.35 s |
+  | Speed 200 % | 1.5 s | 1.3 s | 1.1 s |
+  | Stretch 150 % (Beat) | 4.6 s | 4.4 s | 2.8 s |
+  | Pitch +7 (Beat) | 4.8 s | 4.6 s | 2.8 s |
+  | Stretch 150 % (Tonal) | 8.0 s | 8.1 s | 4.4 s |
+  | Pitch +7 (Tonal) | 8.1 s | 8.1 s | 4.4 s |
+  | Paulstretch x4 (6 s) | 12.1 s | 10.3 s | 6.1 s |
+
+  A Tonal stretch while 4 pads stream: 16.2 s -> 9.6 s, still no stream underrun. A spectral frame is 23 ms now (load 8, FFT 4,
+  spectrum 5, inverse FFT 4, overlap-add 2); what is left is mostly the card's write rate (~150 KB/s).
+
+**The sample library read on demand, and a browser (user, 2026-10-11: "there is only 32 samples available, it needs a real browser";
+both choices were my recommendation):**
+51. **Folders, read on demand.** The library is everything below `system/samples`, in folders of any depth. Nothing is scanned at start:
+   a folder is read when the browser opens it, a file's header when the file is asked for by name. Against "a flat list of 256 files"
+   (still a limit, a long list, an 18 s scan at start) and "raise 32 to 64 now" (no browser).
+52. **Browser = a full-screen list with the overview and audition.** The folder's sub-folders, then its samples, sorted by name; the
+   highlighted sample's waveform and length on top; the highlighted sample plays from the pad keys. Against a list without audition and
+   against keeping the one-file-per-step Smp row.
+
+**As built (2026-10-11; 219 engine tests in the 6 configurations (the whole matrix once, then the pads tests again after a fix of the
+new test's thresholds), 102 UI tests, simulator + firmware built, RAM 66.0 %; `tools/sample_sim_check.cpp` run on the simulator's card
+of 155 files; NOT flashed, NOT tried by the user: the board's card code was only compiled):**
+- **A sample's name is its path below the samples folder, without ".smp"** ("Drums/Kicks/808 long"), at most 47 characters
+  (`AUDIO_NAME_MAX` = `PAD_NAME_MAX` 48; it was 24). pads.cfg, the history and the jobs keep working by name: a version (`name~n`), a
+  crop or a stretch lands in its source's folder; a recording (`recN`) in the root. A path longer than 47 characters is listed by the
+  browser but cannot be taken ("cannot be read").
+- **The catalog holds the files in use** (`AUDIO_SAMPLES_MAX` 32, unchanged: it is also the number of loaded samples). `hal_audio.h`:
+  `audio_sample_find(name)`, `audio_sample_use(name)` (reads the header from the card when the file is not in the catalog: -1 no such
+  sample, -2 the catalog is full), `audio_dir_open(dir)` / `audio_dir_read(first, out, max)` (one folder, sorted, folders first,
+  versions left out; the platform keeps the list: PSRAM on the board, 320 entries at most, a longer folder shows its first 320).
+  `audio_samples_rescan` is gone. The engine side (`sample_catalog.h`): `engine_synth_catalog_find / _add / _remove`.
+- **An entry nothing uses leaves the catalog when it is full** (`app.c` `sample_use`: no pad, no rack sampler, no job refers to it), and
+  **its sample is unloaded** (new: samples were never unloaded). Safe unload: `engine_synth_catalog_remove` only clears the name;
+  `engine_synth_housekeeping` unloads once 4 engine blocks have passed (every command sent before the removal has reached the audio
+  thread) and `SampleBank::can_unload` says nothing reads it (loaded, no head read in flight, not being scanned, no stream on it: a
+  voice that still plays it keeps it). Then the next file takes the entry's index. `StorageDevice::forget` gives the file handle back
+  (the board's table of 48 paths would fill; handles are counted, a file can be loaded again while its old copy waits to be unloaded).
+  Test `pads_catalog_entry_leaves_and_its_sample_is_unloaded_once_nothing_plays_it`: the voice is not cut, 49 KB come back, the index
+  is reused.
+- **The pads' files enter the catalog one per app step** (`pads_resolve`: after a start, a card change, pads.cfg, a version picked);
+  a pad whose file is not on the card is not asked for again until it or the card changes. The first switch to the Pads section after
+  a start can find pads silent for a moment (16 files: about 0.1 .. 0.2 s on the board, estimated).
+- **The browser** (`scr_browse.c`, over either section): opened by the pad editor's Smp row (a turn of encoder B or a push; the row no
+  longer steps through files) and by the SAMPLES tab's File row (the Scan row is gone). Up / down by the joystick or either encoder,
+  Page - / + by a screen; a push or right opens a folder, left or the ".." row goes to its parent; a push on a sample chooses it,
+  Back cancels. It opens on the folder of the current file with that file highlighted. Header: the folder, and "row / rows".
+- **Audition (Pads)**: 150 ms after the highlight rests on a sample, its header is read (the overview appears) and **the pad takes
+  it at once**, so every pad key plays it on that pad, with the pad's level, tune, filter and FX bus. Back puts the pad back exactly
+  (its old file and trim). No extra voice and no new engine path: it is an ordinary pad change.
+- Chosen by me (say if one is wrong): a file taken through the browser plays whole (Start, End and the loop start go back to the
+  file's ends; mode, level, tune, filter, bus and the rest stay), where the old Smp stepping kept the trim frames of the previous
+  file; the pad keys all play the browsed pad while the browser is open (no selection change); the SAMPLES tab's browser has no
+  audition (the synth plays the rack, not a file); versions are not listed (the EDIT page reaches them); `.wav` / `.mp3` are listed
+  in the simulator only (converted when taken); the serial `samples` command first takes the root folder's files into the catalog
+  (the board test tools pick from it).
+- Changed formats (no saved content to keep: user, 2026-10-09): history.cfg delimits its names (`v <seq> |name|parent| ...`: a name
+  with a space cut the line before); pads.cfg `file` holds the path.
+- Risks / limits: **32 different samples in use at once** is still the limit (64 pads cannot all hold a different file; the popup
+  "LIBRARY Full: 32 samples in use"); raising it costs internal RAM (about 200 bytes per entry plus the bank's slot). pads.cfg must
+  fit 4 KB and a path is longer than a name: 64 pads with long paths can pass it (the end is cut silently: known debt, a file per bank
+  would fix it). Reading a 300-entry folder holds the card for about 0.1 s (estimated; the loader is pumped every 16 entries). A long
+  name is cut at the row's edge (the highlighted row shows its end). Firmware RAM: the names grew (+1.5 KB pads, +1.5 KB history,
+  +0.8 KB catalog, +0.8 KB card paths, +1 KB browser) and the board's second catalog copy went (-5.6 KB).
 
 ## Known limits and ideas for later
 

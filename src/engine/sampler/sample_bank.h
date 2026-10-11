@@ -25,8 +25,15 @@ struct Head {
     q15 *data = nullptr;
 };
 
+// An attack found by the onset scan (SampleBank::scan): the frame where the energy rises and how much (log10 of the energy ratio x 1000).
+struct Onset { uint32_t frame = 0; uint16_t strength = 0; };
+constexpr int kMaxOnsets = 64;
+
 struct SampleSlot {
     SlotState state = SLOT_FREE;
+    Onset *onsets = nullptr;        // the scan's result (bulk heap), n_onsets of them; n_onsets -1 = not scanned, scan_want = asked for
+    int16_t n_onsets = -1;
+    bool scan_want = false;
     FileHandle file = -1;
     SmpHeader h;
     Head head[2 + kSmpMaxSlices];            // start, one per slice, and the tail (reverse playback starts there)
@@ -65,10 +72,21 @@ public:
 
     // --- control time ---
     int load(const char *name, int head_ms = 150);          // slot id or -1; the heads arrive through pump()
+    // The onset scan (the pads' transient chop): pump() reads the whole sample, one block at a time when the streams leave room (a resident
+    // one from memory), and keeps its kMaxOnsets strongest attacks. scan() asks for it (once per slot); onsets() copies the result sorted by
+    // frame and returns how many, or -1 while it is not done (a failed sample: 0).
+    void scan(int id);
+    int onsets(int id, Onset *out, int max) const;
+    // The zero crossing (a sign change between two frames) nearest to `frame` (dir 0), or the first one after (+1) / before (-1) it, within
+    // 2048 frames, in the sample's data held in memory (its heads; a resident sample: all of it). -1 when there is none there.
+    int64_t zero_near(int id, uint32_t frame, int dir) const;
     bool ready(int id) const { return id >= 0 && id < kMaxSamples && slot_[id].state == SLOT_READY; }
     bool failed(int id) const { return id >= 0 && id < kMaxSamples && slot_[id].state == SLOT_FAILED; }
     const SampleSlot *slot(int id) const { return id >= 0 && id < kMaxSamples ? &slot_[id] : nullptr; }
     void unload(int id);
+    // True when nothing reads the sample any more: it is loaded (or failed), no head read is in flight, the onset scan is not on it and
+    // no stream plays it. Only then may it be unloaded (the caller also makes sure no voice can start on it: engine_synth's catalog).
+    bool can_unload(int id) const;
     int add_instrument();
     bool add_zone(int inst, const Zone &z);
     const Zone *pick(int inst, int note, int velocity127) const;
@@ -83,7 +101,7 @@ public:
     Memory &memory() { return mem_; }
 
 private:
-    enum JobKind : uint8_t { J_FREE, J_HEADER, J_HEAD, J_BLOCK };
+    enum JobKind : uint8_t { J_FREE, J_HEADER, J_HEAD, J_BLOCK, J_SCAN };
     struct Job { JobKind kind = J_FREE; int16_t slot = 0, stream = 0, ring_slot = 0, head = 0; uint32_t gen = 0, blk = 0; int sample = 0; };
     struct Instrument { Zone zone[kMaxZones]; int n = 0; bool used = false; };
 
@@ -91,6 +109,20 @@ private:
     void complete(const IoDone &d);
     void issue_admin(uint64_t now_us);
     void issue_streams(uint64_t now_us);
+    void issue_scan(uint64_t now_us);
+    void scan_feed(const q15 *data, uint32_t frames);       // the detector, block by block
+    void scan_finish();
+    // the scan in progress (one at a time)
+    int scan_slot_ = -1;
+    uint32_t scan_blk_ = 0;
+    bool scan_busy_ = false;
+    q15 *scan_buf_ = nullptr;
+    int64_t scan_acc_ = 0;                                  // energy of the window being summed
+    uint32_t scan_n_ = 0, scan_frame_ = 0;                  // its frames so far, and the frame where it starts
+    float scan_prev_ = 0.0f;                                // the previous window's log energy
+    Onset scan_pend_;                                       // the candidate waiting for a stronger neighbour (strength 0: none)
+    Onset scan_found_[kMaxOnsets];
+    int scan_count_ = 0;
     void finish_slot_heads(SampleSlot &s);
     void free_heads(SampleSlot &s);
     int desired_blocks(const StreamSnap &sn, int64_t out_blk[], int64_t out_until[]) const;

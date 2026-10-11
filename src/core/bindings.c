@@ -44,7 +44,7 @@ const binding_t bindings[] = {
 };
 const int bindings_count = (int)(sizeof bindings / sizeof bindings[0]);
 
-int action_is_hold(action_id_t a) { return a == ACT_SHIFT || a == ACT_MOD || a == ACT_NOTE; }
+int action_is_hold(action_id_t a) { return a == ACT_SHIFT || a == ACT_MOD || a == ACT_NOTE || a == ACT_PAD || a == ACT_PAD_SELECT || a == ACT_PAD_MUTE; }
 
 const char *action_name(action_id_t a) {
     static const char *const n[ACT_COUNT] = {
@@ -54,6 +54,8 @@ const char *action_name(action_id_t a) {
         [ACT_MACRO_LEARN] = "Learn", [ACT_MASTER_VOLUME] = "Volume", [ACT_VOLUME_STEP] = "Volume",
         [ACT_JUMP]            = "Jump",
         [ACT_MOD]             = "Mod",
+        [ACT_SECTION] = "Section", [ACT_PAD] = "Pad", [ACT_PAD_BANK] = "Bank", [ACT_PAD_STOP] = "Stop all", [ACT_PAD_SELECT] = "Pad select",
+        [ACT_PAD_MUTE] = "Pad mute", [ACT_TEMPO] = "Tempo", [ACT_TAP] = "Tap", [ACT_METRONOME] = "Click", [ACT_PAD_REC] = "Record",
     };
     return (a >= 0 && a < ACT_COUNT && n[a]) ? n[a] : "?";
 }

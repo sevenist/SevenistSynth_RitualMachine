@@ -12,6 +12,9 @@
 // (a modulator), Row (move the module), Para (a branch processor: from here on the branch runs once on the sum of its voices), PEnv (the
 // shared start: how the shared envelopes follow the keys), Lvl1 / Pan1 / Lvl2 / Pan2 (the MIX cell: each branch's level and pan), Delete.
 // Back closes it.
+//
+// The same page shows the Pads section's FX chains (a rack_t with fx set, core/rack.h; scr_pads.c puts it on screen): the rows are FXA /
+// FXB / FXC, there is no MIX, no Para and no modulators, and the menu of a module starts with Edit (its values, on the pads' module page).
 #include "core/ui_screen.h"
 #include "core/sprites.h"
 #include "core/module_sprites.h"
@@ -20,7 +23,7 @@
 
 _Static_assert(RACK_PITCH == MODULE_SPRITE_W + GUI_GRID, "RACK_PITCH (ui_internal.h) must be the module sprite width + one grid cell: regenerate the sprites or change it");
 
-enum { E_ROW0, E_ROW1, E_ROW2, M_TYPE, M_INSERT, M_TGT, M_PRM, M_DPTH, M_ROW, M_PARA, M_PENV, M_LVL1, M_PAN1, M_LVL2, M_PAN2, M_DELETE, E_COUNT };
+enum { E_ROW0, E_ROW1, E_ROW2, M_EDIT, M_TYPE, M_INSERT, M_TGT, M_PRM, M_DPTH, M_ROW, M_PARA, M_PENV, M_LVL1, M_PAN1, M_LVL2, M_PAN2, M_DELETE, E_COUNT };
 _Static_assert(RACK_ROWS == 3 && ROW_M == 2 && RACK_BRANCHES == 2, "one element per row");
 
 // A row on the 8 px grid: 4 px for the selection frame, the 24 px icons, 4 px under them for the links. y from the row's top.
@@ -41,6 +44,8 @@ _Static_assert(RACK_ROWS == 3 && ROW_M == 2 && RACK_BRANCHES == 2, "one element 
 #define MENU_W      88
 
 static const char row_label[RACK_ROWS] = {'1', '2', 'M'};
+static char row_char(const rack_t *r, int row) { return r->fx ? (char)('A' + row) : row_label[row]; }
+static bool fx_type_ok(int t) { return rack_is_processor((module_type_t)t) && !rack_type_voice_only((module_type_t)t); }   // what a chain of the pads takes
 
 // A module's icon: assets/UI_Sprites/24/mod_<code>.png when it exists (ui_sprites_gen.h), else the generated one (module_sprites.h).
 static const gui_sprite_t *module_sprite(int type) {
@@ -79,7 +84,7 @@ const gui_sprite_t *ui_module_sprite(const rack_slot_t *s) {
 typedef enum { CELL_MODULE, CELL_PLUS, CELL_OUT, CELL_MIX } cell_kind_t;
 typedef struct { cell_kind_t kind; int slot; } cell_t;            // slot: the module (CELL_MODULE), else RACK_NONE
 
-static bool has_mix(const rack_t *r, int row) { return row == ROW_M && synth_type_is_rack(r->cfg.type); }
+static bool has_mix(const rack_t *r, int row) { return row == ROW_M && synth_type_is_rack(r->cfg.type) && !r->fx; }
 static int row_modules(const rack_t *r, int row, int *out) {
     int n = 0;
     for (int i = 0; i < r->count; i++) if (r->slot[i].row == row) out[n++] = i;
@@ -171,7 +176,15 @@ static bool on_module_or_plus(const ui_ctx_t *c) { const cell_kind_t k = sel_cel
 
 static bool type_enabled(const ui_ctx_t *c) { return menu_open(c) && on_module_or_plus(c); }
 static void type_value(const ui_ctx_t *c, char *out, int n) { snprintf(out, (size_t)n, "%s", rack_type_code((module_type_t)c->ui->rack_type)); }
-static bool type_adjust(const ui_ctx_t *c, int dir) { c->ui->rack_type = (c->ui->rack_type + dir + MOD_TYPE_COUNT) % MOD_TYPE_COUNT; return false; }
+static bool type_adjust(const ui_ctx_t *c, int dir) {
+    do c->ui->rack_type = (c->ui->rack_type + dir + MOD_TYPE_COUNT) % MOD_TYPE_COUNT;
+    while (c->rack->fx && !fx_type_ok(c->ui->rack_type));               // the pads' chains: the effects only
+    return false;
+}
+
+// Edit (the pads' FX rack): the module's values. scr_pads.c shows that page when fx_edit_id is set.
+static bool edit_enabled(const ui_ctx_t *c) { return menu_open(c) && c->rack->fx && sel_slot(c) != NULL; }
+static void edit_activate(const ui_ctx_t *c) { c->ui->fx_edit_id = sel_slot(c)->id; menu_close(c); }
 
 static bool insert_enabled(const ui_ctx_t *c) {
     return type_enabled(c) && rack_can_insert(c->rack, insert_pos(c), sel_row(c), (module_type_t)c->ui->rack_type);
@@ -200,7 +213,7 @@ static void dpth_value(const ui_ctx_t *c, char *out, int n) { rack_depth_format(
 static bool dpth_adjust(const ui_ctx_t *c, int dir) { if (rack_depth_adjust(c->rack, sel_cell(c).slot, dir)) c->ui->rack_dirty = true; return false; }
 
 static bool rowsel_enabled(const ui_ctx_t *c) { return menu_open(c) && sel_slot(c) != NULL && synth_type_is_rack(c->rack->cfg.type); }
-static void rowsel_value(const ui_ctx_t *c, char *out, int n) { snprintf(out, (size_t)n, "%c", row_label[sel_row(c)]); }
+static void rowsel_value(const ui_ctx_t *c, char *out, int n) { snprintf(out, (size_t)n, "%c", row_char(c->rack, sel_row(c))); }
 static bool row_move(const ui_ctx_t *c, int dir) {                  // moves the module to the next / previous row that accepts it
     const int slot = sel_cell(c).slot;
     for (int k = 1; k < RACK_ROWS; k++) {
@@ -405,7 +418,7 @@ static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect
     }
     // the menu: its enabled rows stacked in a box over the rows; the others out of the way (not drawn: EF_HIDE_WHEN_DISABLED)
     int y = area.y + 2;
-    for (int i = M_TYPE; i < E_COUNT; i++) {
+    for (int i = M_EDIT; i < E_COUNT; i++) {
         const ui_ctx_t x = {c->ui, c->rack, elements[i].arg};
         if (elements[i].enabled(&x)) { rect[i] = gui_rect(area.x + (area.w - MENU_W) / 2, y, MENU_W, MENU_ITEM_H - 1); y += MENU_ITEM_H; }
         else rect[i] = gui_rect(0, area.y + area.h + 8, MENU_W, MENU_ITEM_H - 1);
@@ -420,14 +433,14 @@ static void describe(const ui_ctx_t *c, char *buf, int n) {
     char what[28];
     if (k.kind == CELL_MODULE) {
         rack_describe(r, k.slot, what, sizeof what);
-        if (row < RACK_BRANCHES && rack_shared_start(r, row) == k.slot) snprintf(buf, (size_t)n, "%c %.20s PARA", row_label[row], what);
-        else snprintf(buf, (size_t)n, "%c %s", row_label[row], what);
+        if (row < RACK_BRANCHES && rack_shared_start(r, row) == k.slot) snprintf(buf, (size_t)n, "%c %.20s PARA", row_char(r, row), what);
+        else snprintf(buf, (size_t)n, "%c %s", row_char(r, row), what);
         return;
     }
     if (k.kind == CELL_PLUS) snprintf(what, sizeof what, "+ %s", rack_type_name((module_type_t)c->ui->rack_type));
     else if (k.kind == CELL_MIX) snprintf(what, sizeof what, "MIX of 1 + 2");
-    else snprintf(what, sizeof what, "%s", row < RACK_BRANCHES ? "out, to the MIX" : "out");
-    snprintf(buf, (size_t)n, "%c %s", row_label[row], what);
+    else snprintf(what, sizeof what, "%s", r->fx ? "to the next chain / out" : row < RACK_BRANCHES ? "out, to the MIX" : "out");
+    snprintf(buf, (size_t)n, "%c %s", row_char(r, row), what);
 }
 
 static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, const gui_rect_t *rect) {
@@ -436,7 +449,7 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
     const int sc = c->ui->rack_scroll;
     // each row's audio chain, ending at its OUT cell: solid while a source feeds it, dotted otherwise. Row M starts at its MIX (or, for
     // FM / Strings, at its first module) and has a signal when a branch has one, or always for FM / Strings.
-    bool m_signal = !synth_type_is_rack(r->cfg.type);
+    bool m_signal = !synth_type_is_rack(r->cfg.type) || r->fx;
     for (int i = 0; i < r->count && !m_signal; i++) m_signal = r->slot[i].row < RACK_BRANCHES && rack_has_signal(r, i);
     for (int l = 0; l < RACK_ROWS; l++) {
         const gui_rect_t row = rect[E_ROW0 + l];
@@ -477,20 +490,20 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
 }
 
 static int first_menu_row(const ui_ctx_t *c) {
-    for (int i = M_TYPE; i < E_COUNT; i++) { const ui_ctx_t x = {c->ui, c->rack, elements[i].arg}; if (elements[i].enabled(&x)) return i + 1; }
+    for (int i = M_EDIT; i < E_COUNT; i++) { const ui_ctx_t x = {c->ui, c->rack, elements[i].arg}; if (elements[i].enabled(&x)) return i + 1; }
     return c->ui->rack_row + 1;
 }
 
 static void menu_item_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t r, bool focused, bool latched) {
     // which menu row this is, and whether it is the first / last one shown
     int me = -1, first = -1, last = -1;
-    for (int i = M_TYPE; i < E_COUNT; i++) {
+    for (int i = M_EDIT; i < E_COUNT; i++) {
         const ui_ctx_t x = {c->ui, c->rack, elements[i].arg};
         if (!elements[i].enabled(&x)) continue;
         if (first < 0) first = i;
         last = i;
     }
-    for (int i = M_TYPE; i < E_COUNT; i++) if (elements[i].draw == menu_item_draw && elements[i].arg == c->arg) me = i;
+    for (int i = M_EDIT; i < E_COUNT; i++) if (elements[i].draw == menu_item_draw && elements[i].arg == c->arg) me = i;
     u8g2_SetDrawColor(g, 0);
     u8g2_DrawBox(g, (u8g2_uint_t)(r.x - 3), (u8g2_uint_t)(r.y - (me == first ? 3 : 0)), (u8g2_uint_t)(r.w + 6), (u8g2_uint_t)(r.h + 1 + (me == first ? 3 : 0) + (me == last ? 2 : 0)));
     u8g2_SetDrawColor(g, 1);
@@ -514,6 +527,7 @@ static void menu_item_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, 
     {label, kind, (row), 0, 1, value, adjust, activate, menu_item_draw, enabled, NULL, (arg), EF_HIDE_WHEN_DISABLED}
 static const el_def_t elements[E_COUNT] = {
     [E_ROW0]   = ROW(0), [E_ROW1] = ROW(1), [E_ROW2] = ROW(2),
+    [M_EDIT]   = ITEM("Edit",   EL_BUTTON, M_EDIT,   NULL,         NULL,         edit_activate,   edit_enabled,   M_EDIT),
     [M_TYPE]   = ITEM("Type",   EL_VALUE,  M_TYPE,   type_value,   type_adjust,  NULL,            type_enabled,   M_TYPE),
     [M_INSERT] = ITEM("Insert", EL_BUTTON, M_INSERT, NULL,         NULL,         insert_activate, insert_enabled, M_INSERT),
     [M_TGT]    = ITEM("Tgt",    EL_VALUE,  M_TGT,    tgt_value,    tgt_adjust,   NULL,            tgt_enabled,    M_TGT),

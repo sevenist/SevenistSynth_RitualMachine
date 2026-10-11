@@ -172,7 +172,7 @@ TEST(fx_modules_have_pages_and_spectral_a_cog) {
 }
 
 // The RACK tab: rows 1 / 2 / M; the menu's Para row on a branch filter, the MIX cell's levels; FM shows row M only.
-enum { ROW_E_M = 3, MENU_PARA = 10, MENU_PENV = 11, MENU_LVL1 = 12 };     // ui->row of row M and of the menu rows (element index + 1, scr_rack.c)
+enum { ROW_E_M = 3, MENU_PARA = 11, MENU_PENV = 12, MENU_LVL1 = 13 };     // ui->row of row M and of the menu rows (element index + 1, scr_rack.c)
 
 static int open_rack_tab(void) {
     ev_tap(CTL_BTN_1);

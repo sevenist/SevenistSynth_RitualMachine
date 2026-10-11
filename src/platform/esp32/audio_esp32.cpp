@@ -281,18 +281,42 @@ extern "C" void audio_set_params(const rack_t *r, const synth_params_t *p) {
 #endif
 }
 extern "C" void audio_build(const rack_t *r, const synth_params_t *p)      { apply_speaker(r); engine_synth_build(r, p); }
-extern "C" int audio_sample_count(void)                                     { return engine_synth_sample_count(); }   // filled by the TF card scan (samples_esp32.cpp)
+extern "C" int audio_sample_count(void)                                     { return engine_synth_sample_count(); }   // the files in use (samples_esp32.cpp reads each when asked)
 extern "C" bool audio_sample_info(int i, audio_sample_info_t *out)         { return engine_synth_sample_info(i, out); }
 extern "C" int audio_osc_preview(int m, float t, float mo, float h, int period, int16_t *out, int n) { return engine_synth_osc_preview(m, t, mo, h, period, out, n); }
 extern "C" bool audio_sample_prepare(int i)                                { return samples_esp32_ready(i); }     // only cooked .smp files on the card: nothing to convert
-extern "C" int audio_samples_rescan(void)                                  { return samples_esp32_rescan(); }     // the I/O task looks at the card; new files appear as it reads them
+extern "C" int audio_sample_find(const char *name)                         { return samples_esp32_find(name); }
+extern "C" int audio_sample_use(const char *name)                          { return samples_esp32_use(name); }    // the I/O task reads the file's header
+extern "C" int audio_dir_open(const char *dir)                             { return samples_esp32_dir_open(dir); }
+extern "C" int audio_dir_read(int first, audio_dir_entry_t *out, int max)  { return samples_esp32_dir_read(first, out, max); }
 extern "C" sd_state_t audio_sd_state(void)                                  { return samples_esp32_sd_state(); }
 extern "C" uint32_t audio_sd_read_us(void)                                  { return samples_esp32_sd_read_us(); }
 extern "C" uint32_t audio_sd_generation(void)                               { return samples_esp32_sd_generation(); }
 extern "C" void audio_set_clock(int bpm, int steps, int swing, int running) { engine_synth_set_clock(bpm, steps, swing, running); }
 extern "C" void audio_motion_restart(void)                                 { engine_synth_motion_restart(); }
+extern "C" void audio_set_metronome(bool on)                                { engine_synth_set_metronome(on); }
+extern "C" bool audio_transport(int *bar, int *beat, int *frac)             { return engine_synth_transport(bar, beat, frac) != 0; }
 extern "C" void audio_note_on(int midi_note)                               { engine_synth_note_on(midi_note); }
 extern "C" void audio_note_off(int midi_note)                              { engine_synth_note_off(midi_note); }
+extern "C" void audio_pads_build(const pads_t *p, const rack_t *r)          { apply_speaker(r); engine_synth_pads_build(p, r); }
+extern "C" void audio_pad_set(int pad, const pad_t *p)                      { engine_synth_pad_set(pad, p); }
+extern "C" void audio_pads_fx(const pads_t *p, const rack_t *r)             { engine_synth_pads_fx(p, r); }
+extern "C" bool audio_capture_start(const char *n, int th, int bar, uint32_t lim) { return engine_synth_capture_start(n, th, bar, lim); }
+extern "C" void audio_capture_stop(void)                                    { engine_synth_capture_stop(); }
+extern "C" int  audio_capture_poll(uint32_t *f, uint32_t *d)                { return (int)engine_synth_capture_poll(f, d); }
+extern "C" void audio_capture_done(void)                                    { engine_synth_capture_done(); }
+extern "C" int  audio_rate(void)                                            { return engine_synth_sample_rate(); }
+extern "C" void audio_pad_push(int pad)                                     { engine_synth_pad_push(pad); }
+extern "C" void audio_pad_release(int pad)                                  { engine_synth_pad_release(pad); }
+extern "C" void audio_pads_stop(void)                                       { engine_synth_pads_stop(); }
+extern "C" uint64_t audio_pads_playing(void)                                { return engine_synth_pads_playing(); }
+extern "C" int32_t audio_pad_position(int pad)                              { return engine_synth_pad_position(pad); }
+extern "C" int audio_sample_onsets(int i, uint32_t *f, uint16_t *s, int max) { return engine_synth_sample_onsets(i, f, s, max); }
+extern "C" int64_t audio_sample_zero(int i, uint32_t frame, int dir)        { return engine_synth_sample_zero(i, frame, dir); }
+extern "C" bool audio_render_start(const char *s, const char *d, int op, int a, int a2) { return engine_synth_render_start(s, d, op, a, a2); }
+extern "C" int audio_render_poll(int *percent)                              { return static_cast<int>(engine_synth_render_poll(percent)); }
+extern "C" void audio_render_done(void)                                     { engine_synth_render_done(); }
+extern "C" void audio_sample_hide(int index)                                { samples_esp32_hide(index); }
 extern "C" uint32_t audio_millis(void)                                     { return engine_synth_millis(); }
-extern "C" void audio_update(void)                                         {}     // nothing to pump: the audio task is independent
+extern "C" void audio_update(void)                                         { engine_synth_housekeeping(); }     // frees an old graph once the audio task runs the new one
 #endif // ARDUINO_ARCH_ESP32

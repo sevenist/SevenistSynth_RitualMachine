@@ -4,13 +4,17 @@
 #include <stdlib.h>
 #include <string.h>
 #include "hal/hal_audio.h"
+#include "hal/hal_storage.h"
 #include "platform/engine/engine_synth.h"
 #include "engine/modules/mi_osc.h"
 #include "engine/dsp/fft.h"
 #include <esp_cpu.h>
 #include <esp_heap_caps.h>
 #include "core/ui_settings.h"
+#include "core/pads.h"
 #include "platform/esp32/serial_cmd_esp32.h"
+#include "platform/esp32/sd_card.h"
+#include "engine/offline/process.h"
 #ifdef HWV1
 #include "platform/esp32/leds_esp32.h"
 #endif
@@ -103,7 +107,12 @@ void run(char *line) {
         Serial.printf("[CMD] pieconv: %d of %d sums differ from C (full scale, 1..64 vectors); 128 taps x 2 channels: %u cycles\n", bad, cases, (unsigned)cyc);
         return;
     }
-    if (!strcmp(line, "samples")) {
+    if (!strcmp(line, "samples")) {                       // the samples of the library's root folder join the catalog (the test tools pick from it), then the catalog
+        const int total = audio_dir_open("");
+        for (int k = 0; k < total; k++) {
+            audio_dir_entry_t e;
+            if (audio_dir_read(k, &e, 1) == 1 && !e.dir) audio_sample_use(e.name);
+        }
         audio_sample_info_t in;
         const int n = audio_sample_count();
         for (int i = 0; i < n; i++) if (audio_sample_info(i, &in)) Serial.printf("[CMD] sample %d %s %u frames %u Hz root %d loop %u..%u mode %d\n", i, in.name, (unsigned)in.frames, (unsigned)in.rate, in.root, (unsigned)in.loop_start, (unsigned)in.loop_end, in.loop_mode);
@@ -232,6 +241,136 @@ void run(char *line) {
         Serial.printf("[CMD] str %s %g\n", f, (double)x);
         return;
     }
+    if (!strcmp(line, "pad") && g_app) {                  // the Pads section for tests: pad on|off, fill F N, def <A1> <pads.cfg words>, push|rel K, stop, clock 0|1, mem
+        char sub[8] = {};
+        int used = 0;
+        const char *s = arg ? arg : "";
+        if (sscanf(s, "%7s%n", sub, &used) < 1) { Serial.println("[CMD] pad on|off|fill F N|def A1 ...|push K|rel K|stop|clock 0/1|mem|edit F OP AMOUNT"); return; }
+        s += used;
+        while (*s == ' ') s++;
+        const int a = atoi(s);
+        if (!strcmp(sub, "on") || !strcmp(sub, "off")) { app_set_section(g_app, !strcmp(sub, "on")); Serial.printf("[CMD] pad section %s\n", sub); return; }
+        if (!strcmp(sub, "fill")) {                       // fill F N: catalog file F on pads 0..N-1 (one-shot, default settings)
+            int f = 0, n = 0;
+            sscanf(s, "%d %d", &f, &n);
+            audio_sample_info_t in;
+            if (!audio_sample_info(f, &in)) { Serial.printf("[CMD] pad fill: no sample %d\n", f); return; }
+            for (int k = 0; k < n && k < PAD_COUNT; k++) {
+                pad_default(&g_app->pads.pad[k]);
+                snprintf(g_app->pads.pad[k].file, PAD_NAME_MAX, "%s", in.name);
+                app_pad_changed(g_app, k);
+            }
+            Serial.printf("[CMD] pad fill %s x %d\n", in.name, n);
+            return;
+        }
+        if (!strcmp(sub, "def")) {                        // def A1 <words>: that pad as a pads.cfg line ("loop 1 xfade 20 file name")
+            int label = -1;
+            if (s[0] >= 'A' && s[0] <= 'D') label = (s[0] - 'A') * PADS_PER_BANK + atoi(s + 1) - 1;
+            const char *words = strchr(s, ' ');
+            if (label < 0 || label >= PAD_COUNT || !words) { Serial.println("[CMD] pad def: A1..D16 then pads.cfg words"); return; }
+            pad_default(&g_app->pads.pad[label]);
+            pad_parse(&g_app->pads.pad[label], words + 1);
+            app_pad_changed(g_app, label);
+            Serial.printf("[CMD] pad def %s\n", s);
+            return;
+        }
+        if (!strcmp(sub, "push")) { audio_pad_push(a); Serial.printf("[CMD] pad push %d\n", a); return; }
+        if (!strcmp(sub, "rel"))  { audio_pad_release(a); Serial.printf("[CMD] pad rel %d\n", a); return; }
+        if (!strcmp(sub, "stop")) { audio_pads_stop(); Serial.println("[CMD] pad stop"); return; }
+        if (!strcmp(sub, "clock")) { g_app->pads_run = a != 0; Serial.printf("[CMD] pad clock %d\n", a); return; }
+        if (!strcmp(sub, "mem")) {                        // the heaps: internal RAM and PSRAM free / largest block, the engine's two heaps
+            size_t fu = 0, fc = 0, fh = 0, bu = 0, sp = 0;
+            engine_synth_heap_stats(&fu, &fc, &fh, &bu, &sp);
+            Serial.printf("[CMD] pad mem: internal free %u largest %u, PSRAM free %u largest %u, fast heap %u / %u (high %u), bulk used %u, spilled %u, playing %llx\n",
+                          (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
+                          (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM),
+                          (unsigned)fu, (unsigned)fc, (unsigned)fh, (unsigned)bu, (unsigned)sp, (unsigned long long)audio_pads_playing());
+            return;
+        }
+        if (!strcmp(sub, "rec")) {                        // rec S: records what plays for S seconds into a scratch file, and how the card kept up
+            const int secs = a > 0 && a <= 60 ? a : 5;
+            uint32_t u0 = 0, u1 = 0, rd = 0, frames = 0, lost = 0;
+            engine_synth_sampler_stats(&u0, &rd);
+            const uint32_t t0 = millis();
+            if (!audio_capture_start("zzrec", 0, 0, (uint32_t)secs * (uint32_t)audio_rate())) { Serial.println("[CMD] pad rec: refused (busy, no card or no memory)"); return; }
+            int st = CAPTURE_ST_ARMED;
+            while (millis() - t0 < (uint32_t)secs * 1000u + 8000u) {
+                st = audio_capture_poll(&frames, &lost);
+                if (st == CAPTURE_ST_DONE || st == CAPTURE_ST_FAILED || st == CAPTURE_ST_EMPTY) break;
+                delay(20);
+            }
+            const uint32_t ms = millis() - t0;
+            audio_capture_done();
+            engine_synth_sampler_stats(&u1, &rd);
+            storage_remove(STORAGE_DIR_SAMPLES "/zzrec.smp");
+            Serial.printf("[CMD] pad rec %d s: %s, %u frames, %u lost, finished after %u ms, stream underruns +%u\n", secs,
+                          st == CAPTURE_ST_DONE ? "done" : st == CAPTURE_ST_FAILED ? "FAILED" : st == CAPTURE_ST_EMPTY ? "EMPTY" : "TIMEOUT",
+                          (unsigned)frames, (unsigned)lost, (unsigned)ms, (unsigned)(u1 - u0));
+            return;
+        }
+        if (!strcmp(sub, "verify")) {                     // verify 0|1: the card driver reads every write back and compares (slow), and its counts
+            uint32_t n = 0, bad = 0;
+            sd_card_verify(a != 0, &n, &bad);
+            Serial.printf("[CMD] pad verify %d: %u sectors read back, %u differed\n", a != 0, (unsigned)n, (unsigned)bad);
+            return;
+        }
+        if (!strcmp(sub, "fx")) {                         // fx clear | fx route N | fx <A|B|C> <code> [values]: the Pads section's FX chains
+            rack_t *fx = &g_app->pads.fx;
+            char w[8] = {}, code[8] = {};
+            int n = 0;
+            if (sscanf(s, "%7s%n", w, &n) < 1) { Serial.println("[CMD] pad fx clear | route N | <A|B|C> <code> [values]"); return; }
+            s += n;
+            if (!strcmp(w, "clear")) rack_init_fx(fx);
+            else if (!strcmp(w, "route")) fx->fx_route = (uint8_t)(atoi(s) >= 0 && atoi(s) < RACK_ROUTE_COUNT ? atoi(s) : 0);
+            else {
+                const int row = w[0] - 'A';
+                int t = MOD_TYPE_COUNT;
+                if (sscanf(s, "%7s%n", code, &n) == 1) for (int k = 0; k < MOD_TYPE_COUNT; k++) if (!strcasecmp(code, rack_type_code((module_type_t)k))) t = k;
+                if (row < 0 || row >= RACK_ROWS || t == MOD_TYPE_COUNT || !rack_insert_row(fx, fx->count, row, (module_type_t)t)) {
+                    Serial.printf("[CMD] pad fx: '%s %s' refused (a chain A..C, an effect's code, 4 a chain)\n", w, code);
+                    return;
+                }
+                s += n;
+                float x = 0;
+                for (int i = 0; i < rack_mparam_count((module_type_t)t) && sscanf(s, "%f%n", &x, &n) == 1; i++, s += n) fx->slot[fx->count - 1].v[i] = x;
+            }
+            audio_pads_fx(&g_app->pads, &g_app->rack);
+            Serial.printf("[CMD] pad fx: %d module(s), route %s\n", fx->count, rack_route_name(fx->fx_route));
+            return;
+        }
+        if (!strcmp(sub, "edit")) {                       // edit F OP AMOUNT [AMOUNT2]: catalog file F through ProcOp OP (pads.h PROC_*) into a scratch file, timed
+            int f = 0, op = 0, amt = 0, amt2 = 0;
+            sscanf(s, "%d %d %d %d", &f, &op, &amt, &amt2);
+            audio_sample_info_t in;
+            if (!audio_sample_info(f, &in)) { Serial.printf("[CMD] pad edit: no sample %d\n", f); return; }
+            uint32_t u0 = 0, u1 = 0, rd = 0;
+            engine_synth_sampler_stats(&u0, &rd);
+            const size_t free0 = heap_caps_get_free_size(MALLOC_CAP_SPIRAM), big0 = heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM);
+            const uint32_t t0 = millis();
+            if (!audio_render_start(in.name, "zzedit", op, amt, amt2)) {
+                Serial.printf("[CMD] pad edit %s op %d amount %d: refused, PSRAM free %u largest %u\n", in.name, op, amt, (unsigned)free0, (unsigned)big0);
+                return;
+            }
+            const size_t free1 = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+            int pct = 0, state = RENDER_STATE_RUNNING;
+            while ((state = audio_render_poll(&pct)) == RENDER_STATE_RUNNING && millis() - t0 < 600000) delay(20);
+            const uint32_t ms = millis() - t0;
+            audio_render_done();
+            engine_synth_sampler_stats(&u1, &rd);
+            storage_remove(STORAGE_DIR_SAMPLES "/zzedit.smp");
+            Serial.printf("[CMD] pad edit %s frames %u rate %u op %d amount %d: %s in %u ms, memory %u (PSRAM free %u largest %u before), underruns +%u\n", in.name,
+                          (unsigned)in.frames, (unsigned)in.rate, op, amt, state == RENDER_STATE_DONE ? "done" : state == RENDER_STATE_FAILED ? "FAILED" : "TIMEOUT", (unsigned)ms,
+                          (unsigned)(free0 - free1), (unsigned)free0, (unsigned)big0, (unsigned)(u1 - u0));
+            if (sc::g_proc_frames)                        // ENGINE_PROFILE: where a spectral frame's time went (ms of CPU per frame at 240 MHz)
+                Serial.printf("[CMD] pad edit frames %u, ms each: load %.2f, fft %.2f, spectrum %.2f, ifft %.2f, overlap %.2f\n", (unsigned)sc::g_proc_frames,
+                              sc::g_proc_prof[0] / 240000.0 / sc::g_proc_frames, sc::g_proc_prof[1] / 240000.0 / sc::g_proc_frames,
+                              sc::g_proc_prof[2] / 240000.0 / sc::g_proc_frames, sc::g_proc_prof[3] / 240000.0 / sc::g_proc_frames,
+                              sc::g_proc_prof[4] / 240000.0 / sc::g_proc_frames);
+            return;
+        }
+        Serial.printf("[CMD] pad: unknown '%s'\n", sub);
+        return;
+    }
     if (!strcmp(line, "fx") && g_app) {                   // fx clear | fx <code> [v0 .. v7]: append an FX module to row M (code as on the RACK tab: DL RV CH ...; values in the module's units, missing = default)
         char code[8] = {};
         int used = 0;
@@ -270,7 +409,7 @@ void run(char *line) {
 extern "C" void serial_cmd_attach(app_t *app) { g_app = app; }
 
 extern "C" void serial_cmd_poll(void) {
-    static char buf[48];
+    static char buf[112];
     static int n = 0;
     while (Serial.available() > 0) {
         const int ch = Serial.read();

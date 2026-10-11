@@ -1,6 +1,7 @@
 #include "engine/core/engine.h"
 #include <cmath>
 #include "engine/dsp/block.h"
+#include "engine/dsp/phase.h"
 #include "engine/modules/builtin.h"
 
 #ifdef ENGINE_PROFILE
@@ -280,8 +281,51 @@ bool Engine::set_voice_mode(VoiceMode mode, bool legato, int glide_ms) {
     return cmd_.push(c);
 }
 
+bool Engine::set_transport(int bpm, bool running, bool click) {
+    Command c;
+    c.type = Cmd::Transport;
+    c.node = running ? 1 : 0;
+    c.idx = click ? 1 : 0;
+    c.value = bpm < 20 ? 20 : bpm > 400 ? 400 : bpm;
+    return cmd_.push(c);
+}
+
+// The metronome click (a 1.5 kHz sine burst, 3 kHz on beat 1 of the bar, decaying in a few ms, at about -12 dBFS) is added after the
+// master output: the master volume does not change it. Then the position moves by the block.
+void Engine::transport_block(q15 *l, q15 *r) {
+    if (tr_.running && click_on_) {
+        const uint64_t next = (tr_.beat_q32 + 0xFFFFFFFFull) & ~0xFFFFFFFFull;    // the first beat at or after the block start
+        const int k = tr_.sample_at(next, kBlock);
+        for (int i = 0; i < kBlock; i++) {
+            if (i == k) {
+                const bool bar = ((next >> 32) & 3) == 0;
+                click_inc_ = static_cast<uint32_t>((bar ? 3000.0 : 1500.0) * 4294967296.0 / kSampleRate);
+                click_ph_ = 0;
+                click_env_ = 8192;
+            }
+            if (click_env_ <= 0) continue;
+            const int32_t s = (static_cast<int32_t>(sine(click_ph_)) * click_env_) >> 15;
+            click_ph_ += click_inc_;
+            click_env_ -= (click_env_ >> 7) + 1;
+            l[i] = sat16(l[i] + s);
+            r[i] = sat16(r[i] + s);
+        }
+    }
+    if (tr_.running) tr_.beat_q32 += tr_.inc_q32 * kBlock;
+    tr_beat_.store(tr_.beat_q32, std::memory_order_relaxed);
+    tr_run_.store(tr_.running, std::memory_order_relaxed);
+}
+
 void Engine::apply(const Command &c) {
     switch (c.type) {
+    case Cmd::Transport:
+        if (c.node && !tr_.running) tr_.beat_q32 = 0;                                // a start: bar 1, beat 1
+        tr_.running = c.node != 0;
+        tr_.bpm = c.value;
+        tr_.inc_q32 = (static_cast<uint64_t>(c.value) << 32) / (60ull * static_cast<uint64_t>(kSampleRate));
+        click_on_ = c.idx != 0;
+        if (!click_on_) click_env_ = 0;
+        break;
     case Cmd::NoteOn: do_note_on(c.note, c.value); break;
     case Cmd::NoteOff: do_note_off(c.note); break;
     case Cmd::AllNotesOff: for (auto &v : voices_) v = VoiceState{}; stack_n_ = 0; break;
@@ -403,7 +447,7 @@ void Engine::render(q15 *l, q15 *r) {
     prof_blocks_++;
 #endif
     const Plan *pl = active_.load(std::memory_order_acquire);
-    if (!pl) return;
+    if (!pl) { transport_block(l, r); return; }
 
     if (mode_ == VoiceMode::Mono && glide_k_ > 0) {                              // the glide: a fraction of the remaining distance per block
         VoiceState &g = voices_[0];
@@ -416,6 +460,7 @@ void Engine::render(q15 *l, q15 *r) {
     }
     ProcessCtx ctx{kBlock, t, nullptr, bus_l_, bus_r_, l, r};
     ctx.bus2_l = bus2_l_; ctx.bus2_r = bus2_r_;
+    ctx.transport = &tr_;
     ctx.voices = voices_;
     ctx.nvoices = nvoices_;
     for (int v = 0; v < nvoices_; v++) ctx.keys_held += voices_[v].active && voices_[v].gate;
@@ -437,6 +482,7 @@ void Engine::render(q15 *l, q15 *r) {
     ctx.voice = nullptr;
     run(pl, pl->n_pre + pl->n_voice, pl->n_post, -1, ctx);
     if (!pl->has_master) for (int i = 0; i < kBlock; i++) { l[i] = sat16(bus_l_[i]); r[i] = sat16(bus_r_[i]); }
+    transport_block(l, r);
 }
 
 }  // namespace sc

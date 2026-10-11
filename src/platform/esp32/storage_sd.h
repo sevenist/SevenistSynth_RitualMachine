@@ -13,7 +13,8 @@
 
 class SdStorage : public sc::StorageDevice {
 public:
-    sc::FileHandle open(const char *name) override;                      // "<stem>.smp" in SD_SAMPLE_DIR; -1 when missing
+    sc::FileHandle open(const char *name) override;                      // "<name>.smp" below SD_SAMPLE_DIR; -1 when missing
+    void forget(sc::FileHandle f) override;                              // its sample was unloaded: the table entry is free for another file
     uint32_t size(sc::FileHandle f) const override { return f >= 0 && f < n_files_ ? file_[f].size : 0; }
     bool submit(const sc::IoRead &r, uint64_t now_us) override;
     bool poll(sc::IoDone &d, uint64_t now_us) override;
@@ -26,12 +27,12 @@ public:
     Stats stats() const { return stats_; }
 
 private:
-    static constexpr int kFiles = 48;          // distinct sample files seen (the library holds at most AUDIO_SAMPLES_MAX = 32)
+    static constexpr int kFiles = 48;          // sample files open as handles at once (the catalog holds at most AUDIO_SAMPLES_MAX = 32)
     static constexpr int kOpenFds = 6;         // descriptors held open at once (sd_card.cpp allows 8 files: these, a scan and a directory)
     static constexpr int kQueue = 32;
     static constexpr uint32_t kBounceBytes = 8192;
     static constexpr uint32_t kUnknownPos = 0xFFFFFFFFu;
-    struct File { char path[64]; uint32_t size; int fd; uint32_t used; uint32_t pos; };
+    struct File { char path[80]; uint32_t size; int fd; uint32_t used; uint32_t pos; uint8_t refs; };   // SD_SAMPLE_DIR/<a 47-character name>.smp; "" = free; refs: opens not forgotten yet
     int fd_of(int f);
     bool read_into(File &fl, uint32_t offset, void *dst, uint32_t bytes);
 

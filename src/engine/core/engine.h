@@ -37,6 +37,7 @@ public:
     Err load(const GraphDesc &g, int nvoices = 0);      // [CONTROL]
     bool set_voice_mode(VoiceMode mode, bool legato, int glide_ms);   // [CONTROL] posted like a note; glide_ms 0 = jump
     void gc();                                          // [CONTROL]
+    bool switching() const { return pending_.load(std::memory_order_acquire) != nullptr; }   // a loaded plan waits for the audio thread
 
     bool note_on(int note, int velocity127 = 100);      // [CONTROL] false = the command queue was full
     bool note_off(int note);
@@ -44,6 +45,10 @@ public:
     bool set_param(int node_id, int idx, int32_t value);   // live parameter change, all voices of the node
     bool set_edge_depth(int edge, q15 depth);           // live depth of cable `edge` (index in the loaded GraphDesc); false = needs load() (aliased unity cable, or the new depth is unity)
     bool set_blob(int node_id, const void *data, size_t bytes);   // structured settings, at most kCmdBlobMax bytes
+    // [CONTROL] the machine clock: tempo (20..400 BPM), running (stopped -> running starts at beat 0), the metronome click (beat 1 higher).
+    bool set_transport(int bpm, bool running, bool click);
+    uint64_t transport_beat() const { return tr_beat_.load(std::memory_order_relaxed); }    // [any thread] the position, beats Q32
+    bool transport_running() const { return tr_run_.load(std::memory_order_relaxed); }
 
     void render(q15 *l, q15 *r);                        // [AUDIO] exactly kBlock frames
     int active_voices() const;
@@ -95,6 +100,13 @@ private:
     alignas(16) int32_t bus_l_[kBlock] = {}, bus_r_[kBlock] = {};     // the voice sum, 32 bits: saturated once when read (BusIn)
     alignas(16) int32_t bus2_l_[kBlock] = {}, bus2_r_[kBlock] = {};   // the second voice bus (branch 2 of the rack, ADR-041)
     std::atomic<uint64_t> time_{0};
+    Transport tr_;                                      // audio thread
+    bool click_on_ = false;
+    uint32_t click_ph_ = 0, click_inc_ = 0;             // the metronome click: a sine burst ...
+    int32_t click_env_ = 0;                             // ... with a fast decay (q15)
+    std::atomic<uint64_t> tr_beat_{0};
+    std::atomic<bool> tr_run_{false};
+    void transport_block(q15 *l, q15 *r);               // [AUDIO] the click into the output, then the clock moves on
 #ifdef ENGINE_PROFILE
     ProfEntry prof_[kProfMax] = {};
     int prof_n_ = 0;

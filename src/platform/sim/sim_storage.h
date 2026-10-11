@@ -26,6 +26,12 @@ public:
         files_.push_back({name, data});
         return static_cast<FileHandle>(files_.size() - 1);
     }
+    FileHandle set_file(const char *name, const std::vector<uint8_t> &data) {       // add_file, or new contents for a file that is there
+        const FileHandle f = open(name);
+        if (f < 0) return add_file(name, data);
+        files_[static_cast<size_t>(f)].data = data;
+        return f;
+    }
     void set_model(const StorageModel &m) { model_ = m; }
     uint64_t total_reads() const { return reads_; }
     uint64_t total_bytes() const { return bytes_; }

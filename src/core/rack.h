@@ -25,6 +25,10 @@
 //    One way only: a module that must run per voice (rack_type_voice_only: sources, the resonator) cannot follow the shared start of its
 //    branch, nor sit in row M. The shared start's slot.penv says how the shared envelopes follow the keys (para_env_t).
 //  - FM and Strings have no branches: their voices feed row M.
+//
+// The pads' FX rack (ADR-041 decisions 23, 47-49): a rack_t with `fx` set is the Pads section's three FX chains. Its rows are FXA, FXB,
+// FXC, each a chain of up to RACK_FX_SLOTS effect modules (what row M takes: the effects, the filter, the saturator; no sources, no
+// modulators, no Para); `fx_route` says how the chains follow each other. The pads enter at Dry / A / B / C (pad_t.bus).
 #include <stdbool.h>
 #include <stdint.h>
 #include "core/synth_config.h"
@@ -37,6 +41,8 @@ extern "C" {
 #define RACK_ROWS 3
 #define RACK_BRANCHES 2             // rows 0 and 1
 #define ROW_M 2                     // the chain on the sum of the branches
+#define RACK_FX_SLOTS 4             // modules per chain of the pads' FX rack
+typedef enum { RACK_ROUTE_A_B_C, RACK_ROUTE_AB_C, RACK_ROUTE_ABC, RACK_ROUTE_AC_AB, RACK_ROUTE_COUNT } rack_route_t;   // '/' side by side, '+' in a row
 #define RACK_OUT (-2)               // returned by rack_audio_next(): goes to the output (a branch: to the MIX of row M)
 #define RACK_NONE (-1)
 
@@ -112,6 +118,8 @@ typedef struct {
     rack_slot_t slot[RACK_MAX];
     int         count;
     uint8_t     next_id;   // ids start at 1
+    uint8_t     fx;        // 1 = the pads' FX rack (rows = the chains FXA / FXB / FXC)
+    uint8_t     fx_route;  // rack_route_t (an FX rack)
     float       br_lvl[RACK_BRANCHES], br_pan[RACK_BRANCHES];   // the MIX at the start of row M: each branch's level (0..1) and pan (-100..100 %)
     synth_config_t cfg;    // general settings (synth type, voices, volume): the GENERAL tab
     ms_pattern_t ms[MS_POOL];   // motion sequencer patterns (see ms_lane_t)
@@ -121,6 +129,12 @@ void rack_init(rack_t *r);    // small demo rack (osc, filter, saturator, LFO; d
 void rack_init_sampler(rack_t *r, int file, int loop);   // dev / measurement patch: one sampler (catalog index `file`, loop mode 0 file / 1 off / 2 fwd / 3 ping-pong) into one filter, no effects
 void rack_init_startup(rack_t *r);   // the patch the device starts with: four oscillator engines into a filter, delay and reverb in row M
 void rack_clear(rack_t *r);   // no modules, default general settings
+void rack_init_fx(rack_t *r); // the pads' FX rack, empty, chains side by side
+const char *rack_route_name(int route);          // "A/B/C", "A+B/C", "A+B+C", "A+C/A+B"
+// The chains' CPU load on the prototype in percent, with all 8 pad voices sounding (measured costs per module, rack.c): over 100 the
+// audio drops out. Shown on the FX page; nothing is refused (decision 47).
+int  rack_fx_load_pct(const rack_t *fx);
+int  rack_fx_param_count(module_type_t t);       // the parameters a chain uses of a module (a filter there has no envelope: Type, Cut, Res)
 
 // Edits. Return false when impossible (full / bad position / against the row rules).
 bool rack_insert(rack_t *r, int pos, module_type_t type);   // shifts slots >= pos to the right; row 0 (branch 1), no rule checks

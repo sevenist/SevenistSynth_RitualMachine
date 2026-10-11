@@ -139,6 +139,14 @@ int storage_read(const char *name, char *buf, int cap) {
     return n;
 }
 
+bool storage_remove(const char *name) {
+    start();
+    if (!g_in) return false;
+    char p[256];
+    sim_card_path(name, p, sizeof p);
+    return remove(p) == 0;
+}
+
 bool storage_write(const char *name, const char *data, int len) {
     start();
     if (!g_in) return false;

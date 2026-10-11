@@ -67,15 +67,44 @@ void audio_build(const rack_t *r, const synth_params_t *p)      { engine_synth_b
 int audio_sample_count(void)                                     { return engine_synth_sample_count(); }
 bool audio_sample_info(int i, audio_sample_info_t *out)         { return engine_synth_sample_info(i, out); }
 int audio_osc_preview(int m, float t, float mo, float h, int period, int16_t *out, int n) { return engine_synth_osc_preview(m, t, mo, h, period, out, n); }
-int audio_samples_rescan(void)                                  { return sim_samples_rescan(); }
+int sim_samples_find(const char *name);
+int sim_samples_use(const char *name);
+int sim_samples_dir_open(const char *dir);
+int sim_samples_dir_read(int first, audio_dir_entry_t *out, int max);
+int audio_sample_find(const char *name)                         { return sim_samples_find(name); }
+int audio_sample_use(const char *name)                          { return sim_samples_use(name); }
+int audio_dir_open(const char *dir)                             { return sim_card_present() ? sim_samples_dir_open(dir) : -1; }
+int audio_dir_read(int first, audio_dir_entry_t *out, int max)  { return sim_samples_dir_read(first, out, max); }
 sd_state_t audio_sd_state(void)                                 { return sim_card_present() ? SD_OK : SD_NONE; }   // the sdcard/ folder (F12: out / in)
 uint32_t audio_sd_read_us(void)                                 { return 0; }
 uint32_t audio_sd_generation(void)                              { return sim_card_generation(); }
 bool audio_sample_prepare(int i)                                { return sim_samples_prepare(i) != 0; }
 void audio_set_clock(int bpm, int steps, int swing, int running) { engine_synth_set_clock(bpm, steps, swing, running); }
 void audio_motion_restart(void)                                 { engine_synth_motion_restart(); }
+void audio_set_metronome(bool on)                                { engine_synth_set_metronome(on); }
+bool audio_transport(int *bar, int *beat, int *frac)             { return engine_synth_transport(bar, beat, frac) != 0; }
 void audio_note_on(int midi_note)                               { engine_synth_note_on(midi_note); }
 void audio_note_off(int midi_note)                              { engine_synth_note_off(midi_note); }
+void audio_pads_build(const pads_t *p, const rack_t *r)          { engine_synth_pads_build(p, r); }
+void audio_pad_set(int pad, const pad_t *p)                      { engine_synth_pad_set(pad, p); }
+void audio_pads_fx(const pads_t *p, const rack_t *r)             { engine_synth_pads_fx(p, r); }
+bool audio_capture_start(const char *n, int th, int bar, uint32_t lim) { return engine_synth_capture_start(n, th, bar, lim); }
+void audio_capture_stop(void)                                    { engine_synth_capture_stop(); }
+int  audio_capture_poll(uint32_t *f, uint32_t *d)                { return (int)engine_synth_capture_poll(f, d); }
+void audio_capture_done(void)                                    { engine_synth_capture_done(); }
+int  audio_rate(void)                                            { return engine_synth_sample_rate(); }
+void audio_pad_push(int pad)                                     { engine_synth_pad_push(pad); }
+void audio_pad_release(int pad)                                  { engine_synth_pad_release(pad); }
+void audio_pads_stop(void)                                       { engine_synth_pads_stop(); }
+uint64_t audio_pads_playing(void)                                { return engine_synth_pads_playing(); }
+int32_t audio_pad_position(int pad)                              { return engine_synth_pad_position(pad); }
+int audio_sample_onsets(int i, uint32_t *f, uint16_t *s, int max) { return engine_synth_sample_onsets(i, f, s, max); }
+int64_t audio_sample_zero(int i, uint32_t frame, int dir)        { return engine_synth_sample_zero(i, frame, dir); }
+bool audio_render_start(const char *s, const char *d, int op, int a, int a2) { return engine_synth_render_start(s, d, op, a, a2); }
+int audio_render_poll(int *percent)                              { return (int)engine_synth_render_poll(percent); }
+void audio_render_done(void)                                     { engine_synth_render_done(); }
+void sim_samples_hide(int index);
+void audio_sample_hide(int index)                                { sim_samples_hide(index); }
 uint32_t audio_millis(void)                                     { return dev ? engine_synth_millis() : SDL_GetTicks(); }   // no audio device: the sequencer still runs
-void audio_update(void)                                         {}
+void audio_update(void)                                         { engine_synth_housekeeping(); }
 #endif // PLATFORM_SIM

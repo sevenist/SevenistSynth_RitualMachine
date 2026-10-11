@@ -6,7 +6,17 @@ not: state, the latest measurements and what to do next, the user's working styl
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
 `tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
-## Session todo (updated 2026-10-10)
+## Session todo (updated 2026-10-11)
+
+**Where things stand (end of the session of 2026-10-10 / 11):** all the Pads work is on the branch **`pads-step1`** (16 commits ahead
+of `main`, which is untouched and can fast-forward; the user asked for a commit at every step). **The board runs the normal build of
+its last commit (5162be7, flashed 2026-10-11)**: everything listed below is on it, whatever an older entry says about "NOT flashed".
+Built in that session, in order: the Pads section (pads, clock, grid, loops, Sync, Snap, Next), the sample tools (chop, EDIT page
+with 19 operations, version history), the FX chains, capture (the Rec key), then two speed fixes. **The user has tried only the
+first part (test list items 1-17); nothing from the EDIT page on has been tried or listened to.** The user chose to pause new
+features and test. Waiting on the user: test results; the rest of test item 16 (the Play key on F4, "which is working but ...");
+whether a gate release triggers Next; whether the full synth stopping in Pads is right. Next features, each with a design round:
+live synth (engine not chosen: "decide later"), song mode + backtrack, stereo samples (a format change).
 
 Order: the Pads section first (user, 2026-10-09), the rest as chosen by Claude earlier (user: "I let you choose the order"). The user has made no sound design yet: **no saved patch or data to keep, old
 patches can be deleted, no migration code** (user, 2026-10-09). The rest of the workflow plan: "Next: the production workflow" below.
@@ -34,16 +44,15 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
 - [ ] **Time & pitch: try it, by ear** (sample tools 4; ADR-041 "Sample tools step 4"): EDIT ops Stretch, Pitch, Speed, Fit beats,
   Fit speed. BUILT 2026-10-10, host-tested (204 engine tests x 6, 93 UI tests), NOT tried, NOT flashed, NOT listened to, not timed on
   the board. Listen for: a drum loop stretched +-10..30 % (hits doubled or smeared?), a sustained chord (flutter?), Fit beats then
-  Loop + Sync against the metronome. **Open choice for the user: a "Tonal" (phase vocoder) stretch mode** for sustained sounds,
-  cheap to add with the Texture group's FFT (from: user)
+  Loop + Sync against the metronome (from: user)
 - [ ] **Crop, Undo with its trim points, Color / lo-fi: try it** (ADR-041 "Sample tools: Crop, the trim points per version, Color"):
   EDIT ops Crop, Lo-fi rate, Bits, Drive, Low-pass, High-pass; Undo / Redo / Ver put Start / End / LStr back. BUILT 2026-10-10,
   host-tested (207 engine tests x 6, 95 UI tests), NOT tried, NOT flashed, NOT listened to. Crop is my addition (from: notes)
 - [ ] **Texture: try it, by ear, and check it on the board** (sample tools 5; ADR-041 decisions 44-46 + "Sample tools step 5"):
   EDIT op Paulstr. (x1.5..x64, a 4096-point window) and the Algo row Beat / Tonal for Stretch, Pitch, Fit beats. BUILT 2026-10-11,
-  host-tested (211 engine tests x 6, 96 UI tests), FLASHED 2026-10-11 and measured (ADR-041 "The sample tools on the board": every
-  operation fits, 48.5 of 59.3 KB at worst; jobs run at 0.2..0.8 of real time; streamed pads keep playing), NOT tried by the user,
-  NOT listened to. Reverse reverb and freeze / smear: from the FX chains + resampling (decision 46) (from: user)
+  host-tested (211 engine tests x 6, 96 UI tests), FLASHED 2026-10-11 and measured (ADR-041 "The sample tools on the board" and
+  "Speed": every operation fits; a 1.5 s sample takes 1.4 .. 6 s; streamed pads keep playing), NOT tried by the user, NOT listened to.
+  Listen for: Paulstretch x8 on a chord, a voice, a drum hit; Tonal against Beat on the same sample. Reverse reverb and freeze / smear: from the FX chains + resampling (decision 46) (from: user)
 - [x] **Sample jobs were slow on the board**: Tonal stretch 8.0 -> 4.4 s, Paulstretch x4 12.1 -> 6.1 s, Stretch (Beat) 4.6 -> 2.8 s
   on a 1.5 s sample (the window kept between frames, a block cache in the reader, the frame in internal RAM; outputs bit-identical;
   ADR-041 "Speed"). What is left is the card's write rate, ~150 KB/s (done 2026-10-11)
@@ -52,7 +61,8 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
 - [ ] **FX chains: try it, by ear** (Pads step 3; ADR-041 decisions 47-49 + "Pads step 3, the FX chains, as built"): Menu in Pads =
   the FX page (rows A / B / C, the header = the routing and the load), Edit in a module's menu = its values (the four knobs drive
   them), a pad's Bus row on PLAY. BUILT 2026-10-11, host-tested (214 engine tests x 6, 98 UI tests), FLASHED and measured (8 pads +
-  EQ, compressor, delay, reverb = 66 %; twelve effects = 120 %, dropouts), NOT tried by the user, NOT listened to (from: user)
+  EQ, compressor, delay, reverb = 53 %; twelve light effects = 81 %; nine or twelve heavy ones = 111 .. 124 %, dropouts), NOT tried by
+  the user, NOT listened to. Listen for: the reload when the routing or a module changes while a pad plays (from: user)
 - [ ] **Capture (Rec key): try it, by ear** (ADR-041 decision 50 + "Capture as built"): Rec in the Pads layout (right block, row 2,
   between Mute and Stop) arms a recording of everything the Pads section plays; it starts at the first sound, Rec again stops it, the
   result lands on the selected pad if empty (else the next empty one). Shift + Rec = a length in bars: then it starts on the bar (clock
@@ -529,6 +539,10 @@ The user decides and I record the reasoning and move on, without re-litigating:
   ~12 effect modules next to 8 pad voices and the live synth.
 - **Pads screen = grid full screen, a push opens the pad** (2026-10-10, ADR-041 decision 25; I recommended grid on top + pad below): risk =
   editing a pad hides the other pads.
+- **4 effect slots per FX chain** (2026-10-11, ADR-041 decision 47; I recommended 2): risk = twelve effects never fit (measured: four to
+  six do next to 8 pads); nothing is refused, the FX page shows the estimated load.
+- **Paulstretch with a 4096-point window** (2026-10-11, decision 44; I recommended 2048, which always fits): it fits (37 KB of PSRAM
+  and 25 KB of internal RAM while the job runs), but leaves little room for anything else during a spectral job.
 - On the hardware (ADR-035): a **float exception** for the filters; **mono delay / reverb** and the **half-rate reverb tank** as build flags; the **5-saw supersaw**; the sample rate is **never below 44100 Hz**; modal as phasors and the additive recurrence were done before asking
   because their tests show the same sound within a stated tolerance.
 
@@ -553,7 +567,10 @@ The user decides and I record the reasoning and move on, without re-litigating:
 ## Working style and environment traps
 
 - The user iterates with short requests, tests on the board or in the SDL window, and wants concise answers that say what was verified vs not. Windows 11, PowerShell, MSYS2 UCRT64; AZERTY keyboard; English with some French.
-  For design work they want options with pros and cons at each stage; they often pick against my recommendation. **They flash the board themselves** (COM8); never flash. They sometimes say "flashed" about an older build: check (see the skill).
+  For design work they want options with pros and cons at each stage; they often pick against my recommendation. **By default they flash the board themselves** (COM8). On 2026-10-10 / 11 they allowed Claude to flash and measure (asked each time: "flash and measure?"): ask again in a new session before the first flash. They sometimes say "flashed" about an older build: check (see the skill).
+- A profiling build goes through the environment, not platformio.ini: `$env:PLATFORMIO_BUILD_FLAGS = "-DHWV1_DEBUG_AUDIO -DENGINE_PROFILE"` then `pio.exe run -t upload`; **flash the normal build again afterwards** (the profiling one prints every second and costs RAM).
+- Board tools for the Pads work (all over serial, `DEV_SERIAL_CMD`; see human_docs/SERIAL_COMMANDS.md, `pad ...`): `tools/pads_test.py` (pad voices), `padsfx_test.py` (FX chains, per-module costs), `edit_test.py` (sample jobs: time, memory), `capture_test.py` (recording).
+- UI tests address some rows by number (the RACK page's menu rows in `tests/ui/test_rows.c`, the EDIT page's rows in `tests/ui/test_pads.c`): inserting a row in those screens shifts them.
 - The user often keeps the simulator open: `build.ps1` then builds `oled_sim_new.exe`. A stale exe has caused a false "bug" before.
 - PlatformIO: use `C:\.platformio\penv\Scripts\pio.exe`, **never a bare `pio`** (PATH points at Python 3.13's pio, which recreates and destroys the penv). It happened twice; the second time (2026-10-05) Claude did it, and the user had to restore the penv by hand. Repair steps: DEVELOPING.md, "ESP32 firmware" warning. One link failure with no error text happened twice; the immediate rerun succeeded.
 - One program per serial port: close the serial monitor before `serial_test.py`.
@@ -564,12 +581,12 @@ The user decides and I record the reasoning and move on, without re-litigating:
 - `src/platform/engine/engine_synth.h` is included from C: no default arguments, no C++ in it.
 - Tool calls that run `g++` through PowerShell hide compiler errors (`NativeCommandError`): compile from bash to see them. A test executable needs `C:\msys64\ucrt64\bin` on PATH.
 - Python on Windows: always `open(..., encoding="utf-8")`. The test runner takes a name filter (`engine_tests.exe reverb`) and, via the script, engine flags: `build_engine_tests.ps1 -Defs "-DENGINE_REVERB_HALF=1"`; `-Matrix` takes a few minutes, one configuration about 1 min.
-- Do not commit unless asked. Delete `run*.txt` serial captures when done (ignored by git now); keep the numbers in this file.
+- Do not commit unless asked. (The Pads work: the user asked for a commit at every step, on the branch `pads-step1`; ask before merging it into `main`.) Delete `run*.txt` serial captures when done (ignored by git now); keep the numbers in this file.
 
 ## Starting the next session (compact prompt)
 
 Run `/session-start` (skill `.claude/skills/session-start/SKILL.md`): it reads these notes, talks through the open items, writes the "Session todo" section here and proposes where to start.
 For board performance work directly:
 
-> Read `CONTINUE.md`, `DEVELOPING.md` and `ENGINE_DESIGN.md` (ADR-035), and the skill `esp32-optimize`. The board is connected on COM8 with the last build flashed. <what I heard / what to change>.
+> Read `CONTINUE.md`, `DEVELOPING.md` and `ENGINE_DESIGN.md` (ADR-035, and ADR-041 for the Pads section), and the skill `esp32-optimize`. The work is on the branch `pads-step1`. The board is connected on COM8 with the last build flashed. <what I heard / what to change>.
 > Then re-measure with `tools/serial_test.py` and continue with "Next performance steps".

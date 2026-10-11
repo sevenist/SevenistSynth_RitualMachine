@@ -202,16 +202,16 @@ uint32_t pad_snap_origin(const pad_t *p, pad_param_t k, uint32_t frames) {
 }
 
 int64_t pad_snap_grid(const pad_t *p, pad_param_t k, uint32_t v, int dir, uint32_t frames, uint32_t rate, int bpm) {
-    uint64_t unit = 0;
-    if (p->snap == PAD_SNAP_BEAT && rate && bpm > 0) unit = (uint64_t)rate * 60u / (uint64_t)bpm;
-    if (p->snap == PAD_SNAP_16TH) unit = frames / 16;
-    if (!unit) return -1;
-    const int64_t o = pad_snap_origin(p, k, frames), rel = (int64_t)v - o;
-    int64_t q;
-    if (dir > 0)      q = (rel >= 0 ? rel / (int64_t)unit + 1 : -((-rel) / (int64_t)unit));
-    else if (dir < 0) q = (rel > 0 ? (rel - 1) / (int64_t)unit : -((-rel) / (int64_t)unit) - 1);
-    else              q = (rel + (int64_t)unit / 2) / (int64_t)unit - (rel < 0 && (-rel) % (int64_t)unit > (int64_t)unit / 2 ? 1 : 0);
-    return o + q * (int64_t)unit;
+    if ((p->snap != PAD_SNAP_BEAT && p->snap != PAD_SNAP_16TH) || !rate || bpm <= 0) return -1;
+    // a beat as it is heard, in the file's frames: the pad plays 2^(tune / 12) file frames per frame of the file's rate (engine_synth.cpp,
+    // pad_blob). Kept as a fraction: the points are q x unit rounded, so a long loop does not drift by the rounding of one beat.
+    double unit = (double)rate * 60.0 / (double)bpm * pow(2.0, (p->tune * 100 + p->fine) / 1200.0);
+    if (p->snap == PAD_SNAP_16TH) unit /= 4.0;
+    if (unit < 2.0) return -1;
+    const int64_t o = pad_snap_origin(p, k, frames);
+    const double rel = (double)((int64_t)v - o);            // half a frame of slack: `v` is itself a rounded point
+    const double q = dir > 0 ? floor((rel + 0.5) / unit) + 1.0 : dir < 0 ? ceil((rel - 0.5) / unit) - 1.0 : floor(rel / unit + 0.5);
+    return o + (int64_t)llround(q * unit);
 }
 
 /* ---------------- chopping ---------------- */

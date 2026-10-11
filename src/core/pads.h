@@ -48,8 +48,9 @@ typedef enum { PAD_LOOP_OFF, PAD_LOOP_TRIM, PAD_LOOP_FILE, PAD_LOOP_COUNT } pad_
 typedef enum { PAD_GRID_OFF, PAD_GRID_BEAT, PAD_GRID_2BEAT, PAD_GRID_BAR, PAD_GRID_2BAR, PAD_GRID_3BAR, PAD_GRID_4BAR, PAD_GRID_5BAR,
                PAD_GRID_6BAR, PAD_GRID_7BAR, PAD_GRID_8BAR, PAD_GRID_COUNT } pad_grid_t;
 int pad_grid_beats(int grid);                              // 0 (off), 1, 2, 4, 8 .. 32
-// Snap (decision 40): where Start / End / LStr go when they move: Off, a beat at the clock's tempo, 1/16 of the sample, the attacks of the
-// onset scan, a zero crossing. Start counts from the file's start, LStr from Start, End from LStr when the pad loops (else from Start).
+// Snap (decision 40): where Start / End / LStr go when they move: Off, a beat or a 16th note at the clock's tempo (as the pad plays them:
+// its Tune / Fine count), the attacks of the onset scan, a zero crossing. Start counts from the file's start, LStr from Start, End from
+// LStr when the pad loops (else from Start).
 typedef enum { PAD_SNAP_OFF, PAD_SNAP_BEAT, PAD_SNAP_16TH, PAD_SNAP_ATTACK, PAD_SNAP_ZERO, PAD_SNAP_COUNT } pad_snap_t;
 // Next (user, 2026-10-10): the neighbour on the bank's 4 x 4 grid that starts when this pad ends by itself or is stopped by hand (toggle
 // off, gate release); not on Stop all or Play / Stop. None past the grid's edge.
@@ -114,7 +115,7 @@ uint32_t pad_fit_ppm(uint32_t region, uint32_t rate, int beats, int bpm);
 // A trim point (PADP_START / END / LSTART) set to `v` frames, kept in order (start < loop start < end - 1 <= frames).
 void pad_set_trim(pad_t *p, pad_param_t k, int64_t v, uint32_t frames);
 // The snap points of Beat / 1/16 (Attack and Zero need the file: the UI): the next point after `v` in the direction `dir` (+1 / -1), or the
-// nearest one (dir 0), for the trim point k. -1 when the snap has no points here (Off, Attack, Zero, no tempo).
+// nearest one (dir 0), for the trim point k, at `bpm` for a file at `rate`. -1 when the snap has no points here (Off, Attack, Zero, no tempo).
 int64_t pad_snap_grid(const pad_t *p, pad_param_t k, uint32_t v, int dir, uint32_t frames, uint32_t rate, int bpm);
 // Where k counts from (the snap's origin): 0 for Start, Start for LStr, LStr (looping) or Start for End.
 uint32_t pad_snap_origin(const pad_t *p, pad_param_t k, uint32_t frames);

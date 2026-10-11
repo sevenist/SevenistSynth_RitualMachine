@@ -799,7 +799,9 @@ offered):
 
 **After the first board test (user, 2026-10-10):**
 40. **Snap** for Start / End / LStr, configurable per pad: Off, Beat (at the clock's tempo), 1/16 of the sample, Attack (the onset scan),
-   Zero crossing.
+   Zero crossing. **Changed 2026-10-11 (user: "the snap function isn't sync with set tempo"): 1/16 = a 16th note at the clock's tempo**,
+   not 1/16 of the file. Beat and 1/16 are the notes as the pad plays them: its Tune / Fine count (an octave down = half the frames),
+   and a point is the whole count times the exact beat, rounded once (the beat was cut to whole frames first: up to a frame per beat).
 41. **Sync = Loop: the loop start is the pad's anchor**: with the clock running the pad's start is delayed so that its loop start lands
    on the grid (a reverse-reverb pre-roll leads into the downbeat); with the clock stopped it starts at once like any pad. (First asked:
    the playhead reaching the loop start also starts a stopped clock; dropped by the user the same day as too complicated.) **Grid

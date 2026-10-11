@@ -403,9 +403,19 @@ TEST(pads_snap_moves_the_trim_to_beats_sixteenths_attacks_and_zeros) {
     CHECK_EQ(pad_end(p, 96000), 72000);
     ev_turn(CTL_ENC_B, -1);
     CHECK_EQ(pad_end(p, 96000), 48000);
-    ui_app.ui.pad_row = snap; ev_turn(CTL_ENC_B, 1);                      // 1/16 of the sample: 6000 frames
+    ui_app.ui.pad_row = snap; ev_turn(CTL_ENC_B, 1);                      // 1/16: a 16th note at the tempo, 6000 frames
     ui_app.ui.pad_row = strt; ev_turn(CTL_ENC_B, 1);
     CHECK_EQ(p->start, 30000);
+    ui_app.seq.bpm = 60;                                                 // the tempo halved: a 16th note = 12000 frames (not 1/16 of the file)
+    ev_turn(CTL_ENC_B, 1);
+    CHECK_EQ(p->start, 36000);
+    ev_turn(CTL_ENC_B, -1);
+    CHECK_EQ(p->start, 24000);
+    p->tune = -12;                                                       // an octave down plays the file half as fast: 6000 frames
+    ev_turn(CTL_ENC_B, 1);
+    CHECK_EQ(p->start, 30000);
+    p->tune = 0;
+    ui_app.seq.bpm = 120;
     ui_app.ui.pad_row = snap; ev_turn(CTL_ENC_B, 1);                      // Attack (the stub's onsets: 12000 30000 48000 72000)
     ui_app.ui.pad_row = strt; ev_turn(CTL_ENC_B, -1);
     CHECK_EQ(p->start, 12000);

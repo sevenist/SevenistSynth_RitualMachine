@@ -21,6 +21,16 @@ live synth (engine not chosen: "decide later"), song mode + backtrack, stereo sa
 Order: the Pads section first (user, 2026-10-09), the rest as chosen by Claude earlier (user: "I let you choose the order"). The user has made no sound design yet: **no saved patch or data to keep, old
 patches can be deleted, no migration code** (user, 2026-10-09). The rest of the workflow plan: "Next: the production workflow" below.
 
+- [ ] **Bug: Snap is not in sync with the set tempo** (user, 2026-10-11, first item of the session). Found by reading the code, not yet
+  confirmed as what the user saw: the tempo reaches the snap (`ui->clock_bpm` = `seq.bpm`) and with Tune 0 a Beat-snapped length is whole
+  beats; but Beat ignores the pad's Tune / Fine (the engine plays at 2^(tune/12) x rate / SR), the beat is cut to whole frames before it
+  is multiplied (up to 1 frame per beat), and "1/16" is 1/16 of the sample, not a 16th note. Same assumption in the Grid chop unit and
+  Fit beats. Done = the user's case reproduced in a UI test, fixed, tried on the board (from: user)
+- [ ] **Bug: only 32 samples, and no real browser** (user, 2026-10-11). The limit is three constants: `AUDIO_SAMPLES_MAX` 32 (the
+  catalog, two copies of ~176 bytes per file in internal RAM), `SampleBank::kMaxSamples` 32 (loaded samples, never unloaded: 64 pads
+  cannot all hold a different file), `SdStorage::kFiles` 48. The only browser is the SAMPLES menu tab (one file per step, synth section
+  only: Menu in Pads = the FX page); a pad's Smp row steps the same way. Design round first: library size / folders, the browser
+  screen, audition (from: user)
 - [ ] **Sync (loop start on the grid), Snap (Beat / 1/16 / Attack / Zero), grid units 1 beat .. 8 bars, editor pages PLAY / TONE / CHOP
   from the header, no tempo popup in Pads: try it** (ADR-041 decisions 40-42; built 2026-10-10, 193 engine tests x 6, 87 UI tests) (from: user)
 - [ ] **Board test of 2026-10-10 (user, test list items 1-17)**: OK: section switch, grid, editor, layout, modes, mixing, knobs, loops
@@ -28,26 +38,28 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
   a muted pad that sounds pulses red <-> its colour, a "Chop >" button (Page - / + was not found). Open: voice steal and streaming not
   tested; Play LED (F4) flash on the beat to recheck with the clock running; "quantized capabilities" for the knobs and "the clock should
   start at the sample loop point for looped samples" to clarify; items 18-38 of the list not reported yet (from: user)
-- [ ] **Pads step 1: on the board** (tried by the user in the simulator 2026-10-10: "all fine"): BUILT 2026-10-10 (ADR-041 "Phase 5, step 1 as built"; 7 engine
-  tests in the 6 configurations, 77 UI tests, simulator + firmware built; NOT tried by the user, NOT flashed, NOT measured). See "Pads
-  section, step 1" below for how to try it and its limits. On the board: measure 8 pad voices (streamed vs whole), PSRAM after the switch (from: user)
+- [x] **Pads step 1 on the board**: tried by the user (simulator "all fine", then the board test above), 8 pad voices measured streamed
+  vs whole and PSRAM after the switch ("Pads on the board" below); what is left is in the board test item (done 2026-10-10)
 - [ ] **Pads step 2 (clock, start on grid, tempo, metronome): try it**: BUILT 2026-10-10 (ADR-041 decisions 27-29; 11 pad engine tests,
-  81 UI tests, simulator + firmware built; NOT tried by the user, NOT flashed). Play in Pads runs the clock; Grid row of a pad; right block
-  row 3 = Tap, Click, BPM -1, BPM +1 (from: user)
+  81 UI tests), flashed; how much of it the board test of 2026-10-10 covered is not recorded. Play in Pads runs the clock; Grid row of
+  a pad; right block row 3 = Tap, Click, BPM -1, BPM +1 (from: user)
 - [ ] **Pads loop crossfade, loop start, launch from, tail on the overview: try it**: BUILT 2026-10-10 (ADR-041 decisions 30-32; 12 pad
-  engine tests in the 6 configurations, 82 UI tests, sim + firmware built; NOT tried, NOT flashed) (from: user)
-- [ ] **Chop (sample tools 1) + Next: try it**: BUILT 2026-10-10 (ADR-041 decision 39 + "Sample tools step 1"; NOT tried, NOT flashed):
-  in the pad editor Page - / + (Shift + encoder A) = CHOP; the pad row Next (from: user)
+  engine tests in the 6 configurations, 82 UI tests), flashed; loops and crossfade OK in the board test of 2026-10-10, the rest not
+  reported (from: user)
+- [ ] **Chop (sample tools 1) + Next: try it**: BUILT 2026-10-10 (ADR-041 decision 39 + "Sample tools step 1"), flashed; Next OK in the
+  board test of 2026-10-10, chop not reported (the CHOP page was not found then: the "Chop >" button was added since; Page - / + =
+  Shift + encoder A also reaches it) (from: user)
 - [ ] **EDIT page, version history, Grid chop padding: try it** (sample tools 2 + 3; ADR-041 "Sample tools steps 2 + 3 as built"):
-  BUILT 2026-10-10, host-tested (199 engine tests x 6, 91 UI tests), NOT tried, NOT flashed. The first board run writes sample files; the user
-  (2026-10-10): the card holds nothing important and may be erased, no backup needed. In the simulator the card is the folder `sdcard/` (from: user)
+  BUILT 2026-10-10, host-tested (199 engine tests x 6, 91 UI tests), flashed and measured (ADR-041 "The sample tools on the board"), NOT
+  tried by the user. It writes sample files; the user (2026-10-10): the card holds nothing important and may be erased, no backup
+  needed. In the simulator the card is the folder `sdcard/` (from: user)
 - [ ] **Time & pitch: try it, by ear** (sample tools 4; ADR-041 "Sample tools step 4"): EDIT ops Stretch, Pitch, Speed, Fit beats,
-  Fit speed. BUILT 2026-10-10, host-tested (204 engine tests x 6, 93 UI tests), NOT tried, NOT flashed, NOT listened to, not timed on
-  the board. Listen for: a drum loop stretched +-10..30 % (hits doubled or smeared?), a sustained chord (flutter?), Fit beats then
-  Loop + Sync against the metronome (from: user)
+  Fit speed. BUILT 2026-10-10, host-tested (204 engine tests x 6, 93 UI tests), flashed and timed (ADR-041 "Speed"), NOT tried by the
+  user, NOT listened to. Listen for: a drum loop stretched +-10..30 % (hits doubled or smeared?), a sustained chord (flutter?), Fit
+  beats then Loop + Sync against the metronome (from: user)
 - [ ] **Crop, Undo with its trim points, Color / lo-fi: try it** (ADR-041 "Sample tools: Crop, the trim points per version, Color"):
   EDIT ops Crop, Lo-fi rate, Bits, Drive, Low-pass, High-pass; Undo / Redo / Ver put Start / End / LStr back. BUILT 2026-10-10,
-  host-tested (207 engine tests x 6, 95 UI tests), NOT tried, NOT flashed, NOT listened to. Crop is my addition (from: notes)
+  host-tested (207 engine tests x 6, 95 UI tests), flashed, NOT tried by the user, NOT listened to. Crop is my addition (from: notes)
 - [ ] **Texture: try it, by ear, and check it on the board** (sample tools 5; ADR-041 decisions 44-46 + "Sample tools step 5"):
   EDIT op Paulstr. (x1.5..x64, a 4096-point window) and the Algo row Beat / Tonal for Stretch, Pitch, Fit beats. BUILT 2026-10-11,
   host-tested (211 engine tests x 6, 96 UI tests), FLASHED 2026-10-11 and measured (ADR-041 "The sample tools on the board" and
@@ -75,14 +87,12 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
   the capture); "Next: the production workflow" (from: user)
 - [ ] **Confirm: the full synth stops in the Pads section** (my reading of ADR-041 decision 22) (from: notes)
 - [ ] **Joystick swap: try it**: a push on an already bound parameter swaps X and Y, each keeps its range / curve (built 2026-10-09, 71 UI
-  tests, sim built; NOT tried by the user, NOT flashed) (from: user)
+  tests; on the board since the flash of 5162be7, NOT tried by the user) (from: user)
 - [ ] **Workflow plan phase 2: measure the cost on the board**: step 1 (both branches, Para per branch, MIX) and step 2 (effects inside a
   branch, modulators reaching row M, row M's filter envelope; ADR-041 "Phase 2, step 2") flashed and tried by the user on the prototype
   2026-10-09: Osc -> Phaser -> Filter works, modulators work. Not measured: the cost of per-voice effects and of a stereo shared part (from: notes)
 - [ ] **New placeholders to paint**: `24/slot_mix`, `8/ui_para` (`24/mod_sum` deleted). Defaults of SA / CB in row M reach full scale on the
   loud demo patch (measured, 32767 peak): the user's call (from: notes)
-- [x] **Workflow plan phase 1 + phase 2 (the RACK tab with rows 1 / 2 / M, Para, MIX; both branches, effects in a branch)**: committed in
-  fdae775; the user heard the new synth and checked the new GUI (done 2026-10-09)
 - [ ] **8 x 8 grid layout, the other screens**: step 1 built (top bar 16 px, RACK cells 32 px); list rows (9 px) and parameter pages still off
   the grid. Do it together with the phase-1 RACK tab where they overlap (from: user)
 - [ ] **Module first page + cog: detailing**: works, the user will detail it later (EG / MOTION old layout, hidden settings of the other
@@ -101,15 +111,6 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
   the sample catalog; the RackGraphs and the catalog are control-only). Joins the "D" item below; options to give the user (from: measurements)
 - [ ] Engine / board "D" items: SD options (a)-(d), internal RAM for the startup patch (from: user + measurements)
 - [ ] Quick macro UI button; declarative main view (UI_GUIDE.md section 8); "audio backend" interface findings (from: user + debt)
-- [x] Notes checked against the code: ADR-041 status, LED order, output gain, SD clock, the FX rack / Mod Para / `cfg.mode` leftovers (done 2026-10-09)
-- [x] **Convolver made usable on the board** (done 2026-10-09; flashed + measured by Claude, user allowed the loop for this task): 128 taps
-  100k -> 10.0k cycles per block, 256 taps 195k (over budget) -> 14.2k, 512 taps 22.3k; bit-identical; IR computed off the audio thread
-- [x] Workflow plan phase 0: ADR-041 + five answers (row M for all types; types Modular / FM / Strings, mono = 1 voice; MIX cell in row M;
-  Para envelope per Para point; 16 shared slots) (done 2026-10-09)
-- [x] MI oscillators: tried by the user, work (done 2026-10-09)
-- [x] All-pass filter "AP": tried by the user, works (done 2026-10-09)
-- [x] Module first page + cog: works, details later (done 2026-10-09)
-- [x] Commit of the 2026-10-07 work: b55a1ea, e93f03e, 8101b57 (done 2026-10-08)
 - Set aside (user, 2026-10-07): unformatted card "format?" ASK (a mount without a file system is still "no card"; needs FATFS mkfs)
 
 ## Pads on the board (2026-10-10; flashed and measured by Claude with the user's permission, `tools/pads_test.py`, 44.1 kHz)
@@ -127,10 +128,10 @@ Cycles per engine block (budget 174149), the Pads section alone (Pads + MasterOu
 - Memory: synth 48.6 KB fast / 187 KB bulk; Pads 10 KB / 467 KB (8 rings x 48 KB + samples). **Fixed**: the old graph stayed allocated
   after a switch until the next rebuild (both graphs in PSRAM: 773 KB bulk back in the synth); `engine_synth_housekeeping()` (called by
   `audio_update`) frees it once the audio task runs the new graph: back to exactly 48.6 KB / 187 KB. PSRAM outside the engine: 59 KB free.
-- The board runs the measuring build (HWV1_DEBUG_AUDIO + ENGINE_PROFILE passed by PLATFORMIO_BUILD_FLAGS; platformio.ini untouched):
-  the user's next upload builds without them.
+- Measured with the measuring build (HWV1_DEBUG_AUDIO + ENGINE_PROFILE passed by PLATFORMIO_BUILD_FLAGS; platformio.ini untouched);
+  the board runs the normal build again (5162be7, flashed 2026-10-11).
 
-## Pads section, step 1 (2026-10-10; built and host-tested, NOT tried by the user, NOT flashed)
+## Pads section, step 1 (2026-10-10; built, host-tested, flashed; tried by the user in the simulator and on the board)
 
 - Try it in the simulator: **Shift + Menu** (BTN 3 + BTN 1) = Pads; joystick / encoder A select a pad, encoder B = bank, push = its editor:
   the Smp row (encoder B) picks a file of the library, then Mode, Strt, End, Loop, Tail, Tune, Fine | Lvl, Pan, Cut, Res, Chok, Mute;

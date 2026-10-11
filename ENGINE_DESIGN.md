@@ -967,6 +967,45 @@ sample: pluck_c4, 1.5 s, 140 KB; NOT listened to):**
 49. **A rack-style FX page** in the Pads section (my recommendation, taken): three rows FXA / FXB / FXC, slots as cells, the routing
    on top.
 
+**Pads step 3, the FX chains, as built (2026-10-11; 214 engine tests in the 6 configurations, 98 UI tests, simulator + firmware
+built, firmware static RAM 65.5 %; flashed and measured by me; NOT tried by the user, NOT listened to):**
+- **Model**: the chains are a `rack_t` with `fx` set (`pads_t.fx`, `core/rack.h`): its three rows are FXA / FXB / FXC, each up to
+  `RACK_FX_SLOTS` (4) modules; the rules let in what row M takes (the effects, the filter, the saturator), no source, no modulator,
+  no Para; `fx_route` = A/B/C, A+B/C, A+B+C, A+C/A+B. A filter in a chain has no envelope (Type, Cut, Res only: there are no keys).
+  A pad's **Bus** (PLAY page: Dry, FXA, FXB, FXC; `pad_t.bus`, `bus` in pads.cfg) says where it enters. Saved in `padsfx.cfg`
+  ("route N", then "fx <A|B|C> <code> <values>" per module), by itself a moment after a change.
+- **Engine**: the Pads player has four stereo buses (8 outputs; `kMaxOut` 4 -> 8); `pads_graph_build` (rack_graph.cpp) wires
+  Pads -> the chains in the routing's order -> MasterOut, with the rack's own module mapping (`fx_params`, a filter / saturator as a
+  node per channel). An empty chain passes its input on. `engine_synth_pads_fx`: the same shape = only the values that moved are sent
+  (a knob never reloads the graph); another shape (a module, the routing) = a reload, through which the pads keep playing and the
+  untouched effects keep their tails (instances are kept by id and type; the chains' nodes are 300 + 2 x the module's id).
+- **UI**: **Menu in the Pads section opens the FX page** = the RACK page (scr_rack.c) on that rack: rows A / B / C, a push on a cell
+  opens its menu (Edit, Type, Insert, Row, Delete; Type only offers what a chain takes); **the header is the routing** (left / right
+  on it) with the load next to it. **Edit** opens the module's values (a list and the effect's sketch); there the four column knobs
+  drive its first four values. Back: values -> chains -> pads.
+- **On the board** (`tools/padsfx_test.py`, serial `pad fx`; 8 looping pads into chain A, 48 kHz, cycles per 32-frame block of
+  174 000):
+
+  | chains | cycles | load | dropouts |
+  |---|---|---|---|
+  | none | 41 200 | 24 % | 0 |
+  | filter + saturator | 53 000 | 30 % | 0 |
+  | delay + reverb | 75 300 | 43 % | 0 |
+  | EQ, compressor, delay, reverb | 114 200 | 66 % | 0 |
+  | 12 light ones (4 a chain, A+B+C) | 208 800 | 120 % | 520..700 per run |
+  | delay, reverb, chorus in each chain (9) | 192 700 | 111 % | 360..470 |
+  | 12 heavy ones | 215 500 | 124 % | 540..550 |
+
+  Per module (stereo): saturator 3.7 k, tremolo 4.5 k, ring / shift 5.0 k, filter 8.3 k, compressor 8.7 k, delay 8.8 k, chorus
+  12.9 k, cab 15.6 k, flanger 15.9 k, ensemble 17.8 k, spectral 19.3 k, phaser 19.5 k, reverb 26 k, **EQ 26.5 k** (as much as the
+  reverb for three bands: worth a look, an exact optimization); the 8 pad voices 40..48 k.
+  **So decision 47's risk is real: four to six effects fit next to 8 pads, twelve never do.** Nothing is refused; the FX page's
+  header shows the load estimated from these costs with all 8 pads sounding ("FX A+B/C 66%", a "!" from 90 %).
+- Static RAM: the chains cost 2 KB (the rack in `pads_t`); loading pads.cfg and the serial `pad def` no longer keep a spare copy of
+  the 64 pads (two passes over the text, `pad_parse`), so the firmware went from 66.0 % to 65.5 %.
+- Not built yet: the live synth's entry into the chains (step 4), modulators on an effect's values, a per-chain level or on / off,
+  a tempo-synced delay time.
+
 ## Known limits and ideas for later
 
 - Not hooked to the UI yet: the **Sampler** and **Granular** modules and the sample bank (stage 6 is engine-level and

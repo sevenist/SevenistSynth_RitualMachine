@@ -126,6 +126,7 @@ static const el_def_t elements[] = {
     ROW(8, 0, 1, PADP_TAIL, NULL),
     ROW(1, 1, 1, PADP_GRID, NULL), ROWH(2, 1, 1, PADP_SYNC, en_loop), ROWH(3, 1, 1, PADP_FROM, en_from), ROW(4, 1, 1, PADP_SNAP, NULL),
     ROW(5, 1, 1, PADP_NEXT, NULL), ROW(6, 1, 1, PADP_CHOKE, NULL), ROW(7, 1, 1, PADP_MUTE, NULL),
+    ROW(8, 1, 1, PADP_BUS, NULL),
 };
 // TONE: level, pan, pitch, the filter (its response drawn below)
 static const el_def_t tone_elements[] = {
@@ -575,6 +576,84 @@ bool pads_ui_tick(synth_ui_t *ui) {
     return !ui->chop.pending;
 }
 
+/* ---------------- the FX chains (ADR-041 decisions 23, 47-49) ----------------
+ * Menu in the Pads section opens them: the RACK page (scr_rack.c) on the pads' FX rack, rows FXA / FXB / FXC; its header is the
+ * routing (left / right). Edit in a module's menu opens that module's values (a list and the effect's sketch); Back goes back. */
+
+static rack_slot_t *fx_slot(const synth_ui_t *ui) {                       // the module the values page shows, NULL when it is gone
+    if (!ui->pads || !ui->fx_edit_id) return NULL;
+    const int i = rack_find(&ui->pads->fx, ui->fx_edit_id);
+    return i == RACK_NONE ? NULL : &ui->pads->fx.slot[i];
+}
+static bool fxp_enabled(const ui_ctx_t *c) { const rack_slot_t *s = fx_slot(c->ui); return s && c->arg < rack_fx_param_count((module_type_t)s->type); }
+static void fxp_value(const ui_ctx_t *c, char *out, int n) { const rack_slot_t *s = fx_slot(c->ui); if (s) rack_mparam_format(s, c->arg, out, n); else out[0] = 0; }
+static bool fxp_adjust(const ui_ctx_t *c, int dir) {
+    rack_slot_t *s = fx_slot(c->ui);
+    if (s && rack_mparam_adjust(s, c->arg, dir)) c->ui->rack_dirty = true;
+    return false;
+}
+static const char *fxp_label(const ui_ctx_t *c) { const rack_slot_t *s = fx_slot(c->ui); return s ? rack_mparam_label((module_type_t)s->type, c->arg) : ""; }
+#define FXP(k) {"", EL_VALUE, k, 0, 1, fxp_value, fxp_adjust, NULL, NULL, fxp_enabled, fxp_label, k, EF_HIDE_WHEN_DISABLED}
+static const el_def_t fxmod_elements[] = {FXP(0), FXP(1), FXP(2), FXP(3), FXP(4), FXP(5), FXP(6), FXP(7)};
+#undef FXP
+#define N_FXMOD ((int)(sizeof fxmod_elements / sizeof fxmod_elements[0]))
+static void fxmod_layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, gui_rect_t *rect) { (void)c; ui_layout_column(g, st, area, N_FXMOD, rect); }
+static void fxmod_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, const gui_rect_t *rect) {
+    (void)area; (void)rect;
+    const rack_slot_t *s = fx_slot(c->ui);
+    if (s) draw_fx_module(g, ui_picture_box(st), s);
+}
+static const screen_def_t fxmod_screen = {fxmod_elements, N_FXMOD, false, true, fxmod_layout, NULL, NULL, fxmod_extra};
+
+void pads_ui_fx_open(synth_ui_t *ui, bool on) {
+    ui->pad_fx = on ? 1 : 0;
+    ui->fx_edit_id = 0;
+    ui->fx_row = 1; ui->fx_latched = false;
+    ui->rack_menu = false; ui->rack_row = 0; ui->rack_scroll = 0;
+    for (int l = 0; l < RACK_ROWS; l++) ui->rack_col[l] = 0;
+    if (!rack_is_processor((module_type_t)ui->rack_type) || rack_type_voice_only((module_type_t)ui->rack_type)) ui->rack_type = MOD_DELAY;
+}
+
+bool pads_ui_fx_knob(synth_ui_t *ui, int k, float x, char *label, int ln, char *val, int vn) {
+    rack_slot_t *s = ui->pad_fx == 2 ? fx_slot(ui) : NULL;
+    if (!s || k < 0 || k >= rack_fx_param_count((module_type_t)s->type) || !rack_mparam_is_continuous((module_type_t)s->type, k)) return false;
+    if (rack_mparam_set_norm(s, k, x)) ui->rack_dirty = true;
+    snprintf(label, (size_t)ln, "%s %s", rack_type_code((module_type_t)s->type), rack_mparam_label((module_type_t)s->type, k));
+    rack_mparam_format(s, k, val, vn);
+    return true;
+}
+
+// An event on the FX pages. The screen helpers use the synth UI's focus (ui->row / latched): they get the FX pages' own for the call.
+static void fx_screen_event(synth_ui_t *ui, const screen_def_t *scr, ui_event_t e) {
+    const int row = ui->row;
+    const bool latched = ui->latched;
+    ui->row = ui->fx_row; ui->latched = ui->fx_latched;
+    const ui_ctx_t ctx = {ui, &ui->pads->fx, 0};
+    screen_event(scr, &ctx, e);
+    ui->fx_row = ui->row; ui->fx_latched = ui->latched;
+    ui->row = row; ui->latched = latched;
+}
+
+static void fx_event(synth_ui_t *ui, ui_event_t e) {
+    rack_t *fx = &ui->pads->fx;
+    if (ui->pad_fx == 2 && !fx_slot(ui)) { ui->pad_fx = 1; ui->fx_edit_id = 0; }
+    if (e == UI_ROW_TOP) { ui->fx_row = 0; ui->fx_latched = false; return; }
+    if (ui->pad_fx == 2) {                                                // a module's values
+        if (e == UI_BACK && !ui->fx_latched) { ui->pad_fx = 1; ui->fx_edit_id = 0; ui->fx_row = ui->rack_row + 1; return; }
+        if (ui->fx_row == 0 && e != UI_NAV_DOWN && e != UI_DOWN && e != UI_BACK) return;   // (its header has nothing to change)
+        fx_screen_event(ui, &fxmod_screen, e);
+        return;
+    }
+    if (e == UI_BACK && !ui->rack_menu) { pads_ui_fx_open(ui, false); return; }           // back to the pads
+    if (ui->fx_row == 0 && !ui->rack_menu) {                                              // the header: the routing
+        const int step = (e == UI_NAV_LEFT || e == UI_VALUE_DEC || e == UI_LEFT) ? -1 : (e == UI_NAV_RIGHT || e == UI_VALUE_INC || e == UI_RIGHT) ? 1 : 0;
+        if (step) { fx->fx_route = (uint8_t)((fx->fx_route + RACK_ROUTE_COUNT + step) % RACK_ROUTE_COUNT); ui->rack_dirty = true; return; }
+        if (e != UI_NAV_DOWN && e != UI_DOWN) return;
+    }
+    fx_screen_event(ui, &scr_rack_screen, e);
+    if (ui->fx_edit_id) { ui->pad_fx = 2; ui->fx_row = 1; ui->fx_latched = false; }      // Edit was pushed
+}
+
 /* ---------------- events ---------------- */
 
 static bool grid_event(synth_ui_t *ui, ui_event_t e) {
@@ -596,6 +675,7 @@ static bool grid_event(synth_ui_t *ui, ui_event_t e) {
 
 bool pads_ui_handle(synth_ui_t *ui, rack_t *rack, ui_event_t e) {
     if (!ui->pads) return false;
+    if (ui->pad_fx) { fx_event(ui, e); return false; }
     if (!ui->pad_edit) return grid_event(ui, e);
     if (e == UI_BACK) {                                                           // TONE / CHOP -> PLAY -> the grid
         if (ui->pad_page) { ui->pad_page = 0; ui->pad_row = 1; }
@@ -660,7 +740,15 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
     const gui_rect_t header = gui_rect(bar.x, bar.y, bar.w, bar.h - 1);
     char t[40], l[8];
     const int sel = pads_ui_pad(ui);
-    if (ui->pad_edit) {
+    const rack_slot_t *fxs = ui->pad_fx == 2 ? fx_slot(ui) : NULL;
+    if (fxs) {                                               // a chain's module: "B2 Delay"
+        int pos = 1;
+        for (const rack_slot_t *q = ui->pads->fx.slot; q < fxs; q++) pos += q->row == fxs->row;
+        snprintf(t, sizeof t, "%c%d %s", 'A' + fxs->row, pos, rack_type_name((module_type_t)fxs->type));
+    } else if (ui->pad_fx) {
+        const int load = rack_fx_load_pct(&ui->pads->fx);      // (with all 8 pads sounding; over 100 % the audio drops out)
+        snprintf(t, sizeof t, ui->fx_row == 0 ? "< %s > %d%%%s" : "FX %s %d%%%s", rack_route_name(ui->pads->fx.fx_route), load, load >= 90 ? "!" : "");
+    } else if (ui->pad_edit) {
         pad_label(sel, l, sizeof l);
         const pad_t *p = &ui->pads->pad[sel];
         static const char *const page[PAD_PAGES] = {"PLAY", "TONE", "CHOP", "EDIT"};
@@ -668,7 +756,7 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
         else snprintf(t, sizeof t, "< %s %.9s >", l, p->file[0] ? p->file : "PLAY");
     }
     u8g2_DrawHLine(g, bar.x, gui_bottom(bar) - 1, bar.w);
-    const bool head_focus = ui->pad_edit && ui->pad_row == 0;
+    const bool head_focus = ui->pad_fx ? ui->fx_row == 0 : ui->pad_edit && ui->pad_row == 0;
     if (head_focus) { u8g2_DrawBox(g, header.x, header.y, header.w, header.h); u8g2_SetDrawColor(g, 0); }
     // the tempo at the top left on every Pads screen (user, 2026-10-10: to see the BPM keys act), the bar.beat at the right of the grid
     const int ty = gui_text_center(g, header, "B").y;
@@ -677,7 +765,7 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
     const int bw = u8g2_GetStrWidth(g, bt) + 4;
     u8g2_DrawStr(g, header.x + 1, ty, bt);
     u8g2_DrawVLine(g, header.x + bw - 2, header.y + 2, header.h - 4);
-    if (ui->pad_edit) gui_draw_text_centered(g, gui_rect(header.x + bw, header.y, header.w - bw, header.h), t);
+    if (ui->pad_fx || ui->pad_edit) gui_draw_text_centered(g, gui_rect(header.x + bw, header.y, header.w - bw, header.h), t);
     else {                                                   // the grid: "BANK A", then the position at the right
         snprintf(t, sizeof t, "BANK %c", 'A' + ui->pad_bank);
         u8g2_DrawStr(g, header.x + bw + 2, ty, t);
@@ -693,6 +781,16 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
     if (playing & (1ull << sel)) u8g2_DrawStr(g, header.x + header.w - 6, gui_text_center(g, header, ">").y, ">");   // the selected pad sounds
     u8g2_SetDrawColor(g, 1);
 
+    if (ui->pad_fx) {                                        // the FX chains, or one module's values
+        synth_ui_t *w = (synth_ui_t *)ui;
+        const int row = w->row;
+        const bool latched = w->latched;
+        w->row = ui->fx_row; w->latched = ui->fx_latched;
+        const ui_ctx_t ctx = {w, &w->pads->fx, 0};
+        screen_draw(fxs ? &fxmod_screen : &scr_rack_screen, g, st, &ctx, screen);
+        w->row = row; w->latched = latched;
+        return;
+    }
     if (ui->pad_edit) {
         synth_ui_t *w = (synth_ui_t *)ui;                    // drawing reads the focus the way pads_ui_handle lends it
         const int row = w->row;

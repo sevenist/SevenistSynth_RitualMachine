@@ -10,6 +10,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "hal/hal_storage.h"
+#include "core/rack.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,6 +35,8 @@ enum { PROC_NORMALIZE, PROC_GAIN, PROC_FADE_IN, PROC_FADE_OUT, PROC_TRIM, PROC_R
 #define PROC_PPM_MIN   250000                   // Stretch / Resample: the new length, x0.25 .. x4 in ppm
 #define PROC_PPM_MAX   4000000
 #define PADS_FILE      STORAGE_DIR_CONFIG "/pads.cfg"
+#define PADS_FX_FILE   STORAGE_DIR_CONFIG "/padsfx.cfg"
+#define PAD_BUSES      4                        // where a pad sounds: Dry, FXA, FXB, FXC (decision 23)
 
 typedef enum { PAD_ONESHOT, PAD_GATE, PAD_TOGGLE, PAD_MODE_COUNT } pad_mode_t;
 // Loop (user, 2026-10-10): Trim = the trimmed region start..end (a sample recorded from the synth has no loop points); File = the loop
@@ -76,14 +79,16 @@ typedef struct {
     uint8_t  choke;               // 0 = none, 1..PAD_CHOKES: starting a pad stops the other pads of its group
     uint8_t  mute;                // 1 = its voices sound silent (a playing loop keeps running and comes back on unmute)
     uint8_t  grid;                // pad_grid_t
+    uint8_t  bus;                 // 0 Dry (straight to the output), 1..3 = into the FX chain A / B / C
 } pad_t;
 
-typedef struct { pad_t pad[PAD_COUNT]; } pads_t;
+// The pads, and the section's FX chains (a rack_t with fx set, core/rack.h: rows = FXA / FXB / FXC).
+typedef struct { pad_t pad[PAD_COUNT]; rack_t fx; } pads_t;
 
 // The pad settings, in the order the pad editor shows them.
 typedef enum { PADP_FILE, PADP_MODE, PADP_START, PADP_END, PADP_LOOP, PADP_TAIL, PADP_TUNE, PADP_FINE, PADP_LEVEL, PADP_PAN,
                PADP_CUT, PADP_RES, PADP_CHOKE, PADP_MUTE, PADP_GRID, PADP_LSTART, PADP_XFADE, PADP_XPOS, PADP_FROM, PADP_NEXT, PADP_SYNC,
-               PADP_SNAP, PADP_COUNT } pad_param_t;
+               PADP_SNAP, PADP_BUS, PADP_COUNT } pad_param_t;
 
 void pad_default(pad_t *p);
 void pads_init(pads_t *ps);                                // every pad empty, default settings
@@ -151,8 +156,15 @@ uint32_t pad_chop_unit(int div, uint32_t rate, int bpm);
 int  pads_to_text(const pads_t *ps, char *buf, int cap);  // the length written (cut at cap - 1: 64 pads with long names and many changed settings
                                                            // can pass STORAGE_FILE_MAX; the last lines are then lost, known debt)
 bool pads_from_text(pads_t *ps, const char *txt);         // false when it is not a pads file (the pads are kept)
+void pad_parse(pad_t *p, const char *words);              // one pad's settings as its pads.cfg line gives them ("loop 1 bus a file kick")
 bool pads_load(pads_t *ps);
 bool pads_save(const pads_t *ps);
+// padsfx.cfg: the FX chains ("route N", then "fx <A|B|C> <module code> <its values>" per module, in order). from_text replaces the rack
+// (false: not that file, the rack is kept).
+int  pads_fx_to_text(const rack_t *fx, char *buf, int cap);
+bool pads_fx_from_text(rack_t *fx, const char *txt);
+bool pads_fx_load(rack_t *fx);
+bool pads_fx_save(const rack_t *fx);
 
 #ifdef __cplusplus
 }

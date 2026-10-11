@@ -13,14 +13,16 @@ void pad_default(pad_t *p) {
     p->cut = 100;
 }
 
-void pads_init(pads_t *ps) { for (int i = 0; i < PAD_COUNT; i++) pad_default(&ps->pad[i]); }
+void pads_init(pads_t *ps) { for (int i = 0; i < PAD_COUNT; i++) pad_default(&ps->pad[i]); rack_init_fx(&ps->fx); }
 
 void pad_label(int pad, char *out, int n) {
     if (pad < 0 || pad >= PAD_COUNT) { snprintf(out, (size_t)n, "--"); return; }
     snprintf(out, (size_t)n, "%c%d", 'A' + pad / PADS_PER_BANK, pad % PADS_PER_BANK + 1);
 }
 
-static const char *const labels[PADP_COUNT] = {"Smp", "Mode", "Strt", "End", "Loop", "Tail", "Tune", "Fine", "Lvl", "Pan", "Cut", "Res", "Chok", "Mute", "Grid", "LStr", "XFad", "XPos", "From", "Next", "Sync", "Snap"};
+static const char *const labels[PADP_COUNT] = {"Smp", "Mode", "Strt", "End", "Loop", "Tail", "Tune", "Fine", "Lvl", "Pan", "Cut", "Res", "Chok", "Mute", "Grid", "LStr", "XFad", "XPos", "From", "Next", "Sync", "Snap", "Bus"};
+static const char *const bus_names[PAD_BUSES] = {"Dry", "FXA", "FXB", "FXC"};
+static const char *const bus_toks[PAD_BUSES]  = {"dry", "a", "b", "c"};
 static const char *const mode_names[PAD_MODE_COUNT] = {"One", "Gate", "Togl"};
 static const char *const mode_toks[PAD_MODE_COUNT]  = {"one", "gate", "toggle"};
 static const char *const loop_names[PAD_LOOP_COUNT] = {"Off", "Trim", "File"};
@@ -80,6 +82,7 @@ void pad_param_format(const pad_t *p, pad_param_t k, uint32_t frames, uint32_t r
         case PADP_XPOS:  snprintf(out, (size_t)n, "%s", p->xpost ? "Post" : "Pre"); break;
         case PADP_FROM:  snprintf(out, (size_t)n, "%s", p->from ? "Loop" : "Start"); break;
         case PADP_NEXT:  snprintf(out, (size_t)n, "%s", next_names[p->next % PAD_NEXT_COUNT]); break;
+        case PADP_BUS:   snprintf(out, (size_t)n, "%s", bus_names[p->bus % PAD_BUSES]); break;
         case PADP_SYNC:  snprintf(out, (size_t)n, "%s", p->sync ? "Loop" : "Off"); break;
         case PADP_SNAP:  snprintf(out, (size_t)n, "%s", snap_names[p->snap % PAD_SNAP_COUNT]); break;
         case PADP_LOOP:  snprintf(out, (size_t)n, "%s", loop_names[p->loop % PAD_LOOP_COUNT]); break;
@@ -140,6 +143,7 @@ bool pad_param_adjust(pad_t *p, pad_param_t k, int dir, uint32_t frames) {
         case PADP_XPOS:  p->xpost = !p->xpost; break;
         case PADP_FROM:  p->from = !p->from; break;
         case PADP_NEXT:  p->next = (uint8_t)((p->next + PAD_NEXT_COUNT + d) % PAD_NEXT_COUNT); break;
+        case PADP_BUS:   p->bus = (uint8_t)((p->bus + PAD_BUSES + d) % PAD_BUSES); break;
         case PADP_SYNC:  p->sync = !p->sync; break;
         case PADP_SNAP:  p->snap = (uint8_t)((p->snap + PAD_SNAP_COUNT + d) % PAD_SNAP_COUNT); break;
         case PADP_LOOP:  p->loop = (uint8_t)((p->loop + PAD_LOOP_COUNT + d) % PAD_LOOP_COUNT); break;
@@ -170,6 +174,7 @@ bool pad_param_set_norm(pad_t *p, pad_param_t k, float x, uint32_t frames) {
         case PADP_XPOS:  p->xpost = x >= 0.5f; break;
         case PADP_FROM:  p->from = x >= 0.5f; break;
         case PADP_NEXT:  p->next = (uint8_t)clampi((int)(x * PAD_NEXT_COUNT), 0, PAD_NEXT_COUNT - 1); break;
+        case PADP_BUS:   p->bus = (uint8_t)clampi((int)(x * PAD_BUSES), 0, PAD_BUSES - 1); break;
         case PADP_SYNC:  p->sync = x >= 0.5f; break;
         case PADP_SNAP:  p->snap = (uint8_t)clampi((int)(x * PAD_SNAP_COUNT), 0, PAD_SNAP_COUNT - 1); break;
         case PADP_LOOP:  p->loop = (uint8_t)clampi((int)(x * PAD_LOOP_COUNT), 0, PAD_LOOP_COUNT - 1); break;
@@ -346,6 +351,7 @@ int pads_to_text(const pads_t *ps, char *buf, int cap) {
         FIELD(p->xpost != d.xpost, " xpos %s", p->xpost ? "post" : "pre");
         FIELD(p->from != d.from, " from %s", p->from ? "loop" : "start");
         FIELD(p->next != d.next, " next %s", next_toks[p->next % PAD_NEXT_COUNT]);
+        FIELD(p->bus != d.bus, " bus %s", bus_toks[p->bus % PAD_BUSES]);
         FIELD(p->sync != d.sync, " sync %d", p->sync);
         FIELD(p->snap != d.snap, " snap %s", snap_toks[p->snap % PAD_SNAP_COUNT]);
         FIELD(p->tail_ms != d.tail_ms, " tail %d", p->tail_ms);
@@ -404,6 +410,7 @@ static void parse_pad(pad_t *p, const char *s) {
         else if (!strcmp(key, "xpos"))  p->xpost = !strcmp(val, "post");
         else if (!strcmp(key, "from"))  p->from = !strcmp(val, "loop");
         else if (!strcmp(key, "next")) { for (int k = 0; k < PAD_NEXT_COUNT; k++) if (!strcmp(val, next_toks[k])) p->next = (uint8_t)k; }
+        else if (!strcmp(key, "bus"))  { for (int k = 0; k < PAD_BUSES; k++) if (!strcmp(val, bus_toks[k])) p->bus = (uint8_t)k; }
         else if (!strcmp(key, "sync"))  p->sync = v != 0;
         else if (!strcmp(key, "snap")) { for (int k = 0; k < PAD_SNAP_COUNT; k++) if (!strcmp(val, snap_toks[k])) p->snap = (uint8_t)k; }
         else if (!strcmp(key, "tail"))  p->tail_ms = (uint16_t)clampi(v, 0, 2000);
@@ -419,22 +426,26 @@ static void parse_pad(pad_t *p, const char *s) {
     }
 }
 
+void pad_parse(pad_t *p, const char *words) { parse_pad(p, words); }
+
+// A line "pads" makes it a pads file; then every pad starts from its defaults and takes its line. (Two passes over the text: no copy
+// of the 64 pads is needed to keep them when the file is something else.)
 bool pads_from_text(pads_t *ps, const char *txt) {
     bool is_pads = false;
-    pads_t n;
-    pads_init(&n);
-    for (const char *line = txt; line && *line; line = strchr(line, '\n'), line = line ? line + 1 : NULL) {
-        char w1[16], w2[16];
-        int used = 0;
-        const int got = sscanf(line, "%15s %15s %n", w1, w2, &used);
-        if (got >= 1 && !strcmp(w1, "pads")) is_pads = true;
-        else if (got == 2 && !strcmp(w1, "pad") && used > 0) {
-            const int i = parse_label(w2);
-            if (i >= 0) parse_pad(&n.pad[i], line + used);
-        }
+    for (const char *line = txt; line && *line && !is_pads; line = strchr(line, 10), line = line ? line + 1 : NULL) {
+        char w1[16];
+        is_pads = sscanf(line, "%15s", w1) == 1 && !strcmp(w1, "pads");
     }
     if (!is_pads) return false;
-    *ps = n;
+    for (int i = 0; i < PAD_COUNT; i++) pad_default(&ps->pad[i]);              // (the FX chains have their own file: untouched)
+    for (const char *line = txt; line && *line; line = strchr(line, 10), line = line ? line + 1 : NULL) {
+        char w1[16], w2[16];
+        int used = 0;
+        if (sscanf(line, "%15s %15s %n", w1, w2, &used) == 2 && !strcmp(w1, "pad") && used > 0) {
+            const int i = parse_label(w2);
+            if (i >= 0) parse_pad(&ps->pad[i], line + used);
+        }
+    }
     return true;
 }
 
@@ -447,4 +458,50 @@ bool pads_load(pads_t *ps) {
 bool pads_save(const pads_t *ps) {
     const int n = pads_to_text(ps, g_buf, STORAGE_FILE_MAX);
     return storage_write(PADS_FILE, g_buf, n);
+}
+
+/* ---------------- padsfx.cfg: the FX chains ---------------- */
+
+int pads_fx_to_text(const rack_t *fx, char *buf, int cap) {
+    int n = snprintf(buf, (size_t)cap, "# SynthCore pads FX: route, then per module: fx <chain> <code> <its values>\npadsfx\nroute %d \n", fx->fx_route);
+    for (int i = 0; i < fx->count && n < cap; i++) {
+        const rack_slot_t *s = &fx->slot[i];
+        n += snprintf(buf + n, (size_t)(cap - n), "fx %c %s", 'A' + (s->row < RACK_ROWS ? s->row : 0), rack_type_code((module_type_t)s->type));
+        for (int k = 0; k < rack_mparam_count((module_type_t)s->type) && n < cap; k++) n += snprintf(buf + n, (size_t)(cap - n), " %g", (double)s->v[k]);
+        if (n < cap) n += snprintf(buf + n, (size_t)(cap - n), "\n");
+    }
+    return n < cap ? n : cap - 1;
+}
+
+bool pads_fx_from_text(rack_t *fx, const char *txt) {
+    bool ok = false;
+    for (const char *line = txt; line && *line && !ok; line = strchr(line, 10), line = line ? line + 1 : NULL) ok = !strncmp(line, "padsfx", 6);
+    if (!ok) return false;
+    rack_init_fx(fx);
+    for (const char *line = txt; line && *line; line = strchr(line, 10), line = line ? line + 1 : NULL) {
+        int route = 0, used = 0;
+        char chain = 0, code[8];
+        if (sscanf(line, "route %d", &route) == 1) { fx->fx_route = (uint8_t)(route >= 0 && route < RACK_ROUTE_COUNT ? route : 0); continue; }
+        if (sscanf(line, "fx %c %7s%n", &chain, code, &used) < 2 || chain < 'A' || chain >= 'A' + RACK_ROWS) continue;
+        int type = MOD_TYPE_COUNT;
+        for (int t = 0; t < MOD_TYPE_COUNT; t++) if (!strcmp(code, rack_type_code((module_type_t)t))) type = t;
+        if (type == MOD_TYPE_COUNT || !rack_insert_row(fx, fx->count, chain - 'A', (module_type_t)type)) continue;
+        rack_slot_t *s = &fx->slot[fx->count - 1];
+        const char *p = line + used;
+        for (int k = 0; k < rack_mparam_count((module_type_t)type); k++) {
+            char *end = NULL;
+            const float v = strtof(p, &end);
+            if (end == p) break;
+            s->v[k] = v;
+            p = end;
+        }
+    }
+    return true;
+}
+
+bool pads_fx_load(rack_t *fx) { return storage_read(PADS_FX_FILE, g_buf, STORAGE_FILE_MAX) >= 0 && pads_fx_from_text(fx, g_buf); }
+
+bool pads_fx_save(const rack_t *fx) {
+    const int n = pads_fx_to_text(fx, g_buf, STORAGE_FILE_MAX);
+    return storage_write(PADS_FX_FILE, g_buf, n);
 }

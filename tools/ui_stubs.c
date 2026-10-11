@@ -77,6 +77,8 @@ int ui_stub_pads_builds, ui_stub_pad_sets, ui_stub_pad_pushes, ui_stub_pad_relea
 static uint64_t stub_playing;
 void audio_pads_build(const pads_t *p, const rack_t *r) { (void)p; (void)r; ui_stub_pads_builds++; stub_playing = 0; }
 void audio_pad_set(int pad, const pad_t *p) { (void)pad; (void)p; ui_stub_pad_sets++; }
+int ui_stub_pads_fx;
+void audio_pads_fx(const pads_t *p, const rack_t *r) { (void)p; (void)r; ui_stub_pads_fx++; }
 void audio_pad_push(int pad) { ui_stub_pad_pushes++; ui_stub_last_pad = pad; if (pad >= 0 && pad < 64) stub_playing |= 1ull << pad; }
 void audio_pad_release(int pad) { ui_stub_pad_releases++; if (pad >= 0 && pad < 64) stub_playing &= ~(1ull << pad); }
 void audio_pads_stop(void) { ui_stub_pads_stops++; stub_playing = 0; }

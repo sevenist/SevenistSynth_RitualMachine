@@ -39,6 +39,12 @@ enum RackNode : int {
     RN_EXTRA = 232           // RN_EXTRA + slot: a third node of a module (the envelope of a filter that is a pair), up to 255
 };
 
+// The Pads section's graph (ADR-041 decisions 23, 47-49): the Pads player's four stereo buses (Dry, A, B, C), the three FX chains and
+// the output. `fx` is the pads' FX rack (core/rack.h: rack_t.fx, its rows are the chains FXA / FXB / FXC, its fx_route how they follow
+// each other); `cfg` gives the master's volume and Mono. An empty chain passes its input on.
+enum PadsNode : int { RP_PADS = 1, RP_MASTER = 2, RP_MODULES = 300 };    // module nodes: RP_MODULES + 2 * (rack id % 100) (+1: the right channel of a pair)
+bool pads_graph_build(const rack_t &fx, const synth_config_t &cfg, const Registry &reg, RackGraph &out);
+
 // `reg` supplies the default parameters of each module type. Returns false if the graph does not fit the limits.
 // `slot_of_file[i]` is the sample-bank slot of catalog file i (-1 = not loaded), `n_files` its length (may be null / 0).
 bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Registry &reg, RackGraph &out,

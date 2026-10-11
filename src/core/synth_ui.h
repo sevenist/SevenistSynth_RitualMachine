@@ -156,6 +156,12 @@ typedef struct {
     bool    pad_ver_changed;   // Ver / Undo / Redo picked another version of the pad's sample: the app sends the pad
     int     render_pct;
     const history_t *history;
+    // The FX chains (ADR-041 decisions 23, 47-49): 0 = not shown, 1 = the chains (the RACK page on pads->fx), 2 = the values of the
+    // module fx_edit_id (its rack id; the chains page's Edit sets it). fx_row / fx_latched: the focus on these two pages.
+    uint8_t pad_fx;
+    uint8_t fx_edit_id;
+    int     fx_row;
+    bool    fx_latched;
 } synth_ui_t;
 
 void synth_ui_init(synth_ui_t *ui, const rack_t *rack);
@@ -229,6 +235,9 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
 bool pads_ui_tick(synth_ui_t *ui);
 // The Pads screens' starting state (no chop yet, the EDIT page's default amounts). The app calls it once.
 void pads_ui_init(synth_ui_t *ui);
+void pads_ui_fx_open(synth_ui_t *ui, bool on);   // the FX chains page (the Menu key in the Pads section), or back to the pads
+// Knob k (0..3) on a module's values page: its k-th value from 0..1; false when that page is not shown or the value is a list.
+bool pads_ui_fx_knob(synth_ui_t *ui, int k, float x, char *label, int ln, char *val, int vn);
 void pads_ui_chop_refresh(synth_ui_t *ui);     // the CHOP page's cuts again (after the app changed the pad: a padded version)
 // The EDIT page's operations (the order of engine/offline/process.h ProcOp, without Pad to which the Grid chop uses): their name, and the
 // amount's text ("-0.3dB", "100ms"; "" for none).

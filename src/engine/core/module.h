@@ -18,7 +18,7 @@
 namespace sc {
 
 constexpr int kMaxIn = 4;
-constexpr int kMaxOut = 4;
+constexpr int kMaxOut = 8;          // (the Pads player: four stereo buses)
 constexpr int kMaxParams = 16;
 constexpr q15 kUnity = 32767;       // depth 1.0: a single cable with this depth is aliased, no copy
 

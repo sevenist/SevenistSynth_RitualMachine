@@ -38,6 +38,7 @@ void audio_note_off(int midi_note);
 // pad keys (gate pads stop on the release, the engine decides one-shot / gate / toggle); stop = every pad fades out.
 void     audio_pads_build(const pads_t *pads, const rack_t *rack);
 void     audio_pad_set(int pad, const pad_t *p);
+void     audio_pads_fx(const pads_t *pads, const rack_t *rack);   // the FX chains (pads->fx) changed: a value, a module, the routing
 void     audio_pad_push(int pad);
 void     audio_pad_release(int pad);
 void     audio_pads_stop(void);

@@ -468,7 +468,7 @@ std::atomic<int32_t> g_pads_pos[kPadCount];                                  // 
 class Pads : public Module {
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"Pads", Scope::Global, 0, 2, PADS_N, false, {}, {"L", "R"},
+        static const ModuleInfo i = {"Pads", Scope::Global, 0, 2 * kPadBuses, PADS_N, false, {}, {"L", "R", "AL", "AR", "BL", "BR", "CL", "CR"},
             {{"push", 0, 0, 0x7FFFFFFF}, {"release", 0, 0, 0x7FFFFFFF}, {"stop", 0, 0, 0x7FFFFFFF}}};
         return i;
     }
@@ -515,7 +515,8 @@ public:
     void process(const ProcessCtx &ctx, const Ports &p) override {
         const int n = ctx.frames;
         start_due(ctx.transport, n);
-        int32_t acc_l[kBlock] = {}, acc_r[kBlock] = {};
+        int32_t acc[2 * kPadBuses][kBlock];                                      // L / R of each bus
+        bool used[kPadBuses] = {};
         q15 buf[kBlock];
         uint64_t playing = 0;
         int ended[kPadVoices], n_ended = 0;                                      // pads that reached their end: their Next starts after the loop
@@ -537,6 +538,9 @@ public:
                 }
             }
             // level / pan / mute: a ramp over the block to the pad's current gains; the envelope: fade-in after a trimmed start, fade-out after a stop
+            const int bus = b.bus < kPadBuses ? b.bus : 0;
+            int32_t *acc_l = acc[2 * bus], *acc_r = acc[2 * bus + 1];
+            if (!used[bus]) { used[bus] = true; std::memset(acc_l, 0, sizeof(int32_t) * n); std::memset(acc_r, 0, sizeof(int32_t) * n); }
             const int32_t tl = b.mute ? 0 : b.gain_l, tr = b.mute ? 0 : b.gain_r;
             const int32_t dl = (tl - v.gl) / n, dr = (tr - v.gr) / n;
             int32_t gl = v.gl, gr = v.gr, env = v.env;
@@ -562,7 +566,11 @@ public:
         for (int i = 0; i < n_ended; i++) follow(ended[i]);
         for (int pad = 0; pad < kPadCount; pad++)
             if (!((playing >> pad) & 1)) g_pads_pos[pad].store(0, std::memory_order_relaxed);
-        for (int i = 0; i < n; i++) { p.out[0][i] = sat16(acc_l[i]); p.out[1][i] = sat16(acc_r[i]); }
+        for (int bus = 0; bus < kPadBuses; bus++) {
+            q15 *ol = p.out[2 * bus], *orr = p.out[2 * bus + 1];
+            if (!used[bus]) { std::memset(ol, 0, sizeof(q15) * n); std::memset(orr, 0, sizeof(q15) * n); continue; }
+            for (int i = 0; i < n; i++) { ol[i] = sat16(acc[2 * bus][i]); orr[i] = sat16(acc[2 * bus + 1][i]); }
+        }
         g_pads_playing.store(playing, std::memory_order_relaxed);
     }
 

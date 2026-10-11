@@ -297,6 +297,7 @@ extern "C" void audio_note_on(int midi_note)                               { eng
 extern "C" void audio_note_off(int midi_note)                              { engine_synth_note_off(midi_note); }
 extern "C" void audio_pads_build(const pads_t *p, const rack_t *r)          { apply_speaker(r); engine_synth_pads_build(p, r); }
 extern "C" void audio_pad_set(int pad, const pad_t *p)                      { engine_synth_pad_set(pad, p); }
+extern "C" void audio_pads_fx(const pads_t *p, const rack_t *r)             { engine_synth_pads_fx(p, r); }
 extern "C" void audio_pad_push(int pad)                                     { engine_synth_pad_push(pad); }
 extern "C" void audio_pad_release(int pad)                                  { engine_synth_pad_release(pad); }
 extern "C" void audio_pads_stop(void)                                       { engine_synth_pads_stop(); }

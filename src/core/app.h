@@ -59,6 +59,8 @@ typedef struct {
     uint8_t        section;     // section_t
     bool           pads_pending;     // the pads changed and wait to be saved (pads.cfg) ...
     uint32_t       pads_ms;          // ... since then
+    bool           fx_pending;       // the pads' FX chains changed and wait to be saved (padsfx.cfg) ...
+    uint32_t       fx_ms;            // ... since then
     uint64_t       pads_shown;  // the pads that sounded at the last draw (a change redraws the grid)
     bool           pads_run;    // the machine clock runs in the Pads section (Play; in the synth it runs with the sequencer)
     bool           metronome;   // the click on the beat (key function Click)

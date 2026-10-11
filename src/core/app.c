@@ -42,6 +42,7 @@ void app_init(app_t *app, u8g2_t *display) {
     synth_ui_init(&app->ui, &app->rack);
     pads_init(&app->pads);
     pads_load(&app->pads);              // pads.cfg (the board's card shows up later: check_sd)
+    pads_fx_load(&app->pads.fx);        // padsfx.cfg: the FX chains
     app->ui.pads = &app->pads;
     pads_ui_init(&app->ui);                 // no chop yet, the EDIT page's amounts
     history_load(&app->history);
@@ -86,6 +87,14 @@ static void pad_changed(app_t *app, int pad) {
     app->dirty = true;
 }
 
+// The pads' FX chains changed (a module, the routing, a value): the engine gets them, padsfx.cfg is saved a moment later.
+static void fx_changed(app_t *app) {
+    app->ui.rack_dirty = false;
+    audio_pads_fx(&app->pads, &app->rack);
+    if (!app->fx_pending) { app->fx_pending = true; app->fx_ms = audio_millis(); }
+    app->dirty = true;
+}
+
 // One UI event in the Pads section (scr_pads.c).
 static void chop_ask(app_t *app);
 static void render_start(app_t *app, int pad, int op, int32_t amount, bool chop);
@@ -93,6 +102,7 @@ static void render_start(app_t *app, int pad, int op, int32_t amount, bool chop)
 static void pads_event(app_t *app, ui_event_t ev) {
     app->ui.clock_bpm = app->seq.bpm;
     if (pads_ui_handle(&app->ui, &app->rack, ev)) pad_changed(app, pads_ui_pad(&app->ui));
+    if (app->ui.rack_dirty) fx_changed(app);                // the FX pages edited the chains
     if (app->ui.pad_chop_req) { app->ui.pad_chop_req = false; chop_ask(app); }
     if (app->ui.pad_render_req) {
         app->ui.pad_render_req = false;
@@ -468,6 +478,8 @@ static void section_set(app_t *app, bool pads) {
     app->pads_run = false;                                  // the clock stops with the section's music
     synth_xy_off(app);
     app->section = pads ? SECTION_PADS : SECTION_SYNTH;
+    pads_ui_fx_open(&app->ui, false);                       // (the FX pages borrow the RACK page's selection: start clean on both sides)
+    app->ui.rack_dirty = false;
     keymap_set_pads(pads);
     if (pads) audio_pads_build(&app->pads, &app->rack);
     else      audio_build(&app->rack, &app->params);
@@ -508,6 +520,13 @@ static void pad_key_up(app_t *app, control_id_t ctl) {
 static void pads_knob(app_t *app, int row, int value) {
     static const pad_param_t knob[SYNTH_UI_COL_KNOBS] = {PADP_START, PADP_END, PADP_TUNE, PADP_CUT};
     if (row < 1 || row > SYNTH_UI_COL_KNOBS) return;
+    char fl[24], fv[16];
+    if (pads_ui_fx_knob(&app->ui, row - 1, (float)value / INPUT_VALUE_MAX, fl, sizeof fl, fv, sizeof fv)) {   // a module's values page: its first four
+        if (app->ui.rack_dirty) fx_changed(app);
+        popup_info(&app->popup, fl, fv, 0, audio_millis(), POPUP_INFO_MS);
+        app->dirty = true;
+        return;
+    }
     const int pad = pads_ui_pad(&app->ui);
     pad_t *p = &app->pads.pad[pad];
     const pad_param_t k = knob[row - 1];
@@ -613,7 +632,8 @@ static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
         case ACT_SELECT:       ui_event(app, UI_SELECT); break;
         case ACT_MENU:                                      // Shift + Menu (its Shift entry Default): Synth <-> Pads
             if (app->in.shift && !app->in.mod) section_set(app, !in_pads(app));
-            else if (!in_pads(app)) ui_event(app, UI_MENU);
+            else if (in_pads(app)) { pads_ui_fx_open(&app->ui, !app->ui.pad_fx); app->dirty = true; }   // Pads: the FX chains
+            else ui_event(app, UI_MENU);
             break;
         case ACT_SECTION:      section_set(app, !in_pads(app)); break;
         case ACT_PAD:
@@ -1003,6 +1023,7 @@ static void check_sd(app_t *app) {
         if (curves_changed()) curves_save(); else curves_load();
         if (ui_settings_changed(&app->ui, &app->rack)) ui_settings_save(&app->ui, &app->rack); else ui_settings_load(&app->ui, &app->rack);
         if (app->pads_pending) { if (pads_save(&app->pads)) app->pads_pending = false; } else pads_load(&app->pads);
+        if (app->fx_pending) { if (pads_fx_save(&app->pads.fx)) app->fx_pending = false; } else pads_fx_load(&app->pads.fx);
         history_load(&app->history);
     }
     if (in_pads(app)) audio_pads_build(&app->pads, &app->rack);         // the samples are looked up again by name
@@ -1015,6 +1036,12 @@ static void pads_autosave(app_t *app, uint32_t now) {
     if (!app->pads_pending || now - app->pads_ms < SETTINGS_SAVE_MS || audio_sd_state() == SD_NONE) return;
     if (pads_save(&app->pads)) app->pads_pending = false;
     else app->pads_ms = now;                                         // try again a bit later
+}
+
+static void fx_autosave(app_t *app, uint32_t now) {
+    if (!app->fx_pending || now - app->fx_ms < SETTINGS_SAVE_MS || audio_sd_state() == SD_NONE) return;
+    if (pads_fx_save(&app->pads.fx)) app->fx_pending = false;
+    else app->fx_ms = now;
 }
 
 /* ---------------- UI settings (ui.cfg): saved by themselves a moment after they change ---------------- */
@@ -1107,6 +1134,7 @@ bool app_step(app_t *app, input_event_t e) {
     key_reset_check(app, now);
     settings_autosave(app, now);
     pads_autosave(app, now);
+    fx_autosave(app, now);
     if (in_pads(app)) {                                                  // the grid shows which pads sound: redraw when that changes
         app->ui.clock_bpm = app->seq.bpm;
         if (pads_ui_tick(&app->ui)) app->dirty = true;                       // a transient scan finished

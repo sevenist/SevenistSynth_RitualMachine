@@ -44,6 +44,7 @@ void engine_synth_note_off(int midi_note);
 // engine_synth_set_params only follows the master volume. pad_set: one pad changed (its sample is loaded when needed).
 void engine_synth_pads_build(const pads_t *pads, const rack_t *rack);
 void engine_synth_pad_set(int pad, const pad_t *p);
+void engine_synth_pads_fx(const pads_t *pads, const rack_t *rack);   // the pads' FX chains changed (pads->fx): values live, a new shape reloads the graph
 void engine_synth_pad_push(int pad);
 void engine_synth_pad_release(int pad);
 void engine_synth_pads_stop(void);

@@ -80,6 +80,7 @@ void audio_note_on(int midi_note)                               { engine_synth_n
 void audio_note_off(int midi_note)                              { engine_synth_note_off(midi_note); }
 void audio_pads_build(const pads_t *p, const rack_t *r)          { engine_synth_pads_build(p, r); }
 void audio_pad_set(int pad, const pad_t *p)                      { engine_synth_pad_set(pad, p); }
+void audio_pads_fx(const pads_t *p, const rack_t *r)             { engine_synth_pads_fx(p, r); }
 void audio_pad_push(int pad)                                     { engine_synth_pad_push(pad); }
 void audio_pad_release(int pad)                                  { engine_synth_pad_release(pad); }
 void audio_pads_stop(void)                                       { engine_synth_pads_stop(); }

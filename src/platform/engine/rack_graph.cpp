@@ -204,6 +204,83 @@ void fx_params(NodeDesc *n, const rack_slot_t &s) {
 
 }  // namespace
 
+// The Pads section: Pads (buses Dry / A / B / C) -> the chains in the routing's order -> MasterOut. A chain is the rack's shared
+// builder without its envelopes: a filter or a saturator is a node per channel, an effect its stereo node.
+bool pads_graph_build(const rack_t &fx, const synth_config_t &cfg, const Registry &reg, RackGraph &out) {
+    out.g = GraphDesc{};
+    out.fm = false;
+    out.ms_count = 0;
+    out.conv_count = 0;
+    B b{out.g, reg};
+    if (!b.add(RP_PADS, T_PADS)) return false;
+    NodeDesc *ma = b.add(RP_MASTER, T_MASTER_OUT);
+    if (!ma) return false;
+    const bool boost = cfg.volume > 1.0f;                                    // (as the synth's master)
+    ma->param[0] = q(boost ? cfg.volume * 0.5f : cfg.volume);
+    ma->param[1] = boost ? 1 : 0;
+    ma->param[2] = cfg.mono;
+    struct Sig { Src L[kMaxFanIn], R[kMaxFanIn]; int n = 0; };              // a stereo signal as cables
+    auto add = [](Sig &to, const Sig &from) { for (int k = 0; k < from.n && to.n < kMaxFanIn; k++) { to.L[to.n] = from.L[k]; to.R[to.n] = from.R[k]; to.n++; } };
+    auto bus = [](int k) { Sig s; s.L[0] = Src{RP_PADS, 2 * k, kUnity}; s.R[0] = Src{RP_PADS, 2 * k + 1, kUnity}; s.n = 1; return s; };
+    auto take = [&](const Src *src, int n, int dst, int port) { for (int k = 0; k < n; k++) b.cable(src[k].node, src[k].port, dst, Dst::In, port, src[k].g); };
+    auto chain = [&](int row, Sig in) {                                      // the chain's modules on `in`: what comes out
+        for (int i = 0; i < fx.count; i++) {
+            const rack_slot_t &s = fx.slot[i];
+            if (s.row != row || !in.n) continue;
+            const int id = RP_MODULES + 2 * (s.id % 100);
+            if (s.type == MOD_FILTER || s.type == MOD_SAT) {
+                const bool flt = s.type == MOD_FILTER;
+                const int type = flt ? static_cast<int>(s.v[MP_FL_TYPE]) : 0;
+                if (flt && type == FILT_OFF) continue;
+                const int nt = flt ? T_FILTER_G : T_SHAPER_G;
+                NodeDesc *l = b.add(id, nt), *r = b.add(id + 1, nt);
+                if (!l || !r) continue;
+                for (NodeDesc *n : {l, r}) { if (flt) filter_params(n, type < FILT_COUNT ? type : FILT_LP, s.v[MP_FL_CUT], s.v[MP_FL_RES]); else sat_params(n, s); }
+                take(in.L, in.n, id, 0);
+                take(in.R, in.n, id + 1, 0);
+                in.L[0] = Src{id, 0, kUnity}; in.R[0] = Src{id + 1, 0, kUnity}; in.n = 1;
+                continue;
+            }
+            const int t = fx_type(s.type, false);
+            NodeDesc *n = t >= 0 ? b.add(id, t) : nullptr;
+            if (!n) continue;
+            fx_params(n, s);
+            if (s.type == MOD_CAB && out.conv_count < RackGraph::kMaxConv) {
+                out.conv_node[out.conv_count] = id; out.conv_ir[out.conv_count] = n->param[CNV_IR]; out.conv_len[out.conv_count] = n->param[CNV_LENGTH];
+                out.conv_count++;
+            }
+            take(in.L, in.n, id, 0);
+            take(in.R, in.n, id, 1);
+            in.L[0] = Src{id, 0, kUnity}; in.R[0] = Src{id, 1, kUnity}; in.n = 1;
+        }
+        return in;
+    };
+    Sig mix = bus(0);                                                        // the output: Dry and what the chains leave
+    const Sig a = chain(0, bus(1));
+    Sig in_b = bus(2), in_c = bus(3);
+    switch (fx.fx_route) {
+        default:                                                             // A / B / C: side by side
+            add(mix, a); add(mix, chain(1, in_b)); add(mix, chain(2, in_c));
+            break;
+        case RACK_ROUTE_AB_C:                                                // A into B; C beside them
+            add(in_b, a);
+            add(mix, chain(1, in_b)); add(mix, chain(2, in_c));
+            break;
+        case RACK_ROUTE_ABC: {                                               // A into B into C
+            add(in_b, a);
+            add(in_c, chain(1, in_b));
+            add(mix, chain(2, in_c));
+        } break;
+        case RACK_ROUTE_AC_AB:                                               // A, then C and B side by side
+            add(in_b, a); add(in_c, a);
+            add(mix, chain(1, in_b)); add(mix, chain(2, in_c));
+            break;
+    }
+    take(mix.L, mix.n, RP_MASTER, 0);
+    take(mix.R, mix.n, RP_MASTER, 1);
+    return b.ok;
+}
+
 bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Registry &reg, RackGraph &out,
                       const int16_t *slot_of_file, int n_files) {
     out.g = GraphDesc{};

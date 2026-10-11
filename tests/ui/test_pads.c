@@ -2,6 +2,7 @@
 // Mute / Shift / banks, the grid and the pad editor, the column knobs, pads.cfg, the LEDs.
 #include "ui_test.h"
 #include "core/led_roles.h"
+#include <math.h>
 
 extern int ui_stub_builds, ui_stub_pads_builds, ui_stub_pad_sets, ui_stub_pad_pushes, ui_stub_pad_releases, ui_stub_pads_stops, ui_stub_last_pad;
 extern led_color_t ui_stub_led[CTL_COUNT];
@@ -787,4 +788,96 @@ TEST(pads_edit_tonal_algo_and_paulstretch) {
     const int renders = ui_stub_renders;
     edit_apply(EDIT_PAUL, 640);                                          // 768000 frames x64 = 49 million: too long
     CHECK_EQ(ui_stub_renders, renders);
+}
+
+/* ---------------- the FX chains (ADR-041 decisions 23, 47-49) ---------------- */
+extern int ui_stub_pads_fx;
+
+TEST(pads_fx_page_chains_a_module_and_its_values) {
+    ui_stub_ramcard(false); ui_stub_ramcard(true);                       // an empty card
+    ui_fresh();
+    rack_t *fx = &ui_app.pads.fx;
+    CHECK(fx->fx && fx->count == 0);
+    shift_menu();                                                        // the Pads section
+    CHECK_EQ(ui_app.ui.pad_fx, 0);
+    ev_tap(MENU);                                                        // Menu: the FX chains
+    CHECK_EQ(ui_app.ui.pad_fx, 1);
+    CHECK_EQ(ui_app.ui.fx_row, 1);                                       // chain A, its + cell
+    const int sent = ui_stub_pads_fx;
+    ev_tap(CTL_JOY_SW);                                                  // push: the menu (Type, Insert)
+    CHECK(ui_app.ui.rack_menu);
+    ui_app.ui.rack_type = MOD_OSC;                                       // Type only offers what a chain takes
+    ev_turn(CTL_ENC_B, 1);
+    CHECK(rack_is_processor((module_type_t)ui_app.ui.rack_type));
+    ui_app.ui.rack_type = MOD_REVERB;
+    ui_app.ui.fx_row = 6;                                                // Insert
+    ev_tap(CTL_JOY_SW);
+    CHECK(fx->count == 1 && fx->slot[0].type == MOD_REVERB && fx->slot[0].row == 0);
+    CHECK(ui_stub_pads_fx > sent);                                       // the engine got the chains
+    CHECK(!ui_app.ui.rack_menu);
+    ui_app.ui.fx_row = 1; ui_app.ui.rack_col[0] = 0;                     // the reverb's cell: push, Edit is the menu's first row
+    ev_tap(CTL_JOY_SW);
+    CHECK(ui_app.ui.rack_menu && ui_app.ui.fx_row == 4);
+    ev_tap(CTL_JOY_SW);
+    CHECK_EQ(ui_app.ui.pad_fx, 2);                                       // its values
+    const float mix = fx->slot[0].v[MP_RV_MIX], dec = fx->slot[0].v[MP_RV_DEC];
+    const int sent2 = ui_stub_pads_fx;
+    ui_app.ui.fx_row = 1;
+    ev_turn(CTL_ENC_B, 1);
+    CHECK(fx->slot[0].v[MP_RV_MIX] > mix);
+    CHECK(ui_stub_pads_fx > sent2);
+    ev_knob(CTL_COL_KNOB_0 + 1, INPUT_VALUE_MAX);                         // the second column knob: the second value, to its top
+    CHECK(fx->slot[0].v[MP_RV_DEC] > dec);
+    ev_idle(1);
+    ev_tap(BACK);                                                        // back to the chains
+    CHECK_EQ(ui_app.ui.pad_fx, 1);
+    ui_app.ui.fx_row = 0;                                                // the header: the routing
+    ev_tap(CTL_JOY_RIGHT);
+    CHECK_EQ(fx->fx_route, RACK_ROUTE_AB_C);
+    ev_idle(1);
+    ev_tap(BACK);                                                        // and back to the pads
+    CHECK_EQ(ui_app.ui.pad_fx, 0);
+    CHECK(ui_app.section == SECTION_PADS);
+    ev_idle(400);                                                        // a few seconds: padsfx.cfg is written
+    rack_t back;
+    rack_init_fx(&back);
+    CHECK(pads_fx_load(&back));
+    CHECK(back.fx && back.count == 1 && back.slot[0].type == MOD_REVERB && back.fx_route == RACK_ROUTE_AB_C);
+    CHECK(fabs((double)back.slot[0].v[MP_RV_DEC] - (double)fx->slot[0].v[MP_RV_DEC]) < 1e-3);
+    pads_t loaded;                                                       // pads.cfg does not touch the chains, and carries a pad's bus
+    pads_init(&loaded);
+    loaded.fx = *fx;
+    CHECK(pads_from_text(&loaded, "pads\npad A1 bus b file demo0\n"));
+    CHECK(loaded.fx.count == 1 && loaded.pad[0].bus == 2);
+    static char txt[STORAGE_FILE_MAX];
+    pads_to_text(&loaded, txt, sizeof txt);
+    CHECK(strstr(txt, " bus b") != NULL);
+}
+
+TEST(pads_fx_rack_rules_and_the_synth_rack_keeps_its_own) {
+    rack_t fx;
+    rack_init_fx(&fx);
+    CHECK_EQ(rack_fx_load_pct(&fx), 27);                                 // the 8 pad voices alone
+    CHECK(!rack_can_insert(&fx, 0, 0, MOD_OSC) && !rack_can_insert(&fx, 0, 0, MOD_LFO) && !rack_can_insert(&fx, 0, 1, MOD_COMB));
+    for (int k = 0; k < RACK_FX_SLOTS; k++) CHECK(rack_insert_row(&fx, fx.count, 1, k & 1 ? MOD_DELAY : MOD_FILTER));
+    CHECK(!rack_can_insert(&fx, fx.count, 1, MOD_EQ));                    // chain B is full
+    CHECK(rack_insert_row(&fx, fx.count, 2, MOD_EQ));
+    CHECK(rack_set_row(&fx, fx.count - 1, 0));                           // the EQ moves from C to A
+    CHECK(!rack_set_row(&fx, fx.count - 1, 1));                          // not into the full chain
+    CHECK(!rack_can_para(&fx, 0) && rack_shared_start(&fx, 1) == RACK_NONE && rack_slot_is_shared(&fx, 0));
+    CHECK_EQ(rack_fx_param_count(MOD_FILTER), 3);
+    CHECK(rack_fx_load_pct(&fx) > 60 && rack_fx_load_pct(&fx) < 80);     // 2 filters, 2 delays, an EQ next to the 8 pads: about 70 %
+    CHECK_STR(rack_route_name(RACK_ROUTE_AC_AB), "A+C/A+B");
+    static char txt[STORAGE_FILE_MAX];
+    pads_fx_to_text(&fx, txt, sizeof txt);
+    rack_t b;
+    rack_init_fx(&b);
+    CHECK(pads_fx_from_text(&b, txt));
+    CHECK_EQ(b.count, fx.count);
+    for (int i = 0; i < fx.count; i++) CHECK(b.slot[i].type == fx.slot[i].type && b.slot[i].row == fx.slot[i].row);
+    CHECK(!pads_fx_from_text(&b, "keys\n"));                             // not that file: kept
+    CHECK_EQ(b.count, fx.count);
+    rack_t synth;                                                        // the synth's rack: sources and modulators as before
+    rack_init_startup(&synth);
+    CHECK(!synth.fx && rack_can_insert(&synth, 0, 0, MOD_OSC));
 }

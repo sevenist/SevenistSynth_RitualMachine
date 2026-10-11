@@ -517,3 +517,98 @@ TEST(pads_switching_sections_frees_the_old_graph) {
     CHECK(fast1 <= fast0 + 256);
     CHECK_EQ(bulk1, bulk_r1);                                                 // more switches: nothing more
 }
+
+/* ---------------- the FX chains (ADR-041 decisions 23, 47-49): a pad's bus, the chains, the four routings ---------------- */
+
+namespace {
+std::vector<double> part(const std::vector<double> &x, double from_s, double to_s) {
+    const size_t a = std::min(x.size(), static_cast<size_t>(from_s * kSampleRate)), b = std::min(x.size(), static_cast<size_t>(to_s * kSampleRate));
+    return std::vector<double>(x.begin() + static_cast<long>(a), x.begin() + static_cast<long>(b));
+}
+// A looping 3 kHz tone on pad `i`, sent to `bus`.
+void tone_pad(PadsApp &a, int i, int bus) {
+    pad_t &p = a.pad(i, "hi");
+    p.level = 100; p.loop = PAD_LOOP_TRIM; p.mode = PAD_TOGGLE; p.bus = static_cast<uint8_t>(bus);
+}
+double level_3k(PadsApp &a) { a.run(0.25); return std::sqrt(power_at(a.run(0.2).l, 3000.0)); }
+}  // namespace
+
+TEST(pads_fx_a_pad_sent_to_a_chain_goes_through_its_effect) {
+    PadsApp a;
+    a.add("tone", sine(440.0, 0.3));
+    a.pad(0, "tone").level = 100;                                            // Dry
+    pad_t &p1 = a.pad(1, "tone");
+    p1.level = 100; p1.bus = 1;                                              // into FXA
+    CHECK(rack_insert_row(&a.pads.fx, 0, 0, MOD_DELAY));                     // FXA: one echo 200 ms later, half as loud
+    a.pads.fx.slot[0].v[MP_DL_TIME] = 200; a.pads.fx.slot[0].v[MP_DL_FB] = 0; a.pads.fx.slot[0].v[MP_DL_MIX] = 0.5f; a.pads.fx.slot[0].v[MP_DL_PONG] = 0;
+    a.build();
+    engine_synth_pad_push(0);
+    const Stereo dry = a.run(0.7);
+    engine_synth_pad_push(1);
+    const Stereo wet = a.run(0.7);
+    const double d_note = rms(part(dry.l, 0.05, 0.25)), d_after = rms(part(dry.l, 0.36, 0.48));
+    const double w_note = rms(part(wet.l, 0.05, 0.18)), w_after = rms(part(wet.l, 0.36, 0.48));
+    std::printf("    dry pad: %.0f then %.1f; pad on FXA (a 200 ms echo): %.0f then %.0f\n", d_note, d_after, w_note, w_after);
+    CHECK(d_note > 5000.0 && d_after < 2.0);                                 // the dry pad: its 0.3 s and nothing more
+    CHECK(w_note > 2000.0 && w_after > 2000.0);                              // the other one: the echo sounds after the sample ended
+}
+
+TEST(pads_fx_the_four_routings) {
+    PadsApp a;
+    a.add("hi", sine(3000.0, 0.5));
+    tone_pad(a, 0, 1);                                                       // pad 1 into A
+    CHECK(rack_insert_row(&a.pads.fx, 0, 1, MOD_FILTER));                    // chain B: a low-pass at 200 Hz; A and C are empty
+    a.pads.fx.slot[0].v[MP_FL_CUT] = 200; a.pads.fx.slot[0].v[MP_FL_RES] = 0.7f;
+    a.build();
+    engine_synth_pad_push(0);
+    double lv[RACK_ROUTE_COUNT];
+    for (int r = 0; r < RACK_ROUTE_COUNT; r++) {
+        a.pads.fx.fx_route = static_cast<uint8_t>(r);
+        engine_synth_pads_fx(&a.pads, &a.rack);
+        lv[r] = level_3k(a);
+        CHECK(engine_synth_pads_playing() == 1u);                            // the pad plays on through the new graph
+    }
+    std::printf("    a 3 kHz pad on A, a 200 Hz low-pass in B: A/B/C %.0f, A+B/C %.0f, A+B+C %.0f, A+C/A+B %.0f\n", lv[0], lv[1], lv[2], lv[3]);
+    CHECK(lv[RACK_ROUTE_A_B_C] > 4000.0);                                    // A beside B: untouched
+    CHECK(lv[RACK_ROUTE_AB_C] < lv[0] / 30.0);                               // A into B: filtered
+    CHECK(lv[RACK_ROUTE_ABC] < lv[0] / 30.0);                                // A into B into C: filtered
+    CHECK(lv[RACK_ROUTE_AC_AB] > 0.8 * lv[0]);                               // A into C and into B: C lets it through
+    // where a pad enters: on B it is filtered in every routing; on C, in A+B+C, it comes after the filter
+    a.pads.pad[0].bus = 2;
+    engine_synth_pad_set(0, &a.pads.pad[0]);
+    CHECK(level_3k(a) < lv[0] / 30.0);
+    a.pads.fx.fx_route = RACK_ROUTE_ABC;
+    engine_synth_pads_fx(&a.pads, &a.rack);
+    a.pads.pad[0].bus = 3;
+    engine_synth_pad_set(0, &a.pads.pad[0]);
+    CHECK(level_3k(a) > 0.8 * lv[0]);
+}
+
+TEST(pads_fx_a_value_moves_without_a_reload_and_twelve_modules_fit) {
+    PadsApp a;
+    a.add("hi", sine(3000.0, 0.5));
+    tone_pad(a, 0, 1);
+    CHECK(rack_insert_row(&a.pads.fx, 0, 0, MOD_FILTER));
+    a.pads.fx.slot[0].v[MP_FL_CUT] = 200; a.pads.fx.slot[0].v[MP_FL_RES] = 0.7f;
+    a.build();
+    engine_synth_pad_push(0);
+    const double closed = level_3k(a);
+    const int builds = engine_synth_build_count();
+    a.pads.fx.slot[0].v[MP_FL_CUT] = 12000;                                  // the cutoff opens: a parameter, not a new graph
+    engine_synth_pads_fx(&a.pads, &a.rack);
+    const double open = level_3k(a);
+    std::printf("    low-pass 200 Hz %.0f -> 12 kHz %.0f, graph builds %d -> %d\n", closed, open, builds, engine_synth_build_count());
+    CHECK_EQ(engine_synth_build_count(), builds);
+    CHECK(open > 20.0 * closed && open > 4000.0);
+    // four modules in each chain, the chains in a row: it builds and the pad still comes out
+    for (int row = 0; row < RACK_ROWS; row++)
+        while (rack_insert_row(&a.pads.fx, a.pads.fx.count, row, MOD_EQ)) {}
+    CHECK_EQ(a.pads.fx.count, 3 * RACK_FX_SLOTS);
+    CHECK(!rack_can_insert(&a.pads.fx, 0, 0, MOD_EQ));                       // a fifth one in a chain: refused
+    CHECK(!rack_can_insert(&a.pads.fx, 0, 0, MOD_OSC));
+    a.pads.fx.fx_route = RACK_ROUTE_ABC;
+    engine_synth_pads_fx(&a.pads, &a.rack);
+    CHECK(engine_synth_build_count() > builds);
+    CHECK(level_3k(a) > 3000.0);
+    CHECK(engine_synth_pads_playing() == 1u);
+}

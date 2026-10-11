@@ -49,9 +49,14 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
   the float FFT: PSRAM, loop order). Both exact, no sound change (from: notes)
 - [x] **Sample tools**: all six groups built 2026-10-10 / 11 (chop, render + history, Level, Time & pitch, Texture, Color); left for
   the capture path: "print a pad's settings", reverse reverb, freeze / smear (done 2026-10-11)
-- [ ] **Pads steps 3-5**: FXA-C (design round done 2026-10-11, ADR-041 decisions 47-49: 4 slots per chain, the rack's effect modules,
-  a rack-style FX page; IN PROGRESS), live synth (design round), song mode + backtrack (design round); "Next: the production
-  workflow" (from: user)
+- [ ] **FX chains: try it, by ear** (Pads step 3; ADR-041 decisions 47-49 + "Pads step 3, the FX chains, as built"): Menu in Pads =
+  the FX page (rows A / B / C, the header = the routing and the load), Edit in a module's menu = its values (the four knobs drive
+  them), a pad's Bus row on PLAY. BUILT 2026-10-11, host-tested (214 engine tests x 6, 98 UI tests), FLASHED and measured (8 pads +
+  EQ, compressor, delay, reverb = 66 %; twelve effects = 120 %, dropouts), NOT tried by the user, NOT listened to (from: user)
+- [ ] **The EQ costs as much as the reverb** (26.5 k cycles a block, stereo, measured 2026-10-11): look for an exact optimization;
+  it decides how many effects a chain can really hold (from: notes)
+- [ ] **Pads steps 4-5**: live synth (design round; its entry into the FX chains), song mode + backtrack (design round), capture /
+  resampling (reverse reverb and freeze come from it, decision 46); "Next: the production workflow" (from: user)
 - [ ] **Confirm: the full synth stops in the Pads section** (my reading of ADR-041 decision 22) (from: notes)
 - [ ] **Joystick swap: try it**: a push on an already bound parameter swaps X and Y, each keeps its range / curve (built 2026-10-09, 71 UI
   tests, sim built; NOT tried by the user, NOT flashed) (from: user)
@@ -145,7 +150,7 @@ options (pros / cons) before building.
      key function "Section"); the built-in "Pads" key layout (left 4 x 4 pads; right: Bank A-D, Stop all, Select, Mute); the full-screen
      grid, a push opens the pad's pages. Engine: a pad player of 8 mono voices (Sampler streaming, choke, modes, tail), dry to the output.
   2. **BUILT 2026-10-10**: the machine clock (ADR-041 decisions 27-29) + "start on grid".
-  3. FXA / FXB / FXC: a short module chain each, the four routings, entry per source.
+  3. FXA / FXB / FXC: a short module chain each, the four routings, entry per source. BUILT 2026-10-11 (the live synth's entry: step 4).
   4. Live synth: design round first (voices, engine, how it is played with 16 pads + Shift, its FX entry).
   5. Song mode + backtrack: design round first (what is recorded: events or audio; start / end edit; the backtrack in the Synth section).
   Then measure on the board (8 pad voices + FX chains + live synth; card streams vs PSRAM heads).

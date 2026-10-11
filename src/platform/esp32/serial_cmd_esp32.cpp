@@ -257,14 +257,12 @@ void run(char *line) {
             return;
         }
         if (!strcmp(sub, "def")) {                        // def A1 <words>: that pad as a pads.cfg line ("loop 1 xfade 20 file name")
-            static char txt[160];
-            snprintf(txt, sizeof txt, "pads@pad %s\n", s);
-            for (char *c = txt; *c; c++) if (*c == '@') *c = 10;
-            static pads_t tmp;
             int label = -1;
             if (s[0] >= 'A' && s[0] <= 'D') label = (s[0] - 'A') * PADS_PER_BANK + atoi(s + 1) - 1;
-            if (label < 0 || label >= PAD_COUNT || !pads_from_text(&tmp, txt)) { Serial.println("[CMD] pad def: A1..D16 then pads.cfg words"); return; }
-            g_app->pads.pad[label] = tmp.pad[label];
+            const char *words = strchr(s, ' ');
+            if (label < 0 || label >= PAD_COUNT || !words) { Serial.println("[CMD] pad def: A1..D16 then pads.cfg words"); return; }
+            pad_default(&g_app->pads.pad[label]);
+            pad_parse(&g_app->pads.pad[label], words + 1);
             app_pad_changed(g_app, label);
             Serial.printf("[CMD] pad def %s\n", s);
             return;
@@ -280,6 +278,30 @@ void run(char *line) {
                           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
                           (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM),
                           (unsigned)fu, (unsigned)fc, (unsigned)fh, (unsigned)bu, (unsigned)sp, (unsigned long long)audio_pads_playing());
+            return;
+        }
+        if (!strcmp(sub, "fx")) {                         // fx clear | fx route N | fx <A|B|C> <code> [values]: the Pads section's FX chains
+            rack_t *fx = &g_app->pads.fx;
+            char w[8] = {}, code[8] = {};
+            int n = 0;
+            if (sscanf(s, "%7s%n", w, &n) < 1) { Serial.println("[CMD] pad fx clear | route N | <A|B|C> <code> [values]"); return; }
+            s += n;
+            if (!strcmp(w, "clear")) rack_init_fx(fx);
+            else if (!strcmp(w, "route")) fx->fx_route = (uint8_t)(atoi(s) >= 0 && atoi(s) < RACK_ROUTE_COUNT ? atoi(s) : 0);
+            else {
+                const int row = w[0] - 'A';
+                int t = MOD_TYPE_COUNT;
+                if (sscanf(s, "%7s%n", code, &n) == 1) for (int k = 0; k < MOD_TYPE_COUNT; k++) if (!strcasecmp(code, rack_type_code((module_type_t)k))) t = k;
+                if (row < 0 || row >= RACK_ROWS || t == MOD_TYPE_COUNT || !rack_insert_row(fx, fx->count, row, (module_type_t)t)) {
+                    Serial.printf("[CMD] pad fx: '%s %s' refused (a chain A..C, an effect's code, 4 a chain)\n", w, code);
+                    return;
+                }
+                s += n;
+                float x = 0;
+                for (int i = 0; i < rack_mparam_count((module_type_t)t) && sscanf(s, "%f%n", &x, &n) == 1; i++, s += n) fx->slot[fx->count - 1].v[i] = x;
+            }
+            audio_pads_fx(&g_app->pads, &g_app->rack);
+            Serial.printf("[CMD] pad fx: %d module(s), route %s\n", fx->count, rack_route_name(fx->fx_route));
             return;
         }
         if (!strcmp(sub, "edit")) {                       // edit F OP AMOUNT [AMOUNT2]: catalog file F through ProcOp OP (pads.h PROC_*) into a scratch file, timed

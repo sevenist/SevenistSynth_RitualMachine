@@ -29,6 +29,7 @@ struct Synth {
     Engine eng;
     RackGraph last, cur;
     bool have_last = false;
+    bool pads_have_last = false;              // `last` holds the pads graph (the Pads section; have_last stays false: the synth's is gone)
     q15 bl[kBlock], br[kBlock];
     int bpos = kBlock;                 // frames of the current block already handed out (kBlock = need a new block)
     Memory mem;
@@ -135,7 +136,6 @@ void send_clock(const RackGraph &r) {                 // the motion sequencers' 
 
 /* ---- the Pads section ---- */
 
-constexpr int RP_PADS = 1, RP_MASTER = 2;               // node ids of the pads graph
 constexpr size_t kPadResidentMax = 192 * 1024;         // a pad sample up to this size is kept whole in memory (no card reads while it plays) ...
 constexpr size_t kPadResidentBudget = 768 * 1024;      // ... while they stay under this in total; longer ones stream (a 150 ms head)
 
@@ -183,6 +183,7 @@ PadBlob pad_blob(int idx, const pad_t &p) {
         b.lstart = static_cast<int32_t>(p.loop == PAD_LOOP_FILE && file_loop ? in.loop_start : pad_lstart(&p, frames));
         b.xfade = static_cast<int32_t>(static_cast<uint64_t>(p.xfade_ms) * in.rate / 1000);
     }
+    b.bus = static_cast<uint8_t>(p.bus < PAD_BUSES ? p.bus : 0);
     b.mode = p.mode == PAD_GATE ? PADM_GATE : p.mode == PAD_TOGGLE ? PADM_TOGGLE : PADM_ONESHOT;
     b.loop = p.loop == PAD_LOOP_FILE ? 2 : p.loop == PAD_LOOP_TRIM ? 1 : 0;
     b.choke = p.choke;
@@ -304,6 +305,7 @@ void engine_synth_build(const rack_t *rack, const synth_params_t *params) {
     s_builds++;
     Synth &s = s_synth;
     s.pads_mode = false;                                    // an explicit build brings the synth back (from the Pads section)
+    s.pads_have_last = false;
     prepare_samples(*rack);
     std::lock_guard<std::mutex> lk(s.mx);
     resolve_samples(*rack);
@@ -401,22 +403,50 @@ void engine_synth_pads_build(const pads_t *pads, const rack_t *rack) {
     std::snprintf(s_reason, sizeof s_reason, "pads");
     for (int i = 0; i < PAD_COUNT; i++) pad_prepare(pads->pad[i]);
     std::lock_guard<std::mutex> lk(s.mx);
-    GraphDesc &g = s.cur.g;
-    g = GraphDesc{};
-    if (!g.add_node(s.eng.registry(), RP_PADS, T_PADS) || !g.add_node(s.eng.registry(), RP_MASTER, T_MASTER_OUT)) return;
-    g.connect(RP_PADS, 0, RP_MASTER, Dst::In, 0);
-    g.connect(RP_PADS, 1, RP_MASTER, Dst::In, 1);
-    if (s.eng.load(g, 1) != Err::Ok) return;
+    if (!pads_graph_build(pads->fx, rack->cfg, s.eng.registry(), s.cur)) return;   // the player, its FX chains, the output
+    if (s.eng.load(s.cur.g, 1) != Err::Ok) return;
     s.gc_due = true;
     s.pads_mode = true;
     s.have_last = false;                                    // the synth's graph is gone: the next set_params is a build
     s.last_nv = 1;
+    for (int k = 0; k < s.cur.conv_count; k++) send_conv(s.cur, k);
+    s.last = s.cur;
+    s.pads_have_last = true;
     for (int i = 0; i < PAD_COUNT; i++) {
         const PadBlob b = pad_blob(i, pads->pad[i]);
         s.eng.set_blob(RP_PADS, &b, sizeof b);
     }
     pads_master(*rack);
     s.eng.gc();
+}
+
+// The FX chains changed (a module added, removed or moved, the routing, a value). The same shape: only the values that moved are sent
+// (no stall); another shape: the graph is loaded again (the player and the untouched effects keep their state, engine.h).
+void engine_synth_pads_fx(const pads_t *pads, const rack_t *rack) {
+    if (!s_ready || !s_synth.pads_mode) return;
+    Synth &s = s_synth;
+    std::lock_guard<std::mutex> lk(s.mx);
+    if (!pads_graph_build(pads->fx, rack->cfg, s.eng.registry(), s.cur)) return;
+    if (!s.pads_have_last || !same_structure(s.last.g, s.cur.g)) {
+        s_builds++;
+        std::snprintf(s_reason, sizeof s_reason, "pads fx n%d/%d e%d/%d", s.last.g.n_nodes, s.cur.g.n_nodes, s.last.g.n_edges, s.cur.g.n_edges);
+        if (s.eng.load(s.cur.g, 1) != Err::Ok) return;
+        s.gc_due = true;
+        for (int k = 0; k < s.cur.conv_count; k++) send_conv(s.cur, k);
+        s.last = s.cur;
+        s.pads_have_last = true;
+        s.eng.gc();
+        return;
+    }
+    for (int i = 0; i < s.cur.g.n_nodes; i++) {
+        const NodeDesc &n = s.cur.g.node[i], &o = s.last.g.node[i];
+        if (n.id == RP_PADS) continue;                                          // (its parameters are the pads' events)
+        for (int p = 0; p < kMaxParams; p++)
+            if (n.param[p] != o.param[p]) s.eng.set_param(n.id, p, n.param[p]);
+    }
+    for (int k = 0; k < s.cur.conv_count; k++)
+        if (s.cur.conv_ir[k] != s.last.conv_ir[k] || s.cur.conv_len[k] != s.last.conv_len[k]) send_conv(s.cur, k);
+    s.last = s.cur;
 }
 
 void engine_synth_pad_set(int pad, const pad_t *p) {

@@ -14,7 +14,7 @@
 //   popup info | error | ask   -> a test popup on the screen; ask / error print "[CMD] popup answer yes|no" when closed
 // patch / voices rebuild the synth the way leaving the menu does; they are run from loop(), like the UI.
 // Every command answers with a "[CMD]" line. Notes go straight to the audio engine: the UI does not see them.
-#include "core/app.h"
+#include "app/app.h"
 #ifdef __cplusplus
 extern "C" {
 #endif

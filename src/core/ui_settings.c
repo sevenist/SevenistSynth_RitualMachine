@@ -12,8 +12,8 @@ typedef struct {
     jump_slot_t jump[SYNTH_UI_JUMP_SLOTS];
     unsigned    mods_rev;       // the modifier layers: their edit counter (core/modifiers.h)
     unsigned    leds_rev;       // the key LED colours (core/led_roles.h)
-    macro_def_t macro[SYNTH_UI_MACROS];   // bytes only (no padding): compared with memcmp
-    mapping_t   joy[2];                   // the joystick axes (bytes only too)
+    float       volume;         // the GENERAL tab's machine settings: master volume, output (mono / stereo), speaker level
+    uint8_t     mono, speaker;
 } saved_t;
 
 static saved_t g_saved;
@@ -28,8 +28,9 @@ static void capture(const synth_ui_t *ui, const rack_t *rack, saved_t *s) {
     }
     s->mods_rev = modifiers_rev();
     s->leds_rev = led_roles_rev();
-    memcpy(s->macro, ui->macro, sizeof s->macro);
-    memcpy(s->joy, ui->joy, sizeof s->joy);
+    s->volume = rack->cfg.volume;
+    s->mono = rack->cfg.mono;
+    s->speaker = rack->cfg.speaker;
 }
 
 static bool same(const saved_t *a, const saved_t *b) {
@@ -39,8 +40,7 @@ static bool same(const saved_t *a, const saved_t *b) {
         if (x->valid != y->valid || (x->valid && (x->in_rack != y->in_rack || x->mod_id != y->mod_id || x->mod_type != y->mod_type || x->def != y->def ||
                                                   x->tab != y->tab || x->row != y->row))) return false;
     }
-    return a->mods_rev == b->mods_rev && a->leds_rev == b->leds_rev && !memcmp(a->macro, b->macro, sizeof a->macro) &&
-           !memcmp(a->joy, b->joy, sizeof a->joy);
+    return a->mods_rev == b->mods_rev && a->leds_rev == b->leds_rev && a->volume == b->volume && a->mono == b->mono && a->speaker == b->speaker;
 }
 
 // The word of a GENERAL setting in the file: its label in lower case ("Vol" -> "vol").
@@ -50,24 +50,14 @@ static void cfg_token(cfg_param_id_t id, char *out, int n) {
 }
 
 int ui_settings_to_text(const synth_ui_t *ui, const rack_t *rack, char *buf, int cap) {
-    int n = snprintf(buf, (size_t)cap, "# SynthCore UI settings (ui.cfg)\nknob %s\n", rack->cfg.knob_mode ? "direct" : "catch");
+    int n = snprintf(buf, (size_t)cap, "# SynthCore UI settings (ui.cfg)\nknob %s\nvol %g\nout %s\nspk %d\n", rack->cfg.knob_mode ? "direct" : "catch",
+                     (double)rack->cfg.volume, rack->cfg.mono ? "mono" : "stereo", rack->cfg.speaker);
     for (int i = 0; i < SYNTH_UI_JUMP_SLOTS && n < cap; i++) {
         const jump_slot_t *j = &ui->jump[i];
         if (!j->valid) continue;
         if (j->in_rack)      n += snprintf(buf + n, (size_t)(cap - n), "jump %d tab %d row %d\n", i + 1, j->tab, j->row);
         else if (!j->mod_id) n += snprintf(buf + n, (size_t)(cap - n), "jump %d global %d row %d\n", i + 1, j->def, j->row);
         else                 n += snprintf(buf + n, (size_t)(cap - n), "jump %d mod %d type %d def %d row %d\n", i + 1, j->mod_id, j->mod_type, j->def, j->row);
-    }
-    if (n < cap) n += snprintf(buf + n, (size_t)(cap - n), "macros\n");                 // macro K <target> [range MIN MAX] [curve NAME], one line per destination
-    for (int k = 0; k < SYNTH_UI_MACROS && n < cap; k++)
-        for (int i = 0; i < ui->macro[k].n && n < cap; i++) {
-            char t[64];
-            if (mapping_to_text(&ui->macro[k].dest[i], t, sizeof t)) n += snprintf(buf + n, (size_t)(cap - n), "macro %d %s\n", k + 1, t);
-        }
-    if (n < cap) n += snprintf(buf + n, (size_t)(cap - n), "joy\n");                    // joy x|y <target> [range MIN MAX] [curve NAME]
-    for (int a = 0; a < 2 && n < cap; a++) {
-        char t[64];
-        if (mapping_to_text(&ui->joy[a], t, sizeof t)) n += snprintf(buf + n, (size_t)(cap - n), "joy %s %s\n", a ? "y" : "x", t);
     }
     if (n < cap) n += modifiers_to_text(buf + n, cap - n);
     if (n < cap) n += led_roles_to_text(buf + n, cap - n);
@@ -76,9 +66,10 @@ int ui_settings_to_text(const synth_ui_t *ui, const rack_t *rack, char *buf, int
 
 bool ui_settings_from_text(synth_ui_t *ui, rack_t *rack, const char *txt) {
     bool any = false;
-    int knob_mode = rack->cfg.knob_mode;
+    int knob_mode = rack->cfg.knob_mode, mono = rack->cfg.mono, speaker = rack->cfg.speaker;
+    float volume = rack->cfg.volume;
     jump_slot_t jump[SYNTH_UI_JUMP_SLOTS] = {{0}};
-    bool mods = false, legacy = false, macros = false, leds = false, joy = false;                          // the modifier layers are in the file; the first format's "shift N" lines
+    bool mods = false, legacy = false, leds = false;                          // the modifier layers are in the file; the first format's "shift N" lines
     mod_entry_t old[SYNTH_UI_COL_KNOBS];
     for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) old[k] = modifiers_get(MODL_SHIFT, (control_id_t)(CTL_COL_KNOB_0 + k));
     for (const char *line = txt; line && *line; line = strchr(line, '\n'), line = line ? line + 1 : NULL) {
@@ -87,12 +78,16 @@ bool ui_settings_from_text(synth_ui_t *ui, rack_t *rack, const char *txt) {
         const int got = sscanf(line, "%15s %15s %15s", w1, w2, w3);
         if (got >= 1 && !strcmp(w1, "modifiers")) {
             mods = any = true;
-        } else if (got >= 1 && !strcmp(w1, "macros")) {
-            macros = any = true;
         } else if (got >= 1 && !strcmp(w1, "leds")) {
             leds = any = true;
-        } else if (got >= 1 && !strcmp(w1, "joy")) {                 // the "joy" header (or an axis line): the file holds the axes
-            joy = any = true;
+        } else if (got >= 2 && !strcmp(w1, "vol")) {                 // the machine's settings of the GENERAL tab
+            float v = 0;
+            if (sscanf(w2, "%f", &v) == 1 && v >= 0.0f && v <= 2.0f) { volume = v; any = true; }
+        } else if (got >= 2 && !strcmp(w1, "out")) {
+            if (!strcmp(w2, "mono")) { mono = 1; any = true; }
+            else if (!strcmp(w2, "stereo")) { mono = 0; any = true; }
+        } else if (got >= 2 && !strcmp(w1, "spk")) {
+            if (sscanf(w2, "%d", &a) == 1 && a >= 0 && a <= 20) { speaker = a; any = true; }
         } else if (got >= 2 && !strcmp(w1, "knob")) {
             if (!strcmp(w2, "catch")) { knob_mode = 0; any = true; }
             else if (!strcmp(w2, "direct")) { knob_mode = 1; any = true; }
@@ -140,33 +135,13 @@ bool ui_settings_from_text(synth_ui_t *ui, rack_t *rack, const char *txt) {
     }
     if (!any) return false;                                      // not a settings file
     rack->cfg.knob_mode = (uint8_t)knob_mode;
+    rack->cfg.volume = volume;
+    rack->cfg.mono = (uint8_t)mono;
+    rack->cfg.speaker = (uint8_t)speaker;
     memcpy(ui->jump, jump, sizeof jump);
     if (leds) {                                                 // the key LED colours: the file lists the roles that differ from the defaults
         led_roles_from_text_begin();
         for (const char *line = txt; line && *line; line = strchr(line, '\n'), line = line ? line + 1 : NULL) led_roles_from_line(line);
-    }
-    if (macros) {                                               // the file holds the macros: they replace the defaults
-        memset(ui->macro, 0, sizeof ui->macro);
-        for (const char *line = txt; line && *line; line = strchr(line, '\n'), line = line ? line + 1 : NULL) {
-            int k = 0, at = 0;
-            mapping_t mp;
-            if (sscanf(line, "macro %d %n", &k, &at) != 1 || at == 0 || k < 1 || k > SYNTH_UI_MACROS || !mapping_parse(line + at, &mp)) continue;
-            macro_def_t *md = &ui->macro[k - 1];
-            if (md->n < SYNTH_UI_MACRO_DESTS) md->dest[md->n++] = mp;
-        }
-        synth_ui_macros_prune(ui, rack);
-    }
-    if (joy) {                                                  // the joystick axes: the file holds them (an axis not listed is unbound)
-        memset(ui->joy, 0, sizeof ui->joy);
-        ui->joy_fresh = -1;
-        for (const char *line = txt; line && *line; line = strchr(line, '\n'), line = line ? line + 1 : NULL) {
-            char ax[4];
-            int at = 0;
-            mapping_t mp;
-            if (sscanf(line, "joy %3s %n", ax, &at) != 1 || at == 0 || (strcmp(ax, "x") && strcmp(ax, "y")) || !mapping_parse(line + at, &mp)) continue;
-            ui->joy[ax[0] == 'y'] = mp;
-        }
-        synth_ui_macros_prune(ui, rack);
     }
     if (mods) {
         modifiers_from_text_begin();

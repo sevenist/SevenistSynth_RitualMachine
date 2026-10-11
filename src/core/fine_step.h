@@ -2,7 +2,7 @@
 // Fine steps (ACT_VALUE_FINE, user 2026-10-07): while g_fine_step is set, one step of a linear parameter is 1 / FINE_STEP_DIV of its normal
 // step, but never finer than the decimals it shows (semitones, cents, ms stay whole: 5 % -> 1 %, 1 st stays 1 st), and one step of a
 // logarithmic parameter multiplies by the FINE_STEP_DIV-th root of its factor (synth_params.c, rack.c).
-// Enumerations, FM values and the sequencer keep their steps. The app sets it around one fine action only (app.c).
+// Enumerations, FM values and the sequencer keep their steps. The app sets it around one fine action only (app/app_actions.c).
 #include <stdbool.h>
 #include <math.h>
 

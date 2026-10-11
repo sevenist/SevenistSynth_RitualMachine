@@ -5,7 +5,7 @@
 //
 //   control (hal/hal_input.h) + kind of event + modifier state  ->  action + argument
 //
-// Actions are implemented in core/app.c (app_run_action). To add one: a value in action_id_t, its name in action_names[]
+// Actions are implemented in app/app_actions.c (app_run_action). To add one: a value in action_id_t, its name in action_names[]
 // (bindings.c), a case in app_run_action, then use it in the table.
 #include <stdint.h>
 #include "hal/hal_input.h"

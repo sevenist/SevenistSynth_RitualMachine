@@ -213,6 +213,60 @@ TEST(long_sample_streams_over_a_slow_card_without_underruns) {
     CHECK(rig.bank.stats.block_reads.load() + 16 >= static_cast<uint32_t>(3 * kSampleRate / static_cast<int>(kSmpBlockFrames)));   // all blocks past the heads were read
 }
 
+// Which requests the bank pins (IoRead::pinned): the board's card reads those outside the engine's lock, so their destination must be
+// memory that no control call can free while the read runs: a slot's header and heads, never a stream's ring.
+namespace {
+struct PinSpy : StorageDevice {
+    SimStorage &in;
+    int pinned = 0, loose = 0;
+    uint32_t pinned_bytes = 0, biggest_loose = 0;
+    explicit PinSpy(SimStorage &s) : in(s) {}
+    FileHandle open(const char *name) override { return in.open(name); }
+    void forget(FileHandle f) override { in.forget(f); }
+    uint32_t size(FileHandle f) const override { return in.size(f); }
+    bool submit(const IoRead &r, uint64_t now_us) override {
+        if (!in.submit(r, now_us)) return false;
+        if (r.pinned) { pinned++; pinned_bytes += r.bytes; } else { loose++; if (r.bytes > biggest_loose) biggest_loose = r.bytes; }
+        return true;
+    }
+    bool poll(IoDone &d, uint64_t now_us) override { return in.poll(d, now_us); }
+    int pending() const override { return in.pending(); }
+};
+}  // namespace
+
+TEST(header_and_head_reads_are_pinned_and_ring_blocks_are_not) {
+    SamplerRig rig(card(2000, 2000000));
+    PinSpy spy(rig.storage);
+    Memory mm{&rig.heap, &rig.bulk, &rig.bank};
+    rig.bank.init(spy, mm);
+    const std::vector<uint8_t> small = sine_smp(kSampleRate / 2, 440.0, 16000.0);     // 0.5 s, kept whole (head_ms 0, as a pad sample)
+    rig.storage.add_file("small", small);
+    const int a = rig.bank.load("small", 0);
+    CHECK(a >= 0 && rig.wait_ready(a));
+    CHECK(rig.bank.slot(a)->resident);
+    CHECK_EQ(spy.pinned, 2);                                                           // its header, then the whole sample as one head
+    CHECK_EQ(spy.pinned_bytes, static_cast<uint32_t>(small.size()));
+    CHECK_EQ(spy.loose, 0);
+    rig.storage.add_file("long", sine_smp(3 * kSampleRate, 440.0, 16000.0));           // 3 s: a 150 ms head, the rest streams
+    const int c = rig.bank.load("long", 150);
+    CHECK(c >= 0);
+    bool held = true;                                                                  // what makes the pin safe: no unload while it is read
+    while (!rig.bank.ready(c) && spy.pinned + spy.loose < 64) { held = held && !rig.bank.can_unload(c); rig.tick(); }
+    CHECK(held);
+    CHECK(rig.bank.ready(c) && !rig.bank.slot(c)->resident);
+    CHECK(spy.pinned >= 4);                                                            // header, the head at the start, the one at the end
+    CHECK_EQ(spy.loose, 0);                                                            // nothing plays yet: only headers and heads were read
+    GraphDesc g;
+    sampler_graph(rig, g, [&](NodeDesc *s) { s->param[SMPR_SAMPLE] = c; });
+    CHECK(rig.eng.load(g) == Err::Ok);
+    rig.eng.note_on(69);
+    const int pinned_loaded = spy.pinned;
+    rig.run(SamplerRig::blocks_for(1.0));
+    CHECK(spy.loose > 0);                                                              // the stream's ring blocks
+    CHECK_EQ(spy.biggest_loose, static_cast<uint32_t>(kSmpBlockBytes));
+    CHECK_EQ(spy.pinned, pinned_loaded);
+}
+
 TEST(a_stalling_card_causes_a_counted_fade_not_a_click) {
     // A read every ~3 s of playback stalls for 1 s (a card that garbage-collects): longer than the ring's read-ahead at every rate
     // (7 blocks of 2048 frames are 0.45 s at 32 kHz), so the stall reaches the playhead.

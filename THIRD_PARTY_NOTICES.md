@@ -61,6 +61,9 @@ THE SOFTWARE.
 | Adafruit TCA8418 (Limor Fried, Adafruit) | keyboard controller (firmware) | BSD |
 | Adafruit BusIO (Adafruit) | dependency of the above | MIT, (c) 2017 Adafruit Industries |
 | minimp3 (lieff) | MP3 import in the simulator, `lib/minimp3` | CC0 (public domain) |
+| SDL2 (Sam Lantinga and the SDL contributors) | windows, input and audio of the simulator; `SDL2.dll` ships with a simulator release | zlib licence |
+| MinGW-w64 runtime (`libstdc++-6.dll`, `libgcc_s_seh-1.dll`, `libwinpthread-1.dll`) | ships with a simulator release (the compiler's runtime) | GPL 3 with the GCC Runtime Library Exception (libstdc++, libgcc); MIT / BSD (winpthreads) |
+| TinyUSB (Ha Thach) | USB mass storage in the card reader firmware; ships with the Arduino-ESP32 libraries | MIT |
 | ESP-DSP (Espressif) | the boot benchmark only (`HWV1_BENCH`), FFT candidates; ships with the Arduino-ESP32 libraries | Apache 2.0 |
 | Arduino-ESP32 / ESP-IDF (Espressif) | firmware platform | Apache 2.0 / LGPL 2.1 parts (see the framework's own notices) |
 

@@ -1,4 +1,4 @@
-// The Shift / Mod layers and the MODIFIERS tab (core/modifiers.h, scr_mods.c, app.c).
+// The Shift / Mod layers and the MODIFIERS tab (core/modifiers.h, scr_mods.c, app/app_layers.c).
 #include "ui_test.h"
 
 #define SHIFT CTL_BTN_3

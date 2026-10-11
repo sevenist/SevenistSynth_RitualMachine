@@ -7,4 +7,5 @@
 void     mux_init(void);
 uint16_t mux_read(uint8_t channel);        // 12 bit raw ADC value (0..4095) of channel 0..15
 bool     mux_read_digital(uint8_t channel);
+uint16_t mux_read_mv(uint8_t channel);     // the channel's voltage in millivolts (the ADC's calibration applied), for a slow source such as a divider
 #endif

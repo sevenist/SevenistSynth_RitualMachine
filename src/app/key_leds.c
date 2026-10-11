@@ -1,4 +1,4 @@
-#include "core/key_leds.h"
+#include "app/key_leds.h"
 #include "core/keymap.h"
 #include "core/led_roles.h"
 #include "hal/hal_audio.h"

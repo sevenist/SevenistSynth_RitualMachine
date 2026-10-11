@@ -219,6 +219,7 @@ void SampleBank::issue_admin(uint64_t now_us) {
             const int jid = alloc_job();
             if (jid < 0 || jobs_in_flight_ >= kQueueDepth + 2) return;
             IoRead r{s.file, 0, kSmpBlockBytes, s.hdr_tmp, static_cast<uint32_t>(jid)};
+            r.pinned = true;
             if (!dev_->submit(r, now_us)) return;
             jobs_[jid] = Job{J_HEADER, static_cast<int16_t>(i), 0, 0, 0, 0, 0, 0};
             jobs_in_flight_++;
@@ -229,6 +230,7 @@ void SampleBank::issue_admin(uint64_t now_us) {
                 if (jid < 0 || jobs_in_flight_ >= kQueueDepth + 2) return;
                 const Head &hd = s.head[s.next_issue];
                 IoRead r{s.file, (hd.start_frame / kSmpBlockFrames + 1) * kSmpBlockBytes, hd.frames / kSmpBlockFrames * kSmpBlockBytes, hd.data, static_cast<uint32_t>(jid)};
+                r.pinned = true;
                 if (!dev_->submit(r, now_us)) return;
                 jobs_[jid] = Job{J_HEAD, static_cast<int16_t>(i), 0, 0, static_cast<int16_t>(s.next_issue), 0, 0, 0};
                 jobs_in_flight_++;

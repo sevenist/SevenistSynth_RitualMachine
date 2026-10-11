@@ -7,7 +7,7 @@
 // keys.cfg at the root of the TF card (a text file, readable and editable on a PC), saved when the menu closes.
 //
 // Edited in the KEYS tab of the menu (scr_keys.c). Holding the top-left function key during the first seconds after power-on resets
-// everything to the first built-in layout (app.c), so a layout without a Menu key can always be undone.
+// everything to the first built-in layout (app/app_input.c), so a layout without a Menu key can always be undone.
 #include <stdbool.h>
 #include <stdint.h>
 #include "core/bindings.h"

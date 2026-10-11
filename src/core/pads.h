@@ -21,7 +21,7 @@ extern "C" {
 #define PAD_COUNT      (PAD_BANKS * PADS_PER_BANK)
 #define PAD_NAME_MAX   48                       // a sample's name with its 0: its path below the samples folder (hal_audio.h AUDIO_NAME_MAX)
 #define PAD_CHOKES     4                        // choke groups 1..4 (0 = none)
-// The EDIT page's operations, in the order the Op row shows them; app.c render_start turns each into an engine operation (PROC_*)
+// The EDIT page's operations, in the order the Op row shows them; app/app_render.c (app_render_start) turns each into an engine operation (PROC_*)
 // and its amount. Amounts as the page shows them: Normalize / Gain / Drive 0.1 dB, the fades ms, Trim dBFS, Stretch and Speed percent,
 // Pitch cents, the two Fit beats, Paulstretch tenths of the length factor, Lo-fi rate and the filters Hz, Bits bits; Crop (the pad's
 // Start..End), Reverse and Remove DC none. Stretch, Pitch and Fit beats run by the page's Algo: Beat (WSOLA) or Tonal (phase vocoder).

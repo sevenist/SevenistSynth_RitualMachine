@@ -24,6 +24,14 @@ u8g2_t *display_init(void);
 // task (the prototype: only the changed tiles, so a slow bus never holds up notes and knobs); the caller may draw the next frame at once.
 void display_send(u8g2_t *g);
 
+// The application has finished starting (the card was read, its settings and the pads' samples are in). A platform that plays a boot
+// animation of its own until then (the prototype: it loops back and forth in a task, display_esp32.cpp) lets it end and then shows
+// the newest frame sent; the frames sent before are kept, not shown. Called once; nothing to do elsewhere.
+// display_boot_progress: how far that start is, 0..100, for a loading bar under such an animation (called while it changes, before
+// display_boot_end; it never has to go back).
+void display_boot_end(void);
+void display_boot_progress(int percent);
+
 #ifdef __cplusplus
 }
 #endif

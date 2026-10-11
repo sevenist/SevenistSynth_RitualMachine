@@ -8,51 +8,121 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
 
 ## Session todo (updated 2026-10-11)
 
-**Where things stand (session of 2026-10-11, the bug-fix part):** everything is on **`main`**: the user merged `pads-step1` into it
-(PR #1, 2026-10-11), then asked for the branches to be merged and removed: `pads-step1` and `HWV1` are gone, here and on origin (both
-were contained in `main`). **The board runs the normal build of the commit after 00235fb (the board fixes of 2026-10-11: see the
-browser item), flashed by Claude in a board session** (that permission was for that session only: the user flashes). The user chose to pause new features and test, and started
-with two bug reports: Snap against the tempo (fixed, 61170b7) and "only 32 samples, it needs a real browser" (built: the library is
-read on demand, folders, a browser with audition; ADR-041 decisions 51-52). Both run on the board and were measured over serial;
-**neither has been tried by hand or listened to**. Everything built on 2026-10-10 / 11 that the user has not tried is listed in "Built, not tried by the user yet"
-below. Next features, each with a design round: live synth (engine not chosen: "decide later"), song mode + backtrack, stereo samples
-(a format change).
+**Where things stand (end of 2026-10-11):** everything is on **`main`**, committed and pushed, and published as the pre-release
+**`beta-1.0`** on GitHub (one flashable image for the first prototype + the Windows simulator; `tools/make_release.ps1`). **The
+release image itself was NOT run on the board** (the user's choice: publish as untested): it is `[env:release]` (no serial
+commands, output 18 %), and it holds the persistent sound, the presets and the simple storage screen, none of which ran on
+hardware. What did run on the board that day: the card reader (the drive mounted and read at 543 KB/s) and the build with the
+muted loading screen (flashed by Claude with the user's go-ahead for that one flash; the user has not reported on it). Ask
+before flashing. Earlier that day: the browser no longer holds the UI (tried by the user: "fluid now"); the boot animation
+(the user's `loading7.h`) plays from a task of its own on the board, back and forth with a loading bar until the start is over
+(the looping version and the bar NOT seen by the user yet); the joystick switch's level is a HAL setting (the user checks the push
+themselves). NOT started, from this session's choice (user): **the two optimizations (internal RAM, then the Pads fixed cost)**:
+they are the next work. The samples folder: the user sorts the card's 1800 files into sub-folders themselves (nothing to build).
+The test round stays open: everything in "Built, not tried by the user yet" below. Next features, each with a design round: live
+synth (engine not chosen: "decide later"), song mode + backtrack, stereo samples (a format change).
 
-Order: the Pads section first (user, 2026-10-09), the rest as chosen by Claude earlier (user: "I let you choose the order"). The user has made no sound design yet: **no saved patch or data to keep, old
+Not Claude's, left as they are: `assets/UI_Sprites/24/mod_cab.png`, `mod_chorus.png`, `mod_comb.png`, `mod_osc.png` changed during
+the session (the user painting); `BOOT_FRAME_MS` 33 -> 50 is the user's edit. `build.ps1`: the sample copy uses literal paths now (a
+sample name with `[ ]` stopped the build).
+
+Order: what is built and waits for the user's try, this session's choices, then the Pads section (user, 2026-10-09), the rest as chosen by Claude earlier (user: "I let you choose the order"). The user has made no sound design yet: **no saved patch or data to keep, old
 patches can be deleted, no migration code** (user, 2026-10-09). The rest of the workflow plan: "Next: the production workflow" below.
 
-- [ ] **Snap 1/16 = a 16th note at the tempo: try it** (user, 2026-10-11: "the snap function isn't sync with set tempo"; asked what
-  they saw: 1/16 stepped by a 16th of the FILE). Fixed in 61170b7 (`pad_snap_grid`): 1/16 is a 16th note at the clock's tempo; Beat
-  and 1/16 count the pad's Tune / Fine (the notes as the pad plays them) and a point is the count times the exact beat, rounded once.
-  UI test extended; flashed 2026-10-11, NOT tried. Not changed: the Grid chop unit and Fit beats still ignore Tune (say if they
-  should follow it too) (from: user)
-- [ ] **Sample browser, the library read on demand: try it, on the board first** (user, 2026-10-11; ADR-041 decisions 51-52 + "As
-  built"). A pad's Smp row (encoder B or a push) opens a full-screen list of the card's `system/samples` folder and its sub-folders;
-  the highlighted sample shows its waveform and plays from any pad key; push = take it, Back = the pad as it was. Names are paths
-  ("Drums/kick", 47 characters at most). No scan at start: the catalog holds the 32 files in use and drops unused ones (their memory
-  is freed: new). 219 engine tests, 103 UI tests, simulator + firmware built (RAM 66.0 %). **Flashed and measured 2026-10-11**
-  (ADR-041 "On the board", `tools/library_test.py`): the card's samples folder holds 1800 files in one folder: its list takes 0.75 s
-  the first time (then it is kept), a header 24 ms for the first files and 430 ms for the last (FAT searches a folder from its start):
-  **sub-folders of about 100 files would make all of it fast**: the user's call. Three things found there and fixed (the wrong sample
-  was dropped and the memory filled; a card access from the UI thread that made the card "removed"; the list was too short). NOT tried
-  by hand, NOT listened to. The test put `pad_c4` on A1 and `kick` on A2 back with default settings (what they held before, by the
-  boot log; their other settings are gone) (from: user)
+- [ ] **Flash the working tree, then look at the start** (from: notes). After the upload: the boot animation loops with its bar
+  until the UI shows whole; a joystick push acts when pushed. To measure a start: build with `PLATFORMIO_BUILD_FLAGS=-DBOOT_TRACE`
+  and read the `[BOOT]` lines (`serial_test.py --raw --seconds 10 --log run.txt` right after the upload); flash the normal build
+  again afterwards.
+- [ ] **Third session of 2026-10-11, built and host-tested, NOT flashed: check on the board** (from: user). (1) `src/core/app.c` is
+  now the folder `src/app/` (nine files, `app_internal.h` lists them; a move, 110 UI tests). (2) The boot screen says RITUAL
+  MACHINE above the animation and beta 1.0 under the bar (`BOOT_TITLE` / `BOOT_VERSION`, app.h): look at the placing. (3) Battery:
+  serial `power` prints the raw count, the pin's millivolts and the result; compare with a meter and correct
+  `HW_BATT_FULL_SCALE_MV` (board_pins.h; the scale is the first firmware's 10.4 V, never measured here). It shows in the GENERAL
+  tab's box; warnings at 15 % and 5 %. (4) Mux channel 0 is read as a button (`power` prints it): push whatever is there and see
+  whether the count moves; its pushed level (`HWV1_AUX_PUSHED`) is a guess. (5) **The power button, now read as a latching switch
+  (down = on, PWR_SENSE high), and the USB card reader**, a second firmware: flash it once with the button down,
+  `pio run -e card_reader -t upload` (it goes to the second slot; `pio run -t upload` is still the synth alone). Then: cable in,
+  button up = the screen USB STORAGE and the card as a drive on the computer; button down = the synth. **If USB STORAGE shows
+  with the button down, the level is the other way**: hold the joystick 2 s and keep it held until the boot screen, then set
+  `HW_PWR_SENSE_ON 0` (board_pins.h). In the card reader there is no serial port: to flash, switch the button on first (or the
+  joystick as above; the BOOT button always works). Never run, so unknown: the switch between the two firmwares
+  (`esp_ota_set_boot_partition`), the USB port's hand-over to mass storage and its way back to the serial console, the custom
+  upload command, the drive's speed, a card pulled out while the computer has it. On the battery: button up must switch the
+  board off (it saves the settings first). Why two firmwares: TinyUSB costs 23 KB of static internal RAM, the synth had 24 KB.
+  **Flashed 2026-10-11 by Claude (both firmwares; the user's go-ahead was for that one flash)**: the board came up as the card
+  reader, the computer mounted the card (F:, 32 GB) and read 25 MB at 543 KB/s. So the switch to the second firmware, TinyUSB's
+  take-over of the port and the custom upload command work. Still to try by hand: was the button really up then (else the level
+  is inverted), button down = back to the synth with its serial port, writing a file, eject, the joystick way out.
+  (6) **No sound and no key LEDs until the loading screen has ended** (user, after a first try: the keys lit and the board made
+  noise during the loading): the DAC stays muted and the audio task writes zeros until the boot task is done
+  (`loading_over` in display_esp32.cpp -> `board_audio_open`), `leds_show` sends nothing meanwhile. Listen and look at a start.
+- [ ] **Fourth round of 2026-10-11, built and host-tested (116 UI tests), NOT flashed: the persistent sound and the presets** (from:
+  user; decisions: a preset = the sound + macros + joystick, named files browsed like samples, an edit buffer with explicit
+  Save). DEVELOPING.md has the description ("The sound is persistent"). To try on the board, after flashing both firmwares: change
+  the sound, wait 3 s, power off and on: it is back, with the sequencer and the volume. Menu > PRESETS (second tab): Save as, edit,
+  Save as, Load: the list, the highlighted preset plays under the keys after a moment, a push keeps it, Back brings the edited
+  sound back. Unknown until tried: how long a preset takes to load on the board (a card read, then a rebuild of the engine: the
+  audio stops for that moment), and the pause of the autosave's card write while playing (2 s after the last change). The card
+  reader's screen is the simple one now (name and version, the placeholder picture `64/ui_sdcard.png` to paint over, "Storage
+  mode / Eject before disconnecting", the battery's percentage); the PRESETS tab's icon `16/tab_presets.png` is a placeholder too.
+- [ ] **Boot animation with a loading bar: look at it** (user, 2026-10-11, in four steps: the file `loading7.h` of the Sevenist
+  Controller firmware, 24 frames of 37 x 55, the "7"; "the animation should start with a high priority task, and the task is deleted
+  at the end"; "the screen shows partially on startup, we can finish loading in the background while the animation loops back and
+  forth", with 20 frames a second, `BOOT_FRAME_MS` 50; "add a loading bar at the bottom and keep the long loading").
+  Its frames are `assets/UI_Sprites/64/boot_00.png` .. `_23.png` (centred in 64 x 64; `tools/import_boot_anim.py`; editable in
+  Aseprite like the other sprites; the first and the last must stay empty: the animation stops there). **On the board**
+  `display_init` is the first thing `setup()` does and starts the task `boot` (priority 10, core 0, display_esp32.cpp): a frame every
+  50 ms, first .. last .. first .., while everything else starts under it. The application reports its start once (`start_poll` in
+  app/app.c -> `display_boot_end`): the card read and the pads' files in the catalog (**the user's decision: keep this long loading**),
+  or no card within 1.5 s of `app_init` (`START_CARD_WAIT_MS`), 8 s at most (`START_MAX_MS`); the task then heads for the nearer end
+  of the animation (half a pass at most), hands the panel to the display task and deletes itself, and the UI shows whole. While it
+  plays, the card's work runs at full priority. **The bar** (96 x 7 pixels, 20 pixels above the bottom): `setup()` fills its first
+  30 % by its steps (`display_esp32_boot_stage`), the application the rest (`display_boot_progress`: 30 % once the settings are read,
+  then by the pads' files that are in); it glides, a few pixels a frame, and never goes back. Measured on the user's card before the
+  bar (`BOOT_TRACE`, a reset): display 0.47 s, loop 1.47 s, **the UI at 5.1 s**: the first step holds 0.6 .. 1.06 s (the settings
+  read again from the card + the rebuild; why so long is NOT looked at), then 2.3 s for three pads' files (`pad_c4` and `kick` are
+  old demo files: 65 reads, 0.39 s each; plus the walk through the 1800-file folder for each), then 0.24 s to the animation's end.
+  With the demo files cooked again and the samples in sub-folders it should be near 3 s (an estimate). The simulator plays the
+  frames once in the application (`app_boot_animation`; no bar; a key, a push or an encoder step ends it there). 107 UI tests
+  (`start_is_reported_once_when_the_pads_files_are_in`), simulator + firmware built. **The looping version was flashed and
+  measured, not seen by the user; the bar is NOT flashed** (never drawn on a panel: its place and size are untested). Chosen by me
+  (say if one is wrong): animation size x1 (small on 128 x 128), no text, not skippable on the board, the turn to the nearer end
+  when loading is done, the bar's look and its 30 / 70 split (from: user)
+- [x] **Sample browser no longer holds the UI** (user, 2026-10-11: "the browser is getting stuck while scrolling down"; then, tried
+  on the board: "browser is fluid now"). Every row the highlight rested on held the UI for 0.15 s at the top of the 1800-file
+  folder, 0.8 s in the middle, 1.1 s near the end; now 9 .. 37 ms (ENGINE_DESIGN.md ADR-041, "The browser held the UI"; serial
+  `browse N REST FIRST`). Left: near the end of the 1800-file folder an audition makes a STREAMED pad drop out (7 .. 8 underruns in
+  6 auditions, the same before the change; 0 near the top: sub-folders cure it); a whole pad sample is still one read of up to 0.4 s
+  (done 2026-10-11)
+- [ ] **The joystick switch's level: the user checks the push** (found 2026-10-11 with `BOOT_TRACE`): GPIO 40 (`PIN_JOY_SW`,
+  internal pull-up) read 0 at every sample for 5 s after start with the stick untouched, and one `CTL_JOY_SW` press reached the UI
+  in its first step, with no release: read as active low, the rest was a held push and each real push acted when it was let go.
+  The user: "maybe it is pull up on the board, you can modify the HAL", then "I will check the joystick behaviour myself". Changed:
+  the pushed level is a setting, `HWV1_JOY_SW_PUSHED` (hwv1_layout.h), now 1 = HIGH; the pin mode is unchanged. **Built, NOT
+  flashed.** That HIGH means pushed is inferred (only the rest level was measured): if a push never acts after the flash, set it
+  back to 0 and look at the wiring (from: measurements + user)
+- [ ] **Pads fixed cost: ~9k cycles a block for the 64-pad bookkeeping** ("Pads on the board": 13.1k with one pad, ~3.6k per voice).
+  An exact change. Done = before / after with `tools/pads_test.py` on the board, the output bit-identical, host tests green in the 6
+  configurations (from: user)
+- [ ] **Internal RAM: the fast heap is in PSRAM on the board** (measured 2026-10-09, `[RAM]` boot lines): largest internal block 59 KB at boot,
+  51 KB before `audio_init`, so the fast heap (needs 64 KB + 16 KB margin) falls back whole to PSRAM: every module's state is in PSRAM. On
+  2026-10-06 the largest block was 90 KB: ~27 KB of static RAM appeared since. Biggest user: `s_synth` 78.6 KB (the Engine, two RackGraph copies and
+  the sample catalog; the RackGraphs and the catalog are control-only). Boot log of this session (normal build): internal free 83 KB,
+  largest block 41 KB when the audio starts, fast heap 409600 bytes in PSRAM; since the display starts first (the boot task) it is
+  71 KB free, largest 32 KB at that point (the display's task and bus are allocated before the audio now: count them in). Done = the `[RAM]` lines show the fast heap in internal
+  RAM and the startup patch + the Pads cases are re-measured; options to the user where a trade exists (from: user + measurements)
+- [ ] **Sample browser, the rest: try it** (built in 00235fb + 49dfdce; ADR-041 decisions 51-52 + "As built" + "On the board",
+  `tools/library_test.py`): folders, the waveform, the audition from any pad key, push = take it, Back = the pad as it was. The
+  board tests left pad A1 as it was and `1 - BASS C` looping on A2 (from: user)
 - [ ] **Test round on the board** (the user's choice of 2026-10-11: pause features, test): everything in "Built, not tried by the
   user yet" below. The 38-item test list of the earlier session was written in the chat only: rebuild it from that section when
   asked (from: user)
 - [ ] **Waiting on the user's answers**: the rest of test item 16 (the Play key on F4, "which is working but ..."); does a gate
   release trigger Next; is it right that the full synth stops in the Pads section (my reading of ADR-041 decision 22); "quantized
   capabilities" for the knobs and "the clock should start at the sample loop point for looped samples" (Snap and Sync were my
-  reading of them) (from: user)
-- [x] **Pads step 1 on the board**: tried by the user (simulator "all fine", then the board test of 2026-10-10), 8 pad voices measured streamed
-  vs whole and PSRAM after the switch ("Pads on the board" below); what is left is in the board test item (done 2026-10-10)
-- [x] **Sample jobs were slow on the board**: Tonal stretch 8.0 -> 4.4 s, Paulstretch x4 12.1 -> 6.1 s, Stretch (Beat) 4.6 -> 2.8 s
-  on a 1.5 s sample (the window kept between frames, a block cache in the reader, the frame in internal RAM; outputs bit-identical;
-  ADR-041 "Speed"). What is left is the card's write rate, ~150 KB/s (done 2026-10-11)
-- [x] **Sample tools**: all six groups built 2026-10-10 / 11 (chop, render + history, Level, Time & pitch, Texture, Color); left for
-  the capture path: "print a pad's settings", reverse reverb, freeze / smear (done 2026-10-11)
-- [x] **The EQ cost as much as the reverb**: 26.5 k -> 5.9 k cycles a block, and closer to the ideal filters than before
-  (ADR-041 "Speed"; done 2026-10-11)
+  reading of them); should the Grid chop unit and Fit beats follow Tune like Snap does (from: user)
+- [x] **Snap 1/16 = a 16th note at the tempo** (61170b7, `pad_snap_grid`: Beat and 1/16 count the pad's Tune / Fine): tried by the
+  user on the board: fine (done 2026-10-11)
 - [ ] **Pads steps 4-5**: live synth (design round; its entry into the FX chains), song mode + backtrack (design round; builds on
   the capture); "Next: the production workflow" (from: user)
 - [ ] **Workflow plan phase 2: measure the cost on the board**: step 1 (both branches, Para per branch, MIX) and step 2 (effects inside a
@@ -61,15 +131,10 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
 - [ ] **New placeholders to paint**: `24/slot_mix`, `8/ui_para` (`24/mod_sum` deleted). Defaults of SA / CB in row M reach full scale on the
   loud demo patch (measured, 32767 peak): the user's call (from: notes)
 - [ ] **Board checks not confirmed yet**: Shift + note latch, knob hysteresis (`HWV1_ABS_START` / `_STEP` / `_IDLE_MS`), Spectral Gate / Robot /
-  Whisper, ui.cfg + jump slots after a reboot (from: notes)
-- [ ] **Listen to the Cab (Convolver) on the board**: flashed and measured by Claude 2026-10-09 (PIE kernel, see "Convolver on the board");
-  the sound is unchanged by design (bit-identical), but nobody had heard it usable before: its loudness (the IR is energy-normalised, level x1:
-  resonant IRs come out loud, a Cab in row M peaked at full scale on the demo patch) is the user's call (from: user)
-- [ ] **Internal RAM: the fast heap is in PSRAM on the board** (measured 2026-10-09, `[RAM]` boot lines): largest internal block 59 KB at boot,
-  51 KB before `audio_init`, so the fast heap (needs 64 KB + 16 KB margin) falls back whole to PSRAM: every module's state is in PSRAM. On
-  2026-10-06 the largest block was 90 KB: ~27 KB of static RAM appeared since. Biggest user: `s_synth` 78.6 KB (the Engine, two RackGraph copies and
-  the sample catalog; the RackGraphs and the catalog are control-only). Joins the "D" item below; options to give the user (from: measurements)
-- [ ] Engine / board "D" items: SD options (a)-(d), internal RAM for the startup patch (from: user + measurements)
+  Whisper, ui.cfg + jump slots after a reboot; **listen to the Cab (Convolver)**: flashed and measured 2026-10-09 (PIE kernel, see
+  "Convolver on the board"), bit-identical by design, its loudness (the IR is energy-normalised, level x1: a Cab in row M peaked at full
+  scale on the demo patch) is the user's call (from: notes + user)
+- [ ] Engine / board "D" items: SD options (a)-(d) (8 streamed pads reach the card's ~500 KB/s) (from: user + measurements)
 - Set aside (user, 2026-10-07): unformatted card "format?" ASK (a mount without a file system is still "no card"; needs FATFS mkfs)
 
 ## Built, not tried by the user yet (the test round; moved from the todo 2026-10-11)
@@ -268,7 +333,7 @@ User design (the click rules were confirmed on a worked example; options asked f
   gives exactly the value back; leaving the mode off-centre also restores it. **The rest value follows the parameter** (user, after the first build: a knob
   / navigation change was undone): it is read each time the stick leaves the centre; a change made elsewhere during a push is kept on release.
 - **Range + curve per binding** (they travel with the parameter on a swap): the JOY menu tab (after MACROS): Axis, Tgt, Min, Max, Curve, Clear, the response picture. **Saved in ui.cfg**: `joy` then
-  `joy x|y <mapping>`. Code: `ui_input.c` (`synth_ui_joy_click / _mode / _axis`), `app.c` (`joy_bind`, `joy_mode`, `joy_update`), `scr_joy.c`.
+  `joy x|y <mapping>`. Code: `ui_input.c` (`synth_ui_joy_click / _mode / _axis`), `app/app_input.c` (`app_joy_bind`, `app_joy_mode`, `joy_update`), `scr_joy.c`.
 - Chosen by me (say if one is wrong): the toggle is **Shift only** like the latch (Mod + push = Default, a normal push); "just bound" ends when XY mode is
   toggled (after playing, a push on it swaps X and Y); in XY mode the stick never navigates, so Shift + joystick (octave / pages) does nothing there; a push in XY
   mode still binds (the cursor moves with the encoders or after leaving the mode); the axis Y is up = positive.
@@ -307,8 +372,8 @@ K1 Spk, K2 Vol) are the Shift layer's starting entries, editable; ui.cfg stores 
 cannot be a layer entry; the chord learns into the layer the tab shows (default Shift); with the Learn button the next Latch / Select push assigns (Back cancels);
 an absolute knob with a step action (Rows, Pages, Value, Value x4, Octave, Volume) steps once per 1/32 of its travel; a learned module param goes back to Default
 when its module is deleted (`modifiers_prune` at every page rebuild).
-- Code: `core/modifiers.c/.h` (entries, function lists, ui.cfg lines), `scr_mods.c` (tab: Layer, Ctrl, Func, Learn, Reset + the list), `app.c` (`layer_event`,
-  `control_event`, `learn`, `learn_push`, the catch targets per layer: `MACRO_PAGE_ROW`, `ui->knob_away`), `ui_input.c` (generic targets: `synth_ui_knob_row_target`,
+- Code: `core/modifiers.c/.h` (entries, function lists, ui.cfg lines), `scr_mods.c` (tab: Layer, Ctrl, Func, Learn, Reset + the list), `app/app_layers.c` (`app_layer_event`,
+  `learn`, `app_learn_push`, the catch targets per layer: `MACRO_PAGE_ROW`, `ui->knob_away`), `ui_input.c` (generic targets: `synth_ui_knob_row_target`,
   `synth_ui_knob_target`, `synth_ui_target_step`, `synth_ui_target_describe`, `synth_ui_target_at_cursor`; `MACRO_CFG`), `ACT_MOD` (key function
   "Mod"; a "Save 1..8" function was added then removed at the user's request: saving a jump = Shift / Mod + the jump key only), HAL `input_control_present()` (the board: the 7 knobs + joystick; the sim: everything). `ui->knob_shift[]` and `ACT_PAGE_KNOB_SHIFT` are gone.
   The macro learn (Shift + R knob) now also takes GENERAL settings.
@@ -327,7 +392,7 @@ The user wanted the confusion about the joystick gone and a safer knob. Order ta
   set (the RACK tab; a first version removed latch everywhere and the user found the rack unusable without it). Encoder behaviour was left as it was.
 - **Column knobs** (`ui_input.c`): catch by default. The first version only released on an exact step hit, which a normal sweep skips: now it releases on crossing the value. The first arrow was
   inverted (knob above the value means turn left). A 4 px wedge at the right end of the row (`ui_draw.c`) shows the way. `cfg.knob_mode` (GENERAL "Knob") switches to Direct.
-- **Re-evaluation after manual changes** (`synth_ui_catch_refresh`, called by `app_step` when `catch_stale`): the catch state used to change only when a knob moved, so a page change or an encoder edit
+- **Re-evaluation after manual changes** (`synth_ui_catch_refresh`, called by `app_step` through `app_catch_poll` when `app_catch_stale`): the catch state used to change only when a knob moved, so a page change or an encoder edit
   left a knob "caught". The first refresh ran after knob moves too and the knob stopped latching (the step re-measured by walking differs by one from the step the knob just set); the user had it backed
   out. It is back with two rules: it never runs after a knob move, and `knob_cur == -2` keeps a knob that just set its value caught. **Not tested by the user yet.**
   Bug found by the user (a jump key "reset every parameter of the page to 0"): the measuring helper (`knob_param_pos`, now `knob_measure`) left the parameter at its minimum and overcounted the range by the
@@ -338,7 +403,7 @@ The user wanted the confusion about the joystick gone and a safer knob. Order ta
 - **RACK tab links** (`scr_rack.c`): every link is drawn; a module scrolled out of the window stands at the window border on its side (stub + lane), so links never vanish while scrolling.
 - **Jump keys** (`ACT_JUMP`, `UI_JUMP_1..8` that the user added to `ui_event_t`; `jump[]` in `synth_ui_t`; `fns[]` in `keymap.c`): Shift + key saves (`in_rack`, tab, page, row), key goes there.
   A first version had two actions and no keymap entry (unreachable): found by a review the user asked for after a model change; fixed. Leaving the rack editor by a jump now rebuilds the synth.
-- Risks / limits: (the jump slots and the knob mode are saved since 2026-10-07, ui.cfg; slots point at module id + page since 2026-10-07, so rack edits no longer move them); `catch_stale` is a file-level static in `app.c`;
+- Risks / limits: (the jump slots and the knob mode are saved since 2026-10-07, ui.cfg; slots point at module id + page since 2026-10-07, so rack edits no longer move them); `app_catch_stale` is a global of `app/app_layers.c`;
   refresh walks up to four parameters per manual change (cheap, not measured on the board).
 
 ## Filters, UI latency, voice bus (2026-10-06; flashed and measured, NOT listened to; decisions in ENGINE_DESIGN.md ADR-038)
@@ -356,7 +421,7 @@ The user wanted the confusion about the joystick gone and a safer knob. Order ta
 - Driver `leds_esp32.cpp`: FastLED 3.10.6 pinned (it gives the first RMT channel DMA on the S3 by itself; SynthBox's `patch_fastled_dma.py` targets 3.10.3's file layout and is not
   needed), `-DFASTLED_RMT_MAX_CHANNELS=1`, SK6812 order **GRB** (`HW_LED_ORDER`, board_pins.h; SynthBox's BGR swapped red and blue, RGB then swapped red and green), chain map in physical columns (the HWV1_FLIP_COLS flip mirrored every row),
   **brightness capped by `HW_LED_MAX_BRIGHTNESS` (0..255, set in platformio.ini; was 51 = 20 %, the user raised it to 80 on 2026-10-06): full white on 36 LEDs ~2 A browns out the board / USB**. A transfer only when the frame changed.
-- What they show (user choice "play feedback"): `core/key_leds.c` from the key layout: notes in piano colours (C teal, naturals dim white, sharps dim blue), held = orange;
+- What they show (user choice "play feedback"): `app/key_leds.c` from the key layout: notes in piano colours (C teal, naturals dim white, sharps dim blue), held = orange;
   Shift yellow (bright while on), Menu blue (bright while open), Back red, Play green (bright while the sequencer runs), Octave violet (bright when shifted that way), navigation dim white.
   Jump keys (`Jump 1..8`): dim teal while the slot is empty, bright teal once saved.
   Repainted at most every 20 ms, at once on input. The simulator's LED HAL is a no-op (the panel window does not draw them yet).
@@ -558,6 +623,11 @@ The user decides and I record the reasoning and move on, without re-litigating:
 
 ## Known debt / small issues
 
+- **The start** (2026-10-11): 5.1 s to the UI on the user's card. Not looked at: why the first step (the settings read from the
+  card again + the synth's rebuild) holds 0.6 .. 1.06 s; `app_init` reads the same files a moment before when the card is already
+  mounted. The old demo files (`pad_c4`, `kick`: no overview in the header, 65 reads) cost 0.39 s each at every start: cook them
+  again. The simulator's boot animation has no loading bar and does not loop (it loads at once).
+
 - **The sample library** (2026-10-11): 32 different samples in use at once (64 pads cannot all hold a different file); pads.cfg
   must fit 4 KB and now stores paths (64 pads with long paths can pass it: the end is cut silently; a file per bank would fix it);
   a folder shows 2048 names / 30 KB of names at most (the card's 1800 use 28 KB); every open of a file searches its folder from the
@@ -596,11 +666,15 @@ From the session todo (long-term; moved here 2026-10-11):
 - The user iterates with short requests, tests on the board or in the SDL window, and wants concise answers that say what was verified vs not. Windows 11, PowerShell, MSYS2 UCRT64; AZERTY keyboard; English with some French.
   For design work they want options with pros and cons at each stage; they often pick against my recommendation. **By default they flash the board themselves** (COM8). On 2026-10-10 / 11 they allowed Claude to flash and measure (asked each time: "flash and measure?"): ask again in a new session before the first flash. They sometimes say "flashed" about an older build: check (see the skill).
 - A profiling build goes through the environment, not platformio.ini: `$env:PLATFORMIO_BUILD_FLAGS = "-DHWV1_DEBUG_AUDIO -DENGINE_PROFILE"` then `pio.exe run -t upload`; **flash the normal build again afterwards** (the profiling one prints every second and costs RAM).
-- Board tools for the Pads work (all over serial, `DEV_SERIAL_CMD`; see human_docs/SERIAL_COMMANDS.md, `pad ...`, `dir`, `use`): `tools/library_test.py` (the folder list, header reads by place in the folder, samples cycled on a pad, a stream while a folder is read), `tools/pads_test.py` (pad voices), `padsfx_test.py` (FX chains, per-module costs), `edit_test.py` (sample jobs: time, memory), `capture_test.py` (recording).
+- Board tools for the Pads work (all over serial, `DEV_SERIAL_CMD`; see human_docs/SERIAL_COMMANDS.md, `pad ...`, `dir`, `use`): `tools/library_test.py` (the folder list, header reads by place in the folder, samples cycled on a pad, a stream while a folder is read), the serial command `browse N REST FIRST` (the browser driven as by hand: how long each UI step took, stream underruns; `serial_test.py --cmd "pad on" --cmd "browse 6 1500 1750" --raw --seconds 12 --log run.txt`, then read the log: `--raw` does not print the replies), `tools/pads_test.py` (pad voices), `padsfx_test.py` (FX chains, per-module costs), `edit_test.py` (sample jobs: time, memory), `capture_test.py` (recording).
 - UI tests address some rows by number (the RACK page's menu rows in `tests/ui/test_rows.c`, the EDIT page's rows in `tests/ui/test_pads.c`): inserting a row in those screens shifts them.
 - The user often keeps the simulator open: `build.ps1` then builds `oled_sim_new.exe`. A stale exe has caused a false "bug" before.
 - PlatformIO: use `C:\.platformio\penv\Scripts\pio.exe`, **never a bare `pio`** (PATH points at Python 3.13's pio, which recreates and destroys the penv). It happened twice; the second time (2026-10-05) Claude did it, and the user had to restore the penv by hand. Repair steps: DEVELOPING.md, "ESP32 firmware" warning. One link failure with no error text happened twice; the immediate rerun succeeded.
-- One program per serial port: close the serial monitor before `serial_test.py`.
+- One program per serial port: close the serial monitor before `serial_test.py`. Before an upload, check that the board is there
+  (`[System.IO.Ports.SerialPort]::GetPortNames()`): switched off or unplugged it is on no port, and `pio run -t upload` fails after
+  the whole build ("Please specify `upload_port`"). A build to check only: `PLATFORMIO_BUILD_DIR` in the scratchpad.
+- Start-up traces: `-DBOOT_TRACE` (DEVELOPING.md, build flags) prints `[BOOT]` lines; found with it on 2026-10-11: an input event
+  that waits in the queue at start acts on the UI's first step (the joystick switch read as pushed).
 - Bash tool: **heredocs containing apostrophes or quotes break; `\n` inside a C string written from a Python literal becomes a real newline** (it hit `printf` lines many times: grep for a string that wrapped, or fix with a regex on `%u[\r\n]+"`).
   Write multi-line scripts with the Write tool and run them; edit with the Edit tool. Many sources are CRLF: scripted edits must keep each file's line endings.
   **`sed -i` in this Git Bash rewrites a CRLF file with LF endings** (hit twice on 2026-10-09; git hides it in the diff): use a Python script that reads

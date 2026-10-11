@@ -104,8 +104,12 @@ bool audio_sample_prepare(int index);    // converts a pending .wav / .mp3 now (
 // The catalog by name: find = the index of the entry called `name`, -1 when it is not in the catalog. use = the same, and a file that
 // is not there yet is read from the card (its header: a few ms on the board) and added; -1 when there is no such file or it is not a
 // sample, -2 when the catalog is full (the application then takes out an entry nothing uses, audio_sample_hide, and asks again).
+// request = use without waiting for the card: -3 while the file's header is being read (ask again at a later step; asking for another
+// name meanwhile drops that answer). What follows the highlight of a list, or runs at every step, uses it: a header takes 20 ms to
+// 0.4 s on the board (a file's place in its folder), and the UI must not wait for it.
 int  audio_sample_find(const char *name);
 int  audio_sample_use(const char *name);
+int  audio_sample_request(const char *name);
 // A folder of the library, for the browser. open reads the folder `dir` ("" = the samples folder itself, else a path below it) and
 // returns how many entries it has (-1: no card, no such folder): its sub-folders first, then its samples, each group by name (case
 // ignored); versions (name~n) are left out. read copies up to `max` of them from rank `first` (no card access) and returns how many.
@@ -113,6 +117,8 @@ int  audio_sample_use(const char *name);
 // The platform keeps the list until another folder is opened or audio_dir_close: opening the same folder again then costs no card
 // read (a folder of several hundred files takes most of a second on the board). close gives the list's memory back (the board:
 // 34 KB of PSRAM, which the sample jobs want) and must follow anything that adds a listed sample (a recording).
+// A `dir` that starts with ':' is a folder of the PRESETS instead (":" = the presets folder itself, ":Bass" = presets/Bass): its
+// sub-folders and its *.preset files (core/patch.h), listed the same way.
 typedef struct { char name[AUDIO_NAME_MAX]; uint8_t dir; } audio_dir_entry_t;
 int  audio_dir_open(const char *dir);
 int  audio_dir_read(int first, audio_dir_entry_t *out, int max);

@@ -3,10 +3,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "core/app.h"
+#include "app/app.h"
 #include "hal/hal_audio.h"
 #include "hal/hal_display.h"
 #include "hal/hal_leds.h"
+#include "hal/hal_power.h"
 #include "hal/hal_storage.h"
 
 // no audio in this tool
@@ -53,14 +54,28 @@ int audio_sample_use(const char *name) {
     stub_listed = ++stub_n_extra;
     return 3 + stub_listed - 1;
 }
+// The same without waiting: a file that is not in the catalog yet takes ui_stub_request_steps calls to arrive (the board's card).
+int ui_stub_request_steps;
+static char stub_asked[AUDIO_NAME_MAX];
+static int stub_asked_left;
+int audio_sample_request(const char *name) {
+    const int have = audio_sample_find(name);
+    if (have >= 0 || !name || !name[0]) return have;
+    if (strcmp(stub_asked, name)) { snprintf(stub_asked, sizeof stub_asked, "%s", name); stub_asked_left = ui_stub_request_steps; }
+    if (ui_stub_request_steps && stub_asked_left > 0) { stub_asked_left--; return -3; }
+    stub_asked[0] = 0;
+    return audio_sample_use(name);
+}
 static audio_dir_entry_t stub_dir[4 + STUB_EXTRA];
 static int stub_dir_n;
 static void stub_dir_add(const char *name, int dir) {
     snprintf(stub_dir[stub_dir_n].name, sizeof stub_dir[0].name, "%s", name);
     stub_dir[stub_dir_n++].dir = (uint8_t)dir;
 }
+static int stub_presets_open(const char *dir);                         // (below, with the RAM card)
 int audio_dir_open(const char *dir) {
     stub_dir_n = 0;
+    if (dir && dir[0] == ':') return stub_presets_open(dir + 1);
     if (dir && !strcmp(dir, "kit")) { stub_dir_add("hat", 0); stub_dir_add("snare", 0); stub_dir_add("tom", 0); return stub_dir_n; }
     if (dir && dir[0]) return -1;
     stub_dir_add("kit", 1); stub_dir_add("demo0", 0); stub_dir_add("demo1", 0); stub_dir_add("demo2", 0);
@@ -124,7 +139,7 @@ void audio_capture_stop(void) { if (ui_stub_cap_state == CAPTURE_ST_ARMED || ui_
 int  audio_capture_poll(uint32_t *frames, uint32_t *dropped) { if (frames) *frames = ui_stub_cap_frames; if (dropped) *dropped = 0; return ui_stub_cap_state; }
 void audio_capture_done(void) { ui_stub_cap_state = CAPTURE_ST_IDLE; }
 int  audio_rate(void) { return 48000; }
-void ui_stub_library_reset(void) { stub_n_extra = stub_listed = 0; stub_render_state = 0; ui_stub_cap_state = CAPTURE_ST_IDLE; }
+void ui_stub_library_reset(void) { stub_n_extra = stub_listed = 0; stub_render_state = 0; ui_stub_cap_state = CAPTURE_ST_IDLE; stub_asked[0] = 0; ui_stub_request_steps = 0; }
 sd_state_t audio_sd_state(void) { return getenv("UI_DUMP_SD_SLOW") ? SD_SLOW : SD_OK; }
 uint32_t audio_sd_read_us(void) { return 81000; }
 uint32_t audio_sd_generation(void) { static int calls; return getenv("UI_DUMP_SD_SLOW") && calls++ > 0 ? 1 : 0; }   // slow card: the first call (app_init) sees 0, the card "arrives" afterwards
@@ -176,12 +191,40 @@ bool input_control_present(control_id_t c) {
     return !((c >= CTL_KNOB_R1 && c <= CTL_KNOB_R3) || (c >= CTL_BTN_1 && c <= CTL_BTN_3) || c == CTL_PLAY || c == CTL_ENC_A_SW || c == CTL_ENC_B_SW);
 }
 bool input_boot_reset(void) { return false; }
+int ui_stub_battery = -1;                                             // the battery's charge the tests set (-1: none, as the simulator)
+int power_battery_percent(void) { return ui_stub_battery; }
+int power_battery_mv(void) { return ui_stub_battery < 0 ? 0 : 6000 + 24 * ui_stub_battery; }
 // No card by default (the dump starts from the built-in layout). ui_stub_ramcard(true): a card in RAM that keeps what is written (the UI
 // tests save and load ui.cfg / keys.cfg with it); false empties it and takes it out.
-#define RAMCARD_FILES 8
+#define RAMCARD_FILES 16
 static struct { char name[64]; char data[STORAGE_FILE_MAX]; int len; } ramcard[RAMCARD_FILES];
 static bool ramcard_on;
 void ui_stub_ramcard(bool on) { ramcard_on = on; if (!on) memset(ramcard, 0, sizeof ramcard); }
+// A folder of the presets (audio_dir_open with a ':'): the sub-folders and *.preset files the RAM card holds below presets/<dir>,
+// folders first, in the order they were written.
+static int stub_presets_open(const char *dir) {
+    char pre[96];
+    if (!ramcard_on) return -1;
+    const int pl = snprintf(pre, sizeof pre, dir[0] ? "presets/%s/" : "presets/%s", dir);
+    for (int pass = 0; pass < 2; pass++)
+        for (int i = 0; i < RAMCARD_FILES && stub_dir_n < (int)(sizeof stub_dir / sizeof stub_dir[0]); i++) {
+            const char *rest = ramcard[i].name + pl, *slash;
+            char e[AUDIO_NAME_MAX];
+            if (!ramcard[i].name[0] || strncmp(ramcard[i].name, pre, (size_t)pl)) continue;
+            slash = strchr(rest, '/');
+            const size_t len = strlen(rest);
+            if (pass == 0 && slash) {
+                bool seen = false;
+                snprintf(e, sizeof e, "%.*s", (int)(slash - rest), rest);
+                for (int k = 0; k < stub_dir_n; k++) seen |= stub_dir[k].dir && !strcmp(stub_dir[k].name, e);
+                if (!seen) stub_dir_add(e, 1);
+            } else if (pass == 1 && !slash && len > 7 && !strcmp(rest + len - 7, ".preset")) {
+                snprintf(e, sizeof e, "%.*s", (int)(len - 7), rest);
+                stub_dir_add(e, 0);
+            }
+        }
+    return stub_dir_n;
+}
 int storage_read(const char *name, char *buf, int cap) {
     if (!ramcard_on || cap <= 0) return -1;
     for (int i = 0; i < RAMCARD_FILES; i++)
@@ -226,6 +269,10 @@ bool storage_poll_event(storage_event_t *e) {
 }
 void storage_make_folders(void) { printf("(storage_make_folders)\n"); }
 void display_send(u8g2_t *g) { (void)g; }
+int ui_stub_boot_ends;                       // the application said its start is over (hal_display.h)
+void display_boot_end(void) { ui_stub_boot_ends++; }
+int ui_stub_boot_progress = -1, ui_stub_boot_progress_back;   // the last progress reported, and how often it went back
+void display_boot_progress(int percent) { if (percent < ui_stub_boot_progress) ui_stub_boot_progress_back++; ui_stub_boot_progress = percent; }
 bool input_pending(void) { return false; }
 led_color_t ui_stub_led[CTL_COUNT];                                  // the last colour each LED was given (the UI tests read it)
 void leds_set(control_id_t ctl, led_color_t color) { if (ctl > CTL_NONE && ctl < CTL_COUNT) ui_stub_led[ctl] = color; }

@@ -21,7 +21,7 @@ cd D:\DEV\SevenSynthCore\ui\oled_sim
 **Samples:** put `.wav` / `.mp3` files in `samples_src/` and run `.\build.ps1`: every new or changed file is converted to `samples/<name>.smp` (the cooked format; stereo is mixed to mono,
 the loop and root note come from the WAV `smpl` chunk, or a note at the end of the name: `pad_c4.wav`, `bass_fs2.wav`). They are copied to the simulator's card, the folder `sdcard/`
 (`sdcard/system/samples`; the folders of the card layout are made too; **F12** pulls the simulated card out and puts it back). `.\build.ps1 -Sd E:` also sets up the real
-TF card (its folders and `E:\system\samples`). **Card layout** (`hal_storage.h`, `STORAGE_FOLDERS`): `system/samples` (the library), `system/config` (keys.cfg), `import`, `presets`. `-NoSamples` skips the step. See `samples_src/README.txt`.
+TF card (its folders and `E:\system\samples`). **Card layout** (`hal_storage.h`, `STORAGE_FOLDERS`): `system/samples` (the library), `system/config` (keys.cfg, ui.cfg, synth.cfg ...), `import`, `presets` (the presets, `*.preset`, sub-folders allowed). `-NoSamples` skips the step. See `samples_src/README.txt`.
 
 If `oled_sim.exe` is running, `build.ps1` cannot overwrite it and builds `build\oled_sim_new.exe` instead (close the
 window to get the normal name back). `.\build.ps1 -Clean` rebuilds everything.
@@ -82,13 +82,27 @@ first format's `shift N cfg <setting>` lines are still read.
 
 **Key LED colours (LEDS tab, `core/led_roles.h`, `scr_leds.c`, `key_leds.c`).** Every key has a role from its function: Note, Sharp, Root (C), Shift, Mod, Menu, Back, Play, Octave, Jump, Nav, Pad, Bank, None. A role has an Idle and an Active colour, each one of 16 named colours at 0..100 %; Active = a held note (the note roles), Shift / Mod held, the menu open, the sequencer running, the octave shifted that way, a jump slot saved (Back, Nav, None have none). The defaults are the first version's colours. Rows: Role, Idle, Idle %, Active, Act %, Reset; the picture fills the keys of that role; while the tab is open those keys light in the Active colour. Saved in ui.cfg (`leds` then `led <role> <colour> <pct> <colour> <pct>` for the roles that differ). The simulator's panel does not draw the LEDs yet: judge on the board. `input_control_present()` (HAL) tells which non-key controls the board has.
 
-**The Pads section (`core/pads.h`, `scr_pads.c`, app.c; ADR-041 decisions 14-26).** **Shift + Menu** switches Synth <-> Pads (also the key function "Sectn"). In Pads the synth is unloaded (its notes and sequencer stop) and the engine runs the `Pads` module (8 voices, `sampler_modules.cpp`); the keys take the built-in Pads layout: the function row as always, the left 4 x 4 block = pads 1..16 of the bank shown (top left = 1), the right block = Bank A-D, then Select, Mute, -, Stop all (roles Pad / Bank for the LEDs: an empty pad is dark, a muted one red). Shift + pad = select without sound, Shift + Back = Stop all (for the 4-column board). Screen: the grid (joystick / encoder A = selection, encoder B or Page = bank, push = the pad's editor); the editor, pages PLAY / TONE / CHOP from its header (left / right on the header; the edited pad = the pad key pushed). PLAY (overview on top: the trim, the tail as a fade after End, the loop bracket with its crossfade; Smp, then Mode Strt End Loop (Off / Trim / File: a file with loop points sets File when assigned) LStr XFad XPos Tail | Grid Sync From Snap Next Chok Mute, the loop rows only while the pad loops); TONE: Lvl Pan Tune Fine | Cut Res and the filter's response; EDIT: Op (Normalize, Gain, Fade in / out, Trim silence, Crop = the pad's Start..End as a file, Reverse, Remove DC; Stretch, Pitch, Speed, Fit beats, Fit speed: the pad's loop or Start..End to N beats at the clock's tempo, the trim points scaled with the result; an Algo row Beat / Tonal for Stretch, Pitch, Fit beats; Paulstr.; Lo-fi rate, Bits, Drive, Low-pass, High-pass), its amount, Apply (a new version file `name~n` written by the card task), Ver / Undo / Redo over the version history (`history.cfg`; the last 8 versions and what the pads use are kept); Page - / + switches to the CHOP page: Mode Equal / Trans / Grid / Manual, N / Sens / Div / Cut, Pos, To, Add, Del, Chop to pads (the transient scan is the sample bank's `scan`); trims in frames, 1/200 of the file per step; the header steps the pad; Back = the grid). Column knobs = Start, End, Tune, Cut of the selected pad. Saved in `system/config/pads.cfg` 2 s after a change (one line per pad that differs from the defaults, the file name last). Menu alone does nothing in Pads (the shared settings page is phase 6). **The clock** (ADR-041 decisions 27-29): one tempo, the sequencer's BPM; Play in Pads starts / stops it (bar 1 at a start), in the synth Play is the sequencer and the clock runs with it; the grid header shows the tempo and bar.beat; pad row Grid = Off / Beat / Bar (block-accurate start); key functions Tap, Click (metronome), BPM -1 / +1 / -5 / +5 (the Pads layout's right block, row 3: Tap Click BPM-1 BPM+1), knob / encoder function Tempo. The engine side is `Transport` (`engine/core/module.h`, `Engine::set_transport`). **FX chains** (decisions 23, 47-49): Menu in the Pads section opens the FX page, the RACK page (`scr_rack.c`) on `pads_t.fx`, a `rack_t` with `fx` set whose rows are the chains FXA / FXB / FXC (4 effect modules each, `rack_can_insert`); the header is the routing (`fx_route`) and the estimated load (`rack_fx_load_pct`); Edit in a module's menu shows its values. A pad enters at its Bus (PLAY page). The engine side is `pads_graph_build` (rack_graph.cpp) and `engine_synth_pads_fx`; the chains are saved in `padsfx.cfg`. **Capture** (decision 50): the Rec key (`ACT_PAD_REC`, app.c `capture_key` / `capture_poll`) records what the master output receives, before the volume, mono, straight onto the card (`engine/sampler/capture.*` = the tap the audio thread feeds, `platform/engine/capture_job.cpp` = the card job) and puts the new sample on an empty pad; Shift + Rec sets a length in bars.
+**The Pads section (`core/pads.h`, `scr_pads.c`, `app/app_pads.c`; ADR-041 decisions 14-26).** **Shift + Menu** switches Synth <-> Pads (also the key function "Sectn"). In Pads the synth is unloaded (its notes and sequencer stop) and the engine runs the `Pads` module (8 voices, `sampler_modules.cpp`); the keys take the built-in Pads layout: the function row as always, the left 4 x 4 block = pads 1..16 of the bank shown (top left = 1), the right block = Bank A-D, then Select, Mute, -, Stop all (roles Pad / Bank for the LEDs: an empty pad is dark, a muted one red). Shift + pad = select without sound, Shift + Back = Stop all (for the 4-column board). Screen: the grid (joystick / encoder A = selection, encoder B or Page = bank, push = the pad's editor); the editor, pages PLAY / TONE / CHOP from its header (left / right on the header; the edited pad = the pad key pushed). PLAY (overview on top: the trim, the tail as a fade after End, the loop bracket with its crossfade; Smp, then Mode Strt End Loop (Off / Trim / File: a file with loop points sets File when assigned) LStr XFad XPos Tail | Grid Sync From Snap Next Chok Mute, the loop rows only while the pad loops); TONE: Lvl Pan Tune Fine | Cut Res and the filter's response; EDIT: Op (Normalize, Gain, Fade in / out, Trim silence, Crop = the pad's Start..End as a file, Reverse, Remove DC; Stretch, Pitch, Speed, Fit beats, Fit speed: the pad's loop or Start..End to N beats at the clock's tempo, the trim points scaled with the result; an Algo row Beat / Tonal for Stretch, Pitch, Fit beats; Paulstr.; Lo-fi rate, Bits, Drive, Low-pass, High-pass), its amount, Apply (a new version file `name~n` written by the card task), Ver / Undo / Redo over the version history (`history.cfg`; the last 8 versions and what the pads use are kept); Page - / + switches to the CHOP page: Mode Equal / Trans / Grid / Manual, N / Sens / Div / Cut, Pos, To, Add, Del, Chop to pads (the transient scan is the sample bank's `scan`); trims in frames, 1/200 of the file per step; the header steps the pad; Back = the grid). Column knobs = Start, End, Tune, Cut of the selected pad. Saved in `system/config/pads.cfg` 2 s after a change (one line per pad that differs from the defaults, the file name last). Menu alone does nothing in Pads (the shared settings page is phase 6). **The clock** (ADR-041 decisions 27-29): one tempo, the sequencer's BPM; Play in Pads starts / stops it (bar 1 at a start), in the synth Play is the sequencer and the clock runs with it; the grid header shows the tempo and bar.beat; pad row Grid = Off / Beat / Bar (block-accurate start); key functions Tap, Click (metronome), BPM -1 / +1 / -5 / +5 (the Pads layout's right block, row 3: Tap Click BPM-1 BPM+1), knob / encoder function Tempo. The engine side is `Transport` (`engine/core/module.h`, `Engine::set_transport`). **FX chains** (decisions 23, 47-49): Menu in the Pads section opens the FX page, the RACK page (`scr_rack.c`) on `pads_t.fx`, a `rack_t` with `fx` set whose rows are the chains FXA / FXB / FXC (4 effect modules each, `rack_can_insert`); the header is the routing (`fx_route`) and the estimated load (`rack_fx_load_pct`); Edit in a module's menu shows its values. A pad enters at its Bus (PLAY page). The engine side is `pads_graph_build` (rack_graph.cpp) and `engine_synth_pads_fx`; the chains are saved in `padsfx.cfg`. **Capture** (decision 50): the Rec key (`ACT_PAD_REC`, `app/app_capture.c`: `app_capture_key` / `app_capture_poll`) records what the master output receives, before the volume, mono, straight onto the card (`engine/sampler/capture.*` = the tap the audio thread feeds, `platform/engine/capture_job.cpp` = the card job) and puts the new sample on an empty pad; Shift + Rec sets a length in bars.
 
 Requirements: MSYS2 UCRT64 (`C:\msys64\ucrt64`) with gcc, g++ and SDL2, and Python 3 for the generator tools.
 `lib/` is not versioned. `lib/u8g2` (https://github.com/olikraus/u8g2, needs `csrc/` and `sys/sdl/common/`) is required; `lib/minimp3` (`minimp3.h`, `minimp3_ex.h` from
 https://github.com/lieff/minimp3, public domain) enables the mp3 import of the simulator's sample folder (optional);
 `lib/amy` (`git clone --depth 1 https://github.com/shorepine/amy.git lib/amy`) is only read by `tools/gen_dx7.py` to
 regenerate the DX7 tables.
+
+**The sound is persistent, and there are presets (`core/patch.h`, `app/app_preset.c`, `scr_preset.c`; user decisions 2026-10-11).** What plays is a
+working copy: 2 s after its last change it is written to `system/config/synth.cfg` (with the sequencer and the name of the preset it came from) and it
+is read at power-on, so the machine comes back as it was left. A preset is a text file `presets/<name>.preset` (sub-folders allowed): the rack, the
+voice settings, the amp envelope, the Strings and FM settings, the motion sequences, a sampler's file by name, **the macros and the joystick's XY
+bindings** (they point at that rack's modules; they left ui.cfg). Not in it: the machine's settings (volume, output, speaker, knob mode: ui.cfg, where
+the three first are saved now; key layout; LED colours; the Shift / Mod layers, whose Param entries are pruned when their module is gone) and the
+sequencer. **Menu > PRESETS** (second tab): Load opens the browser on the presets folder (the sample browser, `BROWSE_PRESET`; the listing is
+`audio_dir_open(":<folder>")`): the highlighted preset is put in place once the highlight rests, so the keys play it; a push keeps it, Back reads the
+working state again. Save writes over the preset the sound came from (asks first), Save as makes `Preset N` next to it (no naming on the machine:
+rename and sort the files on a computer, through the card reader), Init starts a new sound (asks first). The tab's box names the preset and says
+`edited` or `saved`. Nothing but Save / Save as ever writes a preset. A text that does not fit the 4 KB settings buffer is refused with a message
+(the start sound is about 1 KB; 16 modules with 64 macro destinations would not fit). Dev: a serial `patch ...` command changes the working copy
+like any edit, so it is saved and comes back at the next start (`patch startup` puts the start sound back).
 
 ## Folder map
 
@@ -103,10 +117,10 @@ oled_sim/
 ├─ .claude/skills/       project skills for Claude Code (esp32-optimize: the measure / change / test / flash / re-measure loop)
 ├─ lib/u8g2/             graphics lib + its SDL display/key backend (not versioned)
 └─ src/
-   ├─ core/              PORTABLE application logic, plain C. No Windows/SDL/Arduino/engine includes here.
-   │  ├─ app.c/.h           glues input -> bindings -> UI -> data -> audio; owns the redraw policy, the octave / Shift state and the joystick-as-buttons
+   ├─ core/              PORTABLE logic the application is built from (the UI, the key layouts, the data models), plain C. No Windows/SDL/Arduino/engine includes here, and nothing from app/.
    │  ├─ bindings.c/.h      THE table that links hardware controls to actions (the one place to change what a button does), except the matrix keys:
    │  ├─ keymap.c/.h        the key layouts (3 built in + User, and the Pads section's), the functions a key can take, keys.cfg on the card
+   │  ├─ patch.c/.h         a sound as text (the rack, the voice settings, envelopes, FM / Strings, the macros and the joystick's bindings): the working state synth.cfg and the presets; its line format is in patch.h
    │  ├─ pads.c/.h          the Pads section's model (ADR-041): 4 banks x 16 pads, their settings, pads.cfg on the card; scr_pads.c = its grid and pad editor
    │  ├─ history.c/.h       the version history of the library's samples (the pads' EDIT page): names, parents, the pad's trim points per version, trimming; history.cfg
    │  ├─ storage_buf.c      the one text buffer every settings file goes through (hal_storage.h `g_storage_buf`)
@@ -117,7 +131,7 @@ oled_sim/
    │  ├─ ui_draw.c          the screens: header, lists, hand-drawn screens, synth_ui_draw()
    │  ├─ ui_internal.h      what those four share (private to the UI)
    │  ├─ ui_screen.c/.h     declarative screens: element tables, focus navigation, latch, drawing (see human_docs/UI_GUIDE.md section 8)
-   │  ├─ scr_*.c            the menu tabs as declarative screens: rack, general, samples, fx, fm (ALGORITHM: the operator tree), keys, mods (MODIFIERS)
+   │  ├─ scr_*.c            the menu tabs as declarative screens: rack, preset (PRESETS: Load / Save / Save as / Init), general, samples, fx, fm (ALGORITHM: the operator tree), keys, mods (MODIFIERS)
    │  ├─ rack.c/.h          modular synth model: slots, audio chain rules, module parameters, modulator targets
    │  ├─ synth_config.c/.h  general settings (synth type, voices, volume, the FM patch copy); the effects are row M of the rack (ADR-041)
    │  ├─ dx7.c/.h           editable 6-operator FM patch + editing helpers
@@ -127,7 +141,21 @@ oled_sim/
    │  ├─ synth_params.c/.h  global amp envelope (AMP ENV page) + the generic LIN/LOG/ENUM parameter table
    │  ├─ gui.c/.h           style sheet + layout/text/sprite/animation helpers over u8g2
    │  └─ sprites.h, module_sprites.h (GENERATED)   1-bit sprites
-   ├─ hal/               INTERFACES the core uses; one implementation per platform (audio, display, input: the board's physical controls, storage: settings files on the card)
+   ├─ app/               THE APPLICATION, portable plain C like core/: glues input -> bindings -> UI -> data -> audio. Only the platform's main loop and the dev tools include it.
+   │  ├─ app.c/.h           app_t, the start, one frame, and the step the main loop calls (it owns the redraw policy)
+   │  ├─ app_internal.h     PRIVATE: what the files of this folder share, and the list of them
+   │  ├─ app_input.c        where an input event goes: the matrix keys (key layout), the other controls (binding table), the joystick as buttons or XY
+   │  ├─ app_layers.c       the Shift / Mod layers, Learn, the catch of the column knobs
+   │  ├─ app_actions.c      `app_run_action`: what an action does; UI events, the keyboard's notes (octave, latch), the tempo
+   │  ├─ app_pads.c         the Pads section: the switch Synth <-> Pads, the pad keys, its knobs, the chop to pads
+   │  ├─ app_library.c      the samples in use (the catalog) and the sample browser
+   │  ├─ app_render.c       a pad's sample processed into a new version (the EDIT page)
+   │  ├─ app_capture.c      the Rec key: what plays, recorded onto a pad
+   │  ├─ app_card.c         the card: the settings files read and saved by themselves, the card's events as popups
+   │  ├─ app_power.c        the battery (`hal_power.h`): a note when it gets low, a message to confirm when it is almost empty
+   │  ├─ app_preset.c       the sound's working state (synth.cfg: written 2 s after the last change, read at power-on) and the presets (the PRESETS tab's requests, the browser that tries a preset before it is kept)
+   │  └─ key_leds.c/.h      the LEDs under the keys, from the key layout and the application's state
+   ├─ hal/               INTERFACES the core uses; one implementation per platform (audio, display, input: the board's physical controls, storage: settings files on the card, power: the battery's level)
    ├─ engine/            THE DSP ENGINE, portable C++17 (no exceptions, no RTTI, no heap after init; sees no core/ or hal/)
    │  ├─ dsp/               q15/q31 math, tables (GENERATED), phase/pitch, oscillators, SVF, FFT/STFT, delay, smoothing, CORDIC
    │  ├─ core/              module API, graph description, plan compiler, engine (voices, command queue), heap
@@ -145,11 +173,11 @@ oled_sim/
 
 ### The rules that keep it portable
 
-1. `core/` only includes `hal/*.h`, `u8g2.h` and the C standard library. Anything platform-specific goes behind a HAL function.
+1. `core/` only includes `hal/*.h`, `u8g2.h` and the C standard library; `app/` the same plus `core/*.h`. `core/` includes nothing from `app/`. Anything platform-specific goes behind a HAL function.
 2. `engine/` includes nothing from `core/`, `hal/` or the platform. `platform/engine/` is the only bridge between the two.
 3. Every file under `platform/<x>/` is wrapped in its guard, because PlatformIO compiles all of `src/`.
 4. The display is created by the platform (`display_init()`), then handed to the app: `app_init(&app, display_init())`.
-5. HAL headers have `extern "C"`, so C core code links from C++ files. `core/*.c` stays C (it uses C designated initializers).
+5. HAL headers have `extern "C"`, so C core code links from C++ files. `core/*.c` and `app/*.c` stay C (they use C designated initializers).
 6. In the engine, nothing on the audio path allocates, locks, logs or uses `float` (see the guidelines in ENGINE_DESIGN.md).
 
 ## Architecture in one page
@@ -194,7 +222,7 @@ That is what lets one generic list renderer show any of them.
 - **Popups** (`core/popup.h`, `app->popup`): a box over any screen. `popup_info` (goes after a time, input passes through: the Shift-knob value),
   `popup_error` (OK) and `popup_ask` (Yes / No, answer by callback) are modal and queued (4); while one is up `app_run_action` hands it the actions
   (Nav left / right, Value, Row: the button; Latch / Select: press; Back: No), notes / Shift / volume still act, the rest is ignored.
-  `synth_ui_draw` no longer sends the buffer: `draw_frame` (app.c) draws the screen, the popup on top, then `display_send`. Dev tests: serial `popup info|error|ask`, `ui_dump popup:ask`.
+  `synth_ui_draw` no longer sends the buffer: `app_draw_frame` (`app/app.c`) draws the screen, the popup on top, then `display_send`. Dev tests: serial `popup info|error|ask`, `ui_dump popup:ask`.
 
 ## Where to make changes
 
@@ -267,13 +295,13 @@ Input has three layers, so each change has one home:
 2. **Bindings** (`core/bindings.c`): the table `{control, event kind, modifier state, action, argument}`. Rebinding = editing a row, e.g. to make
    encoder A change pages instead of rows: `{CTL_ENC_A, IN_DELTA, MODS_NONE, ACT_PAGE_MOVE, +1}`. A control can have several rows; Shift (hold-action on
    button 3) selects rows by `MODS_NONE` / `MODS_SHIFT` / `MODS_ANY`. The list of actions and their arguments is in `core/bindings.h`.
-3. **Actions** (`app_run_action` in `core/app.c`): what an action does, mostly by sending a `ui_event_t` (`UI_UP`, `UI_PAGE_NEXT`, `UI_SELECT`... in
+3. **Actions** (`app_run_action` in `app/app_actions.c`): what an action does, mostly by sending a `ui_event_t` (`UI_UP`, `UI_PAGE_NEXT`, `UI_SELECT`... in
    `core/synth_ui.h`) to `synth_ui_handle`, or by playing a note, changing the octave, or setting a knob value.
 
 Recipes:
 - *Move a function to another button*: change `ctl` in its row of `bindings[]`. No other file changes. **Matrix keys** are not in `bindings[]`: their functions come
   from the key layout (`core/keymap.c`: `preset()` builds the three built-in layouts, `fns[]` lists the functions a key can take; the user edits them in the KEYS tab).
-  `app.c` (`key_event`) runs a key's function through the same `app_run_action`.
+  `app/app_input.c` (`key_event`) runs a key's function through the same `app_run_action`.
 - *New action*: a value in `action_id_t` + its name in `action_names` (`bindings.c`) + a `case` in `app_run_action`; then use it in the table. Actions that need the
   release of their control (notes, Shift) are listed in `action_is_hold`.
 - *New physical control*: a value in `control_id_t` (`hal_input.h`, before `CTL_HW_COUNT`), a name in `control_name`, a widget in `build_layout` of
@@ -285,8 +313,8 @@ Recipes:
   "one step up / down", so `ui_input.c` (`knob_set`) walks the parameter to both ends and back to the step that matches the position: nothing to add when a new
   parameter appears. Rows that select or cycle (targets, sample file, step editors) are not driven by knobs (`row_is_knobbable`).
   *Catch* (`knob_check_catch`, `synth_ui_catch_refresh` in `ui_input.c`): `knob_catch_dir[k]` is 0 = caught, -1 / +1 = the way to turn (drawn as a 4 px wedge by `ui_draw.c`), 127 = not
-  measured yet. A blocked knob is released when it crosses the value (a fast turn skips the exact step). `app.c` sets `catch_stale` after manual changes and Shift, and calls
-  `synth_ui_catch_refresh` before drawing; `knob_cur[k] == -2` marks "the knob set this value itself" (walking can measure the step one off). The Catch / Direct choice is `cfg.knob_mode`.
+  measured yet. A blocked knob is released when it crosses the value (a fast turn skips the exact step). The app sets `app_catch_stale` after manual changes and Shift, and calls
+  `synth_ui_catch_refresh` before drawing (`app_catch_poll`, `app/app_layers.c`); `knob_cur[k] == -2` marks "the knob set this value itself" (walking can measure the step one off). The Catch / Direct choice is `cfg.knob_mode`.
   The Shift targets are `ui->knob_shift[]` (`macro_t`, today only `MACRO_GLOBAL` + `cfg_param_id_t`).
 - *Test without the window*: `tools/ui_dump.c` takes control events (`encA:+1`, `shift`, `knob:27:900`, `key:4.0`...), see the top of the file.
 
@@ -340,6 +368,7 @@ Rack -> engine mapping and the master chain are described in ENGINE_DESIGN.md (A
 | `make_demo_samples.py` | five synthetic demo samples into `samples/` (the simulator's card folder) | `python tools/make_demo_samples.py` |
 | `smp_convert.cpp` | every `.wav` / `.mp3` of a folder -> `.smp` (new or changed files only; shares `platform/sim/sample_convert.h` with the simulator's importer). build.ps1 builds and runs it on `samples_src/` | `build\smp_convert.exe samples_src samples [--force]` |
 | `wav2smp.py` | one WAV (8..32 bit, mono/stereo, `smpl` loops) -> cooked `.smp` sample, with `--slices` / `--loop` / `--root` options the converter has no way to give | `python tools/wav2smp.py in.wav out.smp --root 60 --slices 0 12000` |
+| `import_boot_anim.py` | a monochrome frame array in a C header (rows of bytes, LSB = left pixel) -> the boot animation's images `assets/UI_Sprites/64/boot_NN.png` (replaces the ones there; `--sheet out.png` = every frame side by side) | `python tools/import_boot_anim.py path/to/loading7.h` |
 | `build_engine_tests.ps1` | builds and runs the engine tests; `-Matrix` for all configurations, `-Filter name` for a few | see the file header |
 | `build_ui_tests.ps1` | builds and runs the UI tests (`tests/ui/*.c`, C: `TEST(name)` in `ui_test.h`; each test starts a fresh app with `ui_fresh()` and sends control events; `ui_stub_ramcard(true)` gives a card in RAM, `ui_board(true)` the prototype's controls); `-Filter name` for a few | see the file header |
 | `ui_dump.c` | renders the screens to ASCII without SDL or audio (layout checks); its platform stand-ins are `ui_stubs.c`, shared with the UI tests | command at the top of the file |
@@ -363,7 +392,7 @@ against the naive waveforms, reverb decay rate, chorus delay swing...), the samp
 bandwidth, stalls), and the production path from `rack_t` to audio samples (`test_integration.cpp`). Run `-Matrix` after
 touching anything in `engine/`: the six configurations catch hard-coded rates and block sizes.
 
-Screens: `gcc -O1 -w -Isrc -Ilib/u8g2/csrc tools/ui_dump.c src/core/*.c lib/u8g2/csrc/*.c -lm -o build/ui_dump.exe`, then
+Screens: `gcc -O1 -w -Isrc -Ilib/u8g2/csrc tools/ui_dump.c src/core/*.c src/app/*.c lib/u8g2/csrc/*.c -lm -o build/ui_dump.exe`, then
 `build\ui_dump.exe "menu right right"` prints the frame after those events.
 
 ## ESP32 firmware and performance work
@@ -390,13 +419,14 @@ C:\.platformio\penv\Scripts\python.exe tools\serial_test.py   # measure on COM8 
 
 | File | What |
 | --- | --- |
-| `main_esp32.cpp` | setup / loop: power, serial (115200, non-blocking TX), optional boot delay, input task, audio, app. The UI loop runs on core 0 |
-| `board_pins.h` | the pin map, inside `#ifdef HWV1` (I2S, OLED, mux, joystick, keyboard I2C, LED, power, SD) |
-| `hwv1_layout.h` | how the old board's physical keys and knobs map to the HAL controls (`kHwv1KeyMap`: the 4 function keys = HAL row 0, the 4 x 8 note keys = rows 1..4; `HWV1_KEY_PRESENT`; `kHwv1Knobs`, flip flags, counts per revolution) |
+| `main_esp32.cpp` | setup / loop: power, serial (115200, non-blocking TX), the hand-over to the card reader's firmware when the power button is up (`board_card_reader`), optional boot delay, input task, audio, app. The UI loop runs on core 0; when the power button goes up it saves (`app_save_now`) and lets the supply go |
+| `board_pins.h` | the pin map, inside `#ifdef HWV1` (I2S, OLED, mux, joystick, keyboard I2C, LED, power, SD), the power button's level and the battery's scale |
+| `hwv1_layout.h` | how the old board's physical keys and knobs map to the HAL controls (`kHwv1KeyMap`: the 4 function keys = HAL row 0, the 4 x 8 note keys = rows 1..4; `HWV1_KEY_PRESENT`; `kHwv1Knobs`, flip flags, counts per revolution), the mux's two other channels |
 | `kbd_tca8418.*`, `mux_esp32.*`, `input_esp32.cpp` | keyboard (Adafruit TCA8418 on Wire1, config watchdog, bus recovery), mux reads, and the scan task on core 0 that turns them into HAL events (quadrature decode with hysteresis, joystick) |
 | `display_esp32.cpp` | `U8G2_SH1107_128X128_F_HW_I2C`, 400 kHz (a full frame takes ~120 ms). `display_send()` (HAL, in place of `u8g2_SendBuffer`) copies the frame and wakes the `display` task, which sends only the changed 8 x 8 tiles; this panel's column offset (96) wraps, so a run starting at tile x is sent with the offset moved to (96 + 8x) mod 128. `app_step` also puts a redraw off while input is queued (`input_pending()`) |
-| `board_esp32.*` | power hold (PWR_ON_EN), amplifier / DAC enable (XSMT; SPK_SD left floating, `HWV1_SPK_SD_MODE=1` drives it), power polling |
-| `leds_esp32.cpp` | LED HAL (`hal_leds.h`): FastLED 3.10.6 (pinned; its first RMT channel uses DMA on the S3), SK6812 colour order RGB, key -> chain map (physical columns, checked on the board), brightness capped at `HW_LED_MAX_BRIGHTNESS` = 20 % (power: the user's limit), sends only when the frame changed. Serial (dev): `leds N` (chain LED N red for 5 s), `leds all`, `leds off` / `leds on` (stop / resume every transfer). What the keys show: `core/key_leds.c` (play feedback, called at the end of `app_step`) |
+| `board_esp32.*` | power hold (PWR_ON_EN), amplifier / DAC enable (XSMT; SPK_SD left floating, `HWV1_SPK_SD_MODE=1` drives it). **The power button** is a latching switch, down = on, read on PWR_SENSE (`HW_PWR_SENSE_ON`, `board_power_button_on`); the USB cable feeds the board whatever it says, so a board that still runs after the latch was let go with the button up is on the cable (`board_power_started_off` at the start, `board_power_poll` / `board_power_off` later): on the battery the board stops, on the cable it restarts into the card reader (`board_card_reader`: `esp_ota_set_boot_partition` on the second slot, then a restart; with no firmware there the synth goes on). The joystick held at such a start keeps the synth (the button is ignored until it is next used). `board_usb_host`: a computer on the cable (the USB-Serial/JTAG port sees its frames). **The battery** (`hal_power.h`): mux channel 1 through a divider, millivolts on the pin x `HW_BATT_FULL_SCALE_MV` / 3300, smoothed, 6.0 .. 8.4 V = 0 .. 100 %, under 4 V = no battery; read by the input task every 100 ms with the mux's spare channel 0 (`HWV1_MUX_AUX`, kept as a button state, not a control yet). Serial (dev): `power`, `storage` |
+| `usb_storage_esp32.cpp` | **the card reader, a second firmware** (`[env:card_reader]`, built with `HWV1_CARD_READER` from this file, `board_esp32`, `display_esp32`, `mux_esp32` and the card driver; 540 KB, in the second application slot at 0x650000; `pio run -e card_reader -t upload`, once). With the power button up on the cable the TF card is a USB drive on the computer: TinyUSB mass storage over the card driver's raw sector access (`sd_card_raw_*`), its own screen, the USB transceiver taken from the serial console and given back before it restarts into the synth (the power button down, or the joystick held 2 s and kept held). Its first act is to point the bootloader back at the synth. Why not a mode of the synth: TinyUSB takes 23 KB of static internal RAM whether it runs or not (measured: the synth's link failed by 10 KB). `HWV1_USB_STORAGE=0` (synth) never starts it. On the board (2026-10-11): the drive mounts and reads at 543 KB/s (full-speed USB); writing and the way back to the synth not tried yet |
+| `leds_esp32.cpp` | LED HAL (`hal_leds.h`): FastLED 3.10.6 (pinned; its first RMT channel uses DMA on the S3), SK6812 colour order RGB, key -> chain map (physical columns, checked on the board), brightness capped at `HW_LED_MAX_BRIGHTNESS` = 20 % (power: the user's limit), sends only when the frame changed. Serial (dev): `leds N` (chain LED N red for 5 s), `leds all`, `leds off` / `leds on` (stop / resume every transfer). What the keys show: `app/key_leds.c` (play feedback, called at the end of `app_step`) |
 | `audio_esp32.cpp` | I2S (MSB format, no MCLK) and the audio task on core 1; sizes the fast heap (internal RAM) and the bulk heap (PSRAM); applies `DEV_OUTPUT_GAIN_PCT`; prints the `[AUDIO]` / `[PROF]` / `[SEC]` / `[OSC]` / `[HEAP]` lines |
 | `bench_esp32.*` | boot micro benchmark (`HWV1_BENCH`): cycles per operation, RAM vs PSRAM |
 | `sd_card.*`, `sd_card_spi.cpp`, `storage_sd.*`, `samples_esp32.*` | the TF card: `sd_card.h` is the interface (mount as FAT at `/sdcard`, probe the read time, alive / identity check); `sd_card_spi.cpp` is HWV1's own small SPI-mode driver (reads with the data CRC16 checked and a bad block read again, `[SD] data CRC errors` in the log; single-block writes for the settings files, each checked with CMD13; the data token is polled `HWV1_SD_PROBE` (8) bytes per SPI call; above 25 MHz only after a CMD6 switch to high-speed mode, which the prototype's SL32G card does not have, so it runs at 25 MHz unless `-DHWV1_SD_OVERCLOCK=1`; `-DHWV1_SD_BENCH` prints raw, scattered and file read times at boot; registered with FATFS; ESP-IDF's sdspi host spent 40 ms before every command on this board); a new prototype with an SDMMC slot replaces that one file. The card is polled once a second (no card-detect pin): inserted -> a timed read test and a check of the folders of `STORAGE_FOLDERS` -> a card event (`storage_poll_event`, hal_storage.h) that the app shows as popups: "Card inserted", "SD CARD TOO SLOW" (slower than 15 ms per sector: not used for samples; the synth runs as if there were no card), and an ASK when folders are missing: Yes runs `storage_make_folders` on the card task (the old layout's `/samples` and `/keys.cfg` move into `/system`, then the missing folders are made, then a rescan); removed -> "Card removed"; removed or swapped -> the catalog is reset, `SdStorage` is the sampler's `StorageDevice`, `samples_esp32` is the I/O task (core 0, priority 5, see "Tasks and priorities"): mount, list `/sdcard/system/samples/*.smp` into the catalog (the header of each file carries the amplitude overview, so a scan reads one block per file), run the loader, and the settings-file jobs of `hal_storage.h` (`storage_read` / `storage_write` post a job and wait up to 1.5 s; the task runs it between loader reads; a write goes to `<name>.tmp`, then replaces the file). Cook files on the PC (`samples_src/` + build.ps1); there is no .wav / .mp3 import on the board. `SdStorage` reads through an 8 KB internal DMA-capable bounce buffer (a PSRAM destination would make the SD driver issue one command per 512 bytes) |
@@ -407,6 +437,14 @@ C:\.platformio\penv\Scripts\python.exe tools\serial_test.py   # measure on COM8 
 | Flag | Meaning | Before a release |
 | --- | --- | --- |
 | `HWV1` | selects the pin block and drivers of the first prototype | keep for this board |
+| `HWV1_USB_STORAGE=0` | (not set: 1) the synth never starts the card reader's firmware: with the power button up on the cable the synth runs, as before 2026-10-11 | leave unset |
+| `HWV1_CARD_READER` | set by `[env:card_reader]` only: this build is the card reader's firmware (`usb_storage_esp32.cpp`) | keep there |
+
+**A release** (`tools/make_release.ps1 -Version beta-1.0`, into `build/release`): `[env:release]` is the synth without `DEV_SERIAL_CMD` and with the output at
+18 % (the user's settings for the first prototype, 2026-10-11); the script merges it with the bootloader, the partition table and the card reader into one image
+written at address 0 (`esptool --chip esp32s3 write-flash 0x0 ritual-machine-<version>-hwv1.bin`), and packs the simulator with its DLLs, the five synthetic
+demo samples (never the user's `samples/`), a readme (`tools/release/README-simulator.txt`) and the licence notices into a zip. Published with
+`gh release create <tag> --prerelease` and the two files.
 | `DEV_OUTPUT_GAIN_PCT=N` | output level in percent of full scale (the first prototype's output stage is harsh on headphones) | remove or 100 |
 | `DEV_SPEAKER_DEFAULT=N` | the built-in speaker's starting level (0 = off, 20 = 100 %; GENERAL "Spk" still changes it) | remove (full) |
 | `DEV_BOOT_DELAY_MS=3000` | wait after `Serial.begin` so a monitor catches the boot log | remove |
@@ -414,7 +452,9 @@ C:\.platformio\penv\Scripts\python.exe tools\serial_test.py   # measure on COM8 
 | `HWV1_DEBUG_UI` | once a second while the controls are used: input events, the slowest app step, the slowest `audio_set_params` (`[UI]` lines) | remove |
 | `HWV1_SD_BENCH` | boot-time card benchmark (`[SD] bench ...` lines: raw reads of 1 / 8 / 16 sectors, file reads of 512 B / 4 KB) | remove |
 | `HWV1_SD_FREQ_KHZ=N` | SPI clock of the card once initialised (default 20000) | keep / tune |
+| `BOOT_TRACE` | `[BOOT]` lines: when the display, the audio, the application and the loop are ready (ms since reset), the boot animation's frames, its slowest frame and when its end was asked, what the start waits for (card state, the pads' files, steps over 100 ms), and every control event of the loop's first 5 s (kind, control id, value) | remove |
 | `HWV1_SD_IO_PRIO=N` | priority of the card I/O task (default 5) | keep |
+| `HWV1_SD_CALM_PRIO=N` | its priority for card work without a deadline: a header, a folder's list, a sample's load (default 1 = the UI's) | keep |
 | `HWV1_SD_IDF` | use ESP-IDF's sdspi host instead of the own SPI driver: on HWV1 it costs about 40 ms before EVERY command, kept for comparison only | do not use |
 | `HWV1_DEBUG_AUDIO`, `ENGINE_PROFILE` | once a second: `[AUDIO]` render time / blocks over budget / graph builds / DMA underruns (the real dropouts), `[PROF]` cycles per module, `[SEC]`, `[OSC]`, `[HEAP]` | remove |
 | `HWV1_DEBUG_INPUT`, `HWV1_BENCH`, `HWV1_TEST_TONE` | raw key log; boot benchmark; 440 Hz test tone instead of the engine | remove |
@@ -458,11 +498,12 @@ The firmware already runs on FreeRTOS (the Arduino core is built on ESP-IDF, dua
 | --- | --- | --- | --- | --- |
 | `audio` | 1 | 23 (`configMAX_PRIORITIES - 2`) | engine render + I2S write | a missed block is a click; core 1 is otherwise idle |
 | `input` | 0 | 8 | keyboard / mux / joystick scan | short and periodic, must not lose events |
-| `sd_io` | 0 | 5 | card mount / scan, the sample loader | has deadlines (a dry stream is audible) but only milliseconds of CPU; sleeps 2 ticks after 8 reads in a row and during a scan (the card driver busy-waits, so without that the core-0 idle task starves and the task watchdog fires) |
+| `sd_io` | 0 | 5; 1 for work without a deadline | card mount / scan, the sample loader | has deadlines (a dry stream is audible) but only milliseconds of CPU; sleeps 2 ticks after 8 reads in a row and during a scan (the card driver busy-waits, so without that the core-0 idle task starves and the task watchdog fires). A sample's header, a folder's list and the load of a sample (hundreds of ms each) run at the UI's priority (`Calm`, `HWV1_SD_CALM_PRIO`): at 5 they held the UI for that long, at 0 they starved |
 | Arduino `loop()` | 0 | 1 | app, sequencer, LEDs; draws frames into RAM | notes and knobs must not wait for the display bus |
 | `display` | 0 | 1 | sends the changed tiles of the newest frame over I2C | the bus waits block, so `loop()` runs meanwhile |
+| `boot` | 0 | 10 | the boot animation (`64/boot`): a frame every 50 ms (`BOOT_FRAME_MS`) from `display_init` on (the first thing `setup()` does), back and forth until the application reports its start (`display_boot_end`: the card read, the pads' files in), then on to the nearer end of the animation; under it a loading bar (`display_esp32_boot_stage` from `setup()` for its first 30 %, `display_boot_progress` from the application for the rest); it hands the panel to `display` and deletes itself | above everything else on core 0, so the frames keep their rhythm while the audio, the card and the application start (measured: a frame sent in 12 ms at most; the UI at 5.1 s on a card with 1800 samples in one folder, of which 2.3 s for three pads' files). While it plays, the card's work without a deadline keeps priority 5 |
 
-Rules: nothing on core 1 except `audio`; anything that waits on hardware (card, I2C) must block (DMA / semaphore), never spin; the loader holds the engine mutex while it reads, so a UI build can wait a few ms behind a card read (never the audio task).
+Rules: nothing on core 1 except `audio`; anything that waits on hardware (card, I2C) must block (DMA / semaphore), never spin; the loader holds the engine mutex while it reads a ring block, so a UI build can wait a few ms behind a card read (never the audio task); a sample's header and heads are read outside it (`SdStorage::service`, `IoRead::pinned`), and the UI never waits for a card answer it can take later (`audio_sample_request`).
 If something new needs the CPU on core 0, give it a priority by its deadline, not by its importance.
 
 ### Performance rules (details and numbers in ENGINE_DESIGN.md ADR-035)

@@ -5,7 +5,7 @@ The UI is in a transition: every tab of the **menu** is built with the new **dec
 (the pages of parameters, the sequencer and the motion / envelope pages) still uses the older **page / handler** model (sections 3 and 4). The boundary between
 the two is described in section 7, and the last section lists what is still open.
 
-Files, all in `src/core/`:
+Files, in `src/core/` (the application's: `src/app/`):
 
 | File | Role |
 | --- | --- |
@@ -17,9 +17,9 @@ Files, all in `src/core/`:
 | `ui_graphs.c` | the pictures of the graph box: waveform, envelope, filter response, effect sketches, algorithm diagram... |
 | `ui_screen.c/.h` | the declarative-screen engine: element tables, focus navigation, latch, drawing of elements, the tab -> screen lookup |
 | `scr_rack.c`, `scr_general.c`, `scr_samples.c`, `scr_fm.c` | the menu tabs, written with that engine: RACK, GENERAL, SAMPLES, the FM tab ALGORITHM (the operator tree), KEYS, MODIFIERS |
-| `scr_browse.c` | the sample browser: one folder of the card's library as a full-screen list (its own event and draw functions, not a table screen), opened over either section by the pad editor's Smp row and the SAMPLES tab's File row; the app (`app.c`: `browse_open / _load / _close / _poll`) reads the highlighted file and puts it on the pad |
+| `scr_browse.c` | the sample browser: one folder of the card's library as a full-screen list (its own event and draw functions, not a table screen), opened over either section by the pad editor's Smp row and the SAMPLES tab's File row; the app (`app/app_library.c`: `app_browse_open / _load / _close / _poll`) reads the highlighted file and puts it on the pad |
 | `gui.c/.h` | the drawing toolkit and style (rectangles, text, fields, buttons, sprites, animations) |
-| `app.c` | calls the UI, decides when to redraw |
+| `app/app.c` | calls the UI, decides when to redraw (`app_step`); the rest of the application is in the other files of `src/app/` |
 | `bindings.c/.h` | which hardware control triggers which action (not part of the UI) |
 | `sprites.h`, `module_sprites.h` | bitmaps (the second one is generated) |
 
@@ -145,7 +145,7 @@ with `gui_center_box`. That is why the same code works at 128x64 and 128x128. Th
 | `UI_UP / DOWN` | encoder A | previous / next row or element |
 | `UI_SELECT` | encoder B push | activate a button |
 | `UI_PAGE_PREV / NEXT`, `UI_ROW_TOP`, `UI_MENU`, `UI_BACK`, `UI_PLAY` | page-move, encoder A push, button 1, button 2, play | |
-| `UI_JUMP_1 .. UI_JUMP_8` | `ACT_JUMP` (a key with the function `Jump n`) | go to the location saved in slot n (`synth_ui_t.jump[]`); the save (Shift + the key) is done by `app.c` directly |
+| `UI_JUMP_1 .. UI_JUMP_8` | `ACT_JUMP` (a key with the function `Jump n`) | go to the location saved in slot n (`synth_ui_t.jump[]`); the save (Shift + the key) is done by the app (`app_run_action`) directly |
 | `UI_LEFT / RIGHT` | (internal) | the old events: change the value of the focused row; on row 0 change page or tab |
 
 Which control sends which event is decided in `bindings.c`, not in the UI.
@@ -242,7 +242,7 @@ the main view's pages are the remaining screens to convert. Callbacks that serve
 - **Data in**: `synth_ui_draw` reads `rack_t`, `synth_params_t`, `seq_t` (const). Drawing never writes. (`synth_ui_draw` casts the const away only to build the context that the screens share with the event code.)
 - **Changes out**: `synth_ui_handle` returns `true` when a *sound value* changed; `app_run_action` then calls `audio_set_params(rack, params)`. Structural changes set `ui->rebuild`;
   `app_step` then calls `audio_build`. Moving the focus or switching pages changes nothing in the data and only triggers a redraw.
-- **Redraw policy** (`app_step` in `app.c`): the app sets `dirty` when an action touched the UI, and also redraws when the sequencer steps or an animation ticks *and* the current page
+- **Redraw policy** (`app_step` in `app/app.c`): the app sets `dirty` when an action touched the UI, and also redraws when the sequencer steps or an animation ticks *and* the current page
   shows a playhead (`synth_ui_shows_playhead`). Notes and the Shift modifier do not redraw. The reason is the real display (I2C): a full-frame flush is slow and must not starve the audio loop.
 - **Parameters are generic**: every parameter set has `*_adjust(dir)`, `*_label`, `*_format`. That is what lets one list renderer show any of them and lets the knobs drive any row.
 

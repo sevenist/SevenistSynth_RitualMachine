@@ -5,7 +5,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <string.h>
-#include "core/app.h"
+#include "app/app.h"
 #include "core/modifiers.h"
 #include "core/keymap.h"
 #include "core/ui_settings.h"

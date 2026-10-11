@@ -14,6 +14,8 @@
 #include "core/pads.h"
 #include "platform/esp32/serial_cmd_esp32.h"
 #include "platform/esp32/sd_card.h"
+#include "platform/esp32/board_esp32.h"
+#include "hal/hal_power.h"
 #include "engine/offline/process.h"
 #ifdef HWV1
 #include "platform/esp32/leds_esp32.h"
@@ -157,6 +159,44 @@ void run(char *line) {
         const int index = audio_sample_use(name);
         const uint32_t us = micros() - t0;
         Serial.printf("[CMD] use \"%s\": index %d in %u us\n", name, index, (unsigned)us);   // -1 no such sample, -2 the catalog is full
+        return;
+    }
+    if (!strcmp(line, "browse") && g_app) {               // browse N [REST_MS] [FIRST]: the browser on the selected pad (the root folder), FIRST rows down at once, then N rows one by one, REST_MS on each: how long the UI was held, and the stream underruns meanwhile
+        int n = 8, rest = 400, first = 0;
+        sscanf(arg ? arg : "", "%d %d %d", &n, &rest, &first);
+        synth_ui_t *ui = &g_app->ui;
+        const int pad = pads_ui_pad(ui);
+        const input_event_t none = {CTL_NONE, IN_NONE, 0, false};
+        const uint32_t t0 = micros();
+        if (!browse_ui_open(ui, BROWSE_PAD, "", audio_millis())) { Serial.println("[CMD] browse: no card or no samples folder"); return; }
+        ui->br_target = (int8_t)pad;
+        ui->br_pad = g_app->pads.pad[pad];
+        Serial.printf("[CMD] browse: %d entries, opened in %u us\n", ui->br_total, (unsigned)(micros() - t0));
+        uint32_t under0 = 0, under1 = 0, blocks = 0;
+        engine_synth_sampler_stats(&under0, &blocks);
+        for (int last = -1; ui->br_cur < first && ui->br_cur != last;) { last = ui->br_cur; browse_ui_event(ui, UI_PAGE_NEXT, audio_millis()); }
+        for (int k = 0; k < n; k++) {
+            browse_ui_event(ui, UI_DOWN, audio_millis());
+            g_app->dirty = true;
+            uint32_t worst = 0, held = 0, shown_ms = 0;
+            const uint32_t r0 = millis();
+            while (millis() - r0 < (uint32_t)rest) {
+                const uint32_t a = micros();
+                app_step(g_app, none);
+                const uint32_t us = micros() - a;
+                if (us > worst) worst = us;
+                if (us > 30000) held += us;                // (a step with a redraw takes 4 .. 16 ms)
+                if (!shown_ms && ui->br_state != BR_FRESH && ui->br_state != BR_READING) shown_ms = millis() - r0;
+                delay(1);
+            }
+            char name[PAD_NAME_MAX] = "";
+            browse_ui_file(ui, name, sizeof name);
+            Serial.printf("[CMD] browse row %d \"%s\": slowest step %u us, held %u us, shown after %u ms, state %d\n", ui->br_cur, name, (unsigned)worst, (unsigned)held, (unsigned)shown_ms, ui->br_state);
+        }
+        ui->br_done = 2;                                  // Back: the pad as it was
+        app_step(g_app, none);
+        engine_synth_sampler_stats(&under1, &blocks);
+        Serial.printf("[CMD] browse done, stream underruns +%u\n", (unsigned)(under1 - under0));
         return;
     }
     if (!strcmp(line, "patch") && g_app) {
@@ -432,6 +472,21 @@ void run(char *line) {
         return;
     }
 #ifdef HWV1
+    if (!strcmp(line, "power")) {                         // power: the power button, the USB cable, the battery (raw count, pin, result) and the mux's spare input
+        int raw = 0, pin = 0;
+        board_battery_debug(&raw, &pin);
+        Serial.printf("[CMD] power button %s, usb host %s, battery raw %d pin %d mV -> %d mV %d %%, aux raw %d %s\n", board_power_button_on() ? "down" : "up",
+                      board_usb_host() ? "yes" : "no", raw, pin, power_battery_mv(), power_battery_percent(), input_esp32_aux_raw(), input_esp32_aux_pushed() ? "pushed" : "idle");
+        return;
+    }
+    if (!strcmp(line, "storage")) {                       // storage: restarts into the USB card reader (its own firmware, usb_storage_esp32.cpp), whatever the power button says
+        Serial.println("[CMD] storage: restarting as the card reader (back: the joystick held 2 s, or the power button up then down)");
+        if (g_app) app_save_now(g_app);
+        delay(100);
+        board_card_reader();
+        Serial.println("[CMD] storage: no card reader firmware");
+        return;
+    }
     if (!strcmp(line, "leds")) {                          // leds N: only chain LED N lit (red) for 5 s, leds all: every LED white; to check the chain order
         if (arg && (!strcmp(arg, "off") || !strcmp(arg, "on"))) { leds_esp32_enable(!strcmp(arg, "on")); Serial.printf("[CMD] leds %s\n", arg); return; }
         const bool all = arg && !strcmp(arg, "all");

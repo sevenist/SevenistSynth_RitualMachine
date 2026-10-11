@@ -1,5 +1,6 @@
-// The joystick as an XY controller (synth_ui.h: synth_ui_joy_*, app.c: joy_bind / joy_mode / joy_update, scr_joy.c, ui.cfg "joy" lines).
+// The joystick as an XY controller (synth_ui.h: synth_ui_joy_*, app/app_input.c: app_joy_bind / app_joy_mode / joy_update, scr_joy.c, ui.cfg "joy" lines).
 #include "ui_test.h"
+#include "core/patch.h"
 #include "core/curves.h"
 
 #define SHIFT CTL_BTN_3
@@ -101,7 +102,7 @@ TEST(joy_follows_a_value_set_by_a_knob) {
     CHECK(norm(a) == v2);                                                // and the next push is around it
 }
 
-TEST(joy_range_curve_tab_and_ui_cfg) {
+TEST(joy_range_curve_tab_and_the_patch_text) {
     ui_fresh();
     const macro_t a = row_target(1), b = row_target(2);
     push_on(1); push_on(2);
@@ -117,13 +118,13 @@ TEST(joy_range_curve_tab_and_ui_cfg) {
     CHECK_EQ(ui_app.ui.joy[1].t.kind, MACRO_NONE);
     CHECK(same_t(ui_app.ui.joy[0].t, a));
     static char txt[STORAGE_FILE_MAX];
-    ui_settings_to_text(&ui_app.ui, &ui_app.rack, txt, sizeof txt);
-    CHECK(strstr(txt, "joy\njoy x ") != NULL);
+    CHECK(patch_to_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, false, txt, sizeof txt) > 0);   // the bindings belong to the sound (core/patch.h)
+    CHECK(strstr(txt, "\njoy x ") != NULL);
     CHECK(strstr(txt, "joy y") == NULL);
     CHECK(strstr(txt, " range 20 60 curve s\n") != NULL);
     memset(ui_app.ui.joy, 0, sizeof ui_app.ui.joy);
     ui_app.ui.joy[1] = (mapping_t){b, 0, 0, 0};                          // the file has no Y: it is unbound after loading
-    CHECK(ui_settings_from_text(&ui_app.ui, &ui_app.rack, txt));
+    CHECK(patch_from_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, NULL, txt));
     CHECK(same_t(ui_app.ui.joy[0].t, a) && ui_app.ui.joy[0].min == 20 && mapping_max(&ui_app.ui.joy[0]) == 60 && ui_app.ui.joy[0].curve == CURVE_S);
     CHECK_EQ(ui_app.ui.joy[1].t.kind, MACRO_NONE);
 }

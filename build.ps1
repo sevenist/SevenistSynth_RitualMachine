@@ -33,7 +33,8 @@ function Sync-Card([string]$root) {
     $n = 0
     foreach ($f in Get-ChildItem samples -Filter *.smp -ErrorAction SilentlyContinue) {
         $t = Join-Path $dest $f.Name
-        if (-not (Test-Path $t) -or (Get-Item $t).Length -ne $f.Length -or (Get-Item $t).LastWriteTime -lt $f.LastWriteTime) { Copy-Item $f.FullName $t -Force; $n++ }
+        # -LiteralPath: a sample name may hold [ ] (wildcards to PowerShell: the copy failed and stopped the build)
+        if (-not (Test-Path -LiteralPath $t) -or (Get-Item -LiteralPath $t).Length -ne $f.Length -or (Get-Item -LiteralPath $t).LastWriteTime -lt $f.LastWriteTime) { Copy-Item -LiteralPath $f.FullName -Destination $t -Force; $n++ }
     }
     if ($n) { Write-Host ("samples: {0} file(s) copied to {1}" -f $n, $dest) }
 }
@@ -51,7 +52,7 @@ if (Test-Path $py) {
     if ($LASTEXITCODE -ne 0) { Write-Host "Some UI sprites could not be converted (see above)" -ForegroundColor Yellow }
 } else { Write-Host "No PlatformIO Python: UI sprites not regenerated (the committed ui_sprites_gen.c is used)" -ForegroundColor Yellow }
 
-$cSrc   = @(Get-ChildItem src/core/*.c) + @(Get-ChildItem src/platform/$Platform/*.c) +
+$cSrc   = @(Get-ChildItem src/core/*.c) + @(Get-ChildItem src/app/*.c) + @(Get-ChildItem src/platform/$Platform/*.c) +
           @(Get-ChildItem $u8g2/csrc/*.c) + @(Get-ChildItem $u8g2/sys/sdl/common/*.c)
 $cppSrc = @(Get-ChildItem src/engine -Recurse -Filter *.cpp) + @(Get-ChildItem src/platform/engine/*.cpp) +
           @(Get-ChildItem src/platform/$Platform/*.cpp -ErrorAction SilentlyContinue)

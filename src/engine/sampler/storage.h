@@ -17,6 +17,10 @@ struct IoRead {
     uint32_t bytes;
     void *dst;              // the device writes here when the request completes
     uint32_t tag;           // returned in IoDone
+    // dst stays valid until the request completes, whatever the control thread does meanwhile (a sample's header and heads: its slot
+    // cannot be unloaded while they are read, SampleBank::can_unload). A device may fill such a request outside the lock its owner
+    // pumps the bank under (SdStorage::service: a whole pad sample is one read of up to 0.4 s). Ring blocks are not pinned.
+    bool pinned = false;
 };
 
 struct IoDone {

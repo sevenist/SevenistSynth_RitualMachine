@@ -66,6 +66,7 @@ C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --cmd "chord 3" --ra
 | `samples` | takes the samples of the library's root folder into the catalog (it holds the files in use, 32 at most; nothing is scanned at start), then prints the catalog: index, name, frames, rate, root note, loop points and mode (the index is the F of `patch sampler`) |
 | `dir [PATH]` | reads a folder of the sample library as the browser does (no PATH = `system/samples` itself, else a path below it, spaces allowed), and prints how many entries it has, the time it took and its first six (`[CMD] dir "Drums": 41 entries in 23000 us`; -1 = no such folder / no card). The list is kept: the same `dir` again reads nothing. `dir #N` prints entry N of the kept list, `dir -` forgets it (the next `dir` reads the card) |
 | `use NAME`, `use #N` | takes a sample into the catalog by name (`#N`: entry N of the list `dir` keeps) (its path below the samples folder, no extension: `use Drums/kick 01`) and prints its index and the time (`-1` no such sample, `-2` the catalog is full). `use` alone prints the catalog (an empty name = an entry that left) |
+| `browse N [REST] [FIRST]` | drives the sample browser as a hand would (after `pad on`): opens it on the root folder for the selected pad, jumps FIRST rows down, then rests REST ms (default 400) on each of N rows (default 8) and goes Back. One line per row: the slowest UI step, the time the UI was held (steps over 30 ms), when the sample was shown (`state 1`; `state 0` = not yet), then the stream underruns of the whole run. `browse 6 1500 1750` = six auditions near the end of a long folder |
 | `dump N` | captures the next N output samples (1..16384, before the dev output gain) and prints them as `[DUMP] @index v v v ...` lines, 32 per line, between `[DUMP] begin` and `[DUMP] end`. For offline spectrum checks |
 
 ### The Pads section
@@ -95,6 +96,13 @@ heaps before and after the section switch.
 | `leds all` | for 5 s every LED is lit in dim white |
 | `leds off` | stops every transfer to the LED chain and blanks it (to measure the LEDs' effect on the audio) |
 | `leds on` | resumes the transfers (the keys show the play feedback again) |
+
+### Power, battery and the card reader (HWV1)
+
+| Command | Does |
+| --- | --- |
+| `power` | prints the power button (`down` = on, `up` = off), whether a computer is on the USB cable, the battery (the mux's raw count, the millivolts on the pin, the battery voltage computed from them and the percentage; `0 mV -1 %` = no battery seen) and the mux's spare input (channel 0: raw count, `pushed` / `idle`). To check the battery scale against a meter (`HW_BATT_FULL_SCALE_MV` in `board_pins.h`) and to find out what the spare input is |
+| `storage` | saves what waits to be saved, then restarts the board into the USB card reader (its own firmware, `pio run -e card_reader -t upload` once) whatever the power button says: the serial port goes away and the TF card shows up on the computer as a drive. Back to the synth: hold the joystick pushed for 2 s, or switch the power button off and on. Answers `no card reader firmware` when that firmware was never flashed |
 
 ### Popups (UI test)
 
@@ -224,4 +232,4 @@ leds all
 leds off               (measure while playing keys) ... leds on
 ```
 
-**Back to the normal synth after tests:** `patch startup`, or reset the board.
+**Back to the normal synth after tests:** `patch startup`. A reset no longer does it: the sound is persistent now, so a test patch is saved 2 s later (`system/config/synth.cfg`) and comes back at the next start; your own sound comes back with Menu > PRESETS > Load if you saved it as a preset first.

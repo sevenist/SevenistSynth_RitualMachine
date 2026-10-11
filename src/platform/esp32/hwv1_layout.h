@@ -23,6 +23,12 @@
 #ifndef HWV1_JOY_INVERT_Y
 #define HWV1_JOY_INVERT_Y 0
 #endif
+// The level the joystick's switch pin reads while the stick is pushed. On this board the pin rests LOW (measured 2026-10-11: 0 at
+// every sample with the stick untouched, the internal pull-up on), so a push is HIGH. Read as active low, the driver took the rest
+// for a held push: a press event at every start, and each real push acted when it was let go.
+#ifndef HWV1_JOY_SW_PUSHED
+#define HWV1_JOY_SW_PUSHED 1
+#endif
 
 // ---- keys -------------------------------------------------------------------------------------------------------------------
 // Indexed [physical row from the top][column from the left]: physical row 0 = TCA row 4 (function keys), physical row 4 = TCA row 0.
@@ -79,6 +85,9 @@ static const hwv1_knob_t kHwv1Knobs[HWV1_KNOB_COUNT] = {
 // Scan periods. The key controller debounces in hardware and the analog parts do not need to be faster than the screen can show.
 #define HWV1_KEY_PERIOD_MS     5
 #define HWV1_ANALOG_PERIOD_MS  10       // multiple of HWV1_KEY_PERIOD_MS
-#define HWV1_MUX_BATTERY       1        // mux channel 1 is the battery divider (SynthBox: raw / 4095 * 10.4 V)
+#define HWV1_MUX_AUX           0        // mux channel 0: a spare input (a button, as the user remembers it; not checked on the board), read, not used yet
+#define HWV1_MUX_BATTERY       1        // mux channel 1 is the battery divider (its scale: board_pins.h)
+#define HWV1_SENSOR_PERIOD_MS  100      // those two are read this often (multiple of HWV1_KEY_PERIOD_MS)
+#define HWV1_AUX_PUSHED        0        // the level the spare input reads while pushed (a guess: a switch to ground; `power` prints the raw count)
 #define HWV1_MUX_KNOB_BASE     2        // first channel of the sin / cos pairs
 #endif // HWV1

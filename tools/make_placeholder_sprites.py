@@ -74,7 +74,7 @@ MI_MODELS = {"csaw": "CSW", "morph": "MRF", "sawsq": "SSQ", "sintri": "STR", "bu
              "pbass": "PBD", "pbasss": "PBS", "psnare": "PSD", "psnrs": "PSS", "phat": "PHH", "phat2": "PH2"}
 TABS = {
     "rack": "RK", "general": "GN", "algorithm": "AL", "operator": "OP", "envelope": "EV", "fx": "FX", "samples": "SM",
-    "keys": "KY", "modifiers": "MD", "macros": "MC", "curves": "CV", "leds": "LD", "joy": "JY",
+    "keys": "KY", "modifiers": "MD", "macros": "MC", "curves": "CV", "leds": "LD", "joy": "JY", "presets": "PR",
 }
 
 
@@ -196,6 +196,22 @@ def slot_mix():
     return px
 
 
+def sd_card():
+    """The card reader's picture (64/ui_sdcard): a memory card, its cut corner and its contacts."""
+    px = canvas(64)
+    x0, y0, x1, y1, cut = 14, 5, 49, 58, 9
+    for y in range(y0, y1 + 1):
+        left = x0 + max(0, cut - (y - y0))
+        for x in range(left, x1 + 1):
+            edge = x <= left + 1 or x >= x1 - 1 or y <= y0 + 1 or y >= y1 - 1
+            px[y][x] = LIT if edge else OFF
+    for k in range(5):                                # the contacts
+        for y in range(10, 20):
+            for x in range(26 + 4 * k, 28 + 4 * k): px[y][x] = LIT
+    text(px, "SD", 32, 40, scale=2)
+    return px
+
+
 def from_art(art):
     return [[LIT if c == "#" else OFF if c == "o" else CLEAR for c in row] for row in art]
 
@@ -230,7 +246,7 @@ def main():
     jobs += [("24/osc_%s" % n, osc_engine(c)) for n, c in OSC_ENGINES.items()]
     jobs += [("24/osc_%s" % n, osc_engine(c)) for n, c in MI_MODELS.items()]
     jobs += [("16/tab_%s" % n, tab_icon(c)) for n, c in TABS.items()]
-    jobs += [("8/ui_cog", from_art(COG)), ("8/ui_para", from_art(PARA))]
+    jobs += [("8/ui_cog", from_art(COG)), ("8/ui_para", from_art(PARA)), ("64/ui_sdcard", sd_card())]
     wrote = kept = 0
     for name, px in jobs:
         path = os.path.join(ASSETS, name + ".png")

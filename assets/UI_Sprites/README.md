@@ -12,7 +12,7 @@ read by the firmware or the simulator directly.
 | `24/`  | 24x24 | operators, modules, FX and other large icons (3 x 3 grid cells) |
 | `16/`  | 16x16 | list and menu icons (one top-bar row) |
 | `8/`   | 8x8   | small UI details: arrows, indicators (e.g. `ui_xy`, the joystick XY mode mark) |
-| `64/`  | 64x64 | images, the future boot animation |
+| `64/`  | 64x64 | images, the boot animation (`boot_00.png` ...) |
 
 An image must be exactly the size of its folder (the converter reports any other size and skips the file).
 
@@ -26,10 +26,10 @@ Names are lower case letters, digits and `_`, and start with a letter. The kind 
 | `mod_`  | a rack module (24/) | `mod_osc mod_filter mod_sat mod_lfo mod_mseq mod_env mod_sampler mod_eg mod_comb` |
 | `slot_` | rack cells (24/) | `slot_empty slot_out` |
 | `osc_`  | an oscillator wave / engine (24/; the icon of an OSC module's first page, else `mod_osc`) | `osc_sine osc_pulse osc_sawdn osc_sawup osc_tri osc_noise osc_karp osc_modal osc_fm2 osc_fold osc_ssaw osc_vowel osc_add osc_dust osc_strng` |
-| `tab_`  | a menu tab's icon at the left of the top bar (16/) | `tab_rack tab_general tab_algorithm tab_fx tab_samples tab_keys tab_modifiers tab_macros tab_curves tab_leds tab_joy` (`tab_operator tab_envelope`: tabs no longer shown) |
+| `tab_`  | a menu tab's icon at the left of the top bar (16/) | `tab_rack tab_presets tab_general tab_algorithm tab_fx tab_samples tab_keys tab_modifiers tab_macros tab_curves tab_leds tab_joy` (`tab_operator tab_envelope`: tabs no longer shown) |
 | `fx_`   | an effect | (to be wired) |
 | `op_`   | FM operators | (to be wired) |
-| `ui_`   | UI details | `ui_xy` (8/), `ui_cog` (8/: the cog of a module's first page; inverted while focused) |
+| `ui_`   | UI details | `ui_xy` (8/), `ui_cog` (8/: the cog of a module's first page; inverted while focused), `ui_sdcard` (64/: the picture of the USB card reader's screen, drawn at the top centre, lit pixels only) |
 
 A name the UI does not look for is converted anyway (ready for the code that will use it). A module or slot without an image keeps the
 generated sprite of `tools/gen_module_sprites.py`, and a tab without an icon shows its name alone, so the art can arrive one file at a time.
@@ -60,6 +60,16 @@ one bit plane (`w * h / 8` bytes per frame); with transparency a second plane (t
 
 Numbered files of the same size, `_00` first, no gaps: `64/boot_00.png`, `64/boot_01.png` ... -> one sprite `spr64_boot` with the
 frames stacked (`gui_anim_add`, core/gui.h). A 64x64 frame is 512 bytes (1 KB with a mask).
+
+**The boot animation** is `64/boot_NN.png`: its frames play at power-on, centred on the screen, 50 ms each (`BOOT_FRAME_MS`,
+app/app.h). On the board a task of its own plays them from the moment the display is up, back and forth (first .. last .. first)
+until everything is loaded, then on to the nearer end, where the UI takes the screen (`platform/esp32/display_esp32.cpp`): **keep the
+first and the last frame empty**, they are where it stops. A loading bar is drawn by code under it (96 x 7 pixels, 20 pixels above
+the bottom of the screen: leave that strip free if the frames ever grow). The simulator plays them once in the application, where a key, a push
+or an encoder step ends them. Paint over the frames, add or remove some (no gaps in the numbers); without the files there is no
+animation. The 24 frames there now come from a frame array of an older firmware (`loading7.h`: 37 x 55, the
+"7" that folds open): `python tools/import_boot_anim.py path/to/frames.h [--sheet all.png]` writes the files from such a header (rows
+of bytes, LSB = left pixel), centred in 64 x 64, and replaces the ones there.
 
 ## Placement: the 8 x 8 grid
 

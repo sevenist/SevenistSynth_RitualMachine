@@ -20,6 +20,7 @@ extern const gui_sprite_t spr16_tab_leds;
 extern const gui_sprite_t spr16_tab_macros;
 extern const gui_sprite_t spr16_tab_modifiers;
 extern const gui_sprite_t spr16_tab_operator;
+extern const gui_sprite_t spr16_tab_presets;
 extern const gui_sprite_t spr16_tab_rack;
 extern const gui_sprite_t spr16_tab_samples;
 extern const gui_sprite_t spr24_mod_cab;
@@ -108,6 +109,8 @@ extern const gui_sprite_t spr24_osc_zpk;
 extern const gui_sprite_t spr24_slot_empty;
 extern const gui_sprite_t spr24_slot_mix;
 extern const gui_sprite_t spr24_slot_out;
+extern const gui_sprite_t spr64_boot;   // 24 frames
+extern const gui_sprite_t spr64_ui_sdcard;
 
 // The sprite of an image by its path without .png and frame number ("24/mod_osc"); NULL when there is no such image (the caller then
 // draws its own fallback, so the art can arrive one file at a time).

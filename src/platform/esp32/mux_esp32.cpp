@@ -26,6 +26,15 @@ uint16_t mux_read(uint8_t channel) {
     return (uint16_t)(sum / 4);
 }
 
+// A divider is a weak source: the ADC's sample capacitor still holds the channel read before, so the first read after the switch is thrown away.
+uint16_t mux_read_mv(uint8_t channel) {
+    select(channel & 15);
+    analogRead(PIN_MUX_ADC);
+    uint32_t sum = 0;
+    for (int i = 0; i < 4; i++) sum += analogReadMilliVolts(PIN_MUX_ADC);
+    return (uint16_t)(sum / 4);
+}
+
 bool mux_read_digital(uint8_t channel) {
     select(channel & 15);
     return digitalRead(PIN_MUX_ADC) != 0;

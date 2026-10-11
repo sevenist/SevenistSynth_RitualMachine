@@ -1,8 +1,11 @@
 #pragma once
-// The UI settings that survive a reboot, in UI_SETTINGS_FILE on the card (next to keys.cfg): the column knobs' mode (Catch / Direct), the
-// jump slots and what each column knob drives with Shift. A text file, editable on a PC; lines that are not understood are skipped:
+// The machine's settings that survive a reboot, in UI_SETTINGS_FILE on the card (next to keys.cfg): the column knobs' mode (Catch /
+// Direct), the master volume, the output and the speaker level, the jump slots, the Shift / Mod layers and the key LED colours. The
+// sound is not here, nor the macros and the joystick's bindings, which belong to it (core/patch.h: synth.cfg and the presets).
+// A text file, editable on a PC; lines that are not understood are skipped:
 //   # SynthCore UI settings (ui.cfg)
 //   knob catch                    catch | direct
+//   vol 1                         master volume 0..2        out mono | stereo        spk 20   speaker level 0..20 (5 % steps)
 //   jump 1 mod 5 type 0 def 1 row 2   a slot on a module's page: module id, module type, which of its pages, row
 //   jump 2 global 9 row 1             a slot on a global page (GP_*)
 //   jump 3 tab 1 row 4                a slot in the menu: the tab's kind (tab_t), row

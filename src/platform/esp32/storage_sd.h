@@ -1,6 +1,9 @@
 #pragma once
 // SdStorage: the sampler's StorageDevice on the TF card (files under SD_SAMPLE_DIR). The sample bank calls it from the I/O task only
 // (engine_synth_io_pump), so a request is executed synchronously inside poll(): submit() queues it, poll() reads it from the card.
+// poll() runs under the engine's lock, which the UI thread takes for nearly every engine call: a ring block (4 KB, a few ms) is read
+// there, but a sample's header and heads (IoRead::pinned: the first open of the file, up to 0.4 s in a folder of 1800 files, and a
+// whole pad sample in one read, up to 0.4 s more) are read by service(), which the I/O task calls outside that lock before each pump.
 // FileHandle = an index into a table of paths; real file descriptors are opened on demand and the least recently used one is closed,
 // so any number of loaded samples fits in the few file objects the FAT driver allows.
 //
@@ -20,6 +23,17 @@ public:
     bool poll(sc::IoDone &d, uint64_t now_us) override;
     int pending() const override { return count_; }
 
+    // The I/O task, outside the engine's lock: reads the request at the head of the queue when it is a pinned one (the next poll()
+    // hands its result out). True when it read something. pinned_next: such a request waits (from the first call on, poll() leaves
+    // them to service()).
+    bool service();
+    bool pinned_next() { service_on_ = true; return count_ > 0 && !served_ && q_[head_].pinned; }
+    // The descriptor of a file the I/O task just read the header of (samples_esp32.cpp read_info), kept open for the load that
+    // usually follows: opening a file walks its folder from the start (0.4 s for the last of 1800). keep takes the descriptor over;
+    // take gives it back when it is `path`'s (the caller owns it again), else closes it and returns -1.
+    void keep_spare(const char *path, int fd);
+    int take_spare(const char *path);
+
     void close_all();                                                    // the card is going away: drop every descriptor (handles stay valid and reopen)
 
     // what the card did since boot (the I/O task prints them with HWV1_DEBUG_AUDIO)
@@ -36,6 +50,12 @@ private:
     struct File { char path[80]; uint32_t size; int fd; uint32_t used; uint32_t pos; uint8_t refs; };   // SD_SAMPLE_DIR/<a 47-character name>.smp; "" = free; refs: opens not forgotten yet
     int fd_of(int f);
     bool read_into(File &fl, uint32_t offset, void *dst, uint32_t bytes);
+    bool execute(const sc::IoRead &r);
+
+    bool service_on_ = false;                  // service() is called: poll() does not read pinned requests itself
+    bool served_ = false, served_ok_ = false;  // the request at the head of the queue was read by service()
+    char spare_path_[80] = "";
+    int spare_fd_ = -1;
 
     File file_[kFiles] = {};
     int n_files_ = 0;

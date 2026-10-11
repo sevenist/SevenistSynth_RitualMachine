@@ -49,6 +49,9 @@ TaskHandle_t audio_task;
 constexpr int kSpeakerCh = 0;                      // 0 = left, 1 = right
 std::atomic<int32_t> g_spk_gain{32768};            // Q15, written by the UI, read by the audio task
 int g_spk_pct = -1;                                // UI side: the last level applied
+// The output is closed while the machine starts (user, 2026-10-11: no sound before the loading screen has ended): the engine runs,
+// zeros go to the DAC and the amplifier. audio_esp32_open lets it through, faded in over one buffer.
+std::atomic<bool> g_out_open{false};
 
 void apply_speaker(const rack_t *r) {
     const int pct = synth_config_speaker_pct(&r->cfg);
@@ -117,6 +120,17 @@ void audio_task_main(void *) {
                 }
             g_prev = g_new;
         }
+        {   // closed until the start is over
+            static int32_t m_prev = 0;
+            const int32_t m_new = g_out_open.load(std::memory_order_relaxed) ? 32768 : 0;
+            if (m_new != 32768 || m_prev != 32768)
+                for (int i = 0; i < kFrames; i++) {
+                    const int32_t g = m_prev + (m_new - m_prev) * (i + 1) / kFrames;
+                    buf[2 * i] = (int16_t)(((int32_t)buf[2 * i] * g) >> 15);
+                    buf[2 * i + 1] = (int16_t)(((int32_t)buf[2 * i + 1] * g) >> 15);
+                }
+            m_prev = m_new;
+        }
         size_t written = 0;
         i2s_channel_write(tx, buf, sizeof buf, &written, portMAX_DELAY);     // blocks until the DMA ring has room: this paces the task
 #ifdef HWV1_DEBUG_AUDIO
@@ -180,6 +194,8 @@ void audio_task_main(void *) {
     }
 }
 }  // namespace
+
+void audio_esp32_open(void) { g_out_open.store(true, std::memory_order_relaxed); }
 
 extern "C" void audio_init(void) {
 #ifdef HWV1_BENCH
@@ -287,6 +303,7 @@ extern "C" int audio_osc_preview(int m, float t, float mo, float h, int period, 
 extern "C" bool audio_sample_prepare(int i)                                { return samples_esp32_ready(i); }     // only cooked .smp files on the card: nothing to convert
 extern "C" int audio_sample_find(const char *name)                         { return samples_esp32_find(name); }
 extern "C" int audio_sample_use(const char *name)                          { return samples_esp32_use(name); }    // the I/O task reads the file's header
+extern "C" int audio_sample_request(const char *name)                      { return samples_esp32_request(name); }
 extern "C" int audio_dir_open(const char *dir)                             { return samples_esp32_dir_open(dir); }
 extern "C" int audio_dir_read(int first, audio_dir_entry_t *out, int max)  { return samples_esp32_dir_read(first, out, max); }
 extern "C" void audio_dir_close(void)                                      { samples_esp32_dir_close(); }

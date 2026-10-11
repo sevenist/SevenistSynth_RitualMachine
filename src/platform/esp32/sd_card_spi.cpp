@@ -401,11 +401,9 @@ bool init_card() {
     g_serial = (static_cast<uint32_t>(reg[9]) << 24) | (static_cast<uint32_t>(reg[10]) << 16) | (static_cast<uint32_t>(reg[11]) << 8) | reg[12];
     return true;
 }
-}  // namespace
 
-bool sd_card_mounted() { return g_up; }
-
-bool sd_card_mount() {
+// The bus (once), then the card: true when a card answers and is set up (g_up), with no file system yet.
+bool card_begin() {
     if (g_up) return true;
     if (!g_bus) {
         memset(g_ff, 0xFF, sizeof g_ff);
@@ -434,6 +432,15 @@ bool sd_card_mount() {
         if (g_dev) { spi_bus_remove_device(g_dev); g_dev = nullptr; }
         return false;                                // no card: quiet, the caller polls again
     }
+    return true;
+}
+}  // namespace
+
+bool sd_card_mounted() { return g_up; }
+
+bool sd_card_mount() {
+    if (g_up) return true;
+    if (!card_begin()) return false;
 
     ff_diskio_impl_t impl = {};
     impl.init = &ff_init;
@@ -485,6 +492,14 @@ bool sd_card_alive() {
 }
 
 uint32_t sd_card_id() { return g_up ? g_serial : 0; }
+
+bool sd_card_raw_begin() {
+    sd_card_unmount();
+    return card_begin();
+}
+uint32_t sd_card_raw_sectors() { return g_up ? g_sectors : 0; }
+bool sd_card_raw_read(uint32_t sector, uint8_t *dst, uint32_t count) { return ff_read(0, dst, sector, count) == RES_OK; }
+bool sd_card_raw_write(uint32_t sector, const uint8_t *src, uint32_t count) { return ff_write(0, src, sector, count) == RES_OK; }
 uint32_t sd_card_crc_errors() { return g_crc_errors; }
 void sd_card_verify(bool on, uint32_t *sectors, uint32_t *bad) {
     g_verify = on;

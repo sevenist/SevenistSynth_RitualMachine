@@ -137,12 +137,20 @@ int dir_open(const char *dir) {
     g_list.clear();
     if (g_dir.empty() && !find_dir()) return -1;
     std::error_code ec;
-    const fs::path p = dir && dir[0] ? fs::path(g_dir) / fs::path(dir) : fs::path(g_dir);
+    const bool presets = dir && dir[0] == ':';                                     // (hal_audio.h: a folder of the presets, next to system/)
+    if (presets) dir++;
+    const fs::path root = presets ? fs::path(g_dir).parent_path().parent_path() / "presets" : fs::path(g_dir);
+    const fs::path p = dir && dir[0] ? root / fs::path(dir) : root;
     if (!fs::is_directory(p, ec)) return -1;
     for (const auto &e : fs::directory_iterator(p, ec)) {
         const std::string fn = e.path().filename().string();
         if (fn.empty() || fn[0] == '.') continue;
         if (e.is_directory(ec)) { if (fn.size() < AUDIO_NAME_MAX) g_list.push_back({fn, lower(fn), true}); continue; }
+        if (presets) {
+            if (e.is_regular_file(ec) && fn.size() > 7 && lower(fn.substr(fn.size() - 7)) == ".preset" && fn.size() - 7 < AUDIO_NAME_MAX)
+                g_list.push_back({fn.substr(0, fn.size() - 7), lower(fn.substr(0, fn.size() - 7)), false});
+            continue;
+        }
         if (!e.is_regular_file(ec) || fn.size() < 5) continue;
         const std::string ext = lower(fn.substr(fn.size() - 4)), stem = fn.substr(0, fn.size() - 4);
         if ((ext != ".smp" && ext != ".wav" && ext != ".mp3") || stem.size() >= AUDIO_NAME_MAX || stem.find('~') != std::string::npos) continue;

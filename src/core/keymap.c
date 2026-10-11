@@ -145,7 +145,7 @@ static void preset(int p, key_fn_t out[KEY_COUNT]) {
 // The Pads section's layout (ADR-041 decision 18-19): the function row as everywhere, the left 4 x 4 block = pads 1..16 (top left = 1, in
 // reading order, as on the screen's grid), the right block = Bank A-D on its top row, then Select, Mute and Stop all, then Tap, Click (the
 // metronome), BPM -1 / +1. A board with only
-// the 4 left columns gets the pads; its functions are Shift + pad (app.c) and the encoders.
+// the 4 left columns gets the pads; its functions are Shift + pad (app/app_pads.c) and the encoders.
 static void preset_pads(key_fn_t out[KEY_COUNT]) {
     static const uint8_t fn_row[KEY_COLS] = {F_SHIFT, F_MENU, F_BACK, F_PLAY, F_NONE, F_NONE, F_NONE, F_NONE};
     static const uint8_t right[4][4] = {

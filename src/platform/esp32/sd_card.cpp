@@ -143,4 +143,11 @@ uint32_t sd_card_crc_errors() { return 0; }
 void sd_card_unmount() {}
 bool sd_card_mounted() { return false; }
 #endif  // HWV1
+
+#if !defined(HWV1) || defined(HWV1_SD_IDF)   // no raw access here: no USB card reader
+bool sd_card_raw_begin() { return false; }
+uint32_t sd_card_raw_sectors() { return 0; }
+bool sd_card_raw_read(uint32_t, uint8_t *, uint32_t) { return false; }
+bool sd_card_raw_write(uint32_t, const uint8_t *, uint32_t) { return false; }
+#endif
 #endif  // ARDUINO_ARCH_ESP32

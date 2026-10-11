@@ -1,6 +1,6 @@
 #pragma once
 // Platform-independent application logic. Knows nothing about SDL, Windows,
-// Arduino or the ESP32: everything platform-specific comes through hal/*.h.
+// Arduino or the ESP32: everything platform-specific comes through hal/*.h. Its files: app/app_internal.h.
 #include <stdbool.h>
 #include "u8g2.h"
 #include "core/synth_params.h"
@@ -70,7 +70,7 @@ typedef struct {
     pad_capture_t  capture;
     uint8_t        section;     // section_t
     // The pads' files and the catalog (hal_audio.h: it holds the files in use, each read when asked for): lib_dirty = a pad's file may
-    // not be in it yet (pads_resolve takes one per step), lib_missing = bit k: pad k's file is not on the card (not asked again),
+    // not be in it yet (app_pads_resolve takes one per step), lib_missing = bit k: pad k's file is not on the card (not asked again),
     // lib_tries = steps spent waiting for an unused sample to be unloaded.
     bool           lib_dirty;
     uint16_t       rec_next;         // the number of the next recording's name (recN); 0 = not known yet: the library's root is listed once
@@ -96,10 +96,23 @@ typedef struct {
     uint32_t       keys_notice_ms;
     bool           menu_open;   // the menu was open at the previous step (closing it saves the key layout)
     uint32_t       boot_ms;     // when app_init ran: the key-layout reset only works in the first seconds
+    int            boot_anim;   // the boot animation while it plays over the UI (app_boot_animation), else GUI_ANIM_INVALID
+    bool           started;     // the start is over (the card read, the pads' samples in): the platform was told (display_boot_end)
+    uint8_t        start_pct;   // ... and how far it is until then, as last reported (display_boot_progress)
     bool           reset_held;  // the reset key went down in the first seconds and is still held
     uint32_t       reset_since; // ... since then
     bool           settings_pending; // the UI settings (ui.cfg) changed and wait to be saved ...
     uint32_t       settings_ms;      // ... since then
+    // The sound's working state and the presets (app_preset.c, core/patch.h)
+    char           preset[PAD_NAME_MAX];   // the preset the sound was loaded from or saved to last (its path below presets/), "" = none
+    uint32_t       preset_hash;  // the sound's hash then: another one now = edited since
+    bool           preset_tried; // the preset browser has put a preset in place of the working state (Back reads the state again)
+    uint32_t       state_hash;   // the hash of what synth.cfg holds (the sound and the sequencer)
+    uint32_t       state_seen;   // ... of what was there at the last look ...
+    bool           state_pending;    // ... which differs and waits to be saved ...
+    uint32_t       state_ms, state_look_ms;   // ... since then; the last look
+    uint8_t        batt_warned; // the battery warning given so far: 0 none, 1 low, 2 almost empty (hal_power.h)
+    uint32_t       batt_ms;     // when the battery was last looked at
     popup_t        popup;       // popup messages over the screen (core/popup.h); a modal one takes the input
     char           status[48];  // last control -> action, for the simulator panel / debugging ("ENC A > Row +1")
 } app_t;
@@ -107,13 +120,36 @@ typedef struct {
 // Call after audio_init(): pushes the default sound to the synth and draws the first frame.
 void app_init(app_t *app, u8g2_t *display);
 
+// Plays the boot animation (the image 64/boot of assets/UI_Sprites, its frames once, BOOT_FRAME_MS each) over the UI, which runs
+// under it: the synth plays from the first step. It ends by itself, or at the first key, push or encoder step, which acts as usual.
+// Nothing happens without the image, or while the "keys reset" notice is up. The simulator calls it right after app_init. The board
+// does not: there the display driver plays the same frames from its own task, started before the application exists (user,
+// 2026-10-11: a high-priority task, deleted at its end; platform/esp32/display_esp32.cpp), and BOOT_FRAME_MS is its rhythm too
+// (50 ms = 20 frames a second: the user's choice). That task loops back and forth until the application's start is over, which
+// app_step reports once (display_boot_end): the card was read and the pads' files are in the catalog, or no card showed up within
+// START_CARD_WAIT_MS of app_init; after START_MAX_MS whatever is still going on.
+#define BOOT_FRAME_MS 50
+#define START_CARD_WAIT_MS 1500
+#define START_MAX_MS 8000
+void app_boot_animation(app_t *app);
+
+// The words of the boot screen: the machine's name above the animation, the version at the bottom. Drawn into the buffer as it is
+// (no clear, no send); nothing on a screen too short to hold them beside the image (64 pixels). The board's own boot animation
+// shows the same words (display_esp32.cpp).
+#define BOOT_TITLE   "RITUAL MACHINE"
+#define BOOT_VERSION "beta 1.0"
+void app_boot_draw_text(u8g2_t *g);
+
 // Handles one hardware input event (kind == IN_NONE: none) and redraws. Returns false when the app should exit.
 bool app_step(app_t *app, input_event_t event);
 
-// For the dev serial commands (the board's tests): the section (Synth / Pads) as Shift + Menu switches it, and a pad's settings changed
-// from outside the UI (sent to the engine, saved later).
+// Also for the dev serial commands (the board's tests): the section (Synth / Pads) as Shift + Menu switches it, and a pad's settings
+// changed, from the UI or from outside it (sent to the engine, pads.cfg saved a moment later).
 void app_set_section(app_t *app, bool pads);
 void app_pad_changed(app_t *app, int pad);
+
+// The machine is about to be switched off (or restarted): the settings files that wait for their autosave are written now.
+void app_save_now(app_t *app);
 
 #ifdef __cplusplus
 }

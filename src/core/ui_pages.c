@@ -235,11 +235,33 @@ void synth_ui_init(synth_ui_t *ui, const rack_t *rack) {
     ui->run_anim = GUI_ANIM_INVALID; ui->ms_lane = 0; ui->ms_step = 0; ui->smp_cur = 0; ui->smp_tgt = 0; ui->key_cur = KEY_COLS; ui->eg_pt = 0;
     ui->mods_layer = 0; ui->mods_ctl = CTL_COL_KNOB_0; ui->learn_req = false; ui->learn_wait = false; ui->knob_away = 0;
     ui->learn_macro = -1; ui->macro_cur = 0; ui->macro_dest = 0; ui->curve_cur = 0; ui->curve_pt = 0; ui->led_role = 0;
+    ui->preset_req = PRESET_REQ_NONE;
     memset(ui->joy, 0, sizeof ui->joy); memset(ui->joy_prev, 0, sizeof ui->joy_prev);
     ui->joy_fresh = -1; ui->joy_next = 0; ui->joy_xy = false; ui->joy_tab = 0;
     for (int a = 0; a < 2; a++) { ui->joy_rest[a] = -1.0f; ui->joy_centre[a] = 0.5f; ui->joy_wrote[a] = 0.0f; ui->joy_last[a] = JOY_POS_CENTRE; }
     for (int i = 0; i < SYNTH_UI_JUMP_SLOTS; i++) ui->jump[i].valid = false;
     synth_ui_rebuild_pages(ui, rack);
+    macros_default(ui, rack);
+}
+
+void synth_ui_sound_loaded(synth_ui_t *ui, const rack_t *rack) {
+    ui->page = 0; ui->cursor = 0; ui->rack_cur = 0; ui->rack_scroll = 0; ui->rack_menu = false; ui->cog_page = -1;
+    ui->rack_row = synth_type_is_rack(rack->cfg.type) ? 0 : ROW_M;
+    for (int l = 0; l < RACK_ROWS; l++) ui->rack_col[l] = 0;
+    ui->fm_op = 0; ui->fm_pt = 0; ui->ms_lane = 0; ui->ms_step = 0; ui->eg_pt = 0; ui->smp_tgt = 0; ui->macro_cur = 0; ui->macro_dest = 0;
+    ui->learn_wait = false; ui->learn_macro = -1;
+    ui->joy_fresh = -1; ui->joy_xy = false;
+    for (int a = 0; a < 2; a++) { ui->joy_rest[a] = -1.0f; ui->joy_last[a] = JOY_POS_CENTRE; }
+    ui->rack_dirty = false; ui->rebuild = false;
+    if (!ui->in_rack) { ui->row = 0; ui->latched = false; }
+    else if (ui->menu_tab >= tab_count(rack)) { ui->menu_tab = 0; ui->row = 0; ui->latched = false; }
+    synth_ui_rebuild_pages(ui, rack);
+}
+
+void synth_ui_sound_new(synth_ui_t *ui, const rack_t *rack) {
+    memset(ui->joy, 0, sizeof ui->joy);
+    memset(ui->joy_prev, 0, sizeof ui->joy_prev);
+    synth_ui_sound_loaded(ui, rack);
     macros_default(ui, rack);
 }
 
@@ -256,31 +278,31 @@ bool synth_ui_shows_playhead(const synth_ui_t *ui, const rack_t *rack) {
 }
 
 /* ---------------- menu tabs ----------------
- * Modular synth: RACK, GENERAL, SAMPLES, KEYS, LEDS, MODIFIERS, MACROS, JOY, CURVES.  FM synth: RACK (row M only, ADR-041), GENERAL, ALGORITHM
+ * Modular synth: RACK, PRESETS, GENERAL, SAMPLES, KEYS, LEDS, MODIFIERS, MACROS, JOY, CURVES.  FM synth: RACK (row M only, ADR-041), PRESETS, GENERAL, ALGORITHM
  * (the operator tree: a push opens the operator's page), KEYS, LEDS, MODIFIERS, MACROS, JOY, CURVES.  Strings: the FM list without ALGORITHM
  * (its sound is edited on the pages). */
 
 int tab_count(const rack_t *r) {
-    if (synth_type_is_fm(r->cfg.type)) return 9;
-    return 9 - (synth_type_is_strings(r->cfg.type) ? 1 : 0);
+    if (synth_type_is_fm(r->cfg.type)) return 10;
+    return 10 - (synth_type_is_strings(r->cfg.type) ? 1 : 0);
 }
 
 tab_t tab_kind(const rack_t *r, int idx) {
-    static const tab_t modular[9] = {TAB_RACK, TAB_GENERAL, TAB_SAMPLES, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
-    static const tab_t fm[9] = {TAB_RACK, TAB_GENERAL, TAB_FM_ALGO, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
-    static const tab_t strings[8] = {TAB_RACK, TAB_GENERAL, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
-    if (synth_type_is_fm(r->cfg.type)) return fm[idx % 9];
-    return synth_type_is_strings(r->cfg.type) ? strings[idx % 8] : modular[idx % 9];
+    static const tab_t modular[10] = {TAB_RACK, TAB_PRESET, TAB_GENERAL, TAB_SAMPLES, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
+    static const tab_t fm[10] = {TAB_RACK, TAB_PRESET, TAB_GENERAL, TAB_FM_ALGO, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
+    static const tab_t strings[9] = {TAB_RACK, TAB_PRESET, TAB_GENERAL, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
+    if (synth_type_is_fm(r->cfg.type)) return fm[idx % 10];
+    return synth_type_is_strings(r->cfg.type) ? strings[idx % 9] : modular[idx % 10];
 }
 
 const char *tab_name(tab_t t) {
-    static const char *const n[] = {"RACK", "GENERAL", "ALGORITHM", "OPERATOR", "ENVELOPE", "FX RACK", "SAMPLES", "KEYS", "MODIFIERS", "MACROS", "CURVES", "LEDS", "JOY"};
+    static const char *const n[] = {"RACK", "GENERAL", "ALGORITHM", "OPERATOR", "ENVELOPE", "FX RACK", "SAMPLES", "KEYS", "MODIFIERS", "MACROS", "CURVES", "LEDS", "JOY", "PRESETS"};
     return n[t];
 }
 
 const char *tab_icon(tab_t t) {
     static const char *const n[] = {"16/tab_rack", "16/tab_general", "16/tab_algorithm", "16/tab_operator", "16/tab_envelope", "16/tab_fx",
-                                    "16/tab_samples", "16/tab_keys", "16/tab_modifiers", "16/tab_macros", "16/tab_curves", "16/tab_leds", "16/tab_joy"};
+                                    "16/tab_samples", "16/tab_keys", "16/tab_modifiers", "16/tab_macros", "16/tab_curves", "16/tab_leds", "16/tab_joy", "16/tab_presets"};
     return n[t];
 }
 

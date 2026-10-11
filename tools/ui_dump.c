@@ -1,7 +1,7 @@
 // Renders the application's screens to ASCII from the u8g2 buffer, without SDL and without audio: drives app_step()
 // with input events and prints the 128x64 frame. Useful to check layouts and to catch drawing crashes.
 //
-//   gcc -O1 -w -Isrc -Ilib/u8g2/csrc tools/ui_dump.c src/core/*.c lib/u8g2/csrc/*.c -lm -o build/ui_dump.exe
+//   gcc -O1 -w -Isrc -Ilib/u8g2/csrc tools/ui_dump.c src/core/*.c src/app/*.c lib/u8g2/csrc/*.c -lm -o build/ui_dump.exe
 //   build/ui_dump.exe "menu right right"        (events: see ev() below)
 //   several arguments print one frame per argument (a script each, continuing the same session)
 //
@@ -11,7 +11,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "core/app.h"
+#include "app/app.h"
 #include "hal/hal_audio.h"
 #include "hal/hal_display.h"
 #include "hal/hal_leds.h"

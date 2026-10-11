@@ -1,7 +1,7 @@
 // The Pads section's screens (ADR-041 decision 25): the grid of the bank shown, full screen, and the selected pad's editor (a declarative
 // screen, see ui_screen.h). The grid: 4 x 4 cells (pad number, mode / loop, the start of its sample's name, mute and choke marks); a pad
 // that sounds is drawn inverted, the selected one has a double frame. The editor: the sample's overview with the trim across the top, then
-// the settings in two columns. The app (app.c) owns the pads, plays them and sends every change to the engine.
+// the settings in two columns. The app (app/app_pads.c) owns the pads, plays them and sends every change to the engine.
 #include "core/ui_screen.h"
 #include "core/fine_step.h"
 #include <stdio.h>

@@ -73,6 +73,7 @@ int sim_samples_dir_open(const char *dir);
 int sim_samples_dir_read(int first, audio_dir_entry_t *out, int max);
 int audio_sample_find(const char *name)                         { return sim_samples_find(name); }
 int audio_sample_use(const char *name)                          { return sim_samples_use(name); }
+int audio_sample_request(const char *name)                      { return sim_samples_use(name); }   // (the desktop's disk answers at once)
 int audio_dir_open(const char *dir)                             { return sim_card_present() ? sim_samples_dir_open(dir) : -1; }
 int audio_dir_read(int first, audio_dir_entry_t *out, int max)  { return sim_samples_dir_read(first, out, max); }
 void sim_samples_dir_close(void);

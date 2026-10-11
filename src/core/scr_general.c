@@ -1,6 +1,7 @@
 // The GENERAL tab of the menu: synth type, FM patch, voices, master volume, and an info box on the right.
 // A declarative screen (see ui_screen.h): list on the left, picture on the right.
 #include "core/ui_screen.h"
+#include "hal/hal_power.h"
 #include <stdio.h>
 
 // arg = the setting (cfg_param_id_t). Structural changes (type, voices, the patch in FM mode) are applied when the menu closes; the volume is live.
@@ -61,6 +62,12 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
     const gui_rect_t box = ui_picture_box(st);
     u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
     draw_synth_info(g, st, box, c->rack);
+    const int pct = power_battery_percent(), rh = gui_row_h(g, st);     // the battery, at the bottom of the box when it has the room
+    if (pct < 0 || box.h < 8 * rh) return;
+    char buf[40];
+    const int mv = power_battery_mv();
+    snprintf(buf, sizeof buf, "%d.%dV %d%%", mv / 1000, mv % 1000 / 100, pct);
+    gui_draw_text_centered(g, gui_rect(box.x, box.y + box.h - rh - 2, box.w, rh), buf);
 }
 
 const screen_def_t scr_general_screen = {elements, N_ELEMENTS, true, false, layout, NULL, NULL, draw_extra};   // compact: up to 6 rows fit on a 64 px screen

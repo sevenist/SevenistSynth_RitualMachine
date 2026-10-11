@@ -96,6 +96,8 @@ static uint8_t sim_display(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *arg
 }
 
 void display_send(u8g2_t *g) { u8g2_SendBuffer(g); }
+void display_boot_end(void) {}              // (the simulator's boot animation is the application's: app_boot_animation)
+void display_boot_progress(int percent) { (void)percent; }
 
 u8g2_t *display_init(void) {
     static uint8_t buf[DISPLAY_WIDTH * (DISPLAY_HEIGHT / 8)];       // full frame buffer: the whole screen is sent at once

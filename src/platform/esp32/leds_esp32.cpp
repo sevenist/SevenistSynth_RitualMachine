@@ -10,6 +10,7 @@
 #include "platform/esp32/board_pins.h"
 #include "platform/esp32/hwv1_layout.h"
 #include "platform/esp32/leds_esp32.h"
+#include "platform/esp32/board_esp32.h"
 
 namespace {
 CRGB frame[HW_NUM_LEDS];
@@ -63,7 +64,7 @@ void leds_clear(void) { for (int i = 0; i < HW_NUM_LEDS; i++) put(i, led_color_t
 void leds_set(control_id_t ctl, led_color_t color) { put(led_of_control(ctl), color); }
 void leds_set_all(led_color_t color) { for (int i = 0; i < HW_NUM_LEDS; i++) put(i, color); }
 void leds_show(void) {
-    if (disabled) return;
+    if (disabled || display_esp32_loading()) return;     // dark while the loading screen is up; the frame waits (dirty stays set)
     if (test_until) {
         if ((int32_t)(millis() - test_until) < 0) return;    // the test pattern stays
         test_until = 0; dirty = true;                        // the test is over: the application's frame again

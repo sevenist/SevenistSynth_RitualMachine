@@ -5,7 +5,7 @@
 // shown light in its Active colour. The LED driver applies the global brightness (capped on the prototype, see board_pins.h).
 #include <stdbool.h>
 #include <stdint.h>
-#include "core/app.h"
+#include "app/app.h"
 
 #ifdef __cplusplus
 extern "C" {

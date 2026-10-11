@@ -135,7 +135,12 @@ typedef struct {
     uint8_t learn_layer, learn_ctl;
     int8_t  learn_macro;
     bool rebuild;          // set when the RACK page is left with edits: app must audio_build()
-    int run_anim;   // gui animation id shown while the sequencer runs (owned by app.c)
+    // The PRESETS tab (scr_preset.c): the app says which preset the sound came from and whether it was edited since, and acts on
+    // preset_req (PRESET_REQ_*: a button of the tab was pushed).
+    char    preset_name[PAD_NAME_MAX];
+    bool    preset_edited;
+    uint8_t preset_req;
+    int run_anim;   // gui animation id shown while the sequencer runs (owned by app/app.c)
     jump_slot_t jump[SYNTH_UI_JUMP_SLOTS]; // rapid-navigation slots: save with Shift+key, recall with key
     // The Pads section (core/pads.h, scr_pads.c): the pads (the app's), the bank shown and its selected pad, the grid or that pad's editor,
     // and the editor's focus row (0 = the header: left / right change the pad) and latch, kept apart from the synth screens' row / latch.
@@ -183,6 +188,13 @@ typedef struct {
 } synth_ui_t;
 
 void synth_ui_init(synth_ui_t *ui, const rack_t *rack);
+
+// The sound was replaced as a whole (a preset, the working state read from the card): the cursors go back to a place that exists
+// and the pages are made again. synth_ui_sound_new: the same for a new sound, whose macros are the default ones and whose joystick
+// is unbound.
+void synth_ui_sound_loaded(synth_ui_t *ui, const rack_t *rack);
+void synth_ui_sound_new(synth_ui_t *ui, const rack_t *rack);
+enum { PRESET_REQ_NONE, PRESET_REQ_LOAD, PRESET_REQ_SAVE, PRESET_REQ_SAVE_AS, PRESET_REQ_INIT };
 
 // Regenerates the pages from the rack: each module contributes its own pages in rack order,
 // followed by the global ones (amp envelope, sequencer). Called by init and when the rack
@@ -273,8 +285,10 @@ static inline int pads_ui_pad(const synth_ui_t *ui) { return ui->pad_bank * PADS
 // folder, left or the ".." row goes back to its parent; a push on a sample chooses it (br_done = 1), Back cancels (br_done = 2).
 // open: on the folder of `current` (a library name, "" = the root) with that sample highlighted; false when the library cannot be read.
 // file: the highlighted sample's library name; false for a folder, an empty folder or a path too long to be a name.
-// The app (app.c) reads the highlighted file once it rests, plays it and closes the browser.
-enum { BROWSE_PAD = 1, BROWSE_RACK };
+// The app (app/app_library.c) reads the highlighted file once it rests, plays it and closes the browser.
+// BROWSE_PRESET: the same list on the presets folder (audio_dir_open with a ':' in front of the path), for the PRESETS tab's Load:
+// the app puts the highlighted preset in place once it rests (the keys play it), a push keeps it, Back brings the sound back.
+enum { BROWSE_PAD = 1, BROWSE_RACK, BROWSE_PRESET };
 enum { BR_FRESH, BR_SHOWN, BR_NONE, BR_READING };       // BR_READING: the folder is being read (the app, before it opens)
 #define BROWSE_REST_MS 150
 bool browse_ui_open(synth_ui_t *ui, int what, const char *current, uint32_t now);

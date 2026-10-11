@@ -2,7 +2,7 @@
 // Curve picks a slot; New makes an empty slot a straight line; Point picks a point; X / Y move it (or the two knobs CURVES_KNOB_X / _Y of
 // bindings.h, absolute 0..100); Seg says whether the segment after the point is linear or stepped (held until the next point); Add puts a
 // point halfway to the next one; Del pt removes the point (two stay); Delete removes the curve (mappings using it then read it as linear).
-// On the right: the curve, its points, the selected one as a box. Saved in curves.cfg by itself (app.c).
+// On the right: the curve, its points, the selected one as a box. Saved in curves.cfg by itself (app/app_card.c).
 // A declarative screen (see ui_screen.h).
 #include "core/ui_screen.h"
 #include "core/curves.h"

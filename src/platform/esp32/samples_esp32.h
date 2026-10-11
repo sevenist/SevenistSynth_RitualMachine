@@ -9,6 +9,7 @@ void samples_esp32_hide(int index);    // hal_audio.h audio_sample_hide
 // about 20 ms; a folder: about 0.5 ms per file it holds, kept until another folder or dir_close; they fail after 1.5 s / 15 s).
 int  samples_esp32_find(const char *name);
 int  samples_esp32_use(const char *name);
+int  samples_esp32_request(const char *name);   // hal_audio.h audio_sample_request: never waits (-3 while the I/O task reads the header)
 int  samples_esp32_dir_open(const char *dir);
 int  samples_esp32_dir_read(int first, audio_dir_entry_t *out, int max);
 void samples_esp32_dir_close();

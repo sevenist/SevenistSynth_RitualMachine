@@ -1,4 +1,4 @@
-// The Pads section (core/pads.h, scr_pads.c, app.c; ADR-041 decisions 14-26): Shift + Menu, the Pads key layout, pad keys with Select /
+// The Pads section (core/pads.h, scr_pads.c, app/app_pads.c; ADR-041 decisions 14-26): Shift + Menu, the Pads key layout, pad keys with Select /
 // Mute / Shift / banks, the grid and the pad editor, the column knobs, pads.cfg, the LEDs.
 #include "ui_test.h"
 #include "core/led_roles.h"
@@ -1025,6 +1025,50 @@ TEST(browser_walks_folders_and_plays_the_highlighted_sample_on_the_pad) {
     CHECK_STR(ui_app.ui.br_dir, "kit");
     CHECK_EQ(ui_app.ui.br_cur, 1);
     ev_tap(BACK);
+}
+
+extern int ui_stub_request_steps;                                        // tools/ui_stubs.c: calls a file's header takes to arrive
+
+// On the board a header takes 20 ms .. 0.4 s (the file's place in its folder): the list must not wait for it (2026-10-11).
+TEST(browser_list_moves_on_while_the_card_reads_a_sample) {
+    ui_stub_ramcard(true);
+    ui_fresh();
+    ui_stub_library_reset();
+    shift_menu();
+    pad_t *p = &ui_app.pads.pad[0];
+    ev_tap(CTL_JOY_SW);                                                  // the editor of A1
+    ev_tap(CTL_JOY_SW);                                                  // the browser: kit/ demo0 demo1 demo2
+    ev_tap(CTL_JOY_SW);                                                  // into kit: .. hat snare tom
+    ui_stub_request_steps = 100000;                                      // a card that does not answer
+    ev_turn(CTL_ENC_A, 1);                                               // hat
+    ev_idle(60);
+    CHECK_EQ(ui_app.ui.br_state, BR_FRESH);                              // being read: the overview says "..."
+    CHECK_STR(p->file, "");
+    ev_turn(CTL_ENC_A, 1);                                               // the highlight moves on meanwhile
+    CHECK_EQ(ui_app.ui.br_cur, 2);
+    ev_idle(60);
+    ui_stub_request_steps = 3;                                           // the card answers after a few steps
+    ev_turn(CTL_ENC_A, 1);                                               // tom
+    ev_idle(60);
+    CHECK_EQ(ui_app.ui.br_state, BR_SHOWN);
+    CHECK_STR(p->file, "kit/tom");
+    CHECK_EQ(audio_sample_find("kit/hat"), -1);                          // the samples passed on the way never joined the catalog
+    CHECK_EQ(audio_sample_find("kit/snare"), -1);
+    ev_idle(400);                                                        // seconds in the browser: pads.cfg is not written with a sample
+    pads_t saved;                                                        // that is only being tried
+    pads_init(&saved);
+    CHECK(!pads_load(&saved) || !saved.pad[0].file[0]);
+    ui_stub_request_steps = 100000;
+    ev_turn(CTL_ENC_A, -1);                                              // snare, chosen before the card answered: the choice waits for it
+    ev_tap(CTL_JOY_SW);
+    CHECK(!ui_app.ui.br_open);
+    CHECK_STR(p->file, "kit/snare");
+    ev_idle(400);                                                        // out of the browser: saved
+    pads_init(&saved);
+    CHECK(pads_load(&saved));
+    CHECK_STR(saved.pad[0].file, "kit/snare");
+    ui_stub_request_steps = 0;
+    ui_stub_ramcard(false);
 }
 
 TEST(pads_files_enter_the_catalog_when_they_are_used) {

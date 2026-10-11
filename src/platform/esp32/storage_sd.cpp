@@ -52,9 +52,15 @@ int SdStorage::fd_of(int f) {
         if (lru < 0 || file_[i].used < file_[lru].used) lru = i;
     }
     if (open_n >= kOpenFds && lru >= 0) { ::close(file_[lru].fd); file_[lru].fd = -1; file_[lru].pos = kUnknownPos; }
-    fl.fd = ::open(fl.path, O_RDONLY);
-    fl.pos = fl.fd >= 0 ? 0 : kUnknownPos;
-    stats_.opens++;
+    if (spare_fd_ >= 0 && !strcmp(spare_path_, fl.path)) {               // its header was just read: that descriptor, no walk through the folder
+        fl.fd = spare_fd_;
+        spare_fd_ = -1;
+        fl.pos = kUnknownPos;
+    } else {
+        fl.fd = ::open(fl.path, O_RDONLY);
+        fl.pos = fl.fd >= 0 ? 0 : kUnknownPos;
+        stats_.opens++;
+    }
     if (fl.fd >= 0 && fl.size == kUnknownSize) {                         // its first open: the size (the bounds of every read)
         struct stat st;
         const off_t end = fstat(fl.fd, &st) == 0 ? st.st_size : lseek(fl.fd, 0, SEEK_END);
@@ -102,8 +108,16 @@ bool SdStorage::poll(sc::IoDone &d, uint64_t) {
         if (!file_[i].path[0] && file_[i].fd >= 0) { ::close(file_[i].fd); file_[i].fd = -1; file_[i].pos = kUnknownPos; }
     if (count_ == 0) return false;
     const sc::IoRead r = q_[head_];
+    if (r.pinned && service_on_ && !served_) return false;               // service() reads it, outside the caller's lock
+    const bool ok = served_ ? served_ok_ : execute(r);
+    served_ = false;
     head_ = (head_ + 1) % kQueue;
     count_--;
+    d = {r.tag, ok};
+    return true;
+}
+
+bool SdStorage::execute(const sc::IoRead &r) {
     bool ok = false;
     if (r.file >= 0 && r.file < n_files_ && file_[r.file].path[0] && fd_of(r.file) >= 0 &&
         static_cast<uint64_t>(r.offset) + r.bytes <= file_[r.file].size) {
@@ -116,11 +130,37 @@ bool SdStorage::poll(sc::IoDone &d, uint64_t) {
     }
     if (!ok) stats_.errors++;
     stats_.reads++;
-    d = {r.tag, ok};
+    return ok;
+}
+
+// What the control thread may do meanwhile (under the engine's lock, which this does not hold): open() fills a free table entry or
+// counts one more use of a path, forget() empties the entry of a file that has no pinned request in flight (SampleBank::can_unload).
+// Neither touches the entry being read here, nor the queue, which only the I/O task uses.
+bool SdStorage::service() {
+    service_on_ = true;
+    if (count_ == 0 || served_ || !q_[head_].pinned) return false;
+    served_ok_ = execute(q_[head_]);
+    served_ = true;
     return true;
+}
+
+void SdStorage::keep_spare(const char *path, int fd) {
+    if (spare_fd_ >= 0 && spare_fd_ != fd) ::close(spare_fd_);
+    spare_fd_ = -1;
+    if (fd < 0 || strlen(path) >= sizeof spare_path_) { if (fd >= 0) ::close(fd); return; }
+    memcpy(spare_path_, path, strlen(path) + 1);
+    spare_fd_ = fd;
+}
+
+int SdStorage::take_spare(const char *path) {
+    const int fd = spare_fd_;
+    spare_fd_ = -1;
+    if (fd >= 0 && strcmp(spare_path_, path)) { ::close(fd); return -1; }
+    return fd;
 }
 
 void SdStorage::close_all() {
     for (int i = 0; i < n_files_; i++) if (file_[i].fd >= 0) { ::close(file_[i].fd); file_[i].fd = -1; file_[i].pos = kUnknownPos; }
+    if (spare_fd_ >= 0) { ::close(spare_fd_); spare_fd_ = -1; }
 }
 #endif

@@ -13,6 +13,16 @@ static int br_up(const synth_ui_t *ui) { return ui->br_dir[0] ? 1 : 0; }        
 static int br_count(const synth_ui_t *ui) { return ui->br_total + br_up(ui); }
 static int br_rows(void) { return clampi((DISPLAY_HEIGHT - GUI_BAR_H - BR_WAVE_H - 4) / BR_ROW_H, 2, BROWSE_PAGE); }   // 10 on 128 px
 
+static bool br_presets(const synth_ui_t *ui) { return ui->br_open == BROWSE_PRESET; }
+
+// The folder `dir` of what the browser is open on: the sample library, or the presets (hal_audio.h: a ':' in front).
+static int br_dir_open(const synth_ui_t *ui, const char *dir) {
+    char path[PAD_NAME_MAX + 2];
+    if (!br_presets(ui)) return audio_dir_open(dir);
+    snprintf(path, sizeof path, ":%s", dir);
+    return audio_dir_open(path);
+}
+
 static const audio_dir_entry_t *br_entry(const synth_ui_t *ui, int row) {
     return row >= ui->br_first && row < ui->br_first + ui->br_n ? &ui->br_page[row - ui->br_first] : NULL;
 }
@@ -44,7 +54,7 @@ static void br_move(synth_ui_t *ui, int row, uint32_t now) {
 
 // Shows the folder `dir` with the highlight on its entry `focus` (a folder when focus_dir), else on its first row.
 static bool br_set_dir(synth_ui_t *ui, const char *dir, const char *focus, bool focus_dir, uint32_t now) {
-    const int total = audio_dir_open(dir);
+    const int total = br_dir_open(ui, dir);
     if (total < 0) return false;
     snprintf(ui->br_dir, sizeof ui->br_dir, "%s", dir);
     ui->br_total = total;
@@ -87,6 +97,7 @@ static void br_enter(synth_ui_t *ui, uint32_t now) {
 
 bool browse_ui_open(synth_ui_t *ui, int what, const char *current, uint32_t now) {
     char dir[PAD_NAME_MAX] = "", base[PAD_NAME_MAX] = "";
+    ui->br_open = (uint8_t)what;                                                         // (which folders: br_dir_open)
     if (current && current[0]) {
         const char *b = pad_file_base(current);
         snprintf(base, sizeof base, "%s", b);
@@ -142,13 +153,17 @@ void browse_ui_draw(const synth_ui_t *ui, u8g2_t *g) {
     const int pw = u8g2_GetStrWidth(g, pos);
     u8g2_DrawStr(g, header.x + header.w - 1 - pw, ty, pos);
     u8g2_SetClipWindow(g, header.x, header.y, header.x + header.w - pw - 4, header.y + header.h);
-    u8g2_DrawStr(g, header.x + 1, ty, ui->br_dir[0] ? pad_file_base(ui->br_dir) : "SAMPLES");
+    u8g2_DrawStr(g, header.x + 1, ty, ui->br_dir[0] ? pad_file_base(ui->br_dir) : br_presets(ui) ? "PRESETS" : "SAMPLES");
     u8g2_SetMaxClipWindow(g);
 
     // the highlighted sample's overview and length
     const gui_rect_t box = gui_rect(screen.x, screen.y + 1, screen.w, BR_WAVE_H);
     const audio_dir_entry_t *cur = br_entry(ui, ui->br_cur);
-    if (cur && !cur->dir && ui->br_state == BR_SHOWN && !ui->br_info.pending && ui->br_info.frames >= 4) {
+    if (br_presets(ui)) {                                                                // no picture: what the keys play now
+        u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
+        gui_draw_text_centered(g, box, ui->br_state == BR_READING ? "reading the card..." : !cur ? "empty folder" : cur->dir ? "folder" :
+                                       ui->br_state == BR_FRESH ? "..." : ui->br_state == BR_SHOWN ? "play it, push to keep" : "cannot be read");
+    } else if (cur && !cur->dir && ui->br_state == BR_SHOWN && !ui->br_info.pending && ui->br_info.frames >= 4) {
         const audio_sample_info_t *in = &ui->br_info;
         const int mid = box.y + box.h / 2, amp = box.h / 2 - 1;
         for (int x = 0; x < box.w; x++) {

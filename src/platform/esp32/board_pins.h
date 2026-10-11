@@ -52,9 +52,20 @@
 #define HW_LED_BRIGHTNESS HW_LED_MAX_BRIGHTNESS   // at boot: the cap (leds_set_brightness may lower it; nothing calls it yet)
 #endif
 
-// Soft power-off
+// Soft power-off. The power button is a latching push switch (user, 2026-10-11): down = on. PWR_SENSE reads HW_PWR_SENSE_ON while it
+// is down; PWR_ON_EN high keeps the supply on after it came up, so the firmware can finish before the board goes off. The USB cable
+// feeds the board whatever the button says.
 #define PIN_PWR_ON_EN 6
 #define PIN_PWR_SENSE 12
+#define HW_PWR_SENSE_ON 1      // (the first firmware switched off on a low level; not measured on this board)
+
+// Battery: 2 cells in series, through a divider onto mux channel 1 (hwv1_layout.h). The first firmware computed raw / 4095 * 10.4 V:
+// 10.4 V on the battery puts the ADC's 3.3 V on the pin. Not checked against a meter: the serial command `power` prints the raw count,
+// the pin's voltage and the result; change HW_BATT_FULL_SCALE_MV if it reads off. (A 3-cell pack needs the three other values changed.)
+#define HW_BATT_FULL_SCALE_MV 10400   // the battery voltage that gives 3300 mV on the pin
+#define HW_BATT_EMPTY_MV      6000    // 0 %: 3.0 V a cell (the first firmware's scale, 6.0 .. 8.4 V)
+#define HW_BATT_FULL_MV       8400    // 100 %: 4.2 V a cell
+#define HW_BATT_PRESENT_MV    4000    // below this no battery is connected (the board runs from the cable): none is reported
 
 // SD card (SPI)
 #define PIN_SD_MOSI   36

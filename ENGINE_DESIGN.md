@@ -906,7 +906,7 @@ built, firmware static RAM unchanged at 65.8 %; NOT tried by the user, NOT flash
   **Not built: "print a pad's settings"** (the pad's tune, filter and level rendered into the file): it needs the pad's whole blob
   passed to the job, to do with the capture path (phase 4), which renders the same thing live.
 - The EDIT page lists 18 operations in this order: Normalize, Gain, Fade in, Fade out, Trim sil., Crop, Reverse, Remove DC, Stretch,
-  Pitch, Speed, Fit beats, Fit speed, Lo-fi rate, Bits, Drive, Low-pass, High-pass (`pads.h` EDIT_*; `app.c` maps each to a ProcOp).
+  Pitch, Speed, Fit beats, Fit speed, Lo-fi rate, Bits, Drive, Low-pass, High-pass (`pads.h` EDIT_*; `app/app_render.c` maps each to a ProcOp).
 
 **Texture, design round (user, 2026-10-11; options offered):**
 44. **Paulstretch with a 4096-point window** (the user's own answer; offered: 2048 always fitting / up to 8192 with memory borrowed
@@ -1031,7 +1031,7 @@ flashed and measured by me; NOT tried by the user, NOT listened to):**
   `audio_capture_*`): 8 KB at a time into `<name>.smp.tmp`, the overview kept while the length is unknown (64 windows that merge in
   pairs when they are full), the header last, then the rename. Its memory (41 KB of PSRAM) only while it runs; not together with a
   processing job. The card task writes a recording's chunk first on every round.
-- **The app** (`capture_key`, `capture_poll`): arms, stops, finds the file in the library, puts it on its pad and selects it. The
+- **The app** (`app_capture_key`, `app_capture_poll`): arms, stops, finds the file in the library, puts it on its pad and selects it. The
   grid's header shows "REC ready" / "REC 0:07"; the Rec key is dim, blinks while armed, is lit while it records. A recording ends
   when the section is left; one without a length stops by itself after 5 minutes.
 - **SD driver: multi-block writes (CMD25 with ACMD23)** for runs of sectors, single blocks as before: it was the precondition (a
@@ -1102,7 +1102,7 @@ of 155 files; flashed and measured the same day, see "On the board" below; NOT t
   versions left out; the platform keeps the list until another folder or `audio_dir_close`: on the board 34 KB of PSRAM, the names
   packed, 2048 names or 30 KB of them at most; a longer folder shows what fits and the log says how many were left out).
   `audio_samples_rescan` is gone. The engine side (`sample_catalog.h`): `engine_synth_catalog_find / _add / _remove`.
-- **The samples nothing uses do not pile up** (`app.c` `sample_use`: no pad, no rack sampler, no job refers to them): the 3 asked for
+- **The samples nothing uses do not pile up** (`app/app_library.c` `app_sample_use`: no pad, no rack sampler, no job refers to them): the 3 asked for
   last stay loaded (`LIB_SPARE`: going back to one in the browser costs no card read), older ones leave, oldest first (`lib_stamp`);
   when the catalog is full the oldest unused entry leaves. **Their sample is unloaded** (new: samples were never unloaded). Safe unload: `engine_synth_catalog_remove` only clears the name;
   `engine_synth_housekeeping` unloads once 4 engine blocks have passed (every command sent before the removal has reached the audio
@@ -1111,7 +1111,7 @@ of 155 files; flashed and measured the same day, see "On the board" below; NOT t
   (the board's table of 48 paths would fill; handles are counted, a file can be loaded again while its old copy waits to be unloaded).
   Test `pads_catalog_entry_leaves_and_its_sample_is_unloaded_once_nothing_plays_it`: the voice is not cut, 49 KB come back, the index
   is reused.
-- **The pads' files enter the catalog one per app step** (`pads_resolve`: after a start, a card change, pads.cfg, a version picked);
+- **The pads' files enter the catalog one per app step** (`app_pads_resolve`: after a start, a card change, pads.cfg, a version picked);
   a pad whose file is not on the card is not asked for again until it or the card changes. The first switch to the Pads section after
   a start can find pads silent for a moment (16 files: about 0.1 .. 0.2 s on the board, estimated).
 - **The browser** (`scr_browse.c`, over either section): opened by the pad editor's Smp row (a turn of encoder B or a push; the row no
@@ -1164,6 +1164,38 @@ its `system/samples` holds 1800 samples in ONE folder; NOT tried by hand, NOT li
   to find a free `recN` (0.75 s here): now once, then counted (`app->rec_next`).
 - Not done: the version-name check before an EDIT job and a pad whose file is missing still cost one folder search each (0.4 s in
   this folder); the old demo files want cooking again (`build.ps1 -Sd`) to lose their 330 ms; RAM of the normal build 66.0 %.
+
+**The browser held the UI (2026-10-11, second session; the user: "the browser is getting stuck while scrolling down"; measured with
+the new serial command `browse N REST FIRST`, which opens the browser on the root folder, rests on N rows in turn and times every
+UI step; same card, 1800 files in one folder):**
+
+| a row the highlight rests on | UI held, before | UI's slowest step, now | sample shown after (now) |
+|---|---|---|---|
+| near the top (row 21) | 0.10 .. 0.19 s | 19 .. 37 ms | 0.2 .. 0.3 s |
+| the middle (row 900) | 0.8 s | (as below) | (as below) |
+| near the end (row 1750) | 1.0 .. 1.1 s | 9 .. 30 ms | 0.9 s |
+| scrolling on every 200 ms (row 900 on) | 0.8 s a row | 5 .. 7 ms, nothing is read | (the highlight never rests) |
+
+- Three causes, in the order they were found. (1) **The UI waited for the header** (`audio_sample_use`: 24 .. 430 ms by the file's
+  place). Now the browser's highlight and the pads' files at start use `audio_sample_request`: the job is posted, the answer taken
+  at a later step, an answer for a row the highlight left is dropped (it never enters the catalog). A choice or a pad key before the
+  answer still waits (`app_browse_load(app, true)`). (2) **The UI waited on the engine's lock while the card task opened and loaded the
+  sample**: `engine_synth_io_pump` holds the lock, `SdStorage::poll` read inside it, and a whole pad sample is ONE read (up to 192 KB,
+  0.4 s) after a second walk through the folder for the open. Now a header or head read is marked `IoRead::pinned` (its destination
+  cannot be freed while it is read: `SampleBank::can_unload`; test `header_and_head_reads_are_pinned_and_ring_blocks_are_not`) and
+  `SdStorage::service` reads it outside the lock, before each pump; ring blocks (4 KB, a few ms) stay inside. The file is opened once:
+  the header job leaves its descriptor to the loader (`keep_spare`). (3) **The card driver busy-waits, and the card task (priority 5)
+  shares core 0 with the UI (priority 1)**: with (1) and (2) alone the UI was still held 0.15 .. 0.5 s a row. The work that has no
+  deadline (the header job, a folder's list, pinned reads) now runs at priority 1 (`HWV1_SD_CALM_PRIO`), tick by tick with the UI.
+  At priority 0 it starved: the folder's list took 2.9 s and a header did not arrive in 1.5 s.
+- Also: `pads.cfg` is not written while the browser tries samples on a pad (it was, every two seconds, with a file that was not the
+  pad's yet).
+- **A streamed pad while samples are auditioned**: near the top of the folder 0 stream underruns in 8 auditions; near the end 7 .. 8
+  in 6 auditions, **the same with the old priority (7 and 7)**: the open walks the folder for 0.4 s and no ring block is read
+  meanwhile (the limit of the first bullet of this section, not of this change). Sub-folders are the cure; the user sorts the card.
+  Not done: a whole pad sample is still one read of up to 0.4 s during which the streams wait (it would have to be split in the bank).
+- 220 engine tests in the 6 configurations, 106 UI tests (`browser_list_moves_on_while_the_card_reads_a_sample`), simulator and
+  firmware built (RAM 66.1 %), flashed and measured; NOT tried by hand.
 
 ## Known limits and ideas for later
 

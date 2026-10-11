@@ -2,7 +2,8 @@
 //
 // HWV1 (old prototype): a scan task on core 0 reads the TCA8418 keyboard (kbd_tca8418.cpp), the 7 relative knobs through the analog
 // mux (mux_esp32.cpp) and the joystick, turns them into HAL controls with the tables in hwv1_layout.h, and pushes events into a ring
-// buffer. input_poll() pops one event per call, so a slow screen refresh in loop() never delays the scan.
+// buffer. input_poll() pops one event per call, so a slow screen refresh in loop() never delays the scan. The task also reads the
+// mux's two other channels now and then: the battery and a spare input (scan_sensors).
 //
 // Other revisions: add an #elif block with their own driver; until then input_poll() reports nothing.
 #if defined(ARDUINO_ARCH_ESP32)
@@ -118,7 +119,7 @@ void scan_knobs() {
     }
 }
 
-// ---- joystick: two ADC1 axes (centre measured at boot) and a push switch (active low) ----
+// ---- joystick: two ADC1 axes (centre measured at boot) and a push switch (its pushed level: HWV1_JOY_SW_PUSHED, hwv1_layout.h) ----
 int joy_centre[2] = {2048, 2048};
 int joy_last[2] = {INPUT_AXIS_CENTER, INPUT_AXIS_CENTER};
 constexpr int kJoyMinStep = 12;                // axis counts (0..1023) before a new value is reported
@@ -166,9 +167,24 @@ void scan_joystick() {
     }
     static bool sw = false;
     static uint8_t stable = 0;
-    const bool now = digitalRead(PIN_JOY_SW) == LOW;
+    const bool now = digitalRead(PIN_JOY_SW) == (HWV1_JOY_SW_PUSHED ? HIGH : LOW);
     if (now == sw) stable = 0;
     else if (++stable >= 2) { sw = now; stable = 0; push(CTL_JOY_SW, sw ? IN_PRESS : IN_RELEASE, 0); }   // 2 scans of the new level
+}
+
+// ---- the mux's two other channels: the battery (board_esp32.cpp keeps its level) and a spare input, read as a button ----
+volatile uint16_t aux_raw = 0;
+volatile bool aux_pushed = false;
+
+void scan_sensors() {
+    const uint16_t mv = mux_read_mv(HWV1_MUX_BATTERY);
+    board_battery_sample(mux_read(HWV1_MUX_BATTERY), mv);
+    static uint8_t stable = 0;
+    const uint16_t raw = mux_read(HWV1_MUX_AUX);
+    const bool now = (raw > 2048) == (HWV1_AUX_PUSHED != 0);
+    aux_raw = raw;
+    if (now == aux_pushed) stable = 0;
+    else if (++stable >= 2) { aux_pushed = now; stable = 0; }     // 2 reads of the new level (no control of the HAL yet: nothing is reported)
 }
 
 void scan_task(void *) {
@@ -176,6 +192,7 @@ void scan_task(void *) {
     uint32_t tick = 0;
     for (;;) {
         scan_keys();                           // the TCA8418 debounces in hardware: one FIFO read per key period
+        if ((tick % (HWV1_SENSOR_PERIOD_MS / HWV1_KEY_PERIOD_MS)) == 0) scan_sensors();
         if ((tick++ % (HWV1_ANALOG_PERIOD_MS / HWV1_KEY_PERIOD_MS)) == 0) { scan_knobs(); scan_joystick(); }
         vTaskDelayUntil(&wake, pdMS_TO_TICKS(HWV1_KEY_PERIOD_MS));
     }
@@ -188,6 +205,9 @@ void input_esp32_init(void) {
     kbd_init();                                // on failure the keys are dead but the knobs and the joystick still work
     xTaskCreatePinnedToCore(scan_task, "input", 4096, nullptr, 8, nullptr, 0);
 }
+
+int input_esp32_aux_raw(void) { return aux_raw; }
+bool input_esp32_aux_pushed(void) { return aux_pushed; }
 
 extern "C" bool input_key_present(int row, int col) { return row >= 0 && row < KEY_ROWS && col >= 0 && col < KEY_COLS && HWV1_KEY_PRESENT(row, col); }
 // The 7 knobs (kHwv1Knobs) and the joystick; no encoder pushes, no Play / B1..B3 buttons, no right-hand knobs.
@@ -209,6 +229,8 @@ extern "C" input_event_t input_poll(void) {
 
 #else  // another hardware revision: no driver yet
 void input_esp32_init(void) {}
+int input_esp32_aux_raw(void) { return 0; }
+bool input_esp32_aux_pushed(void) { return false; }
 extern "C" input_event_t input_poll(void) { return input_event_t{CTL_NONE, IN_NONE, 0, false}; }
 extern "C" bool input_pending(void) { return false; }
 extern "C" bool input_key_present(int, int) { return false; }

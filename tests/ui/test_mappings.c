@@ -1,5 +1,6 @@
 // Mappings (Min / Max / curve), the catch in knob position, and macros with several destinations (core/curves.h, ui_input.c, scr_macros.c).
 #include "ui_test.h"
+#include "core/patch.h"
 #include "core/curves.h"
 #include <math.h>
 
@@ -111,7 +112,7 @@ TEST(macro_learn_adds_dedups_fills_and_removes) {
     CHECK_EQ(ui_app.ui.macro[0].n, n0 + 1);
 }
 
-TEST(macros_saved_in_ui_cfg_with_range_and_curve) {
+TEST(macros_saved_with_the_sound_with_range_and_curve) {
     ui_fresh();
     memset(ui_app.ui.macro, 0, sizeof ui_app.ui.macro);
     synth_ui_macro_add(&ui_app.ui, 6, &(macro_t){MACRO_FM, 2, DXV_EG_T2});
@@ -120,17 +121,17 @@ TEST(macros_saved_in_ui_cfg_with_range_and_curve) {
     macro_def_t before[SYNTH_UI_MACROS];
     memcpy(before, ui_app.ui.macro, sizeof before);
     static char txt[STORAGE_FILE_MAX];
-    ui_settings_to_text(&ui_app.ui, &ui_app.rack, txt, sizeof txt);
+    CHECK(patch_to_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, false, txt, sizeof txt) > 0);   // the macros belong to the sound (core/patch.h)
     CHECK(strstr(txt, "macro 7 fm 2 9\n") != NULL);
     CHECK(strstr(txt, " range 10 70 curve s\n") != NULL);
     memset(ui_app.ui.macro, 0, sizeof ui_app.ui.macro);
-    CHECK(ui_settings_from_text(&ui_app.ui, &ui_app.rack, txt));
+    CHECK(patch_from_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, NULL, txt));
     CHECK(memcmp(before, ui_app.ui.macro, sizeof before) == 0);
-    // a file of the first format (no "macros" line) keeps the default macros
-    ui_fresh();
-    const int n0 = ui_app.ui.macro[0].n;
-    CHECK(ui_settings_from_text(&ui_app.ui, &ui_app.rack, "knob direct\n"));
-    CHECK_EQ(ui_app.ui.macro[0].n, n0);
+    // ui.cfg no longer holds them, and reading it leaves them alone
+    ui_settings_to_text(&ui_app.ui, &ui_app.rack, txt, sizeof txt);
+    CHECK(strstr(txt, "macro") == NULL);
+    CHECK(ui_settings_from_text(&ui_app.ui, &ui_app.rack, "knob direct\nmacros\nmacro 1 fm 1 1\n"));
+    CHECK(memcmp(before, ui_app.ui.macro, sizeof before) == 0);
 }
 
 TEST(mapping_saved_on_a_layer_entry) {

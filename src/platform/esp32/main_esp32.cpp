@@ -2,7 +2,7 @@
 #if defined(ARDUINO_ARCH_ESP32)
 #include <Arduino.h>
 #include <esp_heap_caps.h>
-#include "core/app.h"
+#include "app/app.h"
 #include "hal/hal_audio.h"
 #include "hal/hal_display.h"
 #include "hal/hal_input.h"
@@ -25,9 +25,15 @@ void setup() {
     board_power_init();                        // before anything slow: the board must keep itself powered
     Serial.begin(115200);
     Serial.setTxTimeoutMs(0);                  // never wait for a host: debug prints from the audio and input tasks must not block them when nobody reads the port
+    if (board_power_started_off()) board_card_reader();   // the power button is up, the cable feeds the board: the card reader's firmware (back only when there is none)
+    u8g2_t *const display = display_init();    // first: its boot task plays the animation while everything below starts (display_esp32.cpp)
+#ifdef BOOT_TRACE
+    Serial.printf("[BOOT] display ready at %u ms\n", (unsigned)millis());
+#endif
 #ifdef DEV_BOOT_DELAY_MS
     delay(DEV_BOOT_DELAY_MS);                  // dev only: lets the serial monitor reconnect after a reset so the boot messages are not lost
 #endif
+    display_esp32_boot_stage(40);              // the loading bar under the boot animation: setup()'s part of it, by the time each step takes
 #ifdef HWV1_DEBUG_AUDIO
     // dev only: internal RAM (free, largest block) before each init step; the audio fast heap needs a large block (audio_esp32.cpp)
     auto ram = [](const char *step) { Serial.printf("[RAM] %-14s internal free %u, largest block %u\n", step, (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
@@ -42,15 +48,30 @@ void setup() {
     ram("input_init");
     board_audio_enable();
     ram("audio_enable");
+    display_esp32_boot_stage(70);
+#ifdef BOOT_TRACE
+    const uint32_t bt0 = millis();
+#endif
     audio_init();
-    app_init(&app, display_init());
+    display_esp32_boot_stage(80);
+#ifdef BOOT_TRACE
+    const uint32_t bt1 = millis();
+#endif
+    app_init(&app, display);                   // (its first frame waits in the display task until the boot animation has ended)
+    display_esp32_boot_stage(100);             // the rest of the bar is the application's (display_boot_progress)
+#ifdef BOOT_TRACE
+    Serial.printf("[BOOT] audio_init %u..%u ms, app_init ..%u ms\n", (unsigned)bt0, (unsigned)bt1, (unsigned)millis());
+#endif
 #ifdef DEV_SERIAL_CMD
     serial_cmd_attach(&app);
 #endif
 }
 
 void loop() {
-    board_power_poll();
+    if (board_power_poll()) {                  // the power button went up: what waits to be saved, then the supply
+        app_save_now(&app);
+        board_power_off();
+    }
 #ifdef DEV_SERIAL_CMD
     serial_cmd_poll();                         // dev only: commands from tools/serial_test.py
 #endif
@@ -58,7 +79,27 @@ void loop() {
 #ifdef HWV1_DEBUG_UI
     const uint32_t t0 = micros();
 #endif
+#ifdef BOOT_TRACE
+    // dev only: when the loop starts, and the controls that speak in its first seconds (an event that waits at start acts on the UI)
+    static uint32_t bt_loop = 0;
+    if (!bt_loop) { bt_loop = millis(); Serial.printf("[BOOT] loop starts at %u ms\n", (unsigned)bt_loop); }
+    if (e.kind != IN_NONE && millis() - bt_loop < 5000) Serial.printf("[BOOT] +%u ms: event kind %d ctl %d value %d\n", (unsigned)(millis() - bt_loop), (int)e.kind, (int)e.ctl, e.value);
+    const uint32_t bt_a = micros();
     app_step(&app, e);
+    {   // what the start waits for: the card, the pads' files (lib_dirty), then `started`
+        static int was_dirty = -1, was_started = -1, was_sd = -1;
+        static uint32_t was_gen = 0xFFFFFFFFu;
+        const uint32_t us = micros() - bt_a;
+        if (!app.started && us > 100000) Serial.printf("[BOOT] +%u ms: a step of %u ms\n", (unsigned)(millis() - bt_loop), (unsigned)(us / 1000));
+        if ((int)app.lib_dirty != was_dirty || (int)app.started != was_started || (int)audio_sd_state() != was_sd || app.sd_gen != was_gen) {
+            was_dirty = app.lib_dirty; was_started = app.started; was_sd = (int)audio_sd_state(); was_gen = app.sd_gen;
+            Serial.printf("[BOOT] +%u ms: card state %d generation %u, pads' files %s, missing mask %llx, start %s (audio clock %u, boot_ms %u)\n", (unsigned)(millis() - bt_loop), was_sd,
+                          (unsigned)was_gen, app.lib_dirty ? "being read" : "in", (unsigned long long)app.lib_missing, app.started ? "over" : "going on", (unsigned)audio_millis(), (unsigned)app.boot_ms);
+        }
+    }
+#else
+    app_step(&app, e);
+#endif
 #ifdef HWV1_DEBUG_UI
     const uint32_t dt = micros() - t0;
     if (e.kind != IN_NONE) ui_events++;

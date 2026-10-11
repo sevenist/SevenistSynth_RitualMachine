@@ -1,5 +1,5 @@
 #pragma once
-// Key LED colours by role (core/key_leds.c paints them, the LEDS menu tab edits them: scr_leds.c). Every key gets a role from its function in
+// Key LED colours by role (app/key_leds.c paints them, the LEDS menu tab edits them: scr_leds.c). Every key gets a role from its function in
 // the key layout (keymap.h); a role has an Idle and an Active colour, each one of LED_PALETTE named colours at a brightness 0..100 %.
 // Active: a note held (Note / Sharp / Root), Shift or Mod held, the menu open, the sequencer running, the keyboard shifted that way (Octave),
 // a jump slot saved (Jump), a pad sounding (Pad; an empty pad is dark, a muted one shows Back's idle colour), the bank shown (Bank).

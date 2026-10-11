@@ -13,6 +13,7 @@
 #include "core/ui_settings.h"
 #include "core/pads.h"
 #include "platform/esp32/serial_cmd_esp32.h"
+#include "platform/esp32/sd_card.h"
 #ifdef HWV1
 #include "platform/esp32/leds_esp32.h"
 #endif
@@ -278,6 +279,12 @@ void run(char *line) {
                           (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL),
                           (unsigned)heap_caps_get_free_size(MALLOC_CAP_SPIRAM), (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_SPIRAM),
                           (unsigned)fu, (unsigned)fc, (unsigned)fh, (unsigned)bu, (unsigned)sp, (unsigned long long)audio_pads_playing());
+            return;
+        }
+        if (!strcmp(sub, "verify")) {                     // verify 0|1: the card driver reads every write back and compares (slow), and its counts
+            uint32_t n = 0, bad = 0;
+            sd_card_verify(a != 0, &n, &bad);
+            Serial.printf("[CMD] pad verify %d: %u sectors read back, %u differed\n", a != 0, (unsigned)n, (unsigned)bad);
             return;
         }
         if (!strcmp(sub, "fx")) {                         // fx clear | fx route N | fx <A|B|C> <code> [values]: the Pads section's FX chains

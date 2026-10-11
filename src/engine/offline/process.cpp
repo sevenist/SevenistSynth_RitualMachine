@@ -3,10 +3,24 @@
 #include <cstring>
 #include "engine/offline/rfft.h"
 
+#if defined(ENGINE_PROFILE) && defined(ESP_PLATFORM)
+#include <esp_cpu.h>
+#define PROF_T0() uint32_t prof_t = esp_cpu_get_cycle_count()
+#define PROF(i) do { const uint32_t t_ = esp_cpu_get_cycle_count(); sc::g_proc_prof[i] += t_ - prof_t; prof_t = t_; } while (0)
+#else
+#define PROF_T0() do {} while (0)
+#define PROF(i) do {} while (0)
+#endif
+
 namespace sc {
 
+uint32_t g_proc_prof[5] = {}, g_proc_frames = 0;
+
 namespace {
-inline q15 sat(float v) { return static_cast<q15>(v > 32767.0f ? 32767 : v < -32768.0f ? -32768 : static_cast<int32_t>(std::lround(v))); }
+// To the nearest step, halves away from zero. Not std::lround: the S3 has no instruction for it and its library call cost more than the
+// arithmetic around it in the per-sample loops (the same results, but for a value within one float step under a half).
+inline int32_t round_i(float v) { return static_cast<int32_t>(v + (v >= 0.0f ? 0.5f : -0.5f)); }
+inline q15 sat(float v) { return static_cast<q15>(v > 32767.0f ? 32767 : v < -32768.0f ? -32768 : round_i(v)); }
 constexpr float kPi = 3.14159265f;
 inline float soft(float x) { return x >= 3.0f ? 1.0f : x <= -3.0f ? -1.0f : x * (27.0f + x * x) / (27.0f + 9.0f * x * x); }   // ~tanh
 inline uint32_t scaled(uint32_t v, uint32_t num, uint32_t den) { return den ? static_cast<uint32_t>((static_cast<uint64_t>(v) * num + den / 2) / den) : v; }
@@ -23,18 +37,17 @@ inline uint16_t phase16(float re, float im) {
     if (ay > ax) a = 0.5f * kPi - a;
     if (re < 0.0f) a = kPi - a;
     if (im < 0.0f) a = -a;
-    return static_cast<uint16_t>(static_cast<int32_t>(std::lround(a * (32768.0f / kPi))));
+    return static_cast<uint16_t>(round_i(a * (32768.0f / kPi)));
 }
-// (re, im) turned by `th` (65536 = a turn): the table has 4096 steps a turn, the 16 between two are interpolated.
-inline void turn(const float *t, uint16_t th, float &re, float &im) {
+// The cos and sin of the angle `th` (65536 = a turn): the table has 4096 steps a turn, the 16 between two are interpolated.
+inline void turn_cs(const float *t, uint16_t th, float &c, float &s) {
     float c0, s0, c1, s1;
     const int j = th >> 4;
     rfft_cs(t, j, c0, s0);
     rfft_cs(t, (j + 1) & (kN - 1), c1, s1);
-    const float u = static_cast<float>(th & 15) * (1.0f / 16.0f), c = c0 + u * (c1 - c0), s = s0 + u * (s1 - s0);
-    const float r = re * c - im * s;
-    im = re * s + im * c;
-    re = r;
+    const float u = static_cast<float>(th & 15) * (1.0f / 16.0f);
+    c = c0 + u * (c1 - c0);
+    s = s0 + u * (s1 - s0);
 }
 // The Hann window 0.5 - 0.5 cos(2 pi n / N), and its square root sin(pi n / N) (for odd n the mean of the two table entries
 // around it, exact once divided by cos(pi / N)).
@@ -49,15 +62,23 @@ inline float sine_win(const float *t, int n, float odd_gain) {
 }
 
 // The working memory, part by part (floats first: the caller's memory is 8-byte aligned, every part a multiple of 8 bytes).
-size_t Processor::layout(ProcOp op, Processor *p, uint8_t *base) {
-    size_t at = 0;
+size_t Processor::layout(ProcOp op, Processor *p, uint8_t *base, bool with_fast, uint8_t *fast, size_t *fast_size) {
+    size_t at = 0, fat = 0;
     auto take = [&](size_t bytes) { uint8_t *m = base ? base + at : nullptr; at += (bytes + 7) & ~static_cast<size_t>(7); return m; };
+    auto take_fast = [&](size_t bytes) {                                     // the frame and its table: in `fast` when there is one
+        if (!with_fast) return take(bytes);
+        uint8_t *m = fast ? fast + fat : nullptr;
+        fat += (bytes + 7) & ~static_cast<size_t>(7);
+        return m;
+    };
     if (uses_fft(op)) {
-        float *fx = reinterpret_cast<float *>(take(sizeof(float) * (kN + 2)));
-        float *sn = reinterpret_cast<float *>(take(sizeof(float) * (kN / 4 + 1)));
+        float *fx = reinterpret_cast<float *>(take_fast(sizeof(float) * (kN + 2)));
+        float *sn = reinterpret_cast<float *>(take_fast(sizeof(float) * (kN / 4 + 1)));
         q15 *ola = reinterpret_cast<q15 *>(take(sizeof(q15) * kN));
-        if (p) { p->fx_ = fx; p->sin_ = sn; p->ola_ = ola; }
+        q15 *win = uses_win(op, with_fast) ? reinterpret_cast<q15 *>(take(sizeof(q15) * kN)) : nullptr;
+        if (p) { p->fx_ = fx; p->sin_ = sn; p->ola_ = ola; p->win_ = win; }
     }
+    if (fast_size) *fast_size = uses_fft(op) ? ((sizeof(float) * (kN + 2) + 7) & ~static_cast<size_t>(7)) + ((sizeof(float) * (kN / 4 + 1) + 7) & ~static_cast<size_t>(7)) : 0;
     if (uses_pv(op)) {
         uint16_t *ph = reinterpret_cast<uint16_t *>(take(sizeof(uint16_t) * (kM + 1)));
         uint16_t *th = reinterpret_cast<uint16_t *>(take(sizeof(uint16_t) * (kM + 1)));
@@ -78,7 +99,8 @@ size_t Processor::layout(ProcOp op, Processor *p, uint8_t *base) {
     return at;
 }
 
-size_t Processor::work_bytes(ProcOp op) { return layout(op, nullptr, nullptr); }
+size_t Processor::work_bytes(ProcOp op, bool with_fast) { return layout(op, nullptr, nullptr, with_fast, nullptr, nullptr); }
+size_t Processor::fast_bytes(ProcOp op) { size_t n = 0; layout(op, nullptr, nullptr, false, nullptr, &n); return n; }
 
 /* ---------------- time & pitch: WSOLA and the resampler ---------------- */
 
@@ -89,6 +111,30 @@ bool Processor::fetch(FrameReader &r, int64_t start, uint32_t n, q15 *dst) {
     if (a > start) std::memset(dst, 0, static_cast<size_t>(a - start) * sizeof(q15));
     if (!r.read(static_cast<uint32_t>(a), static_cast<uint32_t>(b - a), dst + (a - start))) return false;
     if (end > b) std::memset(dst + (b - start), 0, static_cast<size_t>(end - b) * sizeof(q15));
+    return true;
+}
+
+// Consecutive windows overlap (a hop moves the window by a fraction of its length): what the buffer already holds of the new window
+// is moved to its place and only the rest is read. The card is the slow part of a job: read whole, the 4096-frame window of a spectral
+// frame took 35 ms of the frame's 58 on the prototype. ENGINE_OFFLINE_REREAD=1 reads every window whole (the output is the same).
+#ifndef ENGINE_OFFLINE_REREAD
+#define ENGINE_OFFLINE_REREAD 0
+#endif
+bool Processor::slide(FrameReader &r, q15 *dst, int64_t start, uint32_t n) {
+#if !ENGINE_OFFLINE_REREAD
+    if (win_n_ == n && start == win_at_) return true;
+    if (win_n_ == n && start > win_at_ && start < win_at_ + n) {
+        const uint32_t keep = static_cast<uint32_t>(win_at_ + n - start);
+        std::memmove(dst, dst + (n - keep), keep * sizeof(q15));
+        win_n_ = 0;
+        if (!fetch(r, start + keep, n - keep, dst + keep)) return false;
+        win_at_ = start; win_n_ = n;
+        return true;
+    }
+#endif
+    win_n_ = 0;
+    if (!fetch(r, start, n, dst)) return false;
+    win_at_ = start; win_n_ = n;
     return true;
 }
 
@@ -117,7 +163,7 @@ int Processor::ws_search() const {
 bool Processor::ws_hop(FrameReader &r) {
     const int hs = hs_;
     const int64_t a0 = static_cast<int64_t>(static_cast<uint64_t>(ws_k_) * static_cast<uint32_t>(hs) * in_.frames / ws_len_);   // the ideal place
-    if (!fetch(r, a0 - srch_, static_cast<uint32_t>(2 * hs + 2 * srch_), seg_)) return false;
+    if (!slide(r, seg_, a0 - srch_, static_cast<uint32_t>(2 * hs + 2 * srch_))) return false;
     int d = 0;
     if (ws_k_ > 0) {
         const int64_t natural = ws_prev_ + hs - a0;                           // going straight on from the previous window: no seam at all
@@ -151,6 +197,16 @@ bool Processor::ws_hop(FrameReader &r) {
 // fx_ itself, half a frame at a time (buf_ may hold output already): the second half first, converted into the upper floats; then
 // the first half, converted where it lies, from its end (float n covers the bytes of frames 2n and 2n + 1, both read by then).
 bool Processor::load_frame(FrameReader &r, int64_t centre) {
+    PROF_T0();
+    g_proc_frames++;
+    if (win_) {                                                               // the window kept from the last frame: only its new end is read
+        if (!slide(r, win_, centre - kM, static_cast<uint32_t>(kN))) return false;
+        for (int n = 0; n < kN; n++) fx_[n] = static_cast<float>(win_[n]) * hann(sin_, n);
+        PROF(0);
+        rfft_forward(fx_, sin_);
+        PROF(1);
+        return true;
+    }
     uint8_t *raw = reinterpret_cast<uint8_t *>(fx_);
     for (int h = 1; h >= 0; h--) {
         if (!fetch(r, centre - kM + h * kM, static_cast<uint32_t>(kM), reinterpret_cast<q15 *>(raw))) return false;
@@ -160,7 +216,9 @@ bool Processor::load_frame(FrameReader &r, int64_t centre) {
             fx_[h * kM + n] = static_cast<float>(v) * hann(sin_, h * kM + n);
         }
     }
+    PROF(0);
     rfft_forward(fx_, sin_);
+    PROF(1);
     return true;
 }
 
@@ -175,12 +233,17 @@ bool Processor::pv_frame(FrameReader &r) {
     const int64_t centre = k * H * static_cast<int64_t>(in_.frames) / static_cast<int64_t>(ws_len_);
     if (!load_frame(r, centre)) return false;
     const int64_t hop = centre - ws_prev_;                                    // the source's hop since the last frame
+    PROF_T0();
     if (ws_k_ == 0) {
         for (int b = 0; b <= kM; b++) { ph_[b] = phase16(fx_[2 * b], fx_[2 * b + 1]); th_[b] = 0; }
     } else {
         auto pw = [&](int b) { return b < 0 || b > kM ? -1.0f : fx_[2 * b] * fx_[2 * b] + fx_[2 * b + 1] * fx_[2 * b + 1]; };
-        auto next_peak = [&](int from) {
-            for (int b = from; b <= kM; b++) { const float v = pw(b); if (v > 0.0f && v > pw(b - 1) && v > pw(b - 2) && v >= pw(b + 1) && v >= pw(b + 2)) return b; }
+        auto next_peak = [&](int from) {                                      // (the five powers a bin is judged on move along with it: one new per bin)
+            float m2 = pw(from - 2), m1 = pw(from - 1), v = pw(from), p1 = pw(from + 1), p2 = pw(from + 2);
+            for (int b = from; b <= kM; b++) {
+                if (v > 0.0f && v > m1 && v > m2 && v >= p1 && v >= p2) return b;
+                m2 = m1; m1 = v; v = p1; p1 = p2; p2 = pw(b + 3);
+            }
             return -1;
         };
         auto angle = [&](int p) {                                             // how far peak p is turned now (its ph_ / th_ are still the last frame's)
@@ -196,21 +259,27 @@ bool Processor::pv_frame(FrameReader &r) {
             const int q = p >= 0 ? next_peak(p + 1) : -1;
             const uint16_t thq = q >= 0 ? angle(q) : 0;                       // (before its bins are written: q lies past the boundary)
             const int end = q >= 0 ? (p + q) / 2 : kM;
+            float tc = 1.0f, ts = 0.0f;                                       // the region turns by one angle: its cos and sin once
+            if (th) turn_cs(sin_, th, tc, ts);
             for (; b <= end; b++) {
-                ph_[b] = phase16(fx_[2 * b], fx_[2 * b + 1]);
+                float &re = fx_[2 * b], &im = fx_[2 * b + 1];
+                ph_[b] = phase16(re, im);
                 th_[b] = th;
-                if (th) turn(sin_, th, fx_[2 * b], fx_[2 * b + 1]);
+                if (th) { const float t = re * tc - im * ts; im = re * ts + im * tc; re = t; }
             }
             p = q; th = thq;
         }
     }
     fx_[1] = 0.0f; fx_[kN + 1] = 0.0f;                                        // (the two real bins stay real)
+    PROF(2);
     rfft_inverse(fx_, sin_);
+    PROF(3);
     // overlap-add at 75 %: Hann twice (analysis, synthesis) sums to 1.5; the inverse gave kM times the frame
     std::memmove(ola_, ola_ + H, sizeof(q15) * 3 * H);
     std::memset(ola_ + 3 * H, 0, sizeof(q15) * H);
     const float g = 1.0f / (1.5f * kM);
     for (int n = 0; n < kN; n++) ola_[n] = sat(static_cast<float>(ola_[n]) + fx_[n] * hann(sin_, n) * g);
+    PROF(4);
     ws_prev_ = centre;
     ws_k_++;
     return true;
@@ -223,6 +292,7 @@ bool Processor::pv_frame(FrameReader &r) {
 bool Processor::paul_frame(FrameReader &r) {
     const int64_t centre = static_cast<int64_t>(ws_k_) * kM * static_cast<int64_t>(in_.frames) / static_cast<int64_t>(ws_len_);
     if (!load_frame(r, centre)) return false;
+    PROF_T0();
     for (int b = 1; b < kM; b++) {
         const float mag = std::sqrt(fx_[2 * b] * fx_[2 * b] + fx_[2 * b + 1] * fx_[2 * b + 1]);
         rng_ ^= rng_ << 13; rng_ ^= rng_ >> 17; rng_ ^= rng_ << 5;
@@ -231,11 +301,14 @@ bool Processor::paul_frame(FrameReader &r) {
         fx_[2 * b] = mag * c; fx_[2 * b + 1] = mag * s;
     }
     fx_[0] = fx_[1] = fx_[kN] = fx_[kN + 1] = 0.0f;
+    PROF(2);
     rfft_inverse(fx_, sin_);
+    PROF(3);
     std::memmove(ola_, ola_ + kM, sizeof(q15) * kM);
     std::memset(ola_ + kM, 0, sizeof(q15) * kM);
     const float g = 0.5f * 1.63299316f / kM, odd = 0.5f / std::cos(kPi / kN);
     for (int n = 0; n < kN; n++) ola_[n] = sat(static_cast<float>(ola_[n]) + fx_[n] * sine_win(sin_, n, odd) * g);
+    PROF(4);
     ws_k_++;
     return true;
 }
@@ -301,10 +374,12 @@ bool Processor::rs_fill(FrameReader &r, q15 *dst, uint32_t n) {
     return true;
 }
 
-bool Processor::begin(const SmpHeader &in, ProcOp op, int32_t amount, int32_t amount2, void *work) {
+bool Processor::begin(const SmpHeader &in, ProcOp op, int32_t amount, int32_t amount2, void *work, void *fast) {
     in_ = in;
     out_ = in;
     op_ = op;
+    for (uint32_t &c : g_proc_prof) c = 0;
+    g_proc_frames = 0;
     amount_ = amount;
     pos_ = 0;
     peak_ = 0;
@@ -317,7 +392,7 @@ bool Processor::begin(const SmpHeader &in, ProcOp op, int32_t amount, int32_t am
     if (!in.frames) { phase_ = Phase::Done; return false; }
     if (timed()) {
         if (!work) { phase_ = Phase::Done; return false; }
-        layout(op, this, static_cast<uint8_t *>(work));
+        layout(op, this, static_cast<uint8_t *>(work), fast != nullptr, static_cast<uint8_t *>(fast), nullptr);
         const bool pitch = op == ProcOp::Pitch || op == ProcOp::PitchTonal;
         const uint32_t rate = in.sample_rate ? in.sample_rate : 48000;
         hs_ = static_cast<int>(static_cast<uint64_t>(kWsHop) * rate / 48000) & ~3;   // ~21 ms, a multiple of 4 (the search's stride)
@@ -331,6 +406,7 @@ bool Processor::begin(const SmpHeader &in, ProcOp op, int32_t amount, int32_t am
         const uint32_t scaled_len = len < 1.0 ? 1u : static_cast<uint32_t>(len + 0.5);
         ws_len_ = scaled_len;
         ws_k_ = 0; ws_prev_ = 0; ready_n_ = ready_at_ = 0;
+        win_at_ = 0; win_n_ = 0;
         ready_ = nullptr;
         out_.frames = pitch ? in.frames : scaled_len;
         s1_len_ = pitch ? scaled_len : in.frames;                             // the resampler: s1_len_ frames in, out_.frames out

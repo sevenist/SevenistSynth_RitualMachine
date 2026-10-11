@@ -156,6 +156,12 @@ TEST(offline_render_job_writes_a_new_smp_on_the_card) {
     for (uint32_t i = 20000; i < 30000; i++) p = std::max(p, std::abs(static_cast<int>(static_cast<int16_t>(sc::get16(&out2[sc::kSmpBlockBytes + 2 * i])))));
     std::printf("    card job, stretch: %d steps, %u frames, peak %d (the tone's 3276)\n", steps, oh.frames, p);
     CHECK(std::abs(p - 3276) <= 40);
+    {   // the card job reads the file through its block cache, the test's reader has it all in memory: the same samples must come out
+        const std::vector<int16_t> want = run(x, sc::ProcOp::Stretch, 1500000);
+        bool same = want.size() == oh.frames;
+        for (uint32_t i = 0; same && i < oh.frames; i++) same = static_cast<int16_t>(sc::get16(&out2[sc::kSmpBlockBytes + 2 * i])) == want[i];
+        CHECK(same);
+    }
     CHECK(engine_synth_render_start("src", "src~3", 19, 2000000, 0));       // Paulstretch x2: a job with working memory of its own
     while (engine_synth_render_step()) {}
     CHECK_EQ(engine_synth_render_poll(nullptr), RENDER_DONE);
@@ -485,4 +491,71 @@ TEST(offline_paulstretch_smears_a_tone_into_a_band_at_the_same_pitch) {
                 sc::Processor::work_bytes(sc::ProcOp::StretchTonal), sc::Processor::work_bytes(sc::ProcOp::PitchTonal), sc::Processor::work_bytes(sc::ProcOp::Paul),
                 sizeof(sc::Processor));
     CHECK_EQ(sc::Processor::work_bytes(sc::ProcOp::Gain), 0u);
+}
+
+// A fingerprint of what the time, pitch and texture operations write, on a signal with tones, a swell and clicks: printed, and the
+// same in every build of the same code. A rewrite of the loading or of the inner loops that must not change a sample is checked by
+// comparing these numbers before and after (and with -DENGINE_OFFLINE_REREAD=1, which keeps the frame loads as they were first written).
+// The reads the source got are counted too: the windows of consecutive frames overlap, and only the new part should be read.
+namespace {
+struct CountReader : sc::FrameReader {
+    const std::vector<int16_t> &x;
+    uint64_t frames = 0;
+    uint32_t calls = 0;
+    explicit CountReader(const std::vector<int16_t> &v) : x(v) {}
+    bool read(uint32_t frame, uint32_t n, sc::q15 *dst) override {
+        if (frame + n > x.size()) return false;
+        for (uint32_t i = 0; i < n; i++) dst[i] = x[frame + i];
+        frames += n; calls++;
+        return true;
+    }
+};
+}  // namespace
+
+TEST(offline_time_ops_fingerprint_and_source_reads) {
+    std::vector<int16_t> x(70000);
+    uint32_t rng = 777;
+    for (size_t i = 0; i < x.size(); i++) {
+        const double t = static_cast<double>(i) / 48000.0;
+        double v = 0.3 * std::sin(6.283185307 * 220.0 * t) + 0.2 * (0.3 + t) * std::sin(6.283185307 * 1317.0 * t);
+        if (i % 9000 < 40) { rng = rng * 1664525u + 1013904223u; v += 0.4 * ((rng >> 8) / 16777216.0 - 0.5); }   // a click of noise now and then
+        x[i] = static_cast<int16_t>(32767.0 * v * 0.8);
+    }
+    struct Case { sc::ProcOp op; int32_t amount; const char *name; };
+    const Case cases[] = {{sc::ProcOp::Stretch, 1500000, "stretch 150 %"}, {sc::ProcOp::Stretch, 700000, "stretch 70 %"}, {sc::ProcOp::Pitch, 500, "pitch +5"},
+                          {sc::ProcOp::StretchTonal, 1500000, "tonal stretch 150 %"}, {sc::ProcOp::StretchTonal, 600000, "tonal stretch 60 %"},
+                          {sc::ProcOp::PitchTonal, -300, "tonal pitch -3"}, {sc::ProcOp::Paul, 4000000, "paulstretch x4"}, {sc::ProcOp::Resample, 800000, "speed 125 %"}};
+    for (const Case &c : cases) {
+        static sc::Processor p;
+        sc::SmpHeader in;
+        in.sample_rate = 48000;
+        in.frames = static_cast<uint32_t>(x.size());
+        CountReader r(x);
+        MemWriter w;
+        auto fnv = [](const std::vector<int16_t> &y) {                        // FNV-1a over the samples
+            uint32_t h = 2166136261u;
+            for (int16_t v : y) { h = (h ^ static_cast<uint8_t>(v)) * 16777619u; h = (h ^ static_cast<uint8_t>(v >> 8)) * 16777619u; }
+            return h;
+        };
+        std::vector<uint64_t> work((sc::Processor::work_bytes(c.op) + 7) / 8 + 1);
+        CHECK(p.begin(in, c.op, c.amount, 0, work.data()));
+        for (int guard = 0; guard < 200000 && !p.done(); guard++) CHECK(p.step(r, w, 2));
+        const uint32_t h = fnv(w.y);
+        std::printf("    %-20s %7zu frames, fingerprint %08x, read %.1f x the source in %u reads\n", c.name, w.y.size(), h,
+                    static_cast<double>(r.frames) / static_cast<double>(x.size()), r.calls);
+        CHECK(w.y.size() == p.out_header().frames);
+        if (sc::Processor::fast_bytes(c.op)) {                                // the frame in quick memory of its own: the same samples
+            CountReader r2(x);
+            MemWriter w2;
+            std::vector<uint64_t> work2((sc::Processor::work_bytes(c.op, true) + 7) / 8 + 1), quick((sc::Processor::fast_bytes(c.op) + 7) / 8 + 1);
+            CHECK(sc::Processor::work_bytes(c.op, true) < sc::Processor::work_bytes(c.op) || c.op == sc::ProcOp::PitchTonal);
+            CHECK(p.begin(in, c.op, c.amount, 0, work2.data(), quick.data()));
+            for (int guard = 0; guard < 200000 && !p.done(); guard++) CHECK(p.step(r2, w2, 2));
+            std::printf("    %-20s with quick memory: fingerprint %08x, read %.1f x the source; memory %zu + %zu bytes (without: %zu)\n", "", fnv(w2.y),
+                        static_cast<double>(r2.frames) / static_cast<double>(x.size()), sc::Processor::work_bytes(c.op, true), sc::Processor::fast_bytes(c.op),
+                        sc::Processor::work_bytes(c.op));
+            CHECK_EQ(fnv(w2.y), h);
+            CHECK(r2.frames <= r.frames);
+        }
+    }
 }

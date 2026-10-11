@@ -95,7 +95,7 @@ public:
         const q15 *l = p.in[0], *r = p.in[1];
         first_ = false;
         const int n = ctx.frames;
-        capture_tap().feed(l, r, n, ctx.transport);                           // a recording takes what comes in, before the volume
+        tap_.feed(l, r, n, ctx.transport);                                    // a recording takes what comes in, before the volume
         const int32_t step = (target_ - gain_) / n;                           // the last sample lands exactly on the target
         int32_t g = gain_;
         for (int i = 0; i < n; i++) {
@@ -108,6 +108,7 @@ public:
         gain_ = target_;
     }
 private:
+    CaptureTap &tap_ = capture_tap();
     q15 level_ = kUnity;
     bool boost_ = false, mono_ = false, first_ = true;
     int32_t target_ = kUnity, gain_ = kUnity;                                 // q15 gain (0..65534): the set one, and where the ramp is

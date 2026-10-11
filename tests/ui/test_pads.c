@@ -866,7 +866,7 @@ TEST(pads_fx_rack_rules_and_the_synth_rack_keeps_its_own) {
     CHECK(!rack_set_row(&fx, fx.count - 1, 1));                          // not into the full chain
     CHECK(!rack_can_para(&fx, 0) && rack_shared_start(&fx, 1) == RACK_NONE && rack_slot_is_shared(&fx, 0));
     CHECK_EQ(rack_fx_param_count(MOD_FILTER), 3);
-    CHECK(rack_fx_load_pct(&fx) > 60 && rack_fx_load_pct(&fx) < 80);     // 2 filters, 2 delays, an EQ next to the 8 pads: about 70 %
+    CHECK(rack_fx_load_pct(&fx) > 45 && rack_fx_load_pct(&fx) < 55);     // 2 filters, 2 delays, an EQ next to the 8 pads: about 50 %
     CHECK_STR(rack_route_name(RACK_ROUTE_AC_AB), "A+C/A+B");
     static char txt[STORAGE_FILE_MAX];
     pads_fx_to_text(&fx, txt, sizeof txt);

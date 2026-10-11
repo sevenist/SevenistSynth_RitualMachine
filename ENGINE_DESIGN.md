@@ -998,7 +998,7 @@ built, firmware static RAM 65.5 %; flashed and measured by me; NOT tried by the 
 
   Per module (stereo): saturator 3.7 k, tremolo 4.5 k, ring / shift 5.0 k, filter 8.3 k, compressor 8.7 k, delay 8.8 k, chorus
   12.9 k, cab 15.6 k, flanger 15.9 k, ensemble 17.8 k, spectral 19.3 k, phaser 19.5 k, reverb 26 k, **EQ 26.5 k** (as much as the
-  reverb for three bands: worth a look, an exact optimization); the 8 pad voices 40..48 k.
+  reverb for three bands; fixed the same day: 5.9 k, see "Speed" below); the 8 pad voices 40..48 k.
   **So decision 47's risk is real: four to six effects fit next to 8 pads, twelve never do.** Nothing is refused; the FX page's
   header shows the load estimated from these costs with all 8 pads sounding ("FX A+B/C 66%", a "!" from 90 %).
 - Static RAM: the chains cost 2 KB (the rack in `pads_t`); loading pads.cfg and the serial `pad def` no longer keep a spare copy of
@@ -1037,6 +1037,44 @@ flashed and measured by me; NOT tried by the user, NOT listened to):**
   the same through delay + reverb, 1 / 2 / 4 streamed pads: **0 frames lost, 0 stream underruns in every case**.
 - Not built: capture in the Synth section (the tap is there: MasterOut feeds it in both), threshold / pre-roll settings, a count-in,
   choosing the destination pad by hand, overdub.
+
+**Speed: the EQ and the sample jobs (2026-10-11, while the user tests; 218 engine tests in the 6 configurations, 100 UI tests,
+simulator + firmware built, RAM 65.8 %; flashed and measured by me; the sound is meant to be unchanged: see each check):**
+- **EQ: 26.5 k -> 5.9 k cycles a block** (stereo). Its three sections were int64 biquads with Q32 coefficients (five 64-bit
+  multiplies a tick, ~140 cycles on the S3); they run in float32 now, a channel from one conversion to the next. The high shelf
+  (6 kHz) is the same biquad in float. The low shelf (150 Hz) and the peak (down to 65 Hz) are the same transfer functions as a
+  trapezoidal state-variable filter (the cookbook prototypes as 1 + m1 BP + m2 LP): a float32 direct form loses its accuracy near
+  z = 1 (measured: 6.7 LSB rms on a 30 Hz tone through the shelf, against 0.8 for this form). Checked against the same filters in
+  double precision (`eq3_matches_its_cookbook_sections_in_double_precision`): **0.3 .. 0.8 LSB rms, where the int64 loop was off by
+  1.0 .. 2.6** (it rounded to 16 bits after every section). `ENGINE_EQ_EXACT=1` keeps the old loop.
+  On the board: EQ + compressor + delay + reverb 66 % -> 53 %; twelve light effects 120 % with dropouts -> 81 % without.
+- **Sample jobs**, a profile first (`ENGINE_PROFILE`: the stages of a spectral frame, printed by the serial `pad edit`): of a frame's
+  58 ms, 35 went to **reading its whole 4096-frame window from the card again**, 4..5 to each FFT. Four exact changes, each checked
+  by a fingerprint of the output (`offline_time_ops_fingerprint_and_source_reads`: the same 8 numbers before and after):
+  1. the window is **kept between frames** and only its new end is read (`Processor::slide`; WSOLA's search range too): the source
+     is read once instead of 4 to 8 times;
+  2. the job's file reader keeps **one block** and asks the card for whole aligned blocks (a small unaligned request cost three
+     card commands, ~12 ms);
+  3. a spectral operation's **frame and sine table lie in internal RAM** while the job runs (20.5 KB, plus the reader's 4 KB), when
+     there is room: a pass over a block in PSRAM costs milliseconds. Without it the job runs as before, in PSRAM (the same result).
+     It also frees PSRAM: Tonal pitch got the kept window too (it had no room for it), and the largest job borrows 37 KB of PSRAM
+     instead of 48.5;
+  4. no `lround` in the per-sample loops (a library call on the S3), one cos / sin per spectral region instead of per bin, one
+     power per bin in the peak search instead of five.
+
+  | operation (a 1.5 s sample) | 2026-10-11 first | after CMD25 | now |
+  |---|---|---|---|
+  | Normalize | 2.3 s | 1.8 s | 1.9 s |
+  | Reverse | 1.8 s | 1.3 s | 1.35 s |
+  | Speed 200 % | 1.5 s | 1.3 s | 1.1 s |
+  | Stretch 150 % (Beat) | 4.6 s | 4.4 s | 2.8 s |
+  | Pitch +7 (Beat) | 4.8 s | 4.6 s | 2.8 s |
+  | Stretch 150 % (Tonal) | 8.0 s | 8.1 s | 4.4 s |
+  | Pitch +7 (Tonal) | 8.1 s | 8.1 s | 4.4 s |
+  | Paulstretch x4 (6 s) | 12.1 s | 10.3 s | 6.1 s |
+
+  A Tonal stretch while 4 pads stream: 16.2 s -> 9.6 s, still no stream underrun. A spectral frame is 23 ms now (load 8, FFT 4,
+  spectrum 5, inverse FFT 4, overlap-add 2); what is left is mostly the card's write rate (~150 KB/s).
 
 ## Known limits and ideas for later
 

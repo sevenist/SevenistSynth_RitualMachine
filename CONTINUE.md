@@ -44,9 +44,9 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
   host-tested (211 engine tests x 6, 96 UI tests), FLASHED 2026-10-11 and measured (ADR-041 "The sample tools on the board": every
   operation fits, 48.5 of 59.3 KB at worst; jobs run at 0.2..0.8 of real time; streamed pads keep playing), NOT tried by the user,
   NOT listened to. Reverse reverb and freeze / smear: from the FX chains + resampling (decision 46) (from: user)
-- [ ] **Sample jobs are slow on the board** (a 1.5 s sample: Normalize 1.8 s, Tonal stretch 8 s, Paulstretch x4 10 s, after the
-  multi-block writes of 2026-10-11): a spectral frame costs ~30 ms of CPU (profile the float FFT: PSRAM, loop order). Exact, no sound
-  change (from: notes)
+- [x] **Sample jobs were slow on the board**: Tonal stretch 8.0 -> 4.4 s, Paulstretch x4 12.1 -> 6.1 s, Stretch (Beat) 4.6 -> 2.8 s
+  on a 1.5 s sample (the window kept between frames, a block cache in the reader, the frame in internal RAM; outputs bit-identical;
+  ADR-041 "Speed"). What is left is the card's write rate, ~150 KB/s (done 2026-10-11)
 - [x] **Sample tools**: all six groups built 2026-10-10 / 11 (chop, render + history, Level, Time & pitch, Texture, Color); left for
   the capture path: "print a pad's settings", reverse reverb, freeze / smear (done 2026-10-11)
 - [ ] **FX chains: try it, by ear** (Pads step 3; ADR-041 decisions 47-49 + "Pads step 3, the FX chains, as built"): Menu in Pads =
@@ -59,8 +59,8 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
   running) and becomes a looping pad. BUILT 2026-10-11, host-tested (216 engine tests x 6, 100 UI tests), FLASHED and measured (no
   frame lost even with 4 streamed pads), NOT tried by the user, NOT listened to. Mono (the sample format). Reverse reverb = Reverse
   (EDIT), play through a reverb chain, Rec, Reverse the result (from: user)
-- [ ] **The EQ costs as much as the reverb** (26.5 k cycles a block, stereo, measured 2026-10-11): look for an exact optimization;
-  it decides how many effects a chain can really hold (from: notes)
+- [x] **The EQ cost as much as the reverb**: 26.5 k -> 5.9 k cycles a block, and closer to the ideal filters than before
+  (ADR-041 "Speed"; done 2026-10-11)
 - [ ] **Pads steps 4-5**: live synth (design round; its entry into the FX chains), song mode + backtrack (design round; builds on
   the capture); "Next: the production workflow" (from: user)
 - [ ] **Confirm: the full synth stops in the Pads section** (my reading of ADR-041 decision 22) (from: notes)

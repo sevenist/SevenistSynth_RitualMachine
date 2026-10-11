@@ -262,7 +262,7 @@ const char *rack_route_name(int route) {
 // ESP32-S3 at 240 MHz, 48 kHz); the 8 pad voices and the output; the block's budget as the firmware reports it.
 int rack_fx_load_pct(const rack_t *fx) {
     static const uint16_t cost[MOD_TYPE_COUNT] = {
-        [MOD_FILTER] = 8300, [MOD_SAT] = 3700, [MOD_TREM] = 4500, [MOD_EQ] = 26500, [MOD_RING] = 5000, [MOD_PHASER] = 19500,
+        [MOD_FILTER] = 8300, [MOD_SAT] = 3700, [MOD_TREM] = 4500, [MOD_EQ] = 5900, [MOD_RING] = 5000, [MOD_PHASER] = 19500,
         [MOD_FLANGER] = 15900, [MOD_COMP] = 8700, [MOD_DELAY] = 8800, [MOD_REVERB] = 26000, [MOD_CHORUS] = 12900, [MOD_SPECTRAL] = 19300,
         [MOD_CAB] = 15600, [MOD_ENSEMBLE] = 17800,
     };

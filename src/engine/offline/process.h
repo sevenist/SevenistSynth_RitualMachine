@@ -11,6 +11,10 @@
 
 namespace sc {
 
+// ENGINE_PROFILE on the ESP32: CPU cycles spent in the stages of the spectral frames since the last begin() (0 load: the card read and
+// the window, 1 forward FFT, 2 the spectrum's work, 3 inverse FFT, 4 overlap-add), and the frames counted. Zeros elsewhere.
+extern uint32_t g_proc_prof[5], g_proc_frames;
+
 struct FrameReader {
     virtual ~FrameReader() = default;
     virtual bool read(uint32_t frame, uint32_t n, q15 *dst) = 0;      // frames [frame, frame + n) of the source (inside it)
@@ -61,8 +65,12 @@ public:
     static constexpr int kRsTaps = 32, kRsPhases = 32, kRsBuf = 1024;     // the resampler: taps, table phases, its input window
     // The working memory `op` needs (0 for most), and the source's header and the operation with that memory (aligned for a float,
     // the caller's until done). False when there is nothing to do (an empty sample) or the memory is missing.
-    static size_t work_bytes(ProcOp op);
-    bool begin(const SmpHeader &in, ProcOp op, int32_t amount, int32_t amount2 = 0, void *work = nullptr);
+    // The spectral operations work on one frame and its sine table over and over (fast_bytes: 20.5 KB): given as `fast`, memory that
+    // is quick to reach at random (the prototype's internal RAM; its PSRAM costs milliseconds per pass over such a block), they run
+    // about twice as fast, and `work` is that much smaller (work_bytes(op, true)). Without it everything lies in `work`.
+    static size_t fast_bytes(ProcOp op);
+    static size_t work_bytes(ProcOp op, bool with_fast = false);
+    bool begin(const SmpHeader &in, ProcOp op, int32_t amount, int32_t amount2 = 0, void *work = nullptr, void *fast = nullptr);
     // One block (kChunk frames = a .smp block) the caller may use before begin and after done (the card job's header block).
     q15 *scratch() { return buf_; }
     // Up to `chunks` chunks of work (analysis first when the operation needs one, then the output). False on a read / write error.
@@ -80,9 +88,14 @@ private:
     static bool uses_rs(ProcOp op) { return op == ProcOp::Resample || op == ProcOp::Pitch || op == ProcOp::PitchTonal; }
     static bool uses_pv(ProcOp op) { return op == ProcOp::StretchTonal || op == ProcOp::PitchTonal; }
     static bool uses_fft(ProcOp op) { return uses_pv(op) || op == ProcOp::Paul; }
-    static size_t layout(ProcOp op, Processor *p, uint8_t *base);         // the working memory's parts (p: set its pointers)
+    // The spectral frames keep their source window between frames (8 KB more) and read only what is new. PitchTonal only when its
+    // frame is in `fast` memory: with everything in `work` it is at the limit of what the prototype can lend, and reads every frame whole.
+    static bool uses_win(ProcOp op, bool with_fast) { return op == ProcOp::StretchTonal || op == ProcOp::Paul || (op == ProcOp::PitchTonal && with_fast); }
+    // The working memory's parts (p: set its pointers). with_fast: the frame and its table are in `fast`, not in `base`.
+    static size_t layout(ProcOp op, Processor *p, uint8_t *base, bool with_fast, uint8_t *fast, size_t *fast_size);
     bool timed() const { return uses_ws(op_) || uses_rs(op_) || uses_fft(op_); }
     bool fetch(FrameReader &r, int64_t start, uint32_t n, q15 *dst);      // source frames, zeros outside the file
+    bool slide(FrameReader &r, q15 *dst, int64_t start, uint32_t n);      // dst = the source's [start, start + n), reading only what it does not hold yet
     int  ws_search() const;                                               // the offset in seg_ that continues the previous window best
     bool ws_hop(FrameReader &r);                                          // the next hs_ stretched frames into ready_
     bool load_frame(FrameReader &r, int64_t centre);                      // fx_ = a Hann-windowed frame of the source, as its spectrum
@@ -122,6 +135,9 @@ private:
     float *fx_ = nullptr;                                                 // N + 2: the frame, its spectrum, the frame again
     float *sin_ = nullptr;                                                // N / 4 + 1: the FFT's table (also the windows and the rotations)
     q15 *ola_ = nullptr;                                                  // N: the overlap-add; its head is the finished hop
+    q15 *win_ = nullptr;                                                  // N: the source under the frame (uses_win), kept from frame to frame
+    int64_t win_at_ = 0;                                                  // the sliding window (seg_ or win_): the source frame of its first entry ...
+    uint32_t win_n_ = 0;                                                  // ... and how many it holds (0: nothing yet)
     uint16_t *ph_ = nullptr, *th_ = nullptr;                              // N / 2 + 1 each: every bin's last phase, and how far it was turned (65536 = a turn)
     uint32_t rng_ = 0;                                                    // paulstretch's phases
     // the resampler (Resample, and the second stage of Pitch)

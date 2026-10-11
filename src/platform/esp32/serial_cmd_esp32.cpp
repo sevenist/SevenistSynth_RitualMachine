@@ -14,6 +14,7 @@
 #include "core/pads.h"
 #include "platform/esp32/serial_cmd_esp32.h"
 #include "platform/esp32/sd_card.h"
+#include "engine/offline/process.h"
 #ifdef HWV1
 #include "platform/esp32/leds_esp32.h"
 #endif
@@ -355,6 +356,11 @@ void run(char *line) {
             Serial.printf("[CMD] pad edit %s frames %u rate %u op %d amount %d: %s in %u ms, memory %u (PSRAM free %u largest %u before), underruns +%u\n", in.name,
                           (unsigned)in.frames, (unsigned)in.rate, op, amt, state == RENDER_STATE_DONE ? "done" : state == RENDER_STATE_FAILED ? "FAILED" : "TIMEOUT", (unsigned)ms,
                           (unsigned)(free0 - free1), (unsigned)free0, (unsigned)big0, (unsigned)(u1 - u0));
+            if (sc::g_proc_frames)                        // ENGINE_PROFILE: where a spectral frame's time went (ms of CPU per frame at 240 MHz)
+                Serial.printf("[CMD] pad edit frames %u, ms each: load %.2f, fft %.2f, spectrum %.2f, ifft %.2f, overlap %.2f\n", (unsigned)sc::g_proc_frames,
+                              sc::g_proc_prof[0] / 240000.0 / sc::g_proc_frames, sc::g_proc_prof[1] / 240000.0 / sc::g_proc_frames,
+                              sc::g_proc_prof[2] / 240000.0 / sc::g_proc_frames, sc::g_proc_prof[3] / 240000.0 / sc::g_proc_frames,
+                              sc::g_proc_prof[4] / 240000.0 / sc::g_proc_frames);
             return;
         }
         Serial.printf("[CMD] pad: unknown '%s'\n", sub);

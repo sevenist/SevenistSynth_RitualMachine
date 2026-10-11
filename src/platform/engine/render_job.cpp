@@ -91,6 +91,7 @@ void finish(Job &j, bool ok) {
 extern "C" {
 
 void engine_synth_set_card_root(const char *root) { std::snprintf(g_root, sizeof g_root, "%s", root ? root : ""); }
+const char *engine_synth_card_root(void) { return g_root; }
 
 bool engine_synth_render_start(const char *src_name, const char *dst_name, int op, int amount, int amount2) {
     if (g_state.load() == RENDER_RUNNING || !src_name || !dst_name || op < 0 || op >= static_cast<int>(ProcOp::Count)) return false;

@@ -298,6 +298,11 @@ extern "C" void audio_note_off(int midi_note)                              { eng
 extern "C" void audio_pads_build(const pads_t *p, const rack_t *r)          { apply_speaker(r); engine_synth_pads_build(p, r); }
 extern "C" void audio_pad_set(int pad, const pad_t *p)                      { engine_synth_pad_set(pad, p); }
 extern "C" void audio_pads_fx(const pads_t *p, const rack_t *r)             { engine_synth_pads_fx(p, r); }
+extern "C" bool audio_capture_start(const char *n, int th, int bar, uint32_t lim) { return engine_synth_capture_start(n, th, bar, lim); }
+extern "C" void audio_capture_stop(void)                                    { engine_synth_capture_stop(); }
+extern "C" int  audio_capture_poll(uint32_t *f, uint32_t *d)                { return (int)engine_synth_capture_poll(f, d); }
+extern "C" void audio_capture_done(void)                                    { engine_synth_capture_done(); }
+extern "C" int  audio_rate(void)                                            { return engine_synth_sample_rate(); }
 extern "C" void audio_pad_push(int pad)                                     { engine_synth_pad_push(pad); }
 extern "C" void audio_pad_release(int pad)                                  { engine_synth_pad_release(pad); }
 extern "C" void audio_pads_stop(void)                                       { engine_synth_pads_stop(); }

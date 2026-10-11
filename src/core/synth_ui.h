@@ -158,6 +158,8 @@ typedef struct {
     const history_t *history;
     // The FX chains (ADR-041 decisions 23, 47-49): 0 = not shown, 1 = the chains (the RACK page on pads->fx), 2 = the values of the
     // module fx_edit_id (its rack id; the chains page's Edit sets it). fx_row / fx_latched: the focus on these two pages.
+    uint8_t cap_state;         // capture (the app sets them): hal_audio.h CAPTURE_ST_*, and the seconds recorded
+    uint16_t cap_secs;
     uint8_t pad_fx;
     uint8_t fx_edit_id;
     int     fx_row;

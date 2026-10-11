@@ -52,6 +52,7 @@ typedef enum {
     ACT_TEMPO,              // arg = BPM steps (+1, -1, +5, -5; an encoder multiplies it by its detents)
     ACT_TAP,                // tap tempo: the average of the last taps sets the BPM
     ACT_METRONOME,          // the metronome click on / off
+    ACT_PAD_REC,            // capture / resampling: arm a recording of what plays, push again to stop; with Shift: its length (bars)
     ACT_COUNT
 } action_id_t;
 

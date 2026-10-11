@@ -1,4 +1,5 @@
 #include "engine/modules/builtin.h"
+#include "engine/sampler/capture.h"
 #include "engine/dsp/block.h"
 
 namespace sc {
@@ -94,6 +95,7 @@ public:
         const q15 *l = p.in[0], *r = p.in[1];
         first_ = false;
         const int n = ctx.frames;
+        capture_tap().feed(l, r, n, ctx.transport);                           // a recording takes what comes in, before the volume
         const int32_t step = (target_ - gain_) / n;                           // the last sample lands exactly on the target
         int32_t g = gain_;
         for (int i = 0; i < n; i++) {

@@ -58,7 +58,35 @@ bool audio_render_start(const char *src, const char *dst, int op, int amount, in
 int audio_render_poll(int *percent) { if (percent) *percent = stub_render_state == 2 ? 100 : 0; return stub_render_state; }
 void audio_render_done(void) { stub_render_state = 0; }
 void audio_sample_hide(int index) { if (index >= 3 && index < 3 + stub_listed) stub_extra[index - 3][0] = 0; }
-void ui_stub_library_reset(void) { stub_n_extra = stub_listed = 0; stub_render_state = 0; }
+// Capture: armed by the app, the test says how much sound came (ui_stub_capture_sound); a stop or the length's end makes the file.
+int ui_stub_cap_state, ui_stub_cap_bar;
+uint32_t ui_stub_cap_limit, ui_stub_cap_frames;
+char ui_stub_cap_name[24];
+static void stub_cap_finish(void) {
+    if (!ui_stub_cap_frames || stub_n_extra >= STUB_EXTRA) { ui_stub_cap_state = CAPTURE_ST_EMPTY; return; }
+    snprintf(stub_extra[stub_n_extra], 24, "%s", ui_stub_cap_name);
+    stub_extra_frames[stub_n_extra++] = ui_stub_cap_frames;
+    ui_stub_cap_state = CAPTURE_ST_DONE;
+}
+bool audio_capture_start(const char *name, int threshold, int at_bar, uint32_t limit_frames) {
+    (void)threshold;
+    if (ui_stub_cap_state != CAPTURE_ST_IDLE) return false;
+    snprintf(ui_stub_cap_name, sizeof ui_stub_cap_name, "%s", name);
+    ui_stub_cap_bar = at_bar; ui_stub_cap_limit = limit_frames; ui_stub_cap_frames = 0;
+    ui_stub_cap_state = CAPTURE_ST_ARMED;
+    return true;
+}
+void ui_stub_capture_sound(uint32_t frames) {
+    if (ui_stub_cap_state != CAPTURE_ST_ARMED && ui_stub_cap_state != CAPTURE_ST_RECORDING) return;
+    ui_stub_cap_state = CAPTURE_ST_RECORDING;
+    ui_stub_cap_frames += frames;
+    if (ui_stub_cap_limit && ui_stub_cap_frames >= ui_stub_cap_limit) { ui_stub_cap_frames = ui_stub_cap_limit; stub_cap_finish(); }
+}
+void audio_capture_stop(void) { if (ui_stub_cap_state == CAPTURE_ST_ARMED || ui_stub_cap_state == CAPTURE_ST_RECORDING) stub_cap_finish(); }
+int  audio_capture_poll(uint32_t *frames, uint32_t *dropped) { if (frames) *frames = ui_stub_cap_frames; if (dropped) *dropped = 0; return ui_stub_cap_state; }
+void audio_capture_done(void) { ui_stub_cap_state = CAPTURE_ST_IDLE; }
+int  audio_rate(void) { return 48000; }
+void ui_stub_library_reset(void) { stub_n_extra = stub_listed = 0; stub_render_state = 0; ui_stub_cap_state = CAPTURE_ST_IDLE; }
 sd_state_t audio_sd_state(void) { return getenv("UI_DUMP_SD_SLOW") ? SD_SLOW : SD_OK; }
 uint32_t audio_sd_read_us(void) { return 81000; }
 uint32_t audio_sd_generation(void) { static int calls; return getenv("UI_DUMP_SD_SLOW") && calls++ > 0 ? 1 : 0; }   // slow card: the first call (app_init) sees 0, the card "arrives" afterwards

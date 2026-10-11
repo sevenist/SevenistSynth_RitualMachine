@@ -281,6 +281,27 @@ void run(char *line) {
                           (unsigned)fu, (unsigned)fc, (unsigned)fh, (unsigned)bu, (unsigned)sp, (unsigned long long)audio_pads_playing());
             return;
         }
+        if (!strcmp(sub, "rec")) {                        // rec S: records what plays for S seconds into a scratch file, and how the card kept up
+            const int secs = a > 0 && a <= 60 ? a : 5;
+            uint32_t u0 = 0, u1 = 0, rd = 0, frames = 0, lost = 0;
+            engine_synth_sampler_stats(&u0, &rd);
+            const uint32_t t0 = millis();
+            if (!audio_capture_start("zzrec", 0, 0, (uint32_t)secs * (uint32_t)audio_rate())) { Serial.println("[CMD] pad rec: refused (busy, no card or no memory)"); return; }
+            int st = CAPTURE_ST_ARMED;
+            while (millis() - t0 < (uint32_t)secs * 1000u + 8000u) {
+                st = audio_capture_poll(&frames, &lost);
+                if (st == CAPTURE_ST_DONE || st == CAPTURE_ST_FAILED || st == CAPTURE_ST_EMPTY) break;
+                delay(20);
+            }
+            const uint32_t ms = millis() - t0;
+            audio_capture_done();
+            engine_synth_sampler_stats(&u1, &rd);
+            storage_remove(STORAGE_DIR_SAMPLES "/zzrec.smp");
+            Serial.printf("[CMD] pad rec %d s: %s, %u frames, %u lost, finished after %u ms, stream underruns +%u\n", secs,
+                          st == CAPTURE_ST_DONE ? "done" : st == CAPTURE_ST_FAILED ? "FAILED" : st == CAPTURE_ST_EMPTY ? "EMPTY" : "TIMEOUT",
+                          (unsigned)frames, (unsigned)lost, (unsigned)ms, (unsigned)(u1 - u0));
+            return;
+        }
         if (!strcmp(sub, "verify")) {                     // verify 0|1: the card driver reads every write back and compares (slow), and its counts
             uint32_t n = 0, bad = 0;
             sd_card_verify(a != 0, &n, &bad);

@@ -612,3 +612,105 @@ TEST(pads_fx_a_value_moves_without_a_reload_and_twelve_modules_fit) {
     CHECK(level_3k(a) > 3000.0);
     CHECK(engine_synth_pads_playing() == 1u);
 }
+
+/* ---------------- capture / resampling: what plays, recorded into a new sample on the card ---------------- */
+#include <filesystem>
+#include <fstream>
+
+namespace {
+struct CardDir {                                                             // a folder that plays the card for the capture job
+    std::filesystem::path root;
+    CardDir() : root(std::filesystem::temp_directory_path() / "sc_capture_test") {
+        std::filesystem::remove_all(root);
+        std::filesystem::create_directories(root / STORAGE_DIR_SAMPLES);
+        engine_synth_set_card_root(root.string().c_str());
+    }
+    ~CardDir() { std::filesystem::remove_all(root); }
+    std::vector<double> read(const char *name, SmpHeader &h) const {
+        std::ifstream in(root / STORAGE_DIR_SAMPLES / (std::string(name) + ".smp"), std::ios::binary);
+        std::vector<uint8_t> raw((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        std::vector<double> x;
+        if (raw.size() < kSmpBlockBytes || !smp_parse_header(raw.data(), static_cast<uint32_t>(raw.size()), h)) return x;
+        CHECK_EQ(raw.size(), h.file_bytes());
+        for (uint32_t i = 0; i < h.frames; i++) x.push_back(static_cast<int16_t>(get16(&raw[kSmpBlockBytes + 2 * i])));
+        return x;
+    }
+    bool has(const char *file) const { return std::filesystem::exists(root / STORAGE_DIR_SAMPLES / file); }
+};
+// The audio runs and the card thread takes what was recorded, in turns.
+void play(PadsApp &a, double seconds) {
+    for (int k = 0; k < static_cast<int>(seconds / 0.02 + 0.5); k++) { a.run(0.02); while (engine_synth_capture_step()) {} }
+}
+}  // namespace
+
+TEST(capture_records_what_plays_from_the_first_sound) {
+    CardDir card;
+    PadsApp a;
+    a.rack.cfg.volume = 0.25f;                                               // the volume knob does not reach the recording
+    a.add("tone", sine(440.0, 0.4));
+    a.pad(0, "tone").level = 100;
+    a.build();
+    uint32_t frames = 7, lost = 7;
+    CHECK(engine_synth_capture_start("rec1", 300, 0, 0));
+    CHECK(!engine_synth_capture_start("rec2", 300, 0, 0));                  // one at a time
+    play(a, 0.2);                                                            // armed: silence does not start it
+    CHECK_EQ(engine_synth_capture_poll(&frames, &lost), CAPTURE_ARMED);
+    CHECK_EQ(frames, 0u);
+    engine_synth_pad_push(0);
+    play(a, 0.6);
+    CHECK_EQ(engine_synth_capture_poll(&frames, &lost), CAPTURE_RECORDING);
+    engine_synth_capture_stop();
+    play(a, 0.1);
+    CHECK_EQ(engine_synth_capture_poll(&frames, &lost), CAPTURE_DONE);
+    CHECK_EQ(lost, 0u);
+    SmpHeader h;
+    const std::vector<double> x = card.read("rec1", h);
+    const double sr = kSampleRate;
+    std::printf("    recorded %u frames (%.2f s) at %u Hz; the note %.0f rms, after it %.1f\n", h.frames, h.frames / sr, h.sample_rate,
+                rms(part(x, 0.02, 0.35)), rms(part(x, 0.45, 0.55)));
+    CHECK_EQ(h.sample_rate, static_cast<uint32_t>(kSampleRate));
+    CHECK(h.frames > 0.55 * sr && h.frames < 0.65 * sr);                     // from the push to the stop
+    CHECK_EQ(h.frames, frames);
+    CHECK(h.has_peaks() && h.peaks[2] > 100 && h.peaks[60] < 5);            // the overview: loud at the start, silent at the end
+    CHECK_NEAR(rms(part(x, 0.02, 0.35)), 0.5 * 32767.0 / std::sqrt(2.0), 400.0);   // the pad's own level, not the quarter volume
+    CHECK(std::sqrt(power_at(part(x, 0.02, 0.35), 440.0)) > 7500.0);         // and its pitch
+    CHECK(rms(part(x, 0.45, 0.55)) < 2.0);
+    CHECK(std::fabs(x[0]) + std::fabs(x[1]) + std::fabs(x[2]) > 0.0 || rms(part(x, 0.0, 0.002)) > 50.0);   // no silence in front
+    CHECK(!card.has("rec1.smp.tmp"));
+    engine_synth_capture_done();
+    CHECK_EQ(engine_synth_capture_poll(nullptr, nullptr), CAPTURE_IDLE);
+    // armed and stopped before any sound: no file
+    CHECK(engine_synth_capture_start("rec2", 300, 0, 0));
+    play(a, 0.1);
+    engine_synth_capture_stop();
+    play(a, 0.1);
+    CHECK_EQ(engine_synth_capture_poll(nullptr, nullptr), CAPTURE_EMPTY);
+    engine_synth_capture_done();
+    CHECK(!card.has("rec2.smp") && !card.has("rec2.smp.tmp"));
+}
+
+TEST(capture_on_the_clock_starts_on_a_bar_and_lasts_its_bars) {
+    CardDir card;
+    PadsApp a;
+    a.add("hi", sine(3000.0, 0.5));
+    tone_pad(a, 0, 0);
+    a.build();
+    engine_synth_pad_push(0);                                                // a loop that sounds all along
+    engine_synth_set_clock(120, 16, 0, 1);                                   // 120 BPM: a bar = 2 s
+    play(a, 0.5);
+    const uint32_t bar = static_cast<uint32_t>(2 * kSampleRate);
+    CHECK(engine_synth_capture_start("loop1", 300, 1, bar));                 // one bar, from the next bar line
+    uint32_t frames = 0, lost = 0;
+    play(a, 1.0);
+    CHECK_EQ(engine_synth_capture_poll(&frames, &lost), CAPTURE_ARMED);      // the pad sounds, but the bar line is at 2 s
+    play(a, 3.2);                                                            // past the end of the second bar
+    CHECK_EQ(engine_synth_capture_poll(&frames, &lost), CAPTURE_DONE);       // it stopped by itself
+    SmpHeader h;
+    const std::vector<double> x = card.read("loop1", h);
+    std::printf("    one bar at 120 BPM: %u frames (a bar is %u), lost %u, level %.0f\n", h.frames, bar, lost, rms(x));
+    CHECK_EQ(h.frames, bar);                                                 // exactly a bar
+    CHECK_EQ(lost, 0u);
+    CHECK(rms(x) > 8000.0);
+    engine_synth_capture_done();
+    engine_synth_set_clock(120, 16, 0, 0);
+}

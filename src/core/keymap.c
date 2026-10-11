@@ -59,6 +59,7 @@ static const fn_def_t fns[] = {
     {ACT_TEMPO,        +5,        "BPM +5", "bpm+5"},
     {ACT_TAP,          0,         "Tap",    "tap"},
     {ACT_METRONOME,    0,         "Click",  "click"},
+    {ACT_PAD_REC,      0,         "Rec",    "padrec"},
 };
 #define N_FNS ((int)(sizeof fns / sizeof fns[0]))
 
@@ -106,7 +107,7 @@ bool keymap_fn_parse(const char *s, key_fn_t *out) {
 enum { F_NONE, F_SHIFT, F_MENU, F_BACK, F_PLAY, F_OCT_DN, F_OCT_UP, F_UP, F_DOWN, F_LEFT, F_RIGHT, F_LATCH, F_SELECT, F_TOP,
        F_ROW_DN, F_ROW_UP, F_PAGE_DN, F_PAGE_UP, F_VAL_DN, F_VAL_UP,
        F_SECTION = 32, F_BANK_A, F_BANK_B, F_BANK_C, F_BANK_D, F_PAD_STOP, F_PAD_SEL, F_PAD_MUTE, F_PAD_1,
-       F_BPM_DN = F_PAD_1 + 16, F_BPM_UP, F_BPM_DN5, F_BPM_UP5, F_TAP, F_CLICK };    // (fns[] order)
+       F_BPM_DN = F_PAD_1 + 16, F_BPM_UP, F_BPM_DN5, F_BPM_UP5, F_TAP, F_CLICK, F_REC };    // (fns[] order)
 
 static const char *const layout_names[KEYMAP_LAYOUTS] = {"Keys 8x4", "Two 4x4", "Notes+Nav", "User"};
 static const char *const layout_toks[KEYMAP_LAYOUTS]  = {"keys8x4", "two4x4", "notesnav", "user"};
@@ -149,7 +150,7 @@ static void preset_pads(key_fn_t out[KEY_COUNT]) {
     static const uint8_t fn_row[KEY_COLS] = {F_SHIFT, F_MENU, F_BACK, F_PLAY, F_NONE, F_NONE, F_NONE, F_NONE};
     static const uint8_t right[4][4] = {
         {F_BANK_A,  F_BANK_B,   F_BANK_C, F_BANK_D},
-        {F_PAD_SEL, F_PAD_MUTE, F_NONE,   F_PAD_STOP},
+        {F_PAD_SEL, F_PAD_MUTE, F_REC,    F_PAD_STOP},
         {F_TAP,     F_CLICK,    F_BPM_DN, F_BPM_UP},
         {F_NONE,    F_NONE,     F_NONE,   F_NONE},
     };

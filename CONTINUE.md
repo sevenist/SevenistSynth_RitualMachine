@@ -44,19 +44,25 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
   host-tested (211 engine tests x 6, 96 UI tests), FLASHED 2026-10-11 and measured (ADR-041 "The sample tools on the board": every
   operation fits, 48.5 of 59.3 KB at worst; jobs run at 0.2..0.8 of real time; streamed pads keep playing), NOT tried by the user,
   NOT listened to. Reverse reverb and freeze / smear: from the FX chains + resampling (decision 46) (from: user)
-- [ ] **Sample jobs are slow on the board** (a 1.5 s sample: Normalize 2.3 s, Tonal stretch 8 s, Paulstretch x4 12 s): the card
-  writes at ~100 KB/s (single-block CMD24: try multi-block CMD25 in `sd_card_spi.cpp`), a spectral frame costs ~30 ms of CPU (profile
-  the float FFT: PSRAM, loop order). Both exact, no sound change (from: notes)
+- [ ] **Sample jobs are slow on the board** (a 1.5 s sample: Normalize 1.8 s, Tonal stretch 8 s, Paulstretch x4 10 s, after the
+  multi-block writes of 2026-10-11): a spectral frame costs ~30 ms of CPU (profile the float FFT: PSRAM, loop order). Exact, no sound
+  change (from: notes)
 - [x] **Sample tools**: all six groups built 2026-10-10 / 11 (chop, render + history, Level, Time & pitch, Texture, Color); left for
   the capture path: "print a pad's settings", reverse reverb, freeze / smear (done 2026-10-11)
 - [ ] **FX chains: try it, by ear** (Pads step 3; ADR-041 decisions 47-49 + "Pads step 3, the FX chains, as built"): Menu in Pads =
   the FX page (rows A / B / C, the header = the routing and the load), Edit in a module's menu = its values (the four knobs drive
   them), a pad's Bus row on PLAY. BUILT 2026-10-11, host-tested (214 engine tests x 6, 98 UI tests), FLASHED and measured (8 pads +
   EQ, compressor, delay, reverb = 66 %; twelve effects = 120 %, dropouts), NOT tried by the user, NOT listened to (from: user)
+- [ ] **Capture (Rec key): try it, by ear** (ADR-041 decision 50 + "Capture as built"): Rec in the Pads layout (right block, row 2,
+  between Mute and Stop) arms a recording of everything the Pads section plays; it starts at the first sound, Rec again stops it, the
+  result lands on the selected pad if empty (else the next empty one). Shift + Rec = a length in bars: then it starts on the bar (clock
+  running) and becomes a looping pad. BUILT 2026-10-11, host-tested (216 engine tests x 6, 100 UI tests), FLASHED and measured (no
+  frame lost even with 4 streamed pads), NOT tried by the user, NOT listened to. Mono (the sample format). Reverse reverb = Reverse
+  (EDIT), play through a reverb chain, Rec, Reverse the result (from: user)
 - [ ] **The EQ costs as much as the reverb** (26.5 k cycles a block, stereo, measured 2026-10-11): look for an exact optimization;
   it decides how many effects a chain can really hold (from: notes)
-- [ ] **Pads steps 4-5**: live synth (design round; its entry into the FX chains), song mode + backtrack (design round), capture /
-  resampling (reverse reverb and freeze come from it, decision 46); "Next: the production workflow" (from: user)
+- [ ] **Pads steps 4-5**: live synth (design round; its entry into the FX chains), song mode + backtrack (design round; builds on
+  the capture); "Next: the production workflow" (from: user)
 - [ ] **Confirm: the full synth stops in the Pads section** (my reading of ADR-041 decision 22) (from: notes)
 - [ ] **Joystick swap: try it**: a push on an already bound parameter swaps X and Y, each keeps its range / curve (built 2026-10-09, 71 UI
   tests, sim built; NOT tried by the user, NOT flashed) (from: user)

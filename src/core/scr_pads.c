@@ -767,7 +767,9 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
     u8g2_DrawVLine(g, header.x + bw - 2, header.y + 2, header.h - 4);
     if (ui->pad_fx || ui->pad_edit) gui_draw_text_centered(g, gui_rect(header.x + bw, header.y, header.w - bw, header.h), t);
     else {                                                   // the grid: "BANK A", then the position at the right
-        snprintf(t, sizeof t, "BANK %c", 'A' + ui->pad_bank);
+        if (ui->cap_state == CAPTURE_ST_ARMED) snprintf(t, sizeof t, "REC ready");            // a recording (capture): waiting for a sound / the bar
+        else if (ui->cap_state == CAPTURE_ST_RECORDING || ui->cap_state == CAPTURE_ST_FINISHING) snprintf(t, sizeof t, "REC %d:%02d", ui->cap_secs / 60, ui->cap_secs % 60);
+        else snprintf(t, sizeof t, "BANK %c", 'A' + ui->pad_bank);
         u8g2_DrawStr(g, header.x + bw + 2, ty, t);
         int bar_n = 0, beat = 0, frac = 0;
         const bool run = audio_transport(&bar_n, &beat, &frac);

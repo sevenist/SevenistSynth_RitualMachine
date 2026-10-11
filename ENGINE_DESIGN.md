@@ -1006,6 +1006,38 @@ built, firmware static RAM 65.5 %; flashed and measured by me; NOT tried by the 
 - Not built yet: the live synth's entry into the chains (step 4), modulators on an effect's values, a per-chain level or on / off,
   a tempo-synced delay time.
 
+**Capture / resampling, design (user, 2026-10-11; options offered):**
+50. **Capture next** (before the live synth and song mode; my recommendation, taken), and **it records the whole Pads output** (all
+   pads, all chains; "from a Record key until Stop or for a set number of bars on the clock").
+- My choices inside that, open to the user: a **Rec** key on the Pads layout's free key (right block, row 2, between Mute and Stop;
+  a key function, so it can move); the recording goes to **the selected pad when it is empty, else to the next empty one**; it starts
+  at the **first sound** (about -50 dB), or with a length on the **next bar line** of the running clock; **Shift + Rec** sets the
+  length (until Rec again / 1 / 2 / 4 / 8 bars at the tempo); a recording with a length becomes a pad that **loops on the bar**;
+  the pad plays it at **full level** (a copy of a copy must not fade); files are named rec1, rec2 ...
+- **Mono**: the library's samples are mono, so the recording is (L + R) / 2: a ping-pong delay or a wide reverb folds to the middle.
+  Stereo samples would be a format change through the whole sampler (to decide separately).
+
+**Capture as built (2026-10-11; 216 engine tests in the 6 configurations, 100 UI tests, simulator + firmware built, RAM 65.7 %;
+flashed and measured by me; NOT tried by the user, NOT listened to):**
+- **The tap** `engine/sampler/capture.*`: MasterOut hands it every block it receives, before the volume (the volume knob and the
+  metronome do not reach the recording); it mixes to mono into a ring (16384 frames, 0.37 s) that the card thread empties. Armed, it
+  waits for the bar line (to the sample) or for a block over the threshold; with a limit it stops after exactly that many frames.
+  What does not fit in the ring is counted as lost.
+- **The card job** `platform/engine/capture_job.cpp` (`engine_synth_capture_start / stop / poll / done / step`, HAL
+  `audio_capture_*`): 8 KB at a time into `<name>.smp.tmp`, the overview kept while the length is unknown (64 windows that merge in
+  pairs when they are full), the header last, then the rename. Its memory (41 KB of PSRAM) only while it runs; not together with a
+  processing job. The card task writes a recording's chunk first on every round.
+- **The app** (`capture_key`, `capture_poll`): arms, stops, finds the file in the library, puts it on its pad and selects it. The
+  grid's header shows "REC ready" / "REC 0:07"; the Rec key is dim, blinks while armed, is lit while it records. A recording ends
+  when the section is left; one without a length stops by itself after 5 minutes.
+- **SD driver: multi-block writes (CMD25 with ACMD23)** for runs of sectors, single blocks as before: it was the precondition (a
+  recording needs 88 KB/s sustained) and it speeds the sample jobs up by 15..30 % (Reverse of 1.5 s: 1.8 -> 1.3 s; Normalize 2.3 ->
+  1.8 s; Paulstretch x4 12.1 -> 10.3 s). Checked with a read-back of every write (serial `pad verify 1`): 1922 sectors, none differed.
+- **On the board** (`tools/capture_test.py`, serial `pad rec`; 6 s each, 264 600 frames at 44.1 kHz): silence, 8 pads in memory,
+  the same through delay + reverb, 1 / 2 / 4 streamed pads: **0 frames lost, 0 stream underruns in every case**.
+- Not built: capture in the Synth section (the tap is there: MasterOut feeds it in both), threshold / pre-roll settings, a count-in,
+  choosing the destination pad by hand, overdub.
+
 ## Known limits and ideas for later
 
 - Not hooked to the UI yet: the **Sampler** and **Granular** modules and the sample bank (stage 6 is engine-level and

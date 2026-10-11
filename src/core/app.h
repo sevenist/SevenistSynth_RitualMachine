@@ -45,6 +45,17 @@ typedef struct {
     bool     chop;                      // then chop the new version (CHOP: a Grid chop that needed padding)
 } pad_render_t;
 
+// A recording of what plays (capture / resampling, ADR-041): armed and recorded by the engine onto the card, then found in the
+// library and put on a pad.
+typedef struct {
+    uint8_t  stage;                     // 0 none, 1 armed / recording / being finished, 2 waiting for the library to list the file
+    uint8_t  bars;                      // the length setting: 0 = until Rec is pushed again, else that many bars at the tempo
+    bool     loop;                      // this one has a length in bars: the pad loops it, on the bar
+    int      pad;                       // where it goes
+    char     name[24];
+    uint32_t frames, dropped, since;
+} pad_capture_t;
+
 // The two workflows (ADR-041 decision 5): the synth, or the Pads section (an SP-404-style sampler). Shift + Menu switches.
 typedef enum { SECTION_SYNTH, SECTION_PADS } section_t;
 
@@ -56,6 +67,7 @@ typedef struct {
     pads_t         pads;        // the Pads section's 64 pads (pads.cfg)
     history_t      history;     // the versions of the library's samples (history.cfg next to them)
     pad_render_t   render;
+    pad_capture_t  capture;
     uint8_t        section;     // section_t
     bool           pads_pending;     // the pads changed and wait to be saved (pads.cfg) ...
     uint32_t       pads_ms;          // ... since then

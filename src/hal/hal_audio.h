@@ -59,6 +59,16 @@ enum { RENDER_STATE_IDLE, RENDER_STATE_RUNNING, RENDER_STATE_DONE, RENDER_STATE_
 bool audio_render_start(const char *src, const char *dst, int op, int amount, int amount2);
 int  audio_render_poll(int *percent);
 void audio_render_done(void);
+// Capture / resampling (engine_synth.h capture_*): what plays, before the volume, mono, into a new library file `name`. It begins at the
+// next bar line (`at_bar`, the clock running) or at the first sound over `threshold` (q15; 0 = at once), ends at stop or after
+// `limit_frames` (0 = none). poll: 0 idle, 1 armed, 2 recording, 3 finishing, 4 done, 5 failed, 6 empty (no sound came: no file), with
+// the frames recorded and those lost to a slow card; after done / failed / empty call audio_capture_done (done: rescan the library first).
+enum { CAPTURE_ST_IDLE, CAPTURE_ST_ARMED, CAPTURE_ST_RECORDING, CAPTURE_ST_FINISHING, CAPTURE_ST_DONE, CAPTURE_ST_FAILED, CAPTURE_ST_EMPTY };
+bool audio_capture_start(const char *name, int threshold, int at_bar, uint32_t limit_frames);
+void audio_capture_stop(void);
+int  audio_capture_poll(uint32_t *frames, uint32_t *dropped);
+void audio_capture_done(void);
+int  audio_rate(void);                    // the engine's sample rate (what a recording is made at)
 // A library entry whose file was deleted (a trimmed version): its name goes, so no list shows it; the index stays (the rack's samplers keep theirs).
 void audio_sample_hide(int index);
 

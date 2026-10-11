@@ -155,6 +155,7 @@ int sim_samples_init(void) {
     g_io = std::thread([] {
         while (!g_stop) {
             { std::lock_guard<std::mutex> lk(g_io_mx); engine_synth_io_pump(); }
+            for (int k = 0; k < 8 && engine_synth_capture_step(); k++) {}  // a recording: what waits in its ring
             for (int k = 0; k < 8 && engine_synth_render_step(); k++) {}   // a processing job, a few chunks between the loader's reads
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }

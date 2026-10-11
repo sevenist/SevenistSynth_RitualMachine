@@ -85,6 +85,20 @@ bool engine_synth_render_start(const char *src, const char *dst, int op, int amo
 render_state_t engine_synth_render_poll(int *percent);
 void engine_synth_render_done(void);
 bool engine_synth_render_step(void);
+const char *engine_synth_card_root(void);
+
+// Capture / resampling (ADR-041; platform/engine/capture_job.cpp, engine/sampler/capture.h): what the master output receives (before
+// the volume, mono) is recorded into a new library file `name` on the card. start arms it: it begins at the next bar line when `at_bar`
+// and the clock runs, else at the first block louder than `threshold` (q15, 0 = at once), and ends at stop or after `limit_frames`
+// (0 = none). The thread that owns the card writes it (capture_step: true while it has more to do at once). poll: the state, the frames
+// recorded and the frames lost because the card was too slow; DONE / FAILED / EMPTY (stopped before any sound: no file) stay until
+// capture_done. Not while a processing job runs (they share the card and the spare memory).
+typedef enum { CAPTURE_IDLE, CAPTURE_ARMED, CAPTURE_RECORDING, CAPTURE_FINISHING, CAPTURE_DONE, CAPTURE_FAILED, CAPTURE_EMPTY } capture_state_t;
+bool engine_synth_capture_start(const char *name, int threshold, int at_bar, uint32_t limit_frames);
+void engine_synth_capture_stop(void);
+capture_state_t engine_synth_capture_poll(uint32_t *frames, uint32_t *dropped);
+void engine_synth_capture_done(void);
+bool engine_synth_capture_step(void);
 
 #ifdef ENGINE_PROFILE
 // [AUDIO THREAD] per-module CPU cost since the previous call: `cb` gets the module name, its cycles per rendered block (all voices summed) and its

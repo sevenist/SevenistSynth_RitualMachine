@@ -59,6 +59,12 @@ void key_leds_update(const app_t *app, bool input_event, uint32_t now_ms) {
                     continue;
                 }
             }
+            if (f.act == ACT_PAD_REC) {                      // Rec: dim, blinking while armed, lit while it records (Back's red)
+                const int st = app->ui.cap_state;
+                const bool lit = st == CAPTURE_ST_RECORDING || st == CAPTURE_ST_FINISHING || (st == CAPTURE_ST_ARMED && (now_ms / 150) % 2);
+                leds_set(ctl, led_role_rgb(LR_BACK, lit));
+                continue;
+            }
             leds_set(ctl, led_role_rgb(role, key_active(app, ctl, f)));
         }
     leds_show();                                             // the driver sends only when something changed

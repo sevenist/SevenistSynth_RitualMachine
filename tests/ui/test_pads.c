@@ -881,3 +881,66 @@ TEST(pads_fx_rack_rules_and_the_synth_rack_keeps_its_own) {
     rack_init_startup(&synth);
     CHECK(!synth.fx && rack_can_insert(&synth, 0, 0, MOD_OSC));
 }
+
+/* ---------------- capture / resampling: the Rec key ---------------- */
+extern int ui_stub_cap_state, ui_stub_cap_bar;
+extern uint32_t ui_stub_cap_limit, ui_stub_cap_frames;
+extern char ui_stub_cap_name[24];
+void ui_stub_capture_sound(uint32_t frames);
+#define REC_KEY CTL_KEY(2, 6)                                            // the Pads layout: the right block's second row, third key
+
+TEST(pads_rec_key_records_onto_an_empty_pad) {
+    ui_stub_ramcard(false); ui_stub_ramcard(true);
+    ui_fresh();
+    shift_menu();
+    CHECK_EQ(keymap_get(2 * KEY_COLS + 6).act, ACT_PAD_REC);
+    snprintf(ui_app.pads.pad[0].file, PAD_NAME_MAX, "demo0");            // A1 is taken: the recording goes to A2
+    ev_tap(REC_KEY);
+    CHECK_EQ(ui_stub_cap_state, CAPTURE_ST_ARMED);
+    CHECK_STR(ui_stub_cap_name, "rec1");
+    CHECK(ui_stub_cap_bar == 0 && ui_stub_cap_limit == 300u * 48000u);   // no length: from the first sound, 5 minutes at most
+    ev_idle(2);
+    CHECK_EQ(ui_app.ui.cap_state, CAPTURE_ST_ARMED);
+    ui_stub_capture_sound(3 * 48000);
+    ev_idle(2);
+    CHECK(ui_app.ui.cap_state == CAPTURE_ST_RECORDING && ui_app.ui.cap_secs == 3);
+    ev_tap(REC_KEY);                                                     // Rec again: stop
+    ev_idle(4);
+    CHECK_EQ(ui_app.ui.cap_state, CAPTURE_ST_IDLE);
+    const pad_t *p = &ui_app.pads.pad[1];
+    CHECK_STR(p->file, "rec1");
+    CHECK(p->level == 100 && p->loop == PAD_LOOP_OFF && p->bus == 0);
+    CHECK(ui_app.ui.pad_cur == 1 && ui_app.ui.pad_bank == 0);            // and it is the selected pad now
+    ev_tap(REC_KEY);                                                     // the next one: rec2 on A3; stopped before any sound: nothing
+    CHECK_STR(ui_stub_cap_name, "rec2");
+    ev_tap(REC_KEY);
+    ev_idle(3);
+    CHECK(pad_empty(&ui_app.pads.pad[2]));
+    CHECK_EQ(ui_app.capture.stage, 0);
+}
+
+TEST(pads_rec_with_a_length_runs_on_the_clock_and_makes_a_loop) {
+    ui_stub_ramcard(false); ui_stub_ramcard(true);
+    ui_fresh();
+    shift_menu();
+    ui_app.seq.bpm = 120;
+    ev_press(SHIFT); ev_tap(REC_KEY); ev_tap(REC_KEY); ev_release(SHIFT);   // Shift + Rec twice: 1 bar, then 2
+    CHECK_EQ(ui_app.capture.bars, 2);
+    CHECK_EQ(ui_stub_cap_state, CAPTURE_ST_IDLE);
+    ui_app.pads_run = true;                                              // the clock runs
+    ev_tap(REC_KEY);
+    CHECK(ui_stub_cap_bar == 1 && ui_stub_cap_limit == 2u * 96000u);     // from the next bar line, 2 bars of 2 s
+    ui_stub_capture_sound(250000);                                       // more than its length: it stopped by itself
+    ev_idle(4);
+    const pad_t *p = &ui_app.pads.pad[0];
+    CHECK_STR(p->file, "rec1");
+    CHECK(p->loop == PAD_LOOP_TRIM && p->grid == PAD_GRID_BAR);
+    audio_sample_info_t in;
+    bool found = false;
+    for (int i = 0; i < audio_sample_count() && !found; i++) found = audio_sample_info(i, &in) && !strcmp(in.name, "rec1");
+    CHECK(found && in.frames == 192000u);
+    // no empty pad left: refused
+    for (int i = 0; i < PAD_COUNT; i++) snprintf(ui_app.pads.pad[i].file, PAD_NAME_MAX, "demo0");
+    ev_tap(REC_KEY);
+    CHECK_EQ(ui_stub_cap_state, CAPTURE_ST_IDLE);
+}

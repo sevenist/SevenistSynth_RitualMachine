@@ -55,7 +55,7 @@ const char *action_name(action_id_t a) {
         [ACT_JUMP]            = "Jump",
         [ACT_MOD]             = "Mod",
         [ACT_SECTION] = "Section", [ACT_PAD] = "Pad", [ACT_PAD_BANK] = "Bank", [ACT_PAD_STOP] = "Stop all", [ACT_PAD_SELECT] = "Pad select",
-        [ACT_PAD_MUTE] = "Pad mute", [ACT_TEMPO] = "Tempo", [ACT_TAP] = "Tap", [ACT_METRONOME] = "Click",
+        [ACT_PAD_MUTE] = "Pad mute", [ACT_TEMPO] = "Tempo", [ACT_TAP] = "Tap", [ACT_METRONOME] = "Click", [ACT_PAD_REC] = "Record",
     };
     return (a >= 0 && a < ACT_COUNT && n[a]) ? n[a] : "?";
 }

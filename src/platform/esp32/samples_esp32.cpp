@@ -371,6 +371,7 @@ void io_task(void *) {
         if (g_mkdirs) make_folders();
         // A processing job: one chunk, and only while the loader has nothing waiting. The streams come first: a chunk holds the card
         // for ~50 ms (4 KB read, 4 KB written), and measured with two chunks before every pump, 4 streamed pads lost 13..48 blocks per job.
+        if (g_state == SD_OK) engine_synth_capture_step();          // a recording: its chunk first, every time (what waits in its ring is lost when it fills)
         if (g_state == SD_OK && !reading) engine_synth_render_step();
         if (g_state == SD_OK) {
             const bool more = engine_synth_io_pump();   // reads still in flight: go on at once, a stream may be about to run dry

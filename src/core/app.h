@@ -73,8 +73,11 @@ typedef struct {
     // not be in it yet (pads_resolve takes one per step), lib_missing = bit k: pad k's file is not on the card (not asked again),
     // lib_tries = steps spent waiting for an unused sample to be unloaded.
     bool           lib_dirty;
+    uint16_t       rec_next;         // the number of the next recording's name (recN); 0 = not known yet: the library's root is listed once
     uint64_t       lib_missing;
     uint8_t        lib_tries;
+    uint32_t       lib_clock;        // counts the samples asked for; lib_stamp[i] = its value when catalog entry i was last asked
+    uint32_t       lib_stamp[AUDIO_SAMPLES_MAX];   // for (0 = not by this application): the unused entry with the oldest stamp leaves first
     bool           pads_pending;     // the pads changed and wait to be saved (pads.cfg) ...
     uint32_t       pads_ms;          // ... since then
     bool           fx_pending;       // the pads' FX chains changed and wait to be saved (padsfx.cfg) ...

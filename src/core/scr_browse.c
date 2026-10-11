@@ -165,7 +165,8 @@ void browse_ui_draw(const synth_ui_t *ui, u8g2_t *g) {
         u8g2_DrawStr(g, box.x + box.w - lw - 1, box.y + 7, len);
     } else {
         u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
-        gui_draw_text_centered(g, box, !cur ? "empty folder" : cur->dir ? "folder" : ui->br_state == BR_FRESH ? "..." :
+        gui_draw_text_centered(g, box, ui->br_state == BR_READING ? "reading the card..." : !cur ? "empty folder" : cur->dir ? "folder" :
+                                       ui->br_state == BR_FRESH ? "..." :
                                        ui->br_state == BR_SHOWN ? "not converted yet" : "cannot be read");
     }
 

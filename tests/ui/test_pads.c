@@ -1044,3 +1044,22 @@ TEST(pads_files_enter_the_catalog_when_they_are_used) {
     ev_idle(10);
     CHECK_EQ(ui_stub_pad_sets, sets + 1);                                // a file that is not on the card is not asked for again
 }
+
+TEST(browser_keeps_only_the_last_unused_samples_loaded) {
+    ui_fresh();
+    ui_stub_library_reset();
+    shift_menu();
+    ev_tap(CTL_JOY_SW);                                                  // the editor of A1
+    ev_tap(CTL_JOY_SW);                                                  // the browser: kit/ demo0 demo1 demo2
+    ev_tap(CTL_JOY_SW);                                                  // into kit: .. hat snare tom
+    for (int k = 0; k < 3; k++) { ev_turn(CTL_ENC_A, 1); ev_idle(30); }  // each one heard in turn
+    CHECK(audio_sample_find("kit/hat") >= 0 && audio_sample_find("kit/snare") >= 0 && audio_sample_find("kit/tom") >= 0);
+    ev_turn(CTL_ENC_A, -3);
+    ev_tap(CTL_JOY_SW);                                                  // the ".." row: the root again, on kit
+    for (int k = 0; k < 3; k++) { ev_turn(CTL_ENC_A, 1); ev_idle(30); }  // demo0, demo1, demo2
+    CHECK_STR(ui_app.pads.pad[0].file, "demo2");
+    CHECK_EQ(audio_sample_find("kit/hat"), -1);                          // five samples nothing uses: the one heard first has left
+    CHECK(audio_sample_find("kit/snare") >= 0 && audio_sample_find("kit/tom") >= 0);
+    ev_tap(BACK);
+    CHECK_STR(ui_app.pads.pad[0].file, "");
+}

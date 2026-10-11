@@ -14,14 +14,17 @@ sc::FileHandle SdStorage::open(const char *name) {
     char path[sizeof(File::path)];
     if (snprintf(path, sizeof path, SD_SAMPLE_DIR "/%s", name) >= static_cast<int>(sizeof path)) return -1;
     for (int i = 0; i < n_files_; i++) if (!strcmp(file_[i].path, path)) { file_[i].refs++; return i; }   // already known (a sample that is loaded again)
+    // No card access here: open() and forget() are called by the control (UI) thread (SampleBank::load / unload, under the engine's
+    // lock, which the I/O task's pump holds too), and the card belongs to the I/O task, which also polls it outside that lock: a stat()
+    // here (up to 0.4 s in a folder of 1800 files) met the card's alive check and the card was taken for removed (2026-10-11). The file
+    // is opened, and its size read, by the I/O task at its first read (fd_of); a file that is not there fails that read.
     int at = -1;
-    for (int i = 0; i < n_files_ && at < 0; i++) if (!file_[i].path[0]) at = i;         // an entry a forgotten file left
+    for (int i = 0; i < n_files_ && at < 0; i++) if (!file_[i].path[0] && file_[i].fd < 0) at = i;   // an entry a forgotten file left
     if (at < 0 && n_files_ < kFiles) at = n_files_;
-    struct stat st;
-    if (at < 0 || stat(path, &st) != 0 || !S_ISREG(st.st_mode)) return -1;
+    if (at < 0) return -1;
     File &f = file_[at];
     memcpy(f.path, path, strlen(path) + 1);
-    f.size = static_cast<uint32_t>(st.st_size);
+    f.size = kUnknownSize;
     f.fd = -1;
     f.used = 0;
     f.pos = kUnknownPos;
@@ -33,11 +36,9 @@ sc::FileHandle SdStorage::open(const char *name) {
 void SdStorage::forget(sc::FileHandle f) {
     if (f < 0 || f >= n_files_ || !file_[f].path[0]) return;
     if (file_[f].refs > 1) { file_[f].refs--; return; }                              // the same file is loaded once more (taken out, then asked for again)
-    if (file_[f].fd >= 0) ::close(file_[f].fd);
-    file_[f].fd = -1;
-    file_[f].pos = kUnknownPos;
+    file_[f].refs = 0;
     file_[f].size = 0;                                                               // (a read still queued for it fails its bounds check)
-    file_[f].path[0] = 0;
+    file_[f].path[0] = 0;                                                            // its descriptor is closed by the I/O task (poll): then the entry is free
 }
 
 int SdStorage::fd_of(int f) {
@@ -54,6 +55,12 @@ int SdStorage::fd_of(int f) {
     fl.fd = ::open(fl.path, O_RDONLY);
     fl.pos = fl.fd >= 0 ? 0 : kUnknownPos;
     stats_.opens++;
+    if (fl.fd >= 0 && fl.size == kUnknownSize) {                         // its first open: the size (the bounds of every read)
+        struct stat st;
+        const off_t end = fstat(fl.fd, &st) == 0 ? st.st_size : lseek(fl.fd, 0, SEEK_END);
+        fl.size = end > 0 ? static_cast<uint32_t>(end) : 0;
+        fl.pos = kUnknownPos;                                            // (the position may have moved: the next read seeks)
+    }
     return fl.fd;
 }
 
@@ -91,12 +98,15 @@ bool SdStorage::read_into(File &fl, uint32_t offset, void *dst, uint32_t bytes) 
 }
 
 bool SdStorage::poll(sc::IoDone &d, uint64_t) {
+    for (int i = 0; i < n_files_; i++)                                   // the descriptors of forgotten files (forget() must not touch the card)
+        if (!file_[i].path[0] && file_[i].fd >= 0) { ::close(file_[i].fd); file_[i].fd = -1; file_[i].pos = kUnknownPos; }
     if (count_ == 0) return false;
     const sc::IoRead r = q_[head_];
     head_ = (head_ + 1) % kQueue;
     count_--;
     bool ok = false;
-    if (r.file >= 0 && r.file < n_files_ && static_cast<uint64_t>(r.offset) + r.bytes <= file_[r.file].size && fd_of(r.file) >= 0) {
+    if (r.file >= 0 && r.file < n_files_ && file_[r.file].path[0] && fd_of(r.file) >= 0 &&
+        static_cast<uint64_t>(r.offset) + r.bytes <= file_[r.file].size) {
         const int64_t t0 = esp_timer_get_time();
         ok = read_into(file_[r.file], r.offset, r.dst, r.bytes);
         const uint32_t us = static_cast<uint32_t>(esp_timer_get_time() - t0);

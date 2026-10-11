@@ -75,6 +75,8 @@ int audio_sample_find(const char *name)                         { return sim_sam
 int audio_sample_use(const char *name)                          { return sim_samples_use(name); }
 int audio_dir_open(const char *dir)                             { return sim_card_present() ? sim_samples_dir_open(dir) : -1; }
 int audio_dir_read(int first, audio_dir_entry_t *out, int max)  { return sim_samples_dir_read(first, out, max); }
+void sim_samples_dir_close(void);
+void audio_dir_close(void)                                      { sim_samples_dir_close(); }
 sd_state_t audio_sd_state(void)                                 { return sim_card_present() ? SD_OK : SD_NONE; }   // the sdcard/ folder (F12: out / in)
 uint32_t audio_sd_read_us(void)                                 { return 0; }
 uint32_t audio_sd_generation(void)                              { return sim_card_generation(); }

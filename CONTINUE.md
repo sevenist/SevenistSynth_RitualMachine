@@ -8,12 +8,13 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
 
 ## Session todo (updated 2026-10-11)
 
-**Where things stand (session of 2026-10-11, the bug-fix part):** all the Pads work is on the branch **`pads-step1`** (ahead of `main`,
-which is untouched and can fast-forward; the user asked for a commit at every step). **The board still runs 5162be7 (flashed
-2026-10-11)**: the two fixes of this session are NOT on it. The user chose to pause new features and test, and started with two bug
-reports: Snap against the tempo (fixed, 61170b7) and "only 32 samples, it needs a real browser" (built: the library is read on demand,
-folders, a browser with audition; ADR-041 decisions 51-52). Both are host-tested only; **the board's card code for the browser was
-compiled, never run**. Everything built on 2026-10-10 / 11 that the user has not tried is listed in "Built, not tried by the user yet"
+**Where things stand (session of 2026-10-11, the bug-fix part):** everything is on **`main`**: the user merged `pads-step1` into it
+(PR #1, 2026-10-11), then asked for the branches to be merged and removed: `pads-step1` and `HWV1` are gone, here and on origin (both
+were contained in `main`). **The board runs the normal build of the commit after 00235fb (the board fixes of 2026-10-11: see the
+browser item), flashed by Claude in a board session** (that permission was for that session only: the user flashes). The user chose to pause new features and test, and started
+with two bug reports: Snap against the tempo (fixed, 61170b7) and "only 32 samples, it needs a real browser" (built: the library is
+read on demand, folders, a browser with audition; ADR-041 decisions 51-52). Both run on the board and were measured over serial;
+**neither has been tried by hand or listened to**. Everything built on 2026-10-10 / 11 that the user has not tried is listed in "Built, not tried by the user yet"
 below. Next features, each with a design round: live synth (engine not chosen: "decide later"), song mode + backtrack, stereo samples
 (a format change).
 
@@ -23,16 +24,19 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
 - [ ] **Snap 1/16 = a 16th note at the tempo: try it** (user, 2026-10-11: "the snap function isn't sync with set tempo"; asked what
   they saw: 1/16 stepped by a 16th of the FILE). Fixed in 61170b7 (`pad_snap_grid`): 1/16 is a 16th note at the clock's tempo; Beat
   and 1/16 count the pad's Tune / Fine (the notes as the pad plays them) and a point is the count times the exact beat, rounded once.
-  UI test extended, host only: NOT flashed, NOT tried. Not changed: the Grid chop unit and Fit beats still ignore Tune (say if they
+  UI test extended; flashed 2026-10-11, NOT tried. Not changed: the Grid chop unit and Fit beats still ignore Tune (say if they
   should follow it too) (from: user)
 - [ ] **Sample browser, the library read on demand: try it, on the board first** (user, 2026-10-11; ADR-041 decisions 51-52 + "As
   built"). A pad's Smp row (encoder B or a push) opens a full-screen list of the card's `system/samples` folder and its sub-folders;
   the highlighted sample shows its waveform and plays from any pad key; push = take it, Back = the pad as it was. Names are paths
   ("Drums/kick", 47 characters at most). No scan at start: the catalog holds the 32 files in use and drops unused ones (their memory
-  is freed: new). 219 engine tests, 102 UI tests, simulator + firmware built (RAM 66.0 %); **the board side (`samples_esp32.cpp`
-  folder list and header jobs, `storage_sd` handles) was only compiled**: NOT flashed, NOT tried. Watch on the board: the time to open
-  a big folder, pads silent for a moment after the first switch to Pads, a streamed pad while a folder is read, `[SD] folder` /
-  `[SD] read` lines in the log (from: user)
+  is freed: new). 219 engine tests, 103 UI tests, simulator + firmware built (RAM 66.0 %). **Flashed and measured 2026-10-11**
+  (ADR-041 "On the board", `tools/library_test.py`): the card's samples folder holds 1800 files in one folder: its list takes 0.75 s
+  the first time (then it is kept), a header 24 ms for the first files and 430 ms for the last (FAT searches a folder from its start):
+  **sub-folders of about 100 files would make all of it fast**: the user's call. Three things found there and fixed (the wrong sample
+  was dropped and the memory filled; a card access from the UI thread that made the card "removed"; the list was too short). NOT tried
+  by hand, NOT listened to. The test put `pad_c4` on A1 and `kick` on A2 back with default settings (what they held before, by the
+  boot log; their other settings are gone) (from: user)
 - [ ] **Test round on the board** (the user's choice of 2026-10-11: pause features, test): everything in "Built, not tried by the
   user yet" below. The 38-item test list of the earlier session was written in the chat only: rebuild it from that section when
   asked (from: user)
@@ -556,7 +560,8 @@ The user decides and I record the reasoning and move on, without re-litigating:
 
 - **The sample library** (2026-10-11): 32 different samples in use at once (64 pads cannot all hold a different file); pads.cfg
   must fit 4 KB and now stores paths (64 pads with long paths can pass it: the end is cut silently; a file per bank would fix it);
-  a folder shows 320 entries at most; a long name is cut at the row's edge; no audition from the SAMPLES tab (synth section);
+  a folder shows 2048 names / 30 KB of names at most (the card's 1800 use 28 KB); every open of a file searches its folder from the
+  start (0.4 s for the last of 1800: ADR-041 "On the board"); a long name is cut at the row's edge; no audition from the SAMPLES tab;
   `tools/sample_sim_check.cpp` still expects the old scan at start (not updated, not built by any script).
 
 From the session todo (long-term; moved here 2026-10-11):
@@ -591,7 +596,7 @@ From the session todo (long-term; moved here 2026-10-11):
 - The user iterates with short requests, tests on the board or in the SDL window, and wants concise answers that say what was verified vs not. Windows 11, PowerShell, MSYS2 UCRT64; AZERTY keyboard; English with some French.
   For design work they want options with pros and cons at each stage; they often pick against my recommendation. **By default they flash the board themselves** (COM8). On 2026-10-10 / 11 they allowed Claude to flash and measure (asked each time: "flash and measure?"): ask again in a new session before the first flash. They sometimes say "flashed" about an older build: check (see the skill).
 - A profiling build goes through the environment, not platformio.ini: `$env:PLATFORMIO_BUILD_FLAGS = "-DHWV1_DEBUG_AUDIO -DENGINE_PROFILE"` then `pio.exe run -t upload`; **flash the normal build again afterwards** (the profiling one prints every second and costs RAM).
-- Board tools for the Pads work (all over serial, `DEV_SERIAL_CMD`; see human_docs/SERIAL_COMMANDS.md, `pad ...`): `tools/pads_test.py` (pad voices), `padsfx_test.py` (FX chains, per-module costs), `edit_test.py` (sample jobs: time, memory), `capture_test.py` (recording).
+- Board tools for the Pads work (all over serial, `DEV_SERIAL_CMD`; see human_docs/SERIAL_COMMANDS.md, `pad ...`, `dir`, `use`): `tools/library_test.py` (the folder list, header reads by place in the folder, samples cycled on a pad, a stream while a folder is read), `tools/pads_test.py` (pad voices), `padsfx_test.py` (FX chains, per-module costs), `edit_test.py` (sample jobs: time, memory), `capture_test.py` (recording).
 - UI tests address some rows by number (the RACK page's menu rows in `tests/ui/test_rows.c`, the EDIT page's rows in `tests/ui/test_pads.c`): inserting a row in those screens shifts them.
 - The user often keeps the simulator open: `build.ps1` then builds `oled_sim_new.exe`. A stale exe has caused a false "bug" before.
 - PlatformIO: use `C:\.platformio\penv\Scripts\pio.exe`, **never a bare `pio`** (PATH points at Python 3.13's pio, which recreates and destroys the penv). It happened twice; the second time (2026-10-05) Claude did it, and the user had to restore the penv by hand. Repair steps: DEVELOPING.md, "ESP32 firmware" warning. One link failure with no error text happened twice; the immediate rerun succeeded.
@@ -603,12 +608,12 @@ From the session todo (long-term; moved here 2026-10-11):
 - `src/platform/engine/engine_synth.h` is included from C: no default arguments, no C++ in it.
 - Tool calls that run `g++` through PowerShell hide compiler errors (`NativeCommandError`): compile from bash to see them. A test executable needs `C:\msys64\ucrt64\bin` on PATH.
 - Python on Windows: always `open(..., encoding="utf-8")`. The test runner takes a name filter (`engine_tests.exe reverb`) and, via the script, engine flags: `build_engine_tests.ps1 -Defs "-DENGINE_REVERB_HALF=1"`; `-Matrix` takes a few minutes, one configuration about 1 min.
-- Do not commit unless asked. (The Pads work: the user asked for a commit at every step, on the branch `pads-step1`; ask before merging it into `main`.) Delete `run*.txt` serial captures when done (ignored by git now); keep the numbers in this file.
+- Do not commit unless asked. (The Pads work: the user asked for a commit at every step; it was on the branch `pads-step1`, merged into `main` and removed on 2026-10-11. Ask where the next work goes: `main` or a new branch.) Delete `run*.txt` serial captures when done (ignored by git now); keep the numbers in this file.
 
 ## Starting the next session (compact prompt)
 
 Run `/session-start` (skill `.claude/skills/session-start/SKILL.md`): it reads these notes, talks through the open items, writes the "Session todo" section here and proposes where to start.
 For board performance work directly:
 
-> Read `CONTINUE.md`, `DEVELOPING.md` and `ENGINE_DESIGN.md` (ADR-035, and ADR-041 for the Pads section), and the skill `esp32-optimize`. The work is on the branch `pads-step1`. The board is connected on COM8 with the last build flashed. <what I heard / what to change>.
+> Read `CONTINUE.md`, `DEVELOPING.md` and `ENGINE_DESIGN.md` (ADR-035, and ADR-041 for the Pads section), and the skill `esp32-optimize`. The work is on `main`. The board is connected on COM8 with the last build flashed. <what I heard / what to change>.
 > Then re-measure with `tools/serial_test.py` and continue with "Next performance steps".

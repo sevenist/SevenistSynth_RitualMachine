@@ -45,6 +45,9 @@ void app_init(app_t *app, u8g2_t *display) {
     app->lib_dirty = true;              // its files go into the catalog one per step (pads_resolve)
     app->lib_missing = 0;
     app->lib_tries = 0;
+    app->rec_next = 0;
+    app->lib_clock = 0;
+    memset(app->lib_stamp, 0, sizeof app->lib_stamp);
     pads_fx_load(&app->pads.fx);        // padsfx.cfg: the FX chains
     app->ui.pads = &app->pads;
     pads_ui_init(&app->ui);                 // no chop yet, the EDIT page's amounts
@@ -137,26 +140,54 @@ static bool sample_in_use(const app_t *app, int index, const char *name) {
     return app->capture.stage && !strcmp(app->capture.name, name);
 }
 
-// A sample of the library by name: its catalog index, read from the card when it is not in the catalog yet. When the catalog is full,
-// an entry nothing uses leaves it first. Returns the index, LIB_MISSING (no such sample), LIB_AGAIN (the entry that left is still
-// being unloaded: ask again at the next step) or LIB_FULL (every entry is in use).
+// The entry nothing uses that was asked for longest ago (-1: none), and how many such entries there are. `own`: only among the entries
+// this application asked for (lib_stamp != 0; the dev serial commands add entries of their own).
+static int lib_oldest_unused(const app_t *app, bool own, int *count) {
+    audio_sample_info_t in;
+    int best = -1, n = 0;
+    for (int i = 0; i < AUDIO_SAMPLES_MAX; i++) {
+        if (!audio_sample_info(i, &in) || !in.name[0] || (own && !app->lib_stamp[i]) || sample_in_use(app, i, in.name)) continue;
+        n++;
+        if (best < 0 || app->lib_stamp[i] < app->lib_stamp[best]) best = i;
+    }
+    if (count) *count = n;
+    return best;
+}
+
+static void lib_drop(app_t *app, int index) {
+    app->lib_stamp[index] = 0;
+    audio_sample_hide(index);
+}
+
+// A sample of the library by name: its catalog index, read from the card when it is not in the catalog yet. The samples nothing uses
+// do not pile up (each holds memory: on the board the pads went silent after about 25 of them): only the LIB_SPARE asked for last
+// stay (the browser: going back to one of them costs no card read), the older ones leave. When the catalog is full, the oldest unused
+// entry leaves first. Returns the index, LIB_MISSING (no such sample), LIB_AGAIN (an entry that left is still being unloaded: ask
+// again at the next step) or LIB_FULL (every entry is in use).
+#define LIB_SPARE 3
 enum { LIB_MISSING = -1, LIB_AGAIN = -2, LIB_FULL = -3 };
 static int sample_use(app_t *app, const char *name) {
     static uint8_t waits;                                                   // steps spent waiting for an entry that left
     int index = audio_sample_use(name);
-    if (index != -2) { waits = 0; return index < 0 ? LIB_MISSING : index; }
-    audio_sample_info_t in;
-    bool leaving = false;                                                   // an entry that left earlier is still being unloaded
-    for (int i = 0; i < AUDIO_SAMPLES_MAX && !leaving; i++) leaving = audio_sample_info(i, &in) && !in.name[0];
-    if (leaving && ++waits < 20) return LIB_AGAIN;                          // (longer: a voice still plays it; another entry leaves)
-    waits = 0;
-    for (int i = 0; i < AUDIO_SAMPLES_MAX; i++) {
-        if (!audio_sample_info(i, &in) || !in.name[0] || sample_in_use(app, i, in.name)) continue;
-        audio_sample_hide(i);
+    if (index == -2) {                                                      // the catalog is full
+        audio_sample_info_t in;
+        bool leaving = false;                                               // an entry that left earlier is still being unloaded
+        for (int i = 0; i < AUDIO_SAMPLES_MAX && !leaving; i++) leaving = audio_sample_info(i, &in) && !in.name[0];
+        if (leaving && ++waits < 20) return LIB_AGAIN;                      // (longer: a voice still plays it; another entry leaves)
+        waits = 0;
+        const int old = lib_oldest_unused(app, false, NULL);
+        if (old < 0) return leaving ? LIB_AGAIN : LIB_FULL;
+        lib_drop(app, old);
         index = audio_sample_use(name);
-        return index >= 0 ? index : index == -2 ? LIB_AGAIN : LIB_MISSING;
+        if (index == -2) return LIB_AGAIN;
     }
-    return leaving ? LIB_AGAIN : LIB_FULL;
+    waits = 0;
+    if (index < 0 || index >= AUDIO_SAMPLES_MAX) return LIB_MISSING;
+    app->lib_stamp[index] = ++app->lib_clock;
+    int unused = 0;
+    const int old = lib_oldest_unused(app, true, &unused);                 // (this one counts as unused: its pad takes it next)
+    if (old >= 0 && old != index && unused > LIB_SPARE + 1) lib_drop(app, old);
+    return index;
 }
 
 static void lib_full_popup(app_t *app) {
@@ -206,7 +237,15 @@ static void browse_open(app_t *app, int what) {
     const int pad = pads_ui_pad(ui);
     if (what == BROWSE_PAD) snprintf(cur, sizeof cur, "%s", app->pads.pad[pad].file);
     else if (audio_sample_info(ui->smp_cur, &in)) snprintf(cur, sizeof cur, "%s", in.name);
+    if (audio_sd_state() == SD_OK) {                        // a long folder takes a moment on the board: the screen says so first
+        ui->br_open = (uint8_t)what;
+        ui->br_dir[0] = 0;
+        ui->br_total = ui->br_n = ui->br_first = ui->br_cur = 0;
+        ui->br_state = BR_READING;
+        draw_frame(app);
+    }
     if (audio_sd_state() != SD_OK || !browse_ui_open(ui, what, cur, audio_millis())) {
+        ui->br_open = 0;
         popup_info(&app->popup, "SAMPLES", audio_sd_state() != SD_OK ? "No card" : "No samples folder", 0, audio_millis(), POPUP_INFO_MS);
         app->dirty = true;
         return;
@@ -353,6 +392,7 @@ static void render_start(app_t *app, int pad, int op, int32_t amount, bool chop)
     snprintf(r->what, sizeof r->what, "%s%s%s", name, amt[0] ? " " : "", amt);
     snprintf(r->parent, sizeof r->parent, "%s", p->file);
     r->pad = pad; r->op = proc; r->chop = chop; r->frames_in = in.frames;
+    audio_dir_close();                                                      // (the browser's folder list: the job wants its memory)
     if (!audio_render_start(p->file, r->name, proc, arg, arg2)) {
         popup_info(&app->popup, "EDIT", "Busy, no card or no memory", 0, audio_millis(), POPUP_INFO_MS);
         return;
@@ -396,7 +436,7 @@ static void render_adopt(app_t *app) {
         snprintf(path, sizeof path, STORAGE_DIR_SAMPLES "/%s.smp", gone[i]);
         storage_remove(path);
         const int idx = lib_index(gone[i]);
-        if (idx >= 0) audio_sample_hide(idx);
+        if (idx >= 0) lib_drop(app, idx);
     }
     history_save(&app->history);
     audio_render_done();
@@ -484,7 +524,12 @@ static void capture_key(app_t *app) {
         if (pad_empty(&app->pads.pad[i])) pad = i;
     }
     if (pad < 0) { popup_info(&app->popup, "REC", "No empty pad", 0, now, POPUP_INFO_MS); app->dirty = true; return; }
-    lib_new_name("rec", c->name, sizeof c->name);           // the first free name
+    if (!app->rec_next) {                                   // the first free name: the root folder is listed once, then counted
+        lib_new_name("rec", c->name, sizeof c->name);
+        app->rec_next = (uint16_t)atoi(c->name + 3);
+    }
+    snprintf(c->name, sizeof c->name, "rec%d", app->rec_next);
+    audio_dir_close();                                      // (the list goes: a new sample is coming, and its memory is wanted)
     const uint32_t rate = (uint32_t)audio_rate();
     const int bpm = app->seq.bpm > 0 ? app->seq.bpm : 120;
     const uint32_t limit = c->bars ? (uint32_t)(((uint64_t)c->bars * 4u * 60u * rate + (uint32_t)bpm / 2) / (uint32_t)bpm) : CAPTURE_MAX_S * rate;
@@ -493,6 +538,7 @@ static void capture_key(app_t *app) {
         app->dirty = true;
         return;
     }
+    app->rec_next++;
     c->stage = 1; c->pad = pad; c->loop = c->bars != 0;
     char l[8], t[24];
     pad_label(pad, l, sizeof l);
@@ -1294,6 +1340,8 @@ static void check_sd(app_t *app) {
     if (app->ui.br_open) browse_close(app, false);                      // (the folder it shows may be gone)
     app->lib_missing = 0;                                               // the pads' files are looked for again (pads_resolve)
     app->lib_dirty = true;
+    app->rec_next = 0;
+    memset(app->lib_stamp, 0, sizeof app->lib_stamp);
     if (audio_sd_state() != SD_NONE) {
         if (keymap_dirty()) keymap_save(); else keymap_load();
         if (curves_changed()) curves_save(); else curves_load();

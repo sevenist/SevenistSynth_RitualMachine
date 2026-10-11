@@ -289,6 +289,7 @@ extern "C" int audio_sample_find(const char *name)                         { ret
 extern "C" int audio_sample_use(const char *name)                          { return samples_esp32_use(name); }    // the I/O task reads the file's header
 extern "C" int audio_dir_open(const char *dir)                             { return samples_esp32_dir_open(dir); }
 extern "C" int audio_dir_read(int first, audio_dir_entry_t *out, int max)  { return samples_esp32_dir_read(first, out, max); }
+extern "C" void audio_dir_close(void)                                      { samples_esp32_dir_close(); }
 extern "C" sd_state_t audio_sd_state(void)                                  { return samples_esp32_sd_state(); }
 extern "C" uint32_t audio_sd_read_us(void)                                  { return samples_esp32_sd_read_us(); }
 extern "C" uint32_t audio_sd_generation(void)                               { return samples_esp32_sd_generation(); }

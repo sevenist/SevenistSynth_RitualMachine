@@ -194,6 +194,7 @@ int sim_samples_prepare(int index) { return convert(index) ? 1 : 0; }
 int sim_samples_find(const char *name) { return engine_synth_catalog_find(name); }
 int sim_samples_use(const char *name) { return name ? use(name) : -1; }
 int sim_samples_dir_open(const char *dir) { return dir_open(dir); }
+void sim_samples_dir_close(void) { g_list.clear(); }
 int sim_samples_dir_read(int first, audio_dir_entry_t *out, int max) {
     int n = 0;
     for (; n < max && first >= 0 && first + n < static_cast<int>(g_list.size()); n++) {

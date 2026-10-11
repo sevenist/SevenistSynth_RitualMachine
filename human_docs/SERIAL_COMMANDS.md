@@ -64,6 +64,8 @@ C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --cmd "chord 3" --ra
 | `status` | notes held by `chord`, uptime, free heap |
 | `pieconv` | checks the Convolver's PIE dot products (`pie_conv2_s16`) against the C sums at full scale, 1..64 vectors, and prints the cost of a 128-tap call for both channels |
 | `samples` | takes the samples of the library's root folder into the catalog (it holds the files in use, 32 at most; nothing is scanned at start), then prints the catalog: index, name, frames, rate, root note, loop points and mode (the index is the F of `patch sampler`) |
+| `dir [PATH]` | reads a folder of the sample library as the browser does (no PATH = `system/samples` itself, else a path below it, spaces allowed), and prints how many entries it has, the time it took and its first six (`[CMD] dir "Drums": 41 entries in 23000 us`; -1 = no such folder / no card). The list is kept: the same `dir` again reads nothing. `dir #N` prints entry N of the kept list, `dir -` forgets it (the next `dir` reads the card) |
+| `use NAME`, `use #N` | takes a sample into the catalog by name (`#N`: entry N of the list `dir` keeps) (its path below the samples folder, no extension: `use Drums/kick 01`) and prints its index and the time (`-1` no such sample, `-2` the catalog is full). `use` alone prints the catalog (an empty name = an entry that left) |
 | `dump N` | captures the next N output samples (1..16384, before the dev output gain) and prints them as `[DUMP] @index v v v ...` lines, 32 per line, between `[DUMP] begin` and `[DUMP] end`. For offline spectrum checks |
 
 ### The Pads section

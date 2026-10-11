@@ -111,12 +111,52 @@ void run(char *line) {
         const int total = audio_dir_open("");
         for (int k = 0; k < total; k++) {
             audio_dir_entry_t e;
-            if (audio_dir_read(k, &e, 1) == 1 && !e.dir) audio_sample_use(e.name);
+            if (audio_dir_read(k, &e, 1) == 1 && !e.dir && audio_sample_use(e.name) == -2) break;   // the catalog is full
         }
         audio_sample_info_t in;
         const int n = audio_sample_count();
         for (int i = 0; i < n; i++) if (audio_sample_info(i, &in)) Serial.printf("[CMD] sample %d %s %u frames %u Hz root %d loop %u..%u mode %d\n", i, in.name, (unsigned)in.frames, (unsigned)in.rate, in.root, (unsigned)in.loop_start, (unsigned)in.loop_end, in.loop_mode);
         Serial.printf("[CMD] %d sample(s)\n", n);
+        return;
+    }
+    if (!strcmp(line, "dir")) {                           // dir [PATH] | dir #N: reads a folder of the library as the browser does ("" = the samples folder), timed; its first entries
+        const char *path = arg ? arg : "";
+        if (!strcmp(path, "-")) { audio_dir_close(); Serial.println("[CMD] dir closed"); return; }   // dir -: forgets the list (the next dir reads the card)
+        if (path[0] == '#') {                             // dir #N: entry N of the folder listed last (nothing is read, nothing joins the catalog)
+            audio_dir_entry_t e;
+            if (audio_dir_read(atoi(path + 1), &e, 1) == 1) Serial.printf("[CMD] entry %d \"%s\"%s\n", atoi(path + 1), e.name, e.dir ? " (a folder)" : "");
+            else Serial.printf("[CMD] entry %d: none\n", atoi(path + 1));
+            return;
+        }
+        const uint32_t t0 = micros();
+        const int n = audio_dir_open(path);
+        const uint32_t us = micros() - t0;
+        Serial.printf("[CMD] dir \"%s\": %d entries in %u us\n", path, n, (unsigned)us);
+        for (int k = 0; k < n && k < 6; k++) {
+            audio_dir_entry_t e;
+            if (audio_dir_read(k, &e, 1) == 1) Serial.printf("[CMD]   %d %s%s\n", k, e.name, e.dir ? "/" : "");
+        }
+        return;
+    }
+    if (!strcmp(line, "use")) {                           // use NAME | use #N: a sample into the catalog by name (its path below the samples folder), timed; use alone: the catalog
+        if (!arg || !*arg) {
+            audio_sample_info_t in;
+            int used = 0;
+            const int n = audio_sample_count();
+            for (int i = 0; i < n; i++) if (audio_sample_info(i, &in)) { Serial.printf("[CMD] cat %d \"%s\"\n", i, in.name); used += in.name[0] != 0; }
+            Serial.printf("[CMD] catalog: %d in use of %d entries (max %d)\n", used, n, AUDIO_SAMPLES_MAX);
+            return;
+        }
+        audio_dir_entry_t e;
+        const char *name = arg;
+        if (arg[0] == '#') {                              // use #N: entry N of the folder `dir` listed last (a root-folder sample)
+            if (audio_dir_read(atoi(arg + 1), &e, 1) != 1 || e.dir) { Serial.printf("[CMD] use %s: no such sample in the list\n", arg); return; }
+            name = e.name;
+        }
+        const uint32_t t0 = micros();
+        const int index = audio_sample_use(name);
+        const uint32_t us = micros() - t0;
+        Serial.printf("[CMD] use \"%s\": index %d in %u us\n", name, index, (unsigned)us);   // -1 no such sample, -2 the catalog is full
         return;
     }
     if (!strcmp(line, "patch") && g_app) {

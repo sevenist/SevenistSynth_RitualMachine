@@ -110,9 +110,13 @@ int  audio_sample_use(const char *name);
 // returns how many entries it has (-1: no card, no such folder): its sub-folders first, then its samples, each group by name (case
 // ignored); versions (name~n) are left out. read copies up to `max` of them from rank `first` (no card access) and returns how many.
 // An entry's name is the folder's or the file's own name (no path, no extension).
+// The platform keeps the list until another folder is opened or audio_dir_close: opening the same folder again then costs no card
+// read (a folder of several hundred files takes most of a second on the board). close gives the list's memory back (the board:
+// 34 KB of PSRAM, which the sample jobs want) and must follow anything that adds a listed sample (a recording).
 typedef struct { char name[AUDIO_NAME_MAX]; uint8_t dir; } audio_dir_entry_t;
 int  audio_dir_open(const char *dir);
 int  audio_dir_read(int first, audio_dir_entry_t *out, int max);
+void audio_dir_close(void);
 
 // The TF card. SD_SLOW = a card is in but its reads are too slow to stream samples from (the synth then runs as if there were no card, and the
 // application shows an error screen). The generation changes on every insertion, removal and finished scan, so the application knows when to

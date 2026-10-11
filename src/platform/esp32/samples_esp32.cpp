@@ -90,6 +90,9 @@ bool read_info(const char *name, audio_sample_info_t &in) {
         }
     }
     ::close(fd);
+#ifndef HWV1_DEBUG_AUDIO
+    if (!ok || millis() - t0 >= 100)                  // (always with the debug build; else only a failed or a slow read)
+#endif
     Serial.printf("[SD] read %s: %u ms, %u reads, slowest read %u us%s\n", path, (unsigned)(millis() - t0), (unsigned)g_scan_reads, (unsigned)g_scan_worst_us, ok ? "" : " (not a valid .smp)");
     return ok;
 }
@@ -104,60 +107,68 @@ struct LibJob {
     volatile int state;
 };
 LibJob g_lib;
-// The folder the browser shows: its sub-folders and samples, sorted, in PSRAM (16 KB, taken at the first listing). A folder with more
-// entries than kDirMax shows its first kDirMax (in the card's order), sorted.
-constexpr int kDirMax = 320;
-audio_dir_entry_t *g_dir = nullptr;
-int g_dir_cap = 0;
+// The folder the browser shows: its sub-folders and samples, sorted. Kept compact, because the PSRAM outside the engine is short (59 KB
+// free at boot, and a spectral sample job wants 37 KB of it): one block of kDirBytes, the names packed one after the other (a flag byte:
+// 1 = folder, the name, a 0), then kDirMax offsets, sorted. The block is taken at a listing and given back by samples_esp32_dir_close
+// (the application: before a sample job). While it is held, opening the same folder again does not read the card (g_dir_path).
+// A folder with more names than fit shows what fits (in the card's order), sorted; the log says how many were left out.
+constexpr int kDirMax = 2048;
+constexpr size_t kDirPool = 30 * 1024, kDirBytes = kDirPool + kDirMax * sizeof(uint16_t);
+char *g_dir = nullptr;                            // the block: the names, then the offsets
+uint16_t *g_dir_ofs = nullptr;
 volatile int g_dir_n = 0;
+char g_dir_path[AUDIO_NAME_MAX] = "";             // the folder the block lists
+volatile bool g_dir_valid = false;
 
 int dir_cmp(const void *a, const void *b) {
-    const audio_dir_entry_t *x = static_cast<const audio_dir_entry_t *>(a), *y = static_cast<const audio_dir_entry_t *>(b);
-    if (x->dir != y->dir) return x->dir ? -1 : 1;                           // folders first
-    return strcasecmp(x->name, y->name);
+    const char *x = g_dir + *static_cast<const uint16_t *>(a), *y = g_dir + *static_cast<const uint16_t *>(b);
+    if (x[0] != y[0]) return x[0] ? -1 : 1;                                 // folders first
+    return strcasecmp(x + 1, y + 1);
 }
 
 int list_folder(const char *dir) {
+    g_dir_valid = false;
     g_dir_n = 0;
     if (!g_dir) {
-        g_dir = static_cast<audio_dir_entry_t *>(heap_caps_malloc(kDirMax * sizeof(audio_dir_entry_t), MALLOC_CAP_SPIRAM));
-        g_dir_cap = g_dir ? kDirMax : 0;
-        if (!g_dir) {                                                       // no PSRAM to spare: a short list from the internal heap
-            g_dir = static_cast<audio_dir_entry_t *>(malloc(64 * sizeof(audio_dir_entry_t)));
-            g_dir_cap = g_dir ? 64 : 0;
-        }
-        if (!g_dir) return -1;
+        g_dir = static_cast<char *>(heap_caps_malloc(kDirBytes, MALLOC_CAP_SPIRAM));
+        if (!g_dir) { Serial.println("[SD] no memory for the folder list"); return -1; }
+        g_dir_ofs = reinterpret_cast<uint16_t *>(g_dir + kDirPool);
     }
     char path[sizeof SD_SAMPLE_DIR + AUDIO_NAME_MAX + 2];
     if (dir[0]) snprintf(path, sizeof path, SD_SAMPLE_DIR "/%s", dir); else snprintf(path, sizeof path, SD_SAMPLE_DIR);
+    const uint32_t t0 = millis();
     DIR *d = opendir(path);
     if (!d) return -1;
-    const uint32_t t0 = millis();
     int n = 0, seen = 0, left_out = 0;
+    size_t used = 0;
     while (const dirent *e = readdir(d)) {
         if ((++seen & 15) == 0) engine_synth_io_pump();                     // a long folder: the streams still get their blocks
         if ((seen & 63) == 0) vTaskDelay(1);                                // ... and the idle task its time (watchdog)
-        const size_t len = strlen(e->d_name);
+        size_t len = strlen(e->d_name);
         if (!len || e->d_name[0] == '.') continue;
-        audio_dir_entry_t ent;
-        if (e->d_type == DT_DIR) {
-            if (len >= sizeof ent.name) continue;
-            memcpy(ent.name, e->d_name, len + 1);
-            ent.dir = 1;
-        } else {                                                            // *.smp with a stem that fits a library name; no versions (name~n)
-            if (len < 5 || len - 4 >= sizeof ent.name || strcasecmp(e->d_name + len - 4, ".smp") != 0) continue;
-            memcpy(ent.name, e->d_name, len - 4);
-            ent.name[len - 4] = 0;
-            if (strchr(ent.name, '~')) continue;
-            ent.dir = 0;
+        const bool is_dir = e->d_type == DT_DIR;
+        if (!is_dir) {                                                      // *.smp; no versions (name~n)
+            if (len < 5 || strcasecmp(e->d_name + len - 4, ".smp") != 0) continue;
+            len -= 4;
+            if (memchr(e->d_name, '~', len)) continue;
         }
-        if (n >= g_dir_cap) { left_out++; continue; }
-        g_dir[n++] = ent;
+        if (len >= AUDIO_NAME_MAX) continue;                                // (too long to be a library name)
+        if (n >= kDirMax || used + len + 2 > kDirPool) { left_out++; continue; }
+        g_dir_ofs[n++] = static_cast<uint16_t>(used);
+        g_dir[used++] = is_dir ? 1 : 0;
+        memcpy(g_dir + used, e->d_name, len);
+        used += len;
+        g_dir[used++] = 0;
     }
     closedir(d);
-    qsort(g_dir, static_cast<size_t>(n), sizeof *g_dir, dir_cmp);
+    const uint32_t t1 = millis();
+    qsort(g_dir_ofs, static_cast<size_t>(n), sizeof *g_dir_ofs, dir_cmp);
+    snprintf(g_dir_path, sizeof g_dir_path, "%s", dir);
     g_dir_n = n;
-    Serial.printf("[SD] folder %s: %d entries in %u ms%s\n", path, n, (unsigned)(millis() - t0), left_out ? " (more than the list holds: the rest is left out)" : "");
+    g_dir_valid = true;
+    Serial.printf("[SD] folder %s: %d entries of %d read in %u ms, sorted in %u ms, %u bytes of names", path, n, seen, (unsigned)(t1 - t0), (unsigned)(millis() - t1), (unsigned)used);
+    if (left_out) Serial.printf(" (%d left out: the list is full)", left_out);
+    Serial.println();
     return n;
 }
 
@@ -255,6 +266,7 @@ void make_folders() {
 void card_gone() {
     g_storage.close_all();
     sd_card_unmount();
+    g_dir_valid = false;
     g_dir_n = 0;
     g_state = SD_NONE;
     g_gen = g_gen + 1;
@@ -280,7 +292,8 @@ void card_in() {
         engine_synth_catalog_reset();
         g_catalog_card = 0;
     }
-    g_dir_n = 0;                                  // (the browser reads its folder again)
+    g_dir_valid = false;                          // (the browser reads its folder again)
+    g_dir_n = 0;
     storage_event_t e = {};                       // the two checks of a new card: its read speed and its folders
     e.kind = STORAGE_EV_INSERTED;
     e.read_us = us;
@@ -440,12 +453,13 @@ void samples_esp32_start() {
     if (!g_task) xTaskCreatePinnedToCore(io_task, "sd_io", kStackBytes, nullptr, kPriority, &g_task, 0);
 }
 
-// Posts the library job and waits for it (as post_job / job_free do for the settings files).
-static bool lib_post() {
+// Posts the library job and waits for it (as post_job / job_free do for the settings files). A folder's list may take seconds (a
+// folder of a thousand files on a slow card), a header a few milliseconds.
+static bool lib_post(uint32_t wait_ms) {
     if (!g_task) return false;
     g_lib.state = 1;
     for (uint32_t t0 = millis(); g_lib.state != 2;) {
-        if (millis() - t0 > kJobWaitMs) return false;
+        if (millis() - t0 > wait_ms) return false;
         vTaskDelay(1);
     }
     return true;
@@ -467,7 +481,7 @@ int samples_esp32_use(const char *name) {
     if (g_state != SD_OK || !lib_free()) return -1;
     snprintf(g_lib.name, sizeof g_lib.name, "%s", name);
     g_lib.list = false;
-    if (!lib_post()) return -1;
+    if (!lib_post(kJobWaitMs)) return -1;
     int index = -1;                                                         // no such sample
     if (g_lib.result == 1 && (index = engine_synth_catalog_add(&g_lib.info)) < 0) index = -2;   // the catalog is full
     g_lib.state = 0;
@@ -475,20 +489,35 @@ int samples_esp32_use(const char *name) {
 }
 
 int samples_esp32_dir_open(const char *dir) {
-    if (g_state != SD_OK || (dir && strlen(dir) >= AUDIO_NAME_MAX) || !lib_free()) return -1;
-    snprintf(g_lib.name, sizeof g_lib.name, "%s", dir ? dir : "");
+    if (!dir) dir = "";
+    if (g_state != SD_OK || strlen(dir) >= AUDIO_NAME_MAX || !lib_free()) return -1;
+    if (g_dir_valid && g_dir && !strcmp(g_dir_path, dir)) return g_dir_n;   // the list is still held: no card read
+    snprintf(g_lib.name, sizeof g_lib.name, "%s", dir);
     g_lib.list = true;
-    if (!lib_post()) return -1;
+    if (!lib_post(15000)) return -1;
     const int n = g_lib.result;
     g_lib.state = 0;
     return n;
 }
 
 int samples_esp32_dir_read(int first, audio_dir_entry_t *out, int max) {
-    if (g_lib.state == 1 || !g_dir || first < 0) return 0;                  // (a listing still runs: nothing to show yet)
+    if (g_lib.state == 1 || !g_dir_valid || !g_dir || first < 0) return 0;  // (a listing still runs: nothing to show yet)
     int n = 0;
-    for (; n < max && first + n < g_dir_n; n++) out[n] = g_dir[first + n];
+    for (; n < max && first + n < g_dir_n; n++) {
+        const char *e = g_dir + g_dir_ofs[first + n];
+        out[n].dir = static_cast<uint8_t>(e[0]);
+        snprintf(out[n].name, sizeof out[n].name, "%s", e + 1);
+    }
     return n;
+}
+
+void samples_esp32_dir_close() {
+    if (!lib_free() || g_lib.state == 1) return;                            // (a listing that never ended keeps its block)
+    g_dir_valid = false;
+    g_dir_n = 0;
+    if (g_dir) heap_caps_free(g_dir);
+    g_dir = nullptr;
+    g_dir_ofs = nullptr;
 }
 
 extern "C" int storage_read(const char *name, char *buf, int cap) {

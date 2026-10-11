@@ -1091,7 +1091,7 @@ both choices were my recommendation):**
 
 **As built (2026-10-11; 219 engine tests in the 6 configurations (the whole matrix once, then the pads tests again after a fix of the
 new test's thresholds), 102 UI tests, simulator + firmware built, RAM 66.0 %; `tools/sample_sim_check.cpp` run on the simulator's card
-of 155 files; NOT flashed, NOT tried by the user: the board's card code was only compiled):**
+of 155 files; flashed and measured the same day, see "On the board" below; NOT tried by the user):**
 - **A sample's name is its path below the samples folder, without ".smp"** ("Drums/Kicks/808 long"), at most 47 characters
   (`AUDIO_NAME_MAX` = `PAD_NAME_MAX` 48; it was 24). pads.cfg, the history and the jobs keep working by name: a version (`name~n`), a
   crop or a stretch lands in its source's folder; a recording (`recN`) in the root. A path longer than 47 characters is listed by the
@@ -1099,10 +1099,12 @@ of 155 files; NOT flashed, NOT tried by the user: the board's card code was only
 - **The catalog holds the files in use** (`AUDIO_SAMPLES_MAX` 32, unchanged: it is also the number of loaded samples). `hal_audio.h`:
   `audio_sample_find(name)`, `audio_sample_use(name)` (reads the header from the card when the file is not in the catalog: -1 no such
   sample, -2 the catalog is full), `audio_dir_open(dir)` / `audio_dir_read(first, out, max)` (one folder, sorted, folders first,
-  versions left out; the platform keeps the list: PSRAM on the board, 320 entries at most, a longer folder shows its first 320).
+  versions left out; the platform keeps the list until another folder or `audio_dir_close`: on the board 34 KB of PSRAM, the names
+  packed, 2048 names or 30 KB of them at most; a longer folder shows what fits and the log says how many were left out).
   `audio_samples_rescan` is gone. The engine side (`sample_catalog.h`): `engine_synth_catalog_find / _add / _remove`.
-- **An entry nothing uses leaves the catalog when it is full** (`app.c` `sample_use`: no pad, no rack sampler, no job refers to it), and
-  **its sample is unloaded** (new: samples were never unloaded). Safe unload: `engine_synth_catalog_remove` only clears the name;
+- **The samples nothing uses do not pile up** (`app.c` `sample_use`: no pad, no rack sampler, no job refers to them): the 3 asked for
+  last stay loaded (`LIB_SPARE`: going back to one in the browser costs no card read), older ones leave, oldest first (`lib_stamp`);
+  when the catalog is full the oldest unused entry leaves. **Their sample is unloaded** (new: samples were never unloaded). Safe unload: `engine_synth_catalog_remove` only clears the name;
   `engine_synth_housekeeping` unloads once 4 engine blocks have passed (every command sent before the removal has reached the audio
   thread) and `SampleBank::can_unload` says nothing reads it (loaded, no head read in flight, not being scanned, no stream on it: a
   voice that still plays it keeps it). Then the next file takes the entry's index. `StorageDevice::forget` gives the file handle back
@@ -1130,9 +1132,38 @@ of 155 files; NOT flashed, NOT tried by the user: the board's card code was only
 - Risks / limits: **32 different samples in use at once** is still the limit (64 pads cannot all hold a different file; the popup
   "LIBRARY Full: 32 samples in use"); raising it costs internal RAM (about 200 bytes per entry plus the bank's slot). pads.cfg must
   fit 4 KB and a path is longer than a name: 64 pads with long paths can pass it (the end is cut silently: known debt, a file per bank
-  would fix it). Reading a 300-entry folder holds the card for about 0.1 s (estimated; the loader is pumped every 16 entries). A long
-  name is cut at the row's edge (the highlighted row shows its end). Firmware RAM: the names grew (+1.5 KB pads, +1.5 KB history,
+  would fix it). A long name is cut at the row's edge (the highlighted row shows its end). Firmware RAM: the names grew (+1.5 KB pads, +1.5 KB history,
   +0.8 KB catalog, +0.8 KB card paths, +1 KB browser) and the board's second catalog copy went (-5.6 KB).
+
+**On the board (2026-10-11; flashed and measured by Claude in a board session, `tools/library_test.py`; the card: SL32G at 25 MHz,
+its `system/samples` holds 1800 samples in ONE folder; NOT tried by hand, NOT listened to):**
+
+| what | time |
+|---|---|
+| the folder's list, read from the card (1800 names; a "reading the card..." screen first) | 0.75 s (1.0 s while a pad streams) |
+| the same folder opened again (the list is kept) | 35 us |
+| a sample's header (`audio_sample_use`), by its place in the folder: first files .. last files | 24 ms .. 430 ms |
+| a name that is not on the card (a pad whose file is gone; once per start) | 430 ms |
+| a header of the old demo files (cooked before the overview was stored in the header: 65 reads) | 330 ms |
+
+- **FAT searches a folder from its first entry**: opening the 1764th file costs 430 ms, the 36th 24 ms, and the card answers nothing
+  else meanwhile (no loader pump inside an open). In a folder of 100 files everything is under 30 ms. So 1800 files in one folder
+  make the audition slow towards the end of the list and can make a streamed pad drop out while another file is opened; the folders
+  this work adds are the cure (the user's call: how to sort the card).
+- 40 different samples put on one pad in turn and played: 39 sounded (one was asked before it had loaded), the catalog stayed at 18
+  entries, the engine's bulk heap between 1.02 and 1.24 MB (it filled at 1.52 MB and the pads went silent before the fix below).
+  A streamed pad while the 1800-entry folder is read four times: 0 stream underruns, 0 blocks over budget.
+- Found on the board and fixed: (1) **the eviction took the sample just left, never the old ones**, and only when the catalog was
+  full, so the memory filled after about 25 auditions: now oldest first, and early (above). (2) **The card was used from two threads**:
+  `SdStorage::open` did a `stat` on the UI thread (in `SampleBank::load`, under the engine's lock) while the I/O task polled the card
+  outside that lock; in this folder the `stat` lasts up to 0.4 s, the two met ("spi_master: Cannot send polling transaction ...") and
+  the card was taken for removed. A race older than this work, rare with a short folder. Now `open` and `forget` touch nothing: the
+  I/O task opens the file and reads its size at the first read, and closes forgotten files. (3) The folder list held 320 entries: now
+  the names are packed (1800 names = 28 KB) and the list is given back before a sample job (`audio_dir_close`: the PSRAM outside the
+  engine is 59 KB, 23 KB with the list held, and a spectral job wants 37 KB). (4) The Rec key listed the root folder at every arming
+  to find a free `recN` (0.75 s here): now once, then counted (`app->rec_next`).
+- Not done: the version-name check before an EDIT job and a pad whose file is missing still cost one folder search each (0.4 s in
+  this folder); the old demo files want cooking again (`build.ps1 -Sd`) to lose their 330 ms; RAM of the normal build 66.0 %.
 
 ## Known limits and ideas for later
 

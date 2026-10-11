@@ -275,7 +275,7 @@ static inline int pads_ui_pad(const synth_ui_t *ui) { return ui->pad_bank * PADS
 // file: the highlighted sample's library name; false for a folder, an empty folder or a path too long to be a name.
 // The app (app.c) reads the highlighted file once it rests, plays it and closes the browser.
 enum { BROWSE_PAD = 1, BROWSE_RACK };
-enum { BR_FRESH, BR_SHOWN, BR_NONE };
+enum { BR_FRESH, BR_SHOWN, BR_NONE, BR_READING };       // BR_READING: the folder is being read (the app, before it opens)
 #define BROWSE_REST_MS 150
 bool browse_ui_open(synth_ui_t *ui, int what, const char *current, uint32_t now);
 void browse_ui_event(synth_ui_t *ui, ui_event_t e, uint32_t now);

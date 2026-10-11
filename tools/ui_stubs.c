@@ -40,13 +40,13 @@ int audio_sample_find(const char *name) {
     for (int i = 0; name && name[0] && i < 3 + stub_listed; i++) if (audio_sample_info(i, &in) && !strcmp(in.name, name)) return i;
     return -1;
 }
-// The card for the browser: its root holds the folder "kit", demo0..2 and what was recorded or processed; "kit" holds hat and snare.
+// The card for the browser: its root holds the folder "kit", demo0..2 and what was recorded or processed; "kit" holds hat, snare and tom.
 // A file enters the catalog when it is asked for (a written one: with everything written before it).
 int audio_sample_use(const char *name) {
     const int have = audio_sample_find(name);
     if (have >= 0 || !name || !name[0]) return have;
     for (int i = stub_listed; i < stub_n_extra; i++) if (!strcmp(stub_extra[i], name)) { stub_listed = stub_n_extra; return 3 + i; }
-    if (strcmp(name, "kit/hat") && strcmp(name, "kit/snare")) return -1;
+    if (strcmp(name, "kit/hat") && strcmp(name, "kit/snare") && strcmp(name, "kit/tom")) return -1;
     if (stub_n_extra >= STUB_EXTRA) return -2;
     snprintf(stub_extra[stub_n_extra], sizeof stub_extra[0], "%s", name);
     stub_extra_frames[stub_n_extra] = 48000;
@@ -61,12 +61,14 @@ static void stub_dir_add(const char *name, int dir) {
 }
 int audio_dir_open(const char *dir) {
     stub_dir_n = 0;
-    if (dir && !strcmp(dir, "kit")) { stub_dir_add("hat", 0); stub_dir_add("snare", 0); return stub_dir_n; }
+    if (dir && !strcmp(dir, "kit")) { stub_dir_add("hat", 0); stub_dir_add("snare", 0); stub_dir_add("tom", 0); return stub_dir_n; }
     if (dir && dir[0]) return -1;
     stub_dir_add("kit", 1); stub_dir_add("demo0", 0); stub_dir_add("demo1", 0); stub_dir_add("demo2", 0);
     for (int i = 0; i < stub_n_extra; i++) if (stub_extra[i][0] && !strchr(stub_extra[i], '~') && !strchr(stub_extra[i], '/')) stub_dir_add(stub_extra[i], 0);
     return stub_dir_n;
 }
+int ui_stub_dir_closes;
+void audio_dir_close(void) { ui_stub_dir_closes++; }
 int audio_dir_read(int first, audio_dir_entry_t *out, int max) {
     int n = 0;
     for (; n < max && first >= 0 && first + n < stub_dir_n; n++) out[n] = stub_dir[first + n];

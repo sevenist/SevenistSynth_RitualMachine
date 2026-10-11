@@ -13,9 +13,9 @@
 
 class SdStorage : public sc::StorageDevice {
 public:
-    sc::FileHandle open(const char *name) override;                      // "<name>.smp" below SD_SAMPLE_DIR; -1 when missing
+    sc::FileHandle open(const char *name) override;                      // "<name>.smp" below SD_SAMPLE_DIR; no card access (a missing file fails its reads); -1: the table is full
     void forget(sc::FileHandle f) override;                              // its sample was unloaded: the table entry is free for another file
-    uint32_t size(sc::FileHandle f) const override { return f >= 0 && f < n_files_ ? file_[f].size : 0; }
+    uint32_t size(sc::FileHandle f) const override { return f >= 0 && f < n_files_ && file_[f].size != kUnknownSize ? file_[f].size : 0; }
     bool submit(const sc::IoRead &r, uint64_t now_us) override;
     bool poll(sc::IoDone &d, uint64_t now_us) override;
     int pending() const override { return count_; }
@@ -32,6 +32,7 @@ private:
     static constexpr int kQueue = 32;
     static constexpr uint32_t kBounceBytes = 8192;
     static constexpr uint32_t kUnknownPos = 0xFFFFFFFFu;
+    static constexpr uint32_t kUnknownSize = 0xFFFFFFFFu;   // a file not opened yet (the I/O task reads its size at the first read)
     struct File { char path[80]; uint32_t size; int fd; uint32_t used; uint32_t pos; uint8_t refs; };   // SD_SAMPLE_DIR/<a 47-character name>.smp; "" = free; refs: opens not forgotten yet
     int fd_of(int f);
     bool read_into(File &fl, uint32_t offset, void *dst, uint32_t bytes);

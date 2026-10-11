@@ -92,15 +92,25 @@ TEST(pads_grid_and_editor) {
     CHECK(ui_app.ui.pad_edit);
     CHECK_EQ(ui_app.ui.pad_row, 1);
     const int sets = ui_stub_pad_sets, pad = 3 * PADS_PER_BANK + 5;
-    ev_turn(CTL_ENC_B, 1);                                               // the library's first file
+    ev_turn(CTL_ENC_B, 1);                                               // the sample row: the browser, on the library's root
+    CHECK_EQ(ui_app.ui.br_open, BROWSE_PAD);
+    ev_turn(CTL_ENC_A, 1);                                               // past the folder "kit": demo0
+    ev_idle(30);                                                         // the highlight rests: the pad takes the file (its key plays it)
     CHECK_STR(ui_app.pads.pad[pad].file, "demo0");
     CHECK_EQ(ui_stub_pad_sets, sets + 1);
-    ev_turn(CTL_ENC_B, -1);                                              // back to none
+    ev_tap(BACK);                                                        // Back: nothing chosen, the pad is as it was
+    CHECK(!ui_app.ui.br_open);
     CHECK_STR(ui_app.pads.pad[pad].file, "");
-    ev_turn(CTL_ENC_B, 2);                                               // demo1 has loop points: they are loaded
+    ev_tap(CTL_JOY_SW);                                                  // a push on the row opens the browser too
+    CHECK_EQ(ui_app.ui.br_open, BROWSE_PAD);
+    ev_turn(CTL_ENC_A, 2);                                               // demo1 has loop points: they are loaded
+    ev_tap(CTL_JOY_SW);                                                  // chosen, before the highlight rested
+    CHECK(!ui_app.ui.br_open);
     CHECK_STR(ui_app.pads.pad[pad].file, "demo1");
     CHECK_EQ(ui_app.pads.pad[pad].loop, PAD_LOOP_FILE);
-    ev_turn(CTL_ENC_B, 1);                                               // demo2 has none: File goes
+    ev_turn(CTL_ENC_B, 1);                                               // the browser again, on demo1; encoder B moves the highlight too
+    ev_turn(CTL_ENC_B, 1);                                               // demo2 has no loop points: File goes
+    ev_tap(CTL_JOY_SW);
     CHECK_STR(ui_app.pads.pad[pad].file, "demo2");
     CHECK_EQ(ui_app.pads.pad[pad].loop, PAD_LOOP_OFF);
     ev_turn(CTL_ENC_A, 4);                                               // Loop: Off -> Trim -> (no File here) Off
@@ -165,7 +175,9 @@ TEST(pads_cfg_text_and_autosave) {
     ui_fresh();
     shift_menu();
     ev_tap(CTL_JOY_SW);
-    ev_turn(CTL_ENC_B, 1);                                               // A1 takes demo0
+    ev_turn(CTL_ENC_B, 1);                                               // the browser
+    ev_turn(CTL_ENC_A, 1);
+    ev_tap(CTL_JOY_SW);                                                  // A1 takes demo0
     ev_idle(400);                                                        // a few seconds of app steps: pads.cfg is written
     pads_init(&b);
     CHECK(pads_load(&b));
@@ -445,7 +457,7 @@ TEST(pads_sync_and_grid_units_in_the_file) {
 
 #include "core/history.h"
 extern int ui_stub_renders, ui_stub_render_op, ui_stub_render_amount, ui_stub_render_amount2, ui_stub_removed;
-extern char ui_stub_render_src[24], ui_stub_removed_last[64];
+extern char ui_stub_render_src[AUDIO_NAME_MAX], ui_stub_removed_last[96];
 
 TEST(history_tree_names_undo_redo_and_trim) {
     history_t h;
@@ -895,7 +907,7 @@ TEST(pads_fx_rack_rules_and_the_synth_rack_keeps_its_own) {
 /* ---------------- capture / resampling: the Rec key ---------------- */
 extern int ui_stub_cap_state, ui_stub_cap_bar;
 extern uint32_t ui_stub_cap_limit, ui_stub_cap_frames;
-extern char ui_stub_cap_name[24];
+extern char ui_stub_cap_name[AUDIO_NAME_MAX];
 void ui_stub_capture_sound(uint32_t frames);
 #define REC_KEY CTL_KEY(2, 6)                                            // the Pads layout: the right block's second row, third key
 
@@ -953,4 +965,82 @@ TEST(pads_rec_with_a_length_runs_on_the_clock_and_makes_a_loop) {
     for (int i = 0; i < PAD_COUNT; i++) snprintf(ui_app.pads.pad[i].file, PAD_NAME_MAX, "demo0");
     ev_tap(REC_KEY);
     CHECK_EQ(ui_stub_cap_state, CAPTURE_ST_IDLE);
+}
+
+
+/* ---------------- the sample browser (scr_browse.c): folders read when opened, the catalog holds the files in use ---------------- */
+
+void ui_stub_library_reset(void);
+
+TEST(browser_walks_folders_and_plays_the_highlighted_sample_on_the_pad) {
+    ui_fresh();
+    ui_stub_library_reset();
+    shift_menu();
+    pad_t *p = &ui_app.pads.pad[0];
+    snprintf(p->file, PAD_NAME_MAX, "demo0");
+    p->start = 5000; p->tune = 3;
+    ev_tap(CTL_JOY_SW);                                                  // the editor of A1
+    ev_tap(CTL_JOY_SW);                                                  // its sample row: the browser, on the pad's file
+    CHECK_EQ(ui_app.ui.br_open, BROWSE_PAD);
+    CHECK_EQ(ui_app.ui.br_total, 4);                                     // kit/ demo0 demo1 demo2
+    CHECK_EQ(ui_app.ui.br_cur, 1);
+    ev_turn(CTL_ENC_A, -1);                                              // the folder
+    ev_tap(CTL_JOY_SW);                                                  // a push opens it: ".." hat snare
+    CHECK_STR(ui_app.ui.br_dir, "kit");
+    CHECK_EQ(ui_app.ui.br_cur, 0);
+    ev_turn(CTL_ENC_A, 2);                                               // snare
+    ev_idle(30);                                                         // it rests: read, and on the pad (the whole file, the tune kept)
+    CHECK_EQ(ui_app.ui.br_state, BR_SHOWN);
+    CHECK_STR(p->file, "kit/snare");
+    CHECK_EQ(p->start, 0);
+    CHECK_EQ(p->tune, 3);
+    const int pushes = ui_stub_pad_pushes;
+    ev_press(PAD_KEY(7));                                                // any pad key plays it, on the pad it is for; the selection stays
+    CHECK_EQ(ui_stub_pad_pushes, pushes + 1);
+    CHECK_EQ(ui_stub_last_pad, 0);
+    CHECK_EQ(ui_app.ui.pad_cur, 0);
+    ev_release(PAD_KEY(7));
+    ev_turn(CTL_ENC_A, -2);                                              // the ".." row: back to the parent, on the folder it came from
+    ev_tap(CTL_JOY_SW);
+    CHECK_STR(ui_app.ui.br_dir, "");
+    CHECK_EQ(ui_app.ui.br_cur, 0);
+    ev_tap(BACK);                                                        // Back: the pad is as it was, trim included
+    CHECK(!ui_app.ui.br_open);
+    CHECK_STR(p->file, "demo0");
+    CHECK_EQ(p->start, 5000);
+    ev_tap(CTL_JOY_SW);                                                  // again, into the folder, the ".." row leads back
+    ev_turn(CTL_ENC_A, -1);
+    ev_tap(CTL_JOY_SW);
+    ev_tap(CTL_JOY_SW);
+    CHECK_STR(ui_app.ui.br_dir, "");
+    ev_tap(CTL_JOY_SW);                                                  // kit again, its first sample chosen
+    ev_turn(CTL_ENC_A, 1);
+    ev_tap(CTL_JOY_SW);
+    CHECK(!ui_app.ui.br_open);
+    CHECK_STR(p->file, "kit/hat");
+    char txt[STORAGE_FILE_MAX];
+    pads_to_text(&ui_app.pads, txt, sizeof txt);
+    CHECK(strstr(txt, " file kit/hat") != NULL);                         // the path is the name
+    ev_tap(CTL_JOY_SW);                                                  // the browser opens on the pad's folder and file
+    CHECK_STR(ui_app.ui.br_dir, "kit");
+    CHECK_EQ(ui_app.ui.br_cur, 1);
+    ev_tap(BACK);
+}
+
+TEST(pads_files_enter_the_catalog_when_they_are_used) {
+    ui_fresh();
+    ui_stub_library_reset();
+    CHECK_EQ(audio_sample_find("kit/snare"), -1);                        // on the card, not in the catalog
+    shift_menu();
+    snprintf(ui_app.pads.pad[2].file, PAD_NAME_MAX, "kit/snare");
+    snprintf(ui_app.pads.pad[3].file, PAD_NAME_MAX, "nowhere");
+    app_pad_changed(&ui_app, 2);
+    app_pad_changed(&ui_app, 3);
+    const int sets = ui_stub_pad_sets;
+    ev_idle(10);
+    CHECK(audio_sample_find("kit/snare") >= 0);                          // looked up by the app, the pad sent again with its sample
+    CHECK_EQ(ui_stub_pad_sets, sets + 1);
+    CHECK_EQ(audio_sample_find("nowhere"), -1);
+    ev_idle(10);
+    CHECK_EQ(ui_stub_pad_sets, sets + 1);                                // a file that is not on the card is not asked for again
 }

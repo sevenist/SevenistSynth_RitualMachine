@@ -281,11 +281,14 @@ extern "C" void audio_set_params(const rack_t *r, const synth_params_t *p) {
 #endif
 }
 extern "C" void audio_build(const rack_t *r, const synth_params_t *p)      { apply_speaker(r); engine_synth_build(r, p); }
-extern "C" int audio_sample_count(void)                                     { return engine_synth_sample_count(); }   // filled by the TF card scan (samples_esp32.cpp)
+extern "C" int audio_sample_count(void)                                     { return engine_synth_sample_count(); }   // the files in use (samples_esp32.cpp reads each when asked)
 extern "C" bool audio_sample_info(int i, audio_sample_info_t *out)         { return engine_synth_sample_info(i, out); }
 extern "C" int audio_osc_preview(int m, float t, float mo, float h, int period, int16_t *out, int n) { return engine_synth_osc_preview(m, t, mo, h, period, out, n); }
 extern "C" bool audio_sample_prepare(int i)                                { return samples_esp32_ready(i); }     // only cooked .smp files on the card: nothing to convert
-extern "C" int audio_samples_rescan(void)                                  { return samples_esp32_rescan(); }     // the I/O task looks at the card; new files appear as it reads them
+extern "C" int audio_sample_find(const char *name)                         { return samples_esp32_find(name); }
+extern "C" int audio_sample_use(const char *name)                          { return samples_esp32_use(name); }    // the I/O task reads the file's header
+extern "C" int audio_dir_open(const char *dir)                             { return samples_esp32_dir_open(dir); }
+extern "C" int audio_dir_read(int first, audio_dir_entry_t *out, int max)  { return samples_esp32_dir_read(first, out, max); }
 extern "C" sd_state_t audio_sd_state(void)                                  { return samples_esp32_sd_state(); }
 extern "C" uint32_t audio_sd_read_us(void)                                  { return samples_esp32_sd_read_us(); }
 extern "C" uint32_t audio_sd_generation(void)                               { return samples_esp32_sd_generation(); }

@@ -54,7 +54,7 @@ int64_t audio_sample_zero(int index, uint32_t frame, int dir);
 // 3 Fade out, 4 Trim silence, 5 Reverse, 6 Remove DC, 7 Pad to (frames), 8 Stretch / 9 Resample (the new length in ppm), 10 Pitch
 // (cents), 11 Crop (frames amount..amount2), 12 Decimate (Hz), 13 Bits, 14 Drive (0.1 dB), 15 Low-pass / 16 High-pass (Hz), 17 Tonal stretch (ppm), 18 Tonal pitch (cents), 19 Paulstretch (ppm):
 // engine/offline/process.h ProcOp, core/pads.h PROC_*) with `amount` into a new library file `dst` (names without extension). poll: 0 idle,
-// 1 running, 2 done, 3 failed, and 0..100; after done the app rescans the library (audio_samples_rescan) and calls audio_render_done.
+// 1 running, 2 done, 3 failed, and 0..100; after done the app takes the new file into the catalog (audio_sample_use) and calls audio_render_done.
 enum { RENDER_STATE_IDLE, RENDER_STATE_RUNNING, RENDER_STATE_DONE, RENDER_STATE_FAILED };
 bool audio_render_start(const char *src, const char *dst, int op, int amount, int amount2);
 int  audio_render_poll(int *percent);
@@ -69,14 +69,20 @@ void audio_capture_stop(void);
 int  audio_capture_poll(uint32_t *frames, uint32_t *dropped);
 void audio_capture_done(void);
 int  audio_rate(void);                    // the engine's sample rate (what a recording is made at)
-// A library entry whose file was deleted (a trimmed version): its name goes, so no list shows it; the index stays (the rack's samplers keep theirs).
+// Takes an entry out of the catalog (a version whose file was deleted, or a file nothing uses any more when the catalog is full): its
+// name goes, its sample is unloaded as soon as nothing plays it, and a later file may take its index. The application first makes sure
+// no pad and no rack sampler refers to it.
 void audio_sample_hide(int index);
 
-// The sample library (.smp files on the TF card / in the simulator's samples/ folder; .wav and .mp3 are listed too and converted on first use). Index 0.. in a stable order that
-// only grows while the program runs (a rescan appends); the rack refers to a file by index + 1 (0 = none).
+// The sample library: the .smp files below the samples folder of the TF card (the simulator: sdcard/system/samples; .wav and .mp3 are
+// listed there too and converted on first use), in folders of any depth. A file's NAME is its path below that folder without the
+// extension, at most AUDIO_NAME_MAX - 1 characters. Nothing is scanned at start: the CATALOG holds the files in use (at most
+// AUDIO_SAMPLES_MAX), each added when it is asked for by name (audio_sample_use: a pad's file, the browser's highlighted file, a new
+// recording). An entry keeps its index while it is in the catalog; the rack refers to a file by index + 1 (0 = none).
+#define AUDIO_NAME_MAX PAD_NAME_MAX
 #define AUDIO_PEAKS 64
 typedef struct {
-    char     name[24];           // file name without extension
+    char     name[AUDIO_NAME_MAX]; // the file's path below the samples folder, without extension ("Drums/Kicks/808 long")
     uint32_t frames, rate;
     uint8_t  root, slices, loop_mode;
     uint32_t loop_start, loop_end;
@@ -95,7 +101,18 @@ bool audio_sample_info(int index, audio_sample_info_t *out);
 // shows the model's name).
 int  audio_osc_preview(int model, float timbre, float morph, float harm, int period, int16_t *out, int n);
 bool audio_sample_prepare(int index);    // converts a pending .wav / .mp3 now (called when it is assigned); true when the file is ready to play
-int  audio_samples_rescan(void);     // looks for new files (.smp, and .wav / .mp3 which are imported); returns the count
+// The catalog by name: find = the index of the entry called `name`, -1 when it is not in the catalog. use = the same, and a file that
+// is not there yet is read from the card (its header: a few ms on the board) and added; -1 when there is no such file or it is not a
+// sample, -2 when the catalog is full (the application then takes out an entry nothing uses, audio_sample_hide, and asks again).
+int  audio_sample_find(const char *name);
+int  audio_sample_use(const char *name);
+// A folder of the library, for the browser. open reads the folder `dir` ("" = the samples folder itself, else a path below it) and
+// returns how many entries it has (-1: no card, no such folder): its sub-folders first, then its samples, each group by name (case
+// ignored); versions (name~n) are left out. read copies up to `max` of them from rank `first` (no card access) and returns how many.
+// An entry's name is the folder's or the file's own name (no path, no extension).
+typedef struct { char name[AUDIO_NAME_MAX]; uint8_t dir; } audio_dir_entry_t;
+int  audio_dir_open(const char *dir);
+int  audio_dir_read(int first, audio_dir_entry_t *out, int max);
 
 // The TF card. SD_SLOW = a card is in but its reads are too slow to stream samples from (the synth then runs as if there were no card, and the
 // application shows an error screen). The generation changes on every insertion, removal and finished scan, so the application knows when to

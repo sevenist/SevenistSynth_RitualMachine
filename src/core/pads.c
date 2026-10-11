@@ -13,6 +13,11 @@ void pad_default(pad_t *p) {
     p->cut = 100;
 }
 
+const char *pad_file_base(const char *name) {
+    const char *s = strrchr(name, '/');
+    return s ? s + 1 : name;
+}
+
 void pads_init(pads_t *ps) { for (int i = 0; i < PAD_COUNT; i++) pad_default(&ps->pad[i]); rack_init_fx(&ps->fx); }
 
 void pad_label(int pad, char *out, int n) {
@@ -73,7 +78,7 @@ static void fmt_trim(uint32_t at, uint32_t frames, uint32_t rate, char *out, int
 
 void pad_param_format(const pad_t *p, pad_param_t k, uint32_t frames, uint32_t rate, char *out, int n) {
     switch (k) {
-        case PADP_FILE:  snprintf(out, (size_t)n, "%s", p->file[0] ? p->file : "--"); break;
+        case PADP_FILE:  snprintf(out, (size_t)n, "%s", p->file[0] ? pad_file_base(p->file) : "--"); break;
         case PADP_MODE:  snprintf(out, (size_t)n, "%s", mode_names[p->mode % PAD_MODE_COUNT]); break;
         case PADP_START: fmt_trim(p->start, frames, rate, out, n); break;
         case PADP_END:   fmt_trim(pad_end(p, frames), frames, rate, out, n); break;
@@ -391,7 +396,7 @@ static void parse_pad(pad_t *p, const char *s) {
         if (!strcmp(key, "file")) {                                  // the rest of the line
             int len = 0;
             while (s[len] && s[len] != '\n' && s[len] != '\r') len++;
-            while (len > 0 && (s[len - 1] == ' ' || s[len - 1] == '\t')) len--;
+            while (len > 0 && s[len - 1] == '\t') len--;                 // (a name may end with a space: "1 - KICK .smp")
             if (len >= PAD_NAME_MAX) len = PAD_NAME_MAX - 1;
             memcpy(p->file, s, (size_t)len);
             p->file[len] = 0;

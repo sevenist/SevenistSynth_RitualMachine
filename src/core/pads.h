@@ -19,7 +19,7 @@ extern "C" {
 #define PAD_BANKS      4
 #define PADS_PER_BANK  16
 #define PAD_COUNT      (PAD_BANKS * PADS_PER_BANK)
-#define PAD_NAME_MAX   24                       // = audio_sample_info_t.name
+#define PAD_NAME_MAX   48                       // a sample's name with its 0: its path below the samples folder (hal_audio.h AUDIO_NAME_MAX)
 #define PAD_CHOKES     4                        // choke groups 1..4 (0 = none)
 // The EDIT page's operations, in the order the Op row shows them; app.c render_start turns each into an engine operation (PROC_*)
 // and its amount. Amounts as the page shows them: Normalize / Gain / Drive 0.1 dB, the fades ms, Trim dBFS, Stretch and Speed percent,
@@ -120,6 +120,7 @@ int64_t pad_snap_grid(const pad_t *p, pad_param_t k, uint32_t v, int dir, uint32
 // Where k counts from (the snap's origin): 0 for Start, Start for LStr, LStr (looping) or Start for End.
 uint32_t pad_snap_origin(const pad_t *p, pad_param_t k, uint32_t frames);
 float pad_cut_hz(const pad_t *p);                          // the cutoff in Hz (pad.cut 100: 0 = off)
+const char *pad_file_base(const char *name);               // a library name without its folders ("Drums/kick" -> "kick"), for the screens
 
 /* ---- chopping (ADR-041 decisions 34-35): cuts inside a pad's trim, then the slices onto consecutive pads (same file) ---- */
 #define PAD_CHOP_MAX 16                                    // slices

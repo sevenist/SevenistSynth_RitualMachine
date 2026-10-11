@@ -9,12 +9,14 @@
 #include "core/rack.h"
 #include "core/seq.h"
 #include "core/synth_params.h"
+#include "hal/hal_audio.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
 #define SYNTH_UI_MAX_PAGES (RACK_MAX * 4 + 4)
+#define BROWSE_PAGE 12                      // the sample browser: the entries it holds at once (at least the rows it shows)
 
 // What the user interface understands. The input layer (core/bindings.c) turns hardware controls into these.
 typedef enum {
@@ -164,6 +166,20 @@ typedef struct {
     uint8_t fx_edit_id;
     int     fx_row;
     bool    fx_latched;
+    // The sample browser (scr_browse.c): one folder of the library as a full-screen list, over either section. br_open: 0 = closed,
+    // BROWSE_PAD = for pad br_target (the highlighted file goes onto it at once, so its key plays it; br_pad = the pad as it was, which
+    // Back puts back), BROWSE_RACK = for the SAMPLES tab (the choice becomes its File). br_req: a screen asks the app to open it.
+    uint8_t br_open, br_req;
+    uint8_t br_done;           // set by the screen: 1 = the highlighted file was chosen, 2 = cancelled (the app closes the browser)
+    uint8_t br_state;          // the highlighted entry: BR_FRESH = just reached, BR_SHOWN = its file is in br_info, BR_NONE = a folder / no sample
+    uint8_t br_tries;
+    int8_t  br_target;
+    char    br_dir[PAD_NAME_MAX];           // the folder shown ("" = the library's root)
+    int     br_total, br_cur, br_first, br_n;   // its entries, the highlighted row, and the rows held in br_page: br_n from row br_first
+    audio_dir_entry_t br_page[BROWSE_PAGE];
+    uint32_t br_ms;            // when the highlight last moved (its file is read once it has rested for BROWSE_REST_MS)
+    audio_sample_info_t br_info;
+    pad_t   br_pad;
 } synth_ui_t;
 
 void synth_ui_init(synth_ui_t *ui, const rack_t *rack);
@@ -251,6 +267,20 @@ bool pads_ui_trim(synth_ui_t *ui, int pad, int param, int dir, float x);
 // The editor row (1..) of a pad setting on a page (0 PLAY, 1 TONE, 2 CHOP), -1 when it is not there (for the tests).
 int pads_ui_row(int page, int param);
 static inline int pads_ui_pad(const synth_ui_t *ui) { return ui->pad_bank * PADS_PER_BANK + ui->pad_cur; }   // the selected pad, 0..PAD_COUNT-1
+
+// The sample browser (scr_browse.c): the folders and samples of one folder of the library (audio_dir_open), the overview of the
+// highlighted sample on top. Up / down (joystick, either encoder) move the highlight, Page - / + by a screen; a push or right opens a
+// folder, left or the ".." row goes back to its parent; a push on a sample chooses it (br_done = 1), Back cancels (br_done = 2).
+// open: on the folder of `current` (a library name, "" = the root) with that sample highlighted; false when the library cannot be read.
+// file: the highlighted sample's library name; false for a folder, an empty folder or a path too long to be a name.
+// The app (app.c) reads the highlighted file once it rests, plays it and closes the browser.
+enum { BROWSE_PAD = 1, BROWSE_RACK };
+enum { BR_FRESH, BR_SHOWN, BR_NONE };
+#define BROWSE_REST_MS 150
+bool browse_ui_open(synth_ui_t *ui, int what, const char *current, uint32_t now);
+void browse_ui_event(synth_ui_t *ui, ui_event_t e, uint32_t now);
+void browse_ui_draw(const synth_ui_t *ui, u8g2_t *g);
+bool browse_ui_file(const synth_ui_t *ui, char *out, int n);
 
 // Jump slots (see jump_slot_t). save: the page / tab on screen goes into slot k. resolve: finds every slot's page again (called by
 // synth_ui_rebuild_pages; a slot whose module was deleted is cleared). ready: the slot can be jumped to now (its LED is bright).

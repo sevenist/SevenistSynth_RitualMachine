@@ -326,6 +326,8 @@ LINEAR, bipolar / unipolar) travels as one `MotionBlob` with `set_blob`; target,
 - **Library** (`hal_audio.h`): `audio_sample_count / audio_sample_info / audio_samples_rescan`, entries with name, length, rate, root, slices,
   loop and 64 amplitude peaks. The order is stable and only grows (a rescan appends), because the rack stores the index. Up to 32 files
   (the bank has 32 slots). The rack refers to the file by index, not by name: saving racks (later) must store the name.
+  **Since 2026-10-11 the library is read on demand** (folders, the catalog = the 32 files in use, `audio_sample_use`, a browser
+  screen; `audio_samples_rescan` and the Scan row are gone): ADR-041, decisions 51-52.
 - **Engine side** (`engine_synth`): `engine_synth_attach_storage(dev)` + `engine_synth_catalog_set()` (C++ header `sample_catalog.h`); the
   mapper receives `slot_of_file[]` and the engine loads a file into a bank slot the first time a rack uses it (`resolve_samples`); loaded
   samples stay loaded (unloading while a voice might still read them is not safe), so playing every file of a full library costs about
@@ -1077,6 +1079,60 @@ simulator + firmware built, RAM 65.8 %; flashed and measured by me; the sound is
 
   A Tonal stretch while 4 pads stream: 16.2 s -> 9.6 s, still no stream underrun. A spectral frame is 23 ms now (load 8, FFT 4,
   spectrum 5, inverse FFT 4, overlap-add 2); what is left is mostly the card's write rate (~150 KB/s).
+
+**The sample library read on demand, and a browser (user, 2026-10-11: "there is only 32 samples available, it needs a real browser";
+both choices were my recommendation):**
+51. **Folders, read on demand.** The library is everything below `system/samples`, in folders of any depth. Nothing is scanned at start:
+   a folder is read when the browser opens it, a file's header when the file is asked for by name. Against "a flat list of 256 files"
+   (still a limit, a long list, an 18 s scan at start) and "raise 32 to 64 now" (no browser).
+52. **Browser = a full-screen list with the overview and audition.** The folder's sub-folders, then its samples, sorted by name; the
+   highlighted sample's waveform and length on top; the highlighted sample plays from the pad keys. Against a list without audition and
+   against keeping the one-file-per-step Smp row.
+
+**As built (2026-10-11; 219 engine tests in the 6 configurations (the whole matrix once, then the pads tests again after a fix of the
+new test's thresholds), 102 UI tests, simulator + firmware built, RAM 66.0 %; `tools/sample_sim_check.cpp` run on the simulator's card
+of 155 files; NOT flashed, NOT tried by the user: the board's card code was only compiled):**
+- **A sample's name is its path below the samples folder, without ".smp"** ("Drums/Kicks/808 long"), at most 47 characters
+  (`AUDIO_NAME_MAX` = `PAD_NAME_MAX` 48; it was 24). pads.cfg, the history and the jobs keep working by name: a version (`name~n`), a
+  crop or a stretch lands in its source's folder; a recording (`recN`) in the root. A path longer than 47 characters is listed by the
+  browser but cannot be taken ("cannot be read").
+- **The catalog holds the files in use** (`AUDIO_SAMPLES_MAX` 32, unchanged: it is also the number of loaded samples). `hal_audio.h`:
+  `audio_sample_find(name)`, `audio_sample_use(name)` (reads the header from the card when the file is not in the catalog: -1 no such
+  sample, -2 the catalog is full), `audio_dir_open(dir)` / `audio_dir_read(first, out, max)` (one folder, sorted, folders first,
+  versions left out; the platform keeps the list: PSRAM on the board, 320 entries at most, a longer folder shows its first 320).
+  `audio_samples_rescan` is gone. The engine side (`sample_catalog.h`): `engine_synth_catalog_find / _add / _remove`.
+- **An entry nothing uses leaves the catalog when it is full** (`app.c` `sample_use`: no pad, no rack sampler, no job refers to it), and
+  **its sample is unloaded** (new: samples were never unloaded). Safe unload: `engine_synth_catalog_remove` only clears the name;
+  `engine_synth_housekeeping` unloads once 4 engine blocks have passed (every command sent before the removal has reached the audio
+  thread) and `SampleBank::can_unload` says nothing reads it (loaded, no head read in flight, not being scanned, no stream on it: a
+  voice that still plays it keeps it). Then the next file takes the entry's index. `StorageDevice::forget` gives the file handle back
+  (the board's table of 48 paths would fill; handles are counted, a file can be loaded again while its old copy waits to be unloaded).
+  Test `pads_catalog_entry_leaves_and_its_sample_is_unloaded_once_nothing_plays_it`: the voice is not cut, 49 KB come back, the index
+  is reused.
+- **The pads' files enter the catalog one per app step** (`pads_resolve`: after a start, a card change, pads.cfg, a version picked);
+  a pad whose file is not on the card is not asked for again until it or the card changes. The first switch to the Pads section after
+  a start can find pads silent for a moment (16 files: about 0.1 .. 0.2 s on the board, estimated).
+- **The browser** (`scr_browse.c`, over either section): opened by the pad editor's Smp row (a turn of encoder B or a push; the row no
+  longer steps through files) and by the SAMPLES tab's File row (the Scan row is gone). Up / down by the joystick or either encoder,
+  Page - / + by a screen; a push or right opens a folder, left or the ".." row goes to its parent; a push on a sample chooses it,
+  Back cancels. It opens on the folder of the current file with that file highlighted. Header: the folder, and "row / rows".
+- **Audition (Pads)**: 150 ms after the highlight rests on a sample, its header is read (the overview appears) and **the pad takes
+  it at once**, so every pad key plays it on that pad, with the pad's level, tune, filter and FX bus. Back puts the pad back exactly
+  (its old file and trim). No extra voice and no new engine path: it is an ordinary pad change.
+- Chosen by me (say if one is wrong): a file taken through the browser plays whole (Start, End and the loop start go back to the
+  file's ends; mode, level, tune, filter, bus and the rest stay), where the old Smp stepping kept the trim frames of the previous
+  file; the pad keys all play the browsed pad while the browser is open (no selection change); the SAMPLES tab's browser has no
+  audition (the synth plays the rack, not a file); versions are not listed (the EDIT page reaches them); `.wav` / `.mp3` are listed
+  in the simulator only (converted when taken); the serial `samples` command first takes the root folder's files into the catalog
+  (the board test tools pick from it).
+- Changed formats (no saved content to keep: user, 2026-10-09): history.cfg delimits its names (`v <seq> |name|parent| ...`: a name
+  with a space cut the line before); pads.cfg `file` holds the path.
+- Risks / limits: **32 different samples in use at once** is still the limit (64 pads cannot all hold a different file; the popup
+  "LIBRARY Full: 32 samples in use"); raising it costs internal RAM (about 200 bytes per entry plus the bank's slot). pads.cfg must
+  fit 4 KB and a path is longer than a name: 64 pads with long paths can pass it (the end is cut silently: known debt, a file per bank
+  would fix it). Reading a 300-entry folder holds the card for about 0.1 s (estimated; the loader is pumped every 16 entries). A long
+  name is cut at the row's edge (the highlighted row shows its end). Firmware RAM: the names grew (+1.5 KB pads, +1.5 KB history,
+  +0.8 KB catalog, +0.8 KB card paths, +1 KB browser) and the board's second catalog copy went (-5.6 KB).
 
 ## Known limits and ideas for later
 

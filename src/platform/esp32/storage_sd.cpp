@@ -13,16 +13,31 @@
 sc::FileHandle SdStorage::open(const char *name) {
     char path[sizeof(File::path)];
     if (snprintf(path, sizeof path, SD_SAMPLE_DIR "/%s", name) >= static_cast<int>(sizeof path)) return -1;
-    for (int i = 0; i < n_files_; i++) if (!strcmp(file_[i].path, path)) return i;       // already known (a sample that is loaded again)
+    for (int i = 0; i < n_files_; i++) if (!strcmp(file_[i].path, path)) { file_[i].refs++; return i; }   // already known (a sample that is loaded again)
+    int at = -1;
+    for (int i = 0; i < n_files_ && at < 0; i++) if (!file_[i].path[0]) at = i;         // an entry a forgotten file left
+    if (at < 0 && n_files_ < kFiles) at = n_files_;
     struct stat st;
-    if (n_files_ >= kFiles || stat(path, &st) != 0 || !S_ISREG(st.st_mode)) return -1;
-    File &f = file_[n_files_];
+    if (at < 0 || stat(path, &st) != 0 || !S_ISREG(st.st_mode)) return -1;
+    File &f = file_[at];
     memcpy(f.path, path, strlen(path) + 1);
     f.size = static_cast<uint32_t>(st.st_size);
     f.fd = -1;
     f.used = 0;
     f.pos = kUnknownPos;
-    return n_files_++;
+    f.refs = 1;
+    if (at == n_files_) n_files_++;
+    return at;
+}
+
+void SdStorage::forget(sc::FileHandle f) {
+    if (f < 0 || f >= n_files_ || !file_[f].path[0]) return;
+    if (file_[f].refs > 1) { file_[f].refs--; return; }                              // the same file is loaded once more (taken out, then asked for again)
+    if (file_[f].fd >= 0) ::close(file_[f].fd);
+    file_[f].fd = -1;
+    file_[f].pos = kUnknownPos;
+    file_[f].size = 0;                                                               // (a read still queued for it fails its bounds check)
+    file_[f].path[0] = 0;
 }
 
 int SdStorage::fd_of(int f) {

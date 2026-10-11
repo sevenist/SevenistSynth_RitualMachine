@@ -1,9 +1,11 @@
 #ifdef PLATFORM_SIM
 // Desktop sample library: the folder system/samples of the simulated card (sdcard/, see storage_sim.c; build.ps1 copies samples/*.smp
-// into it) plays the role of the TF card's library. Every *.smp in it joins the library; *.wav and *.mp3 are imported first: decoded, mixed to mono, cooked into a
-// .smp next to the source (so the next start skips the conversion) and then treated like any other file. The files live in
-// a SimStorage, which models the latency, bandwidth and stalls of a slow card, so the streaming behaves like on the target.
-// (wav and mp3 files are listed at once and converted when a sampler uses them.)
+// into it) plays the role of the TF card's library, with its sub-folders. Nothing is scanned at start: a file enters the catalog when it
+// is asked for by name (its path below that folder), and the browser reads one folder at a time. A *.smp is read as it is; a *.wav or
+// *.mp3 is imported first: decoded, mixed to mono, cooked into a .smp next to the source (so the next start skips the conversion) and
+// then treated like any other file. The files live in a SimStorage, which models the latency, bandwidth and stalls of a slow card, so
+// the streaming behaves like on the target.
+// (wav and mp3 files are listed at once and converted when a pad or a sampler uses them.)
 // A loader thread runs the sample bank (engine_synth_io_pump); on the ESP32 that is the I/O task.
 #include <algorithm>
 #include <atomic>
@@ -36,10 +38,8 @@ std::mutex g_io_mx;                                                 // storage c
 std::thread g_io;
 std::atomic<bool> g_stop{false};
 std::string g_dir;
-audio_sample_info_t g_cat[AUDIO_SAMPLES_MAX];
-int g_n = 0;
 
-// The library folder of the simulated card (sdcard/system/samples, see storage_sim.c); found again by a rescan once it was made.
+// The library folder of the simulated card (sdcard/system/samples, see storage_sim.c); found again later once it was made.
 bool find_dir() {
     char p[256];
     sim_card_path(STORAGE_DIR_SAMPLES, p, sizeof p);
@@ -49,24 +49,17 @@ bool find_dir() {
     return true;
 }
 
-/* ---------------- catalog ---------------- */
+/* ---------------- the catalog: the files in use, each read when it is asked for ---------------- */
 
-std::string g_src[AUDIO_SAMPLES_MAX];                                   // source file of a pending entry
+std::string g_src[AUDIO_SAMPLES_MAX];                                   // source file of a pending entry, by catalog index
 
-int find_in_catalog(const std::string &stem) {
-    for (int i = 0; i < g_n; i++) if (stem == g_cat[i].name) return i;
-    return -1;
-}
-
-// Reads a cooked .smp, fills entry `i` (name, length, peaks ...) and puts the file on the simulated card.
-bool fill_entry(int i, const fs::path &p) {
-    const std::string stem = p.stem().string().substr(0, 23);
+// The facts of a cooked .smp (length, peaks ...) into `in` under the library name `name`, and the file onto the simulated card.
+bool fill_info(audio_sample_info_t &in, const std::string &name, const fs::path &p) {
     std::vector<uint8_t> data;
     SmpHeader h;
     if (!read_file(p, data) || !smp_parse_header(data.data(), static_cast<uint32_t>(data.size()), h) || data.size() < h.file_bytes()) return false;
-    audio_sample_info_t &in = g_cat[i];
     std::memset(&in, 0, sizeof in);
-    std::snprintf(in.name, sizeof in.name, "%s", stem.c_str());
+    std::snprintf(in.name, sizeof in.name, "%s", name.c_str());
     in.frames = h.frames; in.rate = h.sample_rate;
     in.root = static_cast<uint8_t>(h.root_note > 127 ? 127 : h.root_note);
     in.slices = h.slice_count; in.loop_mode = h.loop_mode; in.loop_start = h.loop_start; in.loop_end = h.loop_end;
@@ -76,65 +69,89 @@ bool fill_entry(int i, const fs::path &p) {
     else smp_compute_peaks(reinterpret_cast<const int16_t *>(&data[kSmpBlockBytes]), h.frames, in.peaks);   // or computed for an older file
     {
         std::lock_guard<std::mutex> lk(g_io_mx);
-        g_storage.add_file((stem + ".smp").c_str(), data);
+        g_storage.set_file((name + ".smp").c_str(), data);
     }
     return true;
 }
 
-// A .wav / .mp3 is listed at once but decoded only when it is used (assigned to a sampler): decode, mix to mono, cook <name>.smp next to it.
+int have_room(int index) { return index >= 0 ? index : -2; }             // engine_synth_catalog_add's -1: the catalog is full
+
+// The file `name` (its path below the library folder, no extension) into the catalog: its index, -1 when there is no such file, -2
+// when the catalog is full. An up-to-date .smp is read; a .wav / .mp3 without one is listed as pending and converted when it is used (convert).
+int use(const std::string &name) {
+    const int have = engine_synth_catalog_find(name.c_str());
+    if (have >= 0) return have;
+    if (name.empty() || name.size() >= AUDIO_NAME_MAX || (g_dir.empty() && !find_dir())) return -1;
+    const fs::path base = fs::path(g_dir) / fs::path(name);
+    fs::path smp = base, src;
+    smp += ".smp";
+    std::error_code ec;
+    for (const char *ext : {".wav", ".mp3"}) {
+        fs::path c = base;
+        c += ext;
+        if (src.empty() && fs::is_regular_file(c, ec)) src = c;
+    }
+    audio_sample_info_t in;
+    if (fs::is_regular_file(smp, ec) && (src.empty() || fs::last_write_time(smp, ec) >= fs::last_write_time(src, ec)))
+        return !fill_info(in, name, smp) ? -1 : (have_room(engine_synth_catalog_add(&in)));
+    if (src.empty()) return -1;
+    std::memset(&in, 0, sizeof in);                                               // a source without an up-to-date .smp: pending until it is used
+    std::snprintf(in.name, sizeof in.name, "%s", name.c_str());
+    in.pending = 1;
+    in.kind = lower(src.extension().string()) == ".mp3" ? 2 : 1;
+    const int i = engine_synth_catalog_add(&in);
+    if (i >= 0) g_src[i] = src.string();
+    return have_room(i);
+}
+
+// A pending .wav / .mp3 is decoded when it is used (assigned to a pad or a sampler): decode, mix to mono, cook <name>.smp next to it.
 bool convert(int i) {
-    if (i < 0 || i >= g_n || !g_cat[i].pending) return i >= 0 && i < g_n;
+    audio_sample_info_t in;
+    if (i < 0 || i >= AUDIO_SAMPLES_MAX || !engine_synth_sample_info(i, &in) || !in.name[0]) return false;
+    if (!in.pending) return true;
+    const std::string name = in.name;
     const fs::path src = g_src[i];
     fs::path dst = src;
     dst.replace_extension(".smp");
     Pcm pcm;
     bool ok;
-    if (g_cat[i].kind == 1) { std::vector<uint8_t> d; ok = read_file(src, d) && decode_wav(d, pcm); }
+    if (in.kind == 1) { std::vector<uint8_t> d; ok = read_file(src, d) && decode_wav(d, pcm); }
     else ok = decode_mp3(src, pcm);
-    if (!ok || !write_smp(dst, pcm) || !fill_entry(i, dst)) {
+    if (!ok || !write_smp(dst, pcm) || !fill_info(in, name, dst)) {
         std::printf("samples: could not convert %s\n", src.filename().string().c_str());
         return false;
     }
     std::printf("samples: converted %s (%zu frames at %u Hz)\n", src.filename().string().c_str(), pcm.mono.size(), pcm.rate);
-    engine_synth_catalog_set(g_cat, g_n);
+    engine_synth_catalog_add(&in);                                                // the same name: the entry's facts
     return true;
 }
 
 bool convert_cb(int i) { return convert(i); }
 
-int scan() {
-    if (g_dir.empty() && !find_dir()) return g_n;
-    std::vector<std::pair<std::string, fs::path>> smp, src;                       // stem -> path
+/* ---------------- a folder of the library, for the browser ---------------- */
+
+struct DirEnt { std::string name, key; bool dir; };
+std::vector<DirEnt> g_list;
+
+int dir_open(const char *dir) {
+    g_list.clear();
+    if (g_dir.empty() && !find_dir()) return -1;
     std::error_code ec;
-    for (const auto &e : fs::directory_iterator(g_dir, ec)) {
-        if (!e.is_regular_file()) continue;
-        const std::string ext = lower(e.path().extension().string());
-        const std::string stem = e.path().stem().string().substr(0, 23);
-        if (ext == ".smp") smp.push_back({stem, e.path()});
-        else if (ext == ".wav" || ext == ".mp3") src.push_back({stem, e.path()});
+    const fs::path p = dir && dir[0] ? fs::path(g_dir) / fs::path(dir) : fs::path(g_dir);
+    if (!fs::is_directory(p, ec)) return -1;
+    for (const auto &e : fs::directory_iterator(p, ec)) {
+        const std::string fn = e.path().filename().string();
+        if (fn.empty() || fn[0] == '.') continue;
+        if (e.is_directory(ec)) { if (fn.size() < AUDIO_NAME_MAX) g_list.push_back({fn, lower(fn), true}); continue; }
+        if (!e.is_regular_file(ec) || fn.size() < 5) continue;
+        const std::string ext = lower(fn.substr(fn.size() - 4)), stem = fn.substr(0, fn.size() - 4);
+        if ((ext != ".smp" && ext != ".wav" && ext != ".mp3") || stem.size() >= AUDIO_NAME_MAX || stem.find('~') != std::string::npos) continue;
+        g_list.push_back({stem, lower(stem), false});
     }
-    std::vector<std::string> stems;
-    for (auto &p : smp) stems.push_back(p.first);
-    for (auto &p : src) stems.push_back(p.first);
-    std::sort(stems.begin(), stems.end());
-    stems.erase(std::unique(stems.begin(), stems.end()), stems.end());            // new files are appended after the known ones
-    for (const std::string &stem : stems) {
-        if (find_in_catalog(stem) >= 0 || g_n >= AUDIO_SAMPLES_MAX) continue;
-        const fs::path *sp = nullptr, *rp = nullptr;
-        for (auto &p : smp) if (p.first == stem) sp = &p.second;
-        for (auto &p : src) if (p.first == stem) rp = &p.second;
-        const int i = g_n;
-        const bool smp_current = sp && (!rp || fs::last_write_time(*sp, ec) >= fs::last_write_time(*rp, ec));
-        if (smp_current) { if (fill_entry(i, *sp)) g_n++; continue; }
-        std::memset(&g_cat[i], 0, sizeof g_cat[i]);                               // a source without an up-to-date .smp: pending until it is used
-        std::snprintf(g_cat[i].name, sizeof g_cat[i].name, "%s", stem.c_str());
-        g_cat[i].pending = 1;
-        g_cat[i].kind = lower(rp->extension().string()) == ".mp3" ? 2 : 1;
-        g_src[i] = rp->string();
-        g_n++;
-    }
-    engine_synth_catalog_set(g_cat, g_n);
-    return g_n;
+    std::sort(g_list.begin(), g_list.end(), [](const DirEnt &a, const DirEnt &b) { return a.dir != b.dir ? a.dir : a.key < b.key; });
+    g_list.erase(std::unique(g_list.begin(), g_list.end(), [](const DirEnt &a, const DirEnt &b) { return a.dir == b.dir && a.key == b.key; }),
+                 g_list.end());                                                   // (a .wav next to its .smp: once)
+    return static_cast<int>(g_list.size());
 }
 
 }  // namespace
@@ -142,7 +159,6 @@ int scan() {
 extern "C" {
 
 int sim_samples_init(void) {
-    g_n = 0;
     g_stop = false;
     if (!engine_synth_attach_storage(&g_storage)) return 0;
     engine_synth_set_importer(&convert_cb);
@@ -151,7 +167,7 @@ int sim_samples_init(void) {
     const size_t rl = std::strlen(root);
     if (rl && (root[rl - 1] == '/' || root[rl - 1] == 92)) root[rl - 1] = 0;
     engine_synth_set_card_root(root);                                      // the processing jobs write next to the library
-    const int n = scan();
+    find_dir();
     g_io = std::thread([] {
         while (!g_stop) {
             { std::lock_guard<std::mutex> lk(g_io_mx); engine_synth_io_pump(); }
@@ -160,8 +176,8 @@ int sim_samples_init(void) {
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
     });
-    std::printf("samples: %d file(s) from %s\n", n, g_dir.empty() ? "(no samples folder)" : g_dir.c_str());
-    return n;
+    std::printf("samples: the library is %s\n", g_dir.empty() ? "(no samples folder)" : g_dir.c_str());
+    return 1;
 }
 
 void sim_samples_shutdown(void) {
@@ -169,15 +185,24 @@ void sim_samples_shutdown(void) {
     if (g_io.joinable()) g_io.join();
 }
 
-int sim_samples_rescan(void) { return scan(); }
+int sim_samples_rescan(void) { if (g_dir.empty()) find_dir(); return engine_synth_sample_count(); }   // (the card has its folders now)
 
-void sim_samples_hide(int index) {
-    if (index < 0 || index >= g_n) return;
-    g_cat[index].name[0] = 0;
-    engine_synth_catalog_set(g_cat, g_n);
-}
+void sim_samples_hide(int index) { engine_synth_catalog_remove(index); }
 
 int sim_samples_prepare(int index) { return convert(index) ? 1 : 0; }
+
+int sim_samples_find(const char *name) { return engine_synth_catalog_find(name); }
+int sim_samples_use(const char *name) { return name ? use(name) : -1; }
+int sim_samples_dir_open(const char *dir) { return dir_open(dir); }
+int sim_samples_dir_read(int first, audio_dir_entry_t *out, int max) {
+    int n = 0;
+    for (; n < max && first >= 0 && first + n < static_cast<int>(g_list.size()); n++) {
+        const DirEnt &e = g_list[static_cast<size_t>(first + n)];
+        std::snprintf(out[n].name, sizeof out[n].name, "%s", e.name.c_str());
+        out[n].dir = e.dir ? 1 : 0;
+    }
+    return n;
+}
 
 }  // extern "C"
 #endif  // PLATFORM_SIM

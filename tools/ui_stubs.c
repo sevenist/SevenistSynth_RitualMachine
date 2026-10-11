@@ -17,7 +17,7 @@ void audio_build(const rack_t *r, const synth_params_t *p) { (void)r; (void)p; u
 void audio_set_params(const rack_t *r, const synth_params_t *p) { (void)r; (void)p; }
 // The library: demo0..2, then the files the processing "wrote" (stub_extra: their names and lengths; a hidden one has no name).
 #define STUB_EXTRA 24
-static char stub_extra[STUB_EXTRA][24];
+static char stub_extra[STUB_EXTRA][AUDIO_NAME_MAX];
 static uint32_t stub_extra_frames[STUB_EXTRA];
 static int stub_n_extra, stub_listed;                                 // written / listed by the last rescan
 int audio_sample_count(void) { return 3 + stub_listed; }
@@ -28,24 +28,60 @@ int audio_osc_preview(int m, float t, float mo, float h, int period, int16_t *ou
 bool audio_sample_info(int i, audio_sample_info_t *o) {
     if (i < 0 || i >= 3 + stub_listed) return false;
     memset(o, 0, sizeof *o);
-    if (i < 3) snprintf(o->name, 24, "demo%d", i); else snprintf(o->name, 24, "%s", stub_extra[i - 3]);
+    if (i < 3) snprintf(o->name, sizeof o->name, "demo%d", i); else snprintf(o->name, sizeof o->name, "%s", stub_extra[i - 3]);
     o->frames = i < 3 ? 96000 : stub_extra_frames[i - 3]; o->rate = 48000; o->root = 60; o->slices = i == 2 ? 8 : 0;
     for (int k = 0; k < 8; k++) o->slice[k] = k * 12000;
     for (int k = 0; k < 64; k++) o->peaks[k] = 255 - k * 3;
     o->loop_start = 20000; o->loop_end = 70000; o->loop_mode = i == 1 ? 1 : 0;     // demo1 has loop points, demo0 / demo2 only the numbers
     return true;
 }
-int audio_samples_rescan(void) { stub_listed = stub_n_extra; return 3 + stub_listed; }
+int audio_sample_find(const char *name) {
+    audio_sample_info_t in;
+    for (int i = 0; name && name[0] && i < 3 + stub_listed; i++) if (audio_sample_info(i, &in) && !strcmp(in.name, name)) return i;
+    return -1;
+}
+// The card for the browser: its root holds the folder "kit", demo0..2 and what was recorded or processed; "kit" holds hat and snare.
+// A file enters the catalog when it is asked for (a written one: with everything written before it).
+int audio_sample_use(const char *name) {
+    const int have = audio_sample_find(name);
+    if (have >= 0 || !name || !name[0]) return have;
+    for (int i = stub_listed; i < stub_n_extra; i++) if (!strcmp(stub_extra[i], name)) { stub_listed = stub_n_extra; return 3 + i; }
+    if (strcmp(name, "kit/hat") && strcmp(name, "kit/snare")) return -1;
+    if (stub_n_extra >= STUB_EXTRA) return -2;
+    snprintf(stub_extra[stub_n_extra], sizeof stub_extra[0], "%s", name);
+    stub_extra_frames[stub_n_extra] = 48000;
+    stub_listed = ++stub_n_extra;
+    return 3 + stub_listed - 1;
+}
+static audio_dir_entry_t stub_dir[4 + STUB_EXTRA];
+static int stub_dir_n;
+static void stub_dir_add(const char *name, int dir) {
+    snprintf(stub_dir[stub_dir_n].name, sizeof stub_dir[0].name, "%s", name);
+    stub_dir[stub_dir_n++].dir = (uint8_t)dir;
+}
+int audio_dir_open(const char *dir) {
+    stub_dir_n = 0;
+    if (dir && !strcmp(dir, "kit")) { stub_dir_add("hat", 0); stub_dir_add("snare", 0); return stub_dir_n; }
+    if (dir && dir[0]) return -1;
+    stub_dir_add("kit", 1); stub_dir_add("demo0", 0); stub_dir_add("demo1", 0); stub_dir_add("demo2", 0);
+    for (int i = 0; i < stub_n_extra; i++) if (stub_extra[i][0] && !strchr(stub_extra[i], '~') && !strchr(stub_extra[i], '/')) stub_dir_add(stub_extra[i], 0);
+    return stub_dir_n;
+}
+int audio_dir_read(int first, audio_dir_entry_t *out, int max) {
+    int n = 0;
+    for (; n < max && first >= 0 && first + n < stub_dir_n; n++) out[n] = stub_dir[first + n];
+    return n;
+}
 // The processing: done at once, a new library entry of the source's length (Pad to: the amount) once the app rescans.
 int ui_stub_renders, ui_stub_render_op, ui_stub_render_amount, ui_stub_render_amount2, ui_stub_removed;
-char ui_stub_render_src[24], ui_stub_removed_last[64];
+char ui_stub_render_src[AUDIO_NAME_MAX], ui_stub_removed_last[96];
 static int stub_render_state;
 bool audio_render_start(const char *src, const char *dst, int op, int amount, int amount2) {
     if (stub_render_state == 1 || stub_n_extra >= STUB_EXTRA) return false;
     audio_sample_info_t in;
     uint32_t frames = 96000;
     for (int i = 0; i < 3 + stub_listed; i++) if (audio_sample_info(i, &in) && !strcmp(in.name, src)) frames = in.frames;
-    snprintf(stub_extra[stub_n_extra], 24, "%s", dst);
+    snprintf(stub_extra[stub_n_extra], sizeof stub_extra[0], "%s", dst);
     stub_extra_frames[stub_n_extra] = op == 7 && (uint32_t)amount > frames ? (uint32_t)amount : frames;
     if (op == 8 || op == 9 || op == 17 || op == 19) stub_extra_frames[stub_n_extra] = (uint32_t)(((uint64_t)frames * (uint32_t)amount + 500000u) / 1000000u);   // Stretch / Resample
     if (op == 11) stub_extra_frames[stub_n_extra] = (uint32_t)(amount2 - amount);                    // Crop
@@ -61,10 +97,10 @@ void audio_sample_hide(int index) { if (index >= 3 && index < 3 + stub_listed) s
 // Capture: armed by the app, the test says how much sound came (ui_stub_capture_sound); a stop or the length's end makes the file.
 int ui_stub_cap_state, ui_stub_cap_bar;
 uint32_t ui_stub_cap_limit, ui_stub_cap_frames;
-char ui_stub_cap_name[24];
+char ui_stub_cap_name[AUDIO_NAME_MAX];
 static void stub_cap_finish(void) {
     if (!ui_stub_cap_frames || stub_n_extra >= STUB_EXTRA) { ui_stub_cap_state = CAPTURE_ST_EMPTY; return; }
-    snprintf(stub_extra[stub_n_extra], 24, "%s", ui_stub_cap_name);
+    snprintf(stub_extra[stub_n_extra], sizeof stub_extra[0], "%s", ui_stub_cap_name);
     stub_extra_frames[stub_n_extra++] = ui_stub_cap_frames;
     ui_stub_cap_state = CAPTURE_ST_DONE;
 }

@@ -84,6 +84,9 @@ public:
     bool failed(int id) const { return id >= 0 && id < kMaxSamples && slot_[id].state == SLOT_FAILED; }
     const SampleSlot *slot(int id) const { return id >= 0 && id < kMaxSamples ? &slot_[id] : nullptr; }
     void unload(int id);
+    // True when nothing reads the sample any more: it is loaded (or failed), no head read is in flight, the onset scan is not on it and
+    // no stream plays it. Only then may it be unloaded (the caller also makes sure no voice can start on it: engine_synth's catalog).
+    bool can_unload(int id) const;
     int add_instrument();
     bool add_zone(int inst, const Zone &z);
     const Zone *pick(int inst, int note, int velocity127) const;

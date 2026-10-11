@@ -714,3 +714,61 @@ TEST(capture_on_the_clock_starts_on_a_bar_and_lasts_its_bars) {
     engine_synth_capture_done();
     engine_synth_set_clock(120, 16, 0, 0);
 }
+
+// The catalog holds the files in use (hal_audio.h audio_sample_use): an entry nothing uses any more is taken out, its sample stays in
+// memory while a voice still plays it and is unloaded afterwards (engine_synth_housekeeping), and then the next file takes its index.
+TEST(pads_catalog_entry_leaves_and_its_sample_is_unloaded_once_nothing_plays_it) {
+    PadsApp a;
+    a.add("low", sine(220.0, 0.5));
+    a.add("high", sine(880.0, 0.5));
+    a.pad(0, "low").level = 100;
+    a.build();
+    auto card_file = [&](const char *name, double hz) {                        // a file on the card that is not in the catalog
+        const std::vector<int16_t> pcm = sine(hz, 0.3);
+        SmpHeader h;
+        h.sample_rate = static_cast<uint32_t>(kSampleRate);
+        h.frames = static_cast<uint32_t>(pcm.size());
+        h.root_note = 60;
+        a.card.add_file((std::string(name) + ".smp").c_str(), smp_build(h, pcm.data()));
+        audio_sample_info_t in;
+        std::memset(&in, 0, sizeof in);
+        std::snprintf(in.name, sizeof in.name, "%s", name);
+        in.frames = h.frames; in.rate = h.sample_rate; in.root = 60;
+        return in;
+    };
+    auto bulk_used = [] { size_t f, c, hi, b, sp; engine_synth_heap_stats(&f, &c, &hi, &b, &sp); return b; };
+    auto settle = [&](double seconds) { for (double t = 0; t < seconds; t += 0.01) { a.run(0.01); engine_synth_housekeeping(); } };
+
+    engine_synth_pad_push(0);
+    a.run(0.05);                                                               // "low" sounds
+    a.pad(0, "high");                                                          // the pad takes another file; "low" leaves the catalog
+    engine_synth_pad_set(0, &a.pads.pad[0]);
+    const int low = engine_synth_catalog_find("low");
+    CHECK(low >= 0);
+    engine_synth_catalog_remove(low);
+    CHECK_EQ(engine_synth_catalog_find("low"), -1);
+    std::vector<double> heard;
+    for (int k = 0; k < 10; k++) { const Stereo s = a.run(0.01); heard.insert(heard.end(), s.l.begin(), s.l.end()); engine_synth_housekeeping(); }
+    const audio_sample_info_t mid = card_file("mid", 440.0);
+    const int mid_index = engine_synth_catalog_add(&mid);
+    const size_t with_low = bulk_used();
+    std::printf("    while it sounds: 220 Hz power %.0f, the next file gets index %d (the entry that left: %d)\n", power_at(heard, 220.0), mid_index, low);
+    CHECK(power_at(heard, 220.0) > 1e5);                                       // the voice was not cut: its sample is still there
+    CHECK(mid_index >= 0 && mid_index != low);                                 // ... so its entry is not given away yet
+    settle(0.7);                                                               // the one-shot ends: now it is unloaded
+    const size_t without = bulk_used();
+    std::printf("    bulk memory: %zu with it, %zu after\n", with_low, without);
+    CHECK(without + static_cast<size_t>(0.4 * kSampleRate) * sizeof(int16_t) < with_low);   // 0.5 s of 16-bit mono came back (48 KB at 48 kHz)
+    const audio_sample_info_t top = card_file("top", 1760.0);
+    CHECK_EQ(engine_synth_catalog_add(&top), low);                             // the next file takes the free index
+    a.pad(1, "top").level = 100;
+    engine_synth_pad_set(1, &a.pads.pad[1]);
+    settle(0.1);                                                               // it loads into the slot that was freed
+    engine_synth_pad_push(1);
+    engine_synth_pad_push(0);
+    const Stereo s = a.run(0.15);
+    std::printf("    after: 1760 Hz power %.0f, 880 Hz power %.0f\n", power_at(s.l, 1760.0), power_at(s.l, 880.0));
+    CHECK(power_at(s.l, 1760.0) > 1e5);
+    CHECK(power_at(s.l, 880.0) > 1e5);
+    CHECK(power_at(s.l, 220.0) * 1000.0 < power_at(s.l, 880.0));                // the old sample is not heard (what is left: the DFT's leakage)
+}

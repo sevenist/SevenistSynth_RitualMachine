@@ -28,6 +28,7 @@ class StorageDevice {
 public:
     virtual ~StorageDevice() = default;
     virtual FileHandle open(const char *name) = 0;                       // -1 if missing
+    virtual void forget(FileHandle) {}                                   // the sample was unloaded: the handle may be given to another file
     virtual uint32_t size(FileHandle f) const = 0;
     virtual bool submit(const IoRead &r, uint64_t now_us) = 0;           // false when the device queue is full
     virtual bool poll(IoDone &d, uint64_t now_us) = 0;                   // pops one completed request, if any

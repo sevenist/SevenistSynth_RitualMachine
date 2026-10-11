@@ -1,12 +1,12 @@
 #pragma once
 // The version history of the sample library (ADR-041 decision 37). Every processing (the pads' EDIT page) writes a new file, a child version
 // of the one it came from; the file it all started from is the root (any library file without a parent here). Version files are named
-// <root>~<n> (n counts up per root, the root cut to fit the 23-character library names). Undo = the parent, Redo = the newest child;
+// <root>~<n> (n counts up per root, the root cut so that the name fits a library name). Undo = the parent, Redo = the newest child;
 // processing an older version makes a branch. Trimming (automatic, after every new version): kept are the root, every version a pad uses,
 // and the last HISTORY_KEEP versions of that root; the others are deleted, and a version whose parent goes re-links to the nearest kept
 // ancestor. A version also remembers the pad's trim points (Start, End, loop start) around its making: what they were on its parent
 // and what they became on it (a crop, a stretch or a reverse moves them), so that Undo / Redo / Ver put them back.
-// Saved as text next to the samples:   v <seq> <name> <parent> <3 trim points on the parent> <3 on the version> <what was done>
+// Saved as text next to the samples:   v <seq> |<name>|<parent or ->| <3 trim points on the parent> <3 on the version> <what was done>
 #include <stdbool.h>
 #include <stdint.h>
 #include "hal/hal_storage.h"
@@ -17,7 +17,7 @@ extern "C" {
 
 #define HISTORY_MAX   32                        // versions on the card (the library holds 32 files)
 #define HISTORY_KEEP  8
-#define HISTORY_NAME  24                        // = audio_sample_info_t.name
+#define HISTORY_NAME  48                        // = audio_sample_info_t.name (AUDIO_NAME_MAX)
 #define HISTORY_FILE  STORAGE_DIR_SAMPLES "/history.cfg"
 
 typedef struct {

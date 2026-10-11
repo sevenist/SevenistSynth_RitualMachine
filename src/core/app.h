@@ -40,7 +40,7 @@ typedef struct {
     uint8_t  stage;                     // 0 none, 1 rendering, 2 waiting for the library to list the new file
     int      pad, op;                   // op: engine/offline/process.h ProcOp (pads.h PROC_*)
     uint32_t frames_in;                 // the source's length (Stretch / Resample: the pad's trim points scale with the result's)
-    char     name[24], parent[24], what[16];
+    char     name[PAD_NAME_MAX], parent[PAD_NAME_MAX], what[16];
     uint32_t since;
     bool     chop;                      // then chop the new version (CHOP: a Grid chop that needed padding)
 } pad_render_t;
@@ -52,7 +52,7 @@ typedef struct {
     uint8_t  bars;                      // the length setting: 0 = until Rec is pushed again, else that many bars at the tempo
     bool     loop;                      // this one has a length in bars: the pad loops it, on the bar
     int      pad;                       // where it goes
-    char     name[24];
+    char     name[PAD_NAME_MAX];
     uint32_t frames, dropped, since;
 } pad_capture_t;
 
@@ -69,6 +69,12 @@ typedef struct {
     pad_render_t   render;
     pad_capture_t  capture;
     uint8_t        section;     // section_t
+    // The pads' files and the catalog (hal_audio.h: it holds the files in use, each read when asked for): lib_dirty = a pad's file may
+    // not be in it yet (pads_resolve takes one per step), lib_missing = bit k: pad k's file is not on the card (not asked again),
+    // lib_tries = steps spent waiting for an unused sample to be unloaded.
+    bool           lib_dirty;
+    uint64_t       lib_missing;
+    uint8_t        lib_tries;
     bool           pads_pending;     // the pads changed and wait to be saved (pads.cfg) ...
     uint32_t       pads_ms;          // ... since then
     bool           fx_pending;       // the pads' FX chains changed and wait to be saved (padsfx.cfg) ...

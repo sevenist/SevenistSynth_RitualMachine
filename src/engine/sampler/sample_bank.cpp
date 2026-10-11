@@ -79,7 +79,7 @@ int SampleBank::load(const char *name, int head_ms) {
     s.file = dev_->open(name);
     if (s.file < 0) return -1;
     s.hdr_tmp = static_cast<uint8_t *>(mem_.fast->alloc(kSmpBlockBytes));
-    if (!s.hdr_tmp) return -1;
+    if (!s.hdr_tmp) { dev_->forget(s.file); return -1; }
     s.state = SLOT_HEADER;
     s.head_ms = static_cast<uint32_t>(head_ms);             // converted to blocks when the header is known
     s.next_issue = 0;
@@ -88,8 +88,23 @@ int SampleBank::load(const char *name, int head_ms) {
 
 void SampleBank::unload(int id) {
     if (id < 0 || id >= kMaxSamples) return;
+    if (slot_[id].state != SLOT_FREE && slot_[id].file >= 0 && dev_) dev_->forget(slot_[id].file);
     free_heads(slot_[id]);
     slot_[id] = SampleSlot{};
+}
+
+bool SampleBank::can_unload(int id) const {
+    if (id < 0 || id >= kMaxSamples) return false;
+    const SampleSlot &s = slot_[id];
+    if (s.state == SLOT_FREE) return true;
+    if (s.state == SLOT_HEADER || s.state == SLOT_HEADS || s.pending > 0 || id == scan_slot_) return false;
+    for (const Job &j : jobs_)
+        if ((j.kind == J_HEADER || j.kind == J_HEAD || j.kind == J_SCAN) && j.slot == id) return false;
+    for (const Stream *st : streams_) {
+        StreamSnap sn;
+        if (st && (!st->snapshot(sn) || sn.sample == id)) return false;     // (a stream that changed while it was read: ask again later)
+    }
+    return true;
 }
 
 /* ---------------- instruments ---------------- */

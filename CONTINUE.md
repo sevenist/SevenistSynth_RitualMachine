@@ -8,100 +8,56 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
 
 ## Session todo (updated 2026-10-11)
 
-**Where things stand (end of the session of 2026-10-10 / 11):** all the Pads work is on the branch **`pads-step1`** (ahead
-of `main`, which is untouched and can fast-forward; the user asked for a commit at every step). **The board runs the normal build of
-its last commit (5162be7, flashed 2026-10-11)**: everything listed below is on it, whatever an older entry says about "NOT flashed".
-Built in that session, in order: the Pads section (pads, clock, grid, loops, Sync, Snap, Next), the sample tools (chop, EDIT page
-with 19 operations, version history), the FX chains, capture (the Rec key), then two speed fixes. **The user has tried only the
-first part (test list items 1-17); nothing from the EDIT page on has been tried or listened to.** The user chose to pause new
-features and test. Waiting on the user: test results; the rest of test item 16 (the Play key on F4, "which is working but ...");
-whether a gate release triggers Next; whether the full synth stopping in Pads is right. Next features, each with a design round:
-live synth (engine not chosen: "decide later"), song mode + backtrack, stereo samples (a format change).
+**Where things stand (session of 2026-10-11, the bug-fix part):** all the Pads work is on the branch **`pads-step1`** (ahead of `main`,
+which is untouched and can fast-forward; the user asked for a commit at every step). **The board still runs 5162be7 (flashed
+2026-10-11)**: the two fixes of this session are NOT on it. The user chose to pause new features and test, and started with two bug
+reports: Snap against the tempo (fixed, 61170b7) and "only 32 samples, it needs a real browser" (built: the library is read on demand,
+folders, a browser with audition; ADR-041 decisions 51-52). Both are host-tested only; **the board's card code for the browser was
+compiled, never run**. Everything built on 2026-10-10 / 11 that the user has not tried is listed in "Built, not tried by the user yet"
+below. Next features, each with a design round: live synth (engine not chosen: "decide later"), song mode + backtrack, stereo samples
+(a format change).
 
 Order: the Pads section first (user, 2026-10-09), the rest as chosen by Claude earlier (user: "I let you choose the order"). The user has made no sound design yet: **no saved patch or data to keep, old
 patches can be deleted, no migration code** (user, 2026-10-09). The rest of the workflow plan: "Next: the production workflow" below.
 
-- [ ] **Bug: Snap is not in sync with the set tempo** (user, 2026-10-11, first item of the session). Found by reading the code, not yet
-  confirmed as what the user saw: the tempo reaches the snap (`ui->clock_bpm` = `seq.bpm`) and with Tune 0 a Beat-snapped length is whole
-  beats; but Beat ignores the pad's Tune / Fine (the engine plays at 2^(tune/12) x rate / SR), the beat is cut to whole frames before it
-  is multiplied (up to 1 frame per beat), and "1/16" is 1/16 of the sample, not a 16th note. Same assumption in the Grid chop unit and
-  Fit beats. Done = the user's case reproduced in a UI test, fixed, tried on the board (from: user)
-- [ ] **Bug: only 32 samples, and no real browser** (user, 2026-10-11). The limit is three constants: `AUDIO_SAMPLES_MAX` 32 (the
-  catalog, two copies of ~176 bytes per file in internal RAM), `SampleBank::kMaxSamples` 32 (loaded samples, never unloaded: 64 pads
-  cannot all hold a different file), `SdStorage::kFiles` 48. The only browser is the SAMPLES menu tab (one file per step, synth section
-  only: Menu in Pads = the FX page); a pad's Smp row steps the same way. Design round first: library size / folders, the browser
-  screen, audition (from: user)
-- [ ] **Sync (loop start on the grid), Snap (Beat / 1/16 / Attack / Zero), grid units 1 beat .. 8 bars, editor pages PLAY / TONE / CHOP
-  from the header, no tempo popup in Pads: try it** (ADR-041 decisions 40-42; built 2026-10-10, 193 engine tests x 6, 87 UI tests) (from: user)
-- [ ] **Board test of 2026-10-10 (user, test list items 1-17)**: OK: section switch, grid, editor, layout, modes, mixing, knobs, loops
-  (Off / Trim / File, crossfade), pads.cfg after reboot, Next. Fixed after it: BPM at the top left of the Pads header, the Stop key's popup,
-  a muted pad that sounds pulses red <-> its colour, a "Chop >" button (Page - / + was not found). Open: voice steal and streaming not
-  tested; Play LED (F4) flash on the beat to recheck with the clock running; "quantized capabilities" for the knobs and "the clock should
-  start at the sample loop point for looped samples" to clarify; items 18-38 of the list not reported yet (from: user)
-- [x] **Pads step 1 on the board**: tried by the user (simulator "all fine", then the board test above), 8 pad voices measured streamed
+- [ ] **Snap 1/16 = a 16th note at the tempo: try it** (user, 2026-10-11: "the snap function isn't sync with set tempo"; asked what
+  they saw: 1/16 stepped by a 16th of the FILE). Fixed in 61170b7 (`pad_snap_grid`): 1/16 is a 16th note at the clock's tempo; Beat
+  and 1/16 count the pad's Tune / Fine (the notes as the pad plays them) and a point is the count times the exact beat, rounded once.
+  UI test extended, host only: NOT flashed, NOT tried. Not changed: the Grid chop unit and Fit beats still ignore Tune (say if they
+  should follow it too) (from: user)
+- [ ] **Sample browser, the library read on demand: try it, on the board first** (user, 2026-10-11; ADR-041 decisions 51-52 + "As
+  built"). A pad's Smp row (encoder B or a push) opens a full-screen list of the card's `system/samples` folder and its sub-folders;
+  the highlighted sample shows its waveform and plays from any pad key; push = take it, Back = the pad as it was. Names are paths
+  ("Drums/kick", 47 characters at most). No scan at start: the catalog holds the 32 files in use and drops unused ones (their memory
+  is freed: new). 219 engine tests, 102 UI tests, simulator + firmware built (RAM 66.0 %); **the board side (`samples_esp32.cpp`
+  folder list and header jobs, `storage_sd` handles) was only compiled**: NOT flashed, NOT tried. Watch on the board: the time to open
+  a big folder, pads silent for a moment after the first switch to Pads, a streamed pad while a folder is read, `[SD] folder` /
+  `[SD] read` lines in the log (from: user)
+- [ ] **Test round on the board** (the user's choice of 2026-10-11: pause features, test): everything in "Built, not tried by the
+  user yet" below. The 38-item test list of the earlier session was written in the chat only: rebuild it from that section when
+  asked (from: user)
+- [ ] **Waiting on the user's answers**: the rest of test item 16 (the Play key on F4, "which is working but ..."); does a gate
+  release trigger Next; is it right that the full synth stops in the Pads section (my reading of ADR-041 decision 22); "quantized
+  capabilities" for the knobs and "the clock should start at the sample loop point for looped samples" (Snap and Sync were my
+  reading of them) (from: user)
+- [x] **Pads step 1 on the board**: tried by the user (simulator "all fine", then the board test of 2026-10-10), 8 pad voices measured streamed
   vs whole and PSRAM after the switch ("Pads on the board" below); what is left is in the board test item (done 2026-10-10)
-- [ ] **Pads step 2 (clock, start on grid, tempo, metronome): try it**: BUILT 2026-10-10 (ADR-041 decisions 27-29; 11 pad engine tests,
-  81 UI tests), flashed; how much of it the board test of 2026-10-10 covered is not recorded. Play in Pads runs the clock; Grid row of
-  a pad; right block row 3 = Tap, Click, BPM -1, BPM +1 (from: user)
-- [ ] **Pads loop crossfade, loop start, launch from, tail on the overview: try it**: BUILT 2026-10-10 (ADR-041 decisions 30-32; 12 pad
-  engine tests in the 6 configurations, 82 UI tests), flashed; loops and crossfade OK in the board test of 2026-10-10, the rest not
-  reported (from: user)
-- [ ] **Chop (sample tools 1) + Next: try it**: BUILT 2026-10-10 (ADR-041 decision 39 + "Sample tools step 1"), flashed; Next OK in the
-  board test of 2026-10-10, chop not reported (the CHOP page was not found then: the "Chop >" button was added since; Page - / + =
-  Shift + encoder A also reaches it) (from: user)
-- [ ] **EDIT page, version history, Grid chop padding: try it** (sample tools 2 + 3; ADR-041 "Sample tools steps 2 + 3 as built"):
-  BUILT 2026-10-10, host-tested (199 engine tests x 6, 91 UI tests), flashed and measured (ADR-041 "The sample tools on the board"), NOT
-  tried by the user. It writes sample files; the user (2026-10-10): the card holds nothing important and may be erased, no backup
-  needed. In the simulator the card is the folder `sdcard/` (from: user)
-- [ ] **Time & pitch: try it, by ear** (sample tools 4; ADR-041 "Sample tools step 4"): EDIT ops Stretch, Pitch, Speed, Fit beats,
-  Fit speed. BUILT 2026-10-10, host-tested (204 engine tests x 6, 93 UI tests), flashed and timed (ADR-041 "Speed"), NOT tried by the
-  user, NOT listened to. Listen for: a drum loop stretched +-10..30 % (hits doubled or smeared?), a sustained chord (flutter?), Fit
-  beats then Loop + Sync against the metronome (from: user)
-- [ ] **Crop, Undo with its trim points, Color / lo-fi: try it** (ADR-041 "Sample tools: Crop, the trim points per version, Color"):
-  EDIT ops Crop, Lo-fi rate, Bits, Drive, Low-pass, High-pass; Undo / Redo / Ver put Start / End / LStr back. BUILT 2026-10-10,
-  host-tested (207 engine tests x 6, 95 UI tests), flashed, NOT tried by the user, NOT listened to. Crop is my addition (from: notes)
-- [ ] **Texture: try it, by ear, and check it on the board** (sample tools 5; ADR-041 decisions 44-46 + "Sample tools step 5"):
-  EDIT op Paulstr. (x1.5..x64, a 4096-point window) and the Algo row Beat / Tonal for Stretch, Pitch, Fit beats. BUILT 2026-10-11,
-  host-tested (211 engine tests x 6, 96 UI tests), FLASHED 2026-10-11 and measured (ADR-041 "The sample tools on the board" and
-  "Speed": every operation fits; a 1.5 s sample takes 1.4 .. 6 s; streamed pads keep playing), NOT tried by the user, NOT listened to.
-  Listen for: Paulstretch x8 on a chord, a voice, a drum hit; Tonal against Beat on the same sample. Reverse reverb and freeze / smear: from the FX chains + resampling (decision 46) (from: user)
 - [x] **Sample jobs were slow on the board**: Tonal stretch 8.0 -> 4.4 s, Paulstretch x4 12.1 -> 6.1 s, Stretch (Beat) 4.6 -> 2.8 s
   on a 1.5 s sample (the window kept between frames, a block cache in the reader, the frame in internal RAM; outputs bit-identical;
   ADR-041 "Speed"). What is left is the card's write rate, ~150 KB/s (done 2026-10-11)
 - [x] **Sample tools**: all six groups built 2026-10-10 / 11 (chop, render + history, Level, Time & pitch, Texture, Color); left for
   the capture path: "print a pad's settings", reverse reverb, freeze / smear (done 2026-10-11)
-- [ ] **FX chains: try it, by ear** (Pads step 3; ADR-041 decisions 47-49 + "Pads step 3, the FX chains, as built"): Menu in Pads =
-  the FX page (rows A / B / C, the header = the routing and the load), Edit in a module's menu = its values (the four knobs drive
-  them), a pad's Bus row on PLAY. BUILT 2026-10-11, host-tested (214 engine tests x 6, 98 UI tests), FLASHED and measured (8 pads +
-  EQ, compressor, delay, reverb = 53 %; twelve light effects = 81 %; nine or twelve heavy ones = 111 .. 124 %, dropouts), NOT tried by
-  the user, NOT listened to. Listen for: the reload when the routing or a module changes while a pad plays (from: user)
-- [ ] **Capture (Rec key): try it, by ear** (ADR-041 decision 50 + "Capture as built"): Rec in the Pads layout (right block, row 2,
-  between Mute and Stop) arms a recording of everything the Pads section plays; it starts at the first sound, Rec again stops it, the
-  result lands on the selected pad if empty (else the next empty one). Shift + Rec = a length in bars: then it starts on the bar (clock
-  running) and becomes a looping pad. BUILT 2026-10-11, host-tested (216 engine tests x 6, 100 UI tests), FLASHED and measured (no
-  frame lost even with 4 streamed pads), NOT tried by the user, NOT listened to. Mono (the sample format). Reverse reverb = Reverse
-  (EDIT), play through a reverb chain, Rec, Reverse the result (from: user)
 - [x] **The EQ cost as much as the reverb**: 26.5 k -> 5.9 k cycles a block, and closer to the ideal filters than before
   (ADR-041 "Speed"; done 2026-10-11)
 - [ ] **Pads steps 4-5**: live synth (design round; its entry into the FX chains), song mode + backtrack (design round; builds on
   the capture); "Next: the production workflow" (from: user)
-- [ ] **Confirm: the full synth stops in the Pads section** (my reading of ADR-041 decision 22) (from: notes)
-- [ ] **Joystick swap: try it**: a push on an already bound parameter swaps X and Y, each keeps its range / curve (built 2026-10-09, 71 UI
-  tests; on the board since the flash of 5162be7, NOT tried by the user) (from: user)
 - [ ] **Workflow plan phase 2: measure the cost on the board**: step 1 (both branches, Para per branch, MIX) and step 2 (effects inside a
   branch, modulators reaching row M, row M's filter envelope; ADR-041 "Phase 2, step 2") flashed and tried by the user on the prototype
   2026-10-09: Osc -> Phaser -> Filter works, modulators work. Not measured: the cost of per-voice effects and of a stereo shared part (from: notes)
 - [ ] **New placeholders to paint**: `24/slot_mix`, `8/ui_para` (`24/mod_sum` deleted). Defaults of SA / CB in row M reach full scale on the
   loud demo patch (measured, 32767 peak): the user's call (from: notes)
-- [ ] **8 x 8 grid layout, the other screens**: step 1 built (top bar 16 px, RACK cells 32 px); list rows (9 px) and parameter pages still off
-  the grid. Do it together with the phase-1 RACK tab where they overlap (from: user)
-- [ ] **Module first page + cog: detailing**: works, the user will detail it later (EG / MOTION old layout, hidden settings of the other
-  modules, one cycle in the previews) (from: user)
-- [ ] **UI sprites**: pipeline built; the user paints the placeholder PNGs (from: user)
 - [ ] **Board checks not confirmed yet**: Shift + note latch, knob hysteresis (`HWV1_ABS_START` / `_STEP` / `_IDLE_MS`), Spectral Gate / Robot /
   Whisper, ui.cfg + jump slots after a reboot (from: notes)
-- [ ] **MI follow-ups**: loudness per model, denormals (Plaits drums), IRAM, Harm placement, tier 3; cycles per model (`[MI]`) not recorded
-  here yet (from: notes)
 - [ ] **Listen to the Cab (Convolver) on the board**: flashed and measured by Claude 2026-10-09 (PIE kernel, see "Convolver on the board");
   the sound is unchanged by design (bit-identical), but nobody had heard it usable before: its loudness (the IR is energy-normalised, level x1:
   resonant IRs come out loud, a Cab in row M peaked at full scale on the demo patch) is the user's call (from: user)
@@ -110,8 +66,57 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
   2026-10-06 the largest block was 90 KB: ~27 KB of static RAM appeared since. Biggest user: `s_synth` 78.6 KB (the Engine, two RackGraph copies and
   the sample catalog; the RackGraphs and the catalog are control-only). Joins the "D" item below; options to give the user (from: measurements)
 - [ ] Engine / board "D" items: SD options (a)-(d), internal RAM for the startup patch (from: user + measurements)
-- [ ] Quick macro UI button; declarative main view (UI_GUIDE.md section 8); "audio backend" interface findings (from: user + debt)
 - Set aside (user, 2026-10-07): unformatted card "format?" ASK (a mount without a file system is still "no card"; needs FATFS mkfs)
+
+## Built, not tried by the user yet (the test round; moved from the todo 2026-10-11)
+
+On the board since the flash of 5162be7 unless an entry says otherwise. "try it" = by hand; "by ear" = listen.
+
+- **Sync (loop start on the grid), Snap (Beat / 1/16 / Attack / Zero), grid units 1 beat .. 8 bars, editor pages PLAY / TONE / CHOP
+  from the header, no tempo popup in Pads: try it** (ADR-041 decisions 40-42; built 2026-10-10, 193 engine tests x 6, 87 UI tests) (from: user)
+- **Board test of 2026-10-10 (user, test list items 1-17)**: OK: section switch, grid, editor, layout, modes, mixing, knobs, loops
+  (Off / Trim / File, crossfade), pads.cfg after reboot, Next. Fixed after it: BPM at the top left of the Pads header, the Stop key's popup,
+  a muted pad that sounds pulses red <-> its colour, a "Chop >" button (Page - / + was not found). Open: voice steal and streaming not
+  tested; Play LED (F4) flash on the beat to recheck with the clock running; "quantized capabilities" for the knobs and "the clock should
+  start at the sample loop point for looped samples" to clarify; items 18-38 of the list not reported yet (from: user)
+- **Pads step 2 (clock, start on grid, tempo, metronome): try it**: BUILT 2026-10-10 (ADR-041 decisions 27-29; 11 pad engine tests,
+  81 UI tests), flashed; how much of it the board test of 2026-10-10 covered is not recorded. Play in Pads runs the clock; Grid row of
+  a pad; right block row 3 = Tap, Click, BPM -1, BPM +1 (from: user)
+- **Pads loop crossfade, loop start, launch from, tail on the overview: try it**: BUILT 2026-10-10 (ADR-041 decisions 30-32; 12 pad
+  engine tests in the 6 configurations, 82 UI tests), flashed; loops and crossfade OK in the board test of 2026-10-10, the rest not
+  reported (from: user)
+- **Chop (sample tools 1) + Next: try it**: BUILT 2026-10-10 (ADR-041 decision 39 + "Sample tools step 1"), flashed; Next OK in the
+  board test of 2026-10-10, chop not reported (the CHOP page was not found then: the "Chop >" button was added since; Page - / + =
+  Shift + encoder A also reaches it) (from: user)
+- **EDIT page, version history, Grid chop padding: try it** (sample tools 2 + 3; ADR-041 "Sample tools steps 2 + 3 as built"):
+  BUILT 2026-10-10, host-tested (199 engine tests x 6, 91 UI tests), flashed and measured (ADR-041 "The sample tools on the board"), NOT
+  tried by the user. It writes sample files; the user (2026-10-10): the card holds nothing important and may be erased, no backup
+  needed. In the simulator the card is the folder `sdcard/` (from: user)
+- **Time & pitch: try it, by ear** (sample tools 4; ADR-041 "Sample tools step 4"): EDIT ops Stretch, Pitch, Speed, Fit beats,
+  Fit speed. BUILT 2026-10-10, host-tested (204 engine tests x 6, 93 UI tests), flashed and timed (ADR-041 "Speed"), NOT tried by the
+  user, NOT listened to. Listen for: a drum loop stretched +-10..30 % (hits doubled or smeared?), a sustained chord (flutter?), Fit
+  beats then Loop + Sync against the metronome (from: user)
+- **Crop, Undo with its trim points, Color / lo-fi: try it** (ADR-041 "Sample tools: Crop, the trim points per version, Color"):
+  EDIT ops Crop, Lo-fi rate, Bits, Drive, Low-pass, High-pass; Undo / Redo / Ver put Start / End / LStr back. BUILT 2026-10-10,
+  host-tested (207 engine tests x 6, 95 UI tests), flashed, NOT tried by the user, NOT listened to. Crop is my addition (from: notes)
+- **Texture: try it, by ear, and check it on the board** (sample tools 5; ADR-041 decisions 44-46 + "Sample tools step 5"):
+  EDIT op Paulstr. (x1.5..x64, a 4096-point window) and the Algo row Beat / Tonal for Stretch, Pitch, Fit beats. BUILT 2026-10-11,
+  host-tested (211 engine tests x 6, 96 UI tests), FLASHED 2026-10-11 and measured (ADR-041 "The sample tools on the board" and
+  "Speed": every operation fits; a 1.5 s sample takes 1.4 .. 6 s; streamed pads keep playing), NOT tried by the user, NOT listened to.
+  Listen for: Paulstretch x8 on a chord, a voice, a drum hit; Tonal against Beat on the same sample. Reverse reverb and freeze / smear: from the FX chains + resampling (decision 46) (from: user)
+- **FX chains: try it, by ear** (Pads step 3; ADR-041 decisions 47-49 + "Pads step 3, the FX chains, as built"): Menu in Pads =
+  the FX page (rows A / B / C, the header = the routing and the load), Edit in a module's menu = its values (the four knobs drive
+  them), a pad's Bus row on PLAY. BUILT 2026-10-11, host-tested (214 engine tests x 6, 98 UI tests), FLASHED and measured (8 pads +
+  EQ, compressor, delay, reverb = 53 %; twelve light effects = 81 %; nine or twelve heavy ones = 111 .. 124 %, dropouts), NOT tried by
+  the user, NOT listened to. Listen for: the reload when the routing or a module changes while a pad plays (from: user)
+- **Capture (Rec key): try it, by ear** (ADR-041 decision 50 + "Capture as built"): Rec in the Pads layout (right block, row 2,
+  between Mute and Stop) arms a recording of everything the Pads section plays; it starts at the first sound, Rec again stops it, the
+  result lands on the selected pad if empty (else the next empty one). Shift + Rec = a length in bars: then it starts on the bar (clock
+  running) and becomes a looping pad. BUILT 2026-10-11, host-tested (216 engine tests x 6, 100 UI tests), FLASHED and measured (no
+  frame lost even with 4 streamed pads), NOT tried by the user, NOT listened to. Mono (the sample format). Reverse reverb = Reverse
+  (EDIT), play through a reverb chain, Rec, Reverse the result (from: user)
+- **Joystick swap: try it**: a push on an already bound parameter swaps X and Y, each keeps its range / curve (built 2026-10-09, 71 UI
+  tests; on the board since the flash of 5162be7, NOT tried by the user) (from: user)
 
 ## Pads on the board (2026-10-10; flashed and measured by Claude with the user's permission, `tools/pads_test.py`, 44.1 kHz)
 
@@ -144,7 +149,7 @@ Cycles per engine block (budget 174149), the Pads section alone (Pads + MasterOu
   balance (centre = full level on both sides); Cut = 20 Hz .. 20 kHz log, 100 = off; tail default 20 ms, level 80 %; the knob set above.
 - Limits / debt: tune and trim changes apply at the next push; root note and zone stretch, reverse, the Pads layout in KEYS, the clock /
   grid start, FX entries are not there yet; `pads.cfg` must fit `STORAGE_FILE_MAX` (4 KB; about 64 pads x 60 characters); bank slots are
-  shared with the rack's SM (32 loaded samples at most, never unloaded); firmware static RAM +~6.7 KB (64 pads in `app_t` + a 4 KB file
+  shared with the rack's SM (32 loaded samples at most; unloaded when their catalog entry leaves, since 2026-10-11); firmware static RAM +~6.7 KB (64 pads in `app_t` + a 4 KB file
   buffer; RAM 66.2 % in the build of 2026-10-10, the internal RAM is already short: see the todo).
 
 ## Next: the production workflow (ADR-041, phases 3 to 6; phases 0 to 2 done 2026-10-09)
@@ -444,7 +449,7 @@ The user reported glitchy sampler playback, loops misplaced / shifted, 2-3 voice
   `HWV1_SD_OVERCLOCK=1` forces it), prefetch deeper.
 - **Card handling** (new, tested with the old card on the board, and the screen in `ui_dump`): the card is polled once a second (no card-detect pin). A card whose sector read takes more than 15 ms is not used and the app shows "SD CARD TOO SLOW"; removal or a swap resets the catalog (loaded sample slots stay in memory until reboot: known debt) and the app rebuilds the synth (a 170 ms audio stall, once per card event).
   A failing mount attempt must never busy-wait (it starved the idle task before): the own driver returns quickly when no card answers.
-- Task priorities are in DEVELOPING.md ("Tasks and priorities"). `samples_src/` + `build.ps1` (`-Sd E:` copies to the card) is the sample workflow; names are cut to 23 characters; only `.smp` is read on the board.
+- Task priorities are in DEVELOPING.md ("Tasks and priorities"). `samples_src/` + `build.ps1` (`-Sd E:` copies to the card) is the sample workflow; a name is the file's path below `system/samples`, 47 characters at most (longer: listed, not usable); only `.smp` is read on the board.
 - `platformio.ini` (2026-10-07, set by the user): `-DENGINE_SR=44100`, `DEV_OUTPUT_GAIN_PCT=25`, `DEV_BOOT_DELAY_MS=500`, `DEV_SERIAL_CMD` on; **`HWV1_BENCH`, `ENGINE_PROFILE`,
   `HWV1_DEBUG_AUDIO`, `HWV1_DEBUG_UI` are commented out: turn them back on before any measurement (`serial_test.py` needs `ENGINE_PROFILE` + `HWV1_DEBUG_AUDIO`)**.
 
@@ -548,6 +553,22 @@ The user decides and I record the reasoning and move on, without re-litigating:
   because their tests show the same sound within a stated tolerance.
 
 ## Known debt / small issues
+
+- **The sample library** (2026-10-11): 32 different samples in use at once (64 pads cannot all hold a different file); pads.cfg
+  must fit 4 KB and now stores paths (64 pads with long paths can pass it: the end is cut silently; a file per bank would fix it);
+  a folder shows 320 entries at most; a long name is cut at the row's edge; no audition from the SAMPLES tab (synth section);
+  `tools/sample_sim_check.cpp` still expects the old scan at start (not updated, not built by any script).
+
+From the session todo (long-term; moved here 2026-10-11):
+
+- **8 x 8 grid layout, the other screens**: step 1 built (top bar 16 px, RACK cells 32 px); list rows (9 px) and parameter pages still off
+  the grid. Do it together with the phase-1 RACK tab where they overlap (from: user)
+- **Module first page + cog: detailing**: works, the user will detail it later (EG / MOTION old layout, hidden settings of the other
+  modules, one cycle in the previews) (from: user)
+- **UI sprites**: pipeline built; the user paints the placeholder PNGs (from: user)
+- **MI follow-ups**: loudness per model, denormals (Plaits drums), IRAM, Harm placement, tier 3; cycles per model (`[MI]`) not recorded
+  here yet (from: notes)
+- Quick macro UI button; declarative main view (UI_GUIDE.md section 8); "audio backend" interface findings (from: user + debt)
 
 - ui.cfg is written into one `STORAGE_FILE_MAX` (4 KB) buffer: 64 macro destinations (~2.2 KB) plus many Shift / Mod key entries can pass it, and the end is
   cut silently (the cut lines are lost at the next load). Fix if it bites: split macros into their own file, or write in chunks. Min / Max step by 5 %.

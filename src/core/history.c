@@ -30,10 +30,10 @@ static int version_number(const char *name, const char *stem) {
 }
 
 // The root cut so that "<stem>~<n>" fits a library name.
-static void stem_of(const char *root, char *out) { snprintf(out, 19, "%s", root); }
+static void stem_of(const char *root, char *out) { snprintf(out, HISTORY_NAME - 5, "%s", root); }
 
 void history_new_name(const history_t *h, const char *root, char *out) {
-    char stem[19];
+    char stem[HISTORY_NAME - 5];
     stem_of(root, stem);
     int top = 0;
     for (int i = 0; i < h->n; i++) { const int k = version_number(h->v[i].name, stem); if (k > top) top = k; }
@@ -130,11 +130,11 @@ int history_trim(history_t *h, const char *root, const char *const *used, int n_
 /* ---------------- history.cfg ---------------- */
 
 int history_to_text(const history_t *h, char *buf, int cap) {
-    int n = snprintf(buf, (size_t)cap, "# SynthCore sample history: v <seq> <name> <parent or -> <trim on the parent: 3> <trim on it: 3> <what>\nhistory %lu\n",
+    int n = snprintf(buf, (size_t)cap, "# SynthCore sample history: v <seq> |<name>|<parent or ->| <trim on the parent: 3> <trim on it: 3> <what>\nhistory %lu\n",
                      (unsigned long)h->seq);
     for (int i = 0; i < h->n && n < cap; i++) {
         const hist_ver_t *v = &h->v[i];
-        n += snprintf(buf + n, (size_t)(cap - n), "v %lu %s %s %lu %lu %lu %lu %lu %lu %s\n", (unsigned long)v->seq, v->name, v->parent[0] ? v->parent : "-",
+        n += snprintf(buf + n, (size_t)(cap - n), "v %lu |%s|%s| %lu %lu %lu %lu %lu %lu %s\n", (unsigned long)v->seq, v->name, v->parent[0] ? v->parent : "-",
                       (unsigned long)v->ptrim[0], (unsigned long)v->ptrim[1], (unsigned long)v->ptrim[2],
                       (unsigned long)v->ctrim[0], (unsigned long)v->ctrim[1], (unsigned long)v->ctrim[2], v->what);
     }
@@ -150,7 +150,7 @@ bool history_from_text(history_t *h, const char *txt) {
         char name[HISTORY_NAME], parent[HISTORY_NAME];
         int used = 0;
         if (sscanf(line, "history %lu", &seq) == 1) { r.seq = (uint32_t)seq; ok = true; continue; }
-        if (sscanf(line, "v %lu %23s %23s %lu %lu %lu %lu %lu %lu %n", &seq, name, parent, &t[0], &t[1], &t[2], &t[3], &t[4], &t[5], &used) < 9 || r.n >= HISTORY_MAX) continue;
+        if (sscanf(line, "v %lu |%47[^|]|%47[^|]| %lu %lu %lu %lu %lu %lu %n", &seq, name, parent, &t[0], &t[1], &t[2], &t[3], &t[4], &t[5], &used) < 9 || r.n >= HISTORY_MAX) continue;
         hist_ver_t *v = &r.v[r.n++];
         for (int k = 0; k < 3; k++) { v->ptrim[k] = (uint32_t)t[k]; v->ctrim[k] = (uint32_t)t[3 + k]; }
         snprintf(v->name, sizeof v->name, "%s", name);

@@ -9,13 +9,8 @@
 
 /* ---------------- the sample library, by name ---------------- */
 
-static int file_index(const char *name) {                // catalog index of a pad's sample, -1 = none / not on this card
-    if (!name[0]) return -1;
-    const int n = audio_sample_count();
-    audio_sample_info_t in;
-    for (int i = 0; i < n; i++) if (audio_sample_info(i, &in) && !strcmp(in.name, name)) return i;
-    return -1;
-}
+// Catalog index of a pad's sample, -1 = none / not in the catalog (the app takes a pad's file into it: not on this card, or not yet).
+static int file_index(const char *name) { return name[0] ? audio_sample_find(name) : -1; }
 
 static bool file_info(const pad_t *p, audio_sample_info_t *in) {
     const int i = file_index(p->file);
@@ -33,7 +28,7 @@ static void pad_value(const ui_ctx_t *c, char *out, int n) {
     audio_sample_info_t in;
     const bool have = file_info(p, &in);
     pad_param_format(p, (pad_param_t)c->arg, have ? in.frames : 0, have ? in.rate : 0, out, n);
-    if (c->arg == PADP_FILE && p->file[0] && !have) snprintf(out, (size_t)n, "%s?", p->file);   // not on this card
+    if (c->arg == PADP_FILE && p->file[0] && !have) snprintf(out, (size_t)n, "%s?", pad_file_base(p->file));   // not on this card
 }
 
 static bool file_has_loop(const audio_sample_info_t *in);
@@ -89,21 +84,8 @@ static bool pad_adjust(const ui_ctx_t *c, int dir) {
         return p->loop != was;
     }
     if (c->arg != PADP_FILE) return pad_param_adjust(p, (pad_param_t)c->arg, dir, frames);
-    const int n = audio_sample_count();                  // the library in its order, "--" (none) before the first file; versions (name~n)
-    int i = file_index(p->file);                         // and deleted entries are skipped (the EDIT page reaches the versions)
-    for (int k = 0; k <= n; k++) {
-        i += dir > 0 ? 1 : -1;
-        if (i < -1) i = n - 1;
-        if (i >= n) i = -1;
-        if (i < 0 || (audio_sample_info(i, &in) && in.name[0] && !strchr(in.name, '~'))) break;
-    }
-    if (i >= 0 && audio_sample_info(i, &in)) snprintf(p->file, PAD_NAME_MAX, "%s", in.name);
-    else p->file[0] = 0;
-    // a file with its own loop points loads them (user, 2026-10-10); without them File is not offered
-    const bool file_loop = p->file[0] && file_has_loop(&in);
-    if (file_loop) p->loop = PAD_LOOP_FILE;
-    else if (p->loop == PAD_LOOP_FILE) p->loop = PAD_LOOP_OFF;
-    return true;
+    c->ui->br_req = BROWSE_PAD;                          // the sample: the browser (the app opens it; a push on the row too)
+    return false;
 }
 
 static const char *pad_label_dyn(const ui_ctx_t *c) { return pad_param_label((pad_param_t)c->arg); }
@@ -550,7 +532,7 @@ static void edit_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
     const pad_t *p = cur_pad(c);
     const hist_ver_t *v = c->ui->history ? history_find(c->ui->history, p->file) : NULL;
     char t[48];
-    if (v) snprintf(t, sizeof t, "from %.10s: %s", v->parent[0] ? v->parent : "?", v->what);
+    if (v) snprintf(t, sizeof t, "from %.10s: %s", v->parent[0] ? pad_file_base(v->parent) : "?", v->what);
     else snprintf(t, sizeof t, p->file[0] ? "original" : "");
     u8g2_DrawStr(g, area.x + 1, area.y + WAVE_H + 10, t);
 }
@@ -695,6 +677,10 @@ bool pads_ui_handle(synth_ui_t *ui, rack_t *rack, ui_event_t e) {
         return false;
     }
     if (ui->pad_page == 2 && ui->chop_pad != pads_ui_pad(ui)) chop_refresh(ui);   // another pad (its key): a new chop, before the event acts
+    if (ui->pad_page == 0 && ui->pad_row == pads_ui_row(0, PADP_FILE) && (e == UI_LATCH || e == UI_SELECT)) {
+        ui->br_req = BROWSE_PAD;                                                 // a push on the sample row: the browser
+        return false;
+    }
     const int row = ui->row;                             // the screen helpers use the synth UI's focus: lend them the editor's
     const bool latched = ui->latched;
     ui->row = ui->pad_row; ui->latched = ui->pad_latched;
@@ -719,7 +705,7 @@ static void draw_cell(u8g2_t *g, gui_rect_t r, int index, const pad_t *p, bool o
     if (!pad_empty(p)) {
         snprintf(t, sizeof t, "%s%s", p->mode == PAD_GATE ? "G" : p->mode == PAD_TOGGLE ? "T" : "", p->loop ? "L" : "");
         u8g2_DrawStr(g, in.x + in.w - 2 - u8g2_GetStrWidth(g, t), in.y + 8, t);
-        snprintf(t, sizeof t, "%.5s", p->file);
+        snprintf(t, sizeof t, "%.5s", pad_file_base(p->file));
         u8g2_DrawStr(g, in.x + 2, in.y + 17, t);
         int x = in.x + 2;
         if (p->mute) { u8g2_DrawStr(g, x, in.y + 25, "M"); x += 7; }
@@ -753,7 +739,7 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
         const pad_t *p = &ui->pads->pad[sel];
         static const char *const page[PAD_PAGES] = {"PLAY", "TONE", "CHOP", "EDIT"};
         if (ui->pad_page) snprintf(t, sizeof t, "< %s %s >", l, page[ui->pad_page % PAD_PAGES]);
-        else snprintf(t, sizeof t, "< %s %.9s >", l, p->file[0] ? p->file : "PLAY");
+        else snprintf(t, sizeof t, "< %s %.9s >", l, p->file[0] ? pad_file_base(p->file) : "PLAY");
     }
     u8g2_DrawHLine(g, bar.x, gui_bottom(bar) - 1, bar.w);
     const bool head_focus = ui->pad_fx ? ui->fx_row == 0 : ui->pad_edit && ui->pad_row == 0;

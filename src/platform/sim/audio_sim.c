@@ -67,7 +67,14 @@ void audio_build(const rack_t *r, const synth_params_t *p)      { engine_synth_b
 int audio_sample_count(void)                                     { return engine_synth_sample_count(); }
 bool audio_sample_info(int i, audio_sample_info_t *out)         { return engine_synth_sample_info(i, out); }
 int audio_osc_preview(int m, float t, float mo, float h, int period, int16_t *out, int n) { return engine_synth_osc_preview(m, t, mo, h, period, out, n); }
-int audio_samples_rescan(void)                                  { return sim_samples_rescan(); }
+int sim_samples_find(const char *name);
+int sim_samples_use(const char *name);
+int sim_samples_dir_open(const char *dir);
+int sim_samples_dir_read(int first, audio_dir_entry_t *out, int max);
+int audio_sample_find(const char *name)                         { return sim_samples_find(name); }
+int audio_sample_use(const char *name)                          { return sim_samples_use(name); }
+int audio_dir_open(const char *dir)                             { return sim_card_present() ? sim_samples_dir_open(dir) : -1; }
+int audio_dir_read(int first, audio_dir_entry_t *out, int max)  { return sim_samples_dir_read(first, out, max); }
 sd_state_t audio_sd_state(void)                                 { return sim_card_present() ? SD_OK : SD_NONE; }   // the sdcard/ folder (F12: out / in)
 uint32_t audio_sd_read_us(void)                                 { return 0; }
 uint32_t audio_sd_generation(void)                              { return sim_card_generation(); }

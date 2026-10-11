@@ -42,6 +42,9 @@ void app_init(app_t *app, u8g2_t *display) {
     synth_ui_init(&app->ui, &app->rack);
     pads_init(&app->pads);
     pads_load(&app->pads);              // pads.cfg (the board's card shows up later: check_sd)
+    app->lib_dirty = true;              // its files go into the catalog one per step (pads_resolve)
+    app->lib_missing = 0;
+    app->lib_tries = 0;
     pads_fx_load(&app->pads.fx);        // padsfx.cfg: the FX chains
     app->ui.pads = &app->pads;
     pads_ui_init(&app->ui);                 // no chop yet, the EDIT page's amounts
@@ -83,6 +86,8 @@ static bool in_pads(const app_t *app) { return app->section == SECTION_PADS; }
 // A pad's settings changed: the engine gets them, pads.cfg is saved a moment later (pads_autosave).
 static void pad_changed(app_t *app, int pad) {
     audio_pad_set(pad, &app->pads.pad[pad]);
+    app->lib_missing &= ~(1ull << pad);                     // (its file may be another one: pads_resolve looks)
+    app->lib_dirty = true;
     if (!app->pads_pending) { app->pads_pending = true; app->pads_ms = audio_millis(); }
     app->dirty = true;
 }
@@ -99,9 +104,12 @@ static void fx_changed(app_t *app) {
 static void chop_ask(app_t *app);
 static void render_start(app_t *app, int pad, int op, int32_t amount, bool chop);
 
+static void browse_open(app_t *app, int what);
+
 static void pads_event(app_t *app, ui_event_t ev) {
     app->ui.clock_bpm = app->seq.bpm;
     if (pads_ui_handle(&app->ui, &app->rack, ev)) pad_changed(app, pads_ui_pad(&app->ui));
+    if (app->ui.br_req) { app->ui.br_req = 0; browse_open(app, BROWSE_PAD); }   // the sample row: the browser
     if (app->ui.rack_dirty) fx_changed(app);                // the FX pages edited the chains
     if (app->ui.pad_chop_req) { app->ui.pad_chop_req = false; chop_ask(app); }
     if (app->ui.pad_render_req) {
@@ -114,11 +122,164 @@ static void pads_event(app_t *app, ui_event_t ev) {
 
 /* ---------------- processing a pad's sample into a new version (ADR-041 decisions 36-38, 43) ---------------- */
 
-static int lib_index(const char *name) {
+static int lib_index(const char *name) { return name && name[0] ? audio_sample_find(name) : -1; }
+
+/* ---------------- the catalog: the files in use (hal_audio.h), and the sample browser (scr_browse.c) ---------------- */
+
+// Does anything refer to catalog entry `index` (called `name`): a pad, a sampler of the rack, the SAMPLES tab, a job in progress.
+static bool sample_in_use(const app_t *app, int index, const char *name) {
+    for (int k = 0; k < PAD_COUNT; k++) if (!strcmp(app->pads.pad[k].file, name)) return true;
+    for (int i = 0; i < app->rack.count; i++)
+        if (app->rack.slot[i].type == MOD_SAMPLER && (int)app->rack.slot[i].v[MP_SM_FILE] - 1 == index) return true;
+    if (app->ui.smp_cur == index && !in_pads(app)) return true;
+    if (app->ui.br_open == BROWSE_PAD && !strcmp(app->ui.br_pad.file, name)) return true;     // (Back puts that pad back)
+    if (app->render.stage && (!strcmp(app->render.name, name) || !strcmp(app->render.parent, name))) return true;
+    return app->capture.stage && !strcmp(app->capture.name, name);
+}
+
+// A sample of the library by name: its catalog index, read from the card when it is not in the catalog yet. When the catalog is full,
+// an entry nothing uses leaves it first. Returns the index, LIB_MISSING (no such sample), LIB_AGAIN (the entry that left is still
+// being unloaded: ask again at the next step) or LIB_FULL (every entry is in use).
+enum { LIB_MISSING = -1, LIB_AGAIN = -2, LIB_FULL = -3 };
+static int sample_use(app_t *app, const char *name) {
+    static uint8_t waits;                                                   // steps spent waiting for an entry that left
+    int index = audio_sample_use(name);
+    if (index != -2) { waits = 0; return index < 0 ? LIB_MISSING : index; }
     audio_sample_info_t in;
-    if (!name || !name[0]) return -1;
-    for (int i = 0; i < audio_sample_count(); i++) if (audio_sample_info(i, &in) && !strcmp(in.name, name)) return i;
-    return -1;
+    bool leaving = false;                                                   // an entry that left earlier is still being unloaded
+    for (int i = 0; i < AUDIO_SAMPLES_MAX && !leaving; i++) leaving = audio_sample_info(i, &in) && !in.name[0];
+    if (leaving && ++waits < 20) return LIB_AGAIN;                          // (longer: a voice still plays it; another entry leaves)
+    waits = 0;
+    for (int i = 0; i < AUDIO_SAMPLES_MAX; i++) {
+        if (!audio_sample_info(i, &in) || !in.name[0] || sample_in_use(app, i, in.name)) continue;
+        audio_sample_hide(i);
+        index = audio_sample_use(name);
+        return index >= 0 ? index : index == -2 ? LIB_AGAIN : LIB_MISSING;
+    }
+    return leaving ? LIB_AGAIN : LIB_FULL;
+}
+
+static void lib_full_popup(app_t *app) {
+    char t[40];
+    snprintf(t, sizeof t, "Full: %d samples in use", AUDIO_SAMPLES_MAX);
+    popup_info(&app->popup, "LIBRARY", t, 0, audio_millis(), POPUP_INFO_MS);
+    app->dirty = true;
+}
+
+// The pads' files that are not in the catalog (after a start, a card change, pads.cfg, a version or a file picked): one per step,
+// then every pad that plays it is sent to the engine again (it had no sample to give it). A file that is not on the card is not asked
+// for again until its pad changes or the card does.
+static void pads_resolve(app_t *app) {
+    if (!app->lib_dirty || audio_sd_state() != SD_OK) return;
+    for (int k = 0; k < PAD_COUNT; k++) {
+        const char *file = app->pads.pad[k].file;
+        if (!file[0] || (app->lib_missing >> k & 1) || lib_index(file) >= 0) continue;
+        const int index = sample_use(app, file);
+        if (index == LIB_AGAIN && ++app->lib_tries < 100) return;
+        app->lib_tries = 0;
+        for (int j = k; j < PAD_COUNT; j++) {
+            if (strcmp(app->pads.pad[j].file, file)) continue;
+            if (index < 0) app->lib_missing |= 1ull << j;
+            else if (in_pads(app)) audio_pad_set(j, &app->pads.pad[j]);
+        }
+        if (index == LIB_FULL || index == LIB_AGAIN) lib_full_popup(app);
+        app->dirty = true;
+        return;
+    }
+    app->lib_dirty = false;
+}
+
+// A new file on a pad: the whole file, with its own loop points when it has some (user, 2026-10-10), the pad's other settings kept.
+static void pad_take_file(app_t *app, int pad, const audio_sample_info_t *in) {
+    pad_t *p = &app->pads.pad[pad];
+    snprintf(p->file, PAD_NAME_MAX, "%s", in->name);
+    p->start = p->end = p->lstart = 0;
+    if (in->loop_mode != 0 && in->loop_end > in->loop_start + 1) p->loop = PAD_LOOP_FILE;
+    else if (p->loop == PAD_LOOP_FILE) p->loop = PAD_LOOP_OFF;
+    pad_changed(app, pad);
+}
+
+static void browse_open(app_t *app, int what) {
+    synth_ui_t *ui = &app->ui;
+    char cur[PAD_NAME_MAX] = "";
+    audio_sample_info_t in;
+    const int pad = pads_ui_pad(ui);
+    if (what == BROWSE_PAD) snprintf(cur, sizeof cur, "%s", app->pads.pad[pad].file);
+    else if (audio_sample_info(ui->smp_cur, &in)) snprintf(cur, sizeof cur, "%s", in.name);
+    if (audio_sd_state() != SD_OK || !browse_ui_open(ui, what, cur, audio_millis())) {
+        popup_info(&app->popup, "SAMPLES", audio_sd_state() != SD_OK ? "No card" : "No samples folder", 0, audio_millis(), POPUP_INFO_MS);
+        app->dirty = true;
+        return;
+    }
+    ui->br_target = (int8_t)pad;
+    ui->br_pad = app->pads.pad[pad];
+    app->dirty = true;
+}
+
+// The highlighted sample, once the highlight rests: into the catalog (the screen shows its overview) and, for a pad, onto that pad, so
+// that the pad's key plays it. False while it has to be asked again (an unused sample is still being unloaded).
+static bool browse_load(app_t *app) {
+    synth_ui_t *ui = &app->ui;
+    char name[PAD_NAME_MAX];
+    ui->br_state = BR_NONE;
+    if (!browse_ui_file(ui, name, sizeof name)) return true;
+    const int index = sample_use(app, name);
+    if (index == LIB_AGAIN && ++ui->br_tries < 100) { ui->br_state = BR_FRESH; return false; }
+    ui->br_tries = 0;
+    if (index == LIB_FULL || index == LIB_AGAIN) lib_full_popup(app);
+    if (index < 0 || !audio_sample_info(index, &ui->br_info)) return true;
+    ui->br_state = BR_SHOWN;
+    if (ui->br_open == BROWSE_PAD && strcmp(app->pads.pad[ui->br_target].file, name)) {
+        pad_take_file(app, ui->br_target, &ui->br_info);
+        audio_sample_info(index, &ui->br_info);              // (a .wav / .mp3 was converted for the pad: its length is known now)
+    }
+    return true;
+}
+
+// The browser closes: on a choice the pad keeps the sample (the SAMPLES tab: it becomes its File), else the pad is as it was.
+static void browse_close(app_t *app, bool chosen) {
+    synth_ui_t *ui = &app->ui;
+    const int what = ui->br_open, pad = ui->br_target;
+    ui->br_done = 0;
+    if (chosen && ui->br_state == BR_FRESH) browse_load(app);               // chosen before the highlight rested
+    if (chosen && ui->br_state != BR_SHOWN) {                               // nothing to take: the browser stays
+        popup_info(&app->popup, "SAMPLES", "This sample cannot be read", 0, audio_millis(), POPUP_INFO_MS);
+        app->dirty = true;
+        return;
+    }
+    ui->br_open = 0;
+    if (what == BROWSE_PAD) {
+        if (!chosen && memcmp(&app->pads.pad[pad], &ui->br_pad, sizeof(pad_t))) { app->pads.pad[pad] = ui->br_pad; pad_changed(app, pad); }
+        if (ui->pad_page == 2) pads_ui_chop_refresh(ui);
+    } else if (chosen) {
+        const int index = lib_index(ui->br_info.name);
+        if (index >= 0) ui->smp_cur = index;
+    }
+    app->dirty = true;
+}
+
+static void browse_poll(app_t *app, uint32_t now) {
+    synth_ui_t *ui = &app->ui;
+    if (!ui->br_open) return;
+    if (ui->br_done) { browse_close(app, ui->br_done == 1); return; }
+    if (ui->br_state == BR_FRESH && now - ui->br_ms >= BROWSE_REST_MS) { browse_load(app); app->dirty = true; }
+}
+
+// The first name "<stem><n>" (n from 1) no sample of the library's root folder has: its files are listed (the card is read), since
+// the catalog only knows the files in use.
+static void lib_new_name(const char *stem, char *out, int n) {
+    int top = 0;
+    const size_t sl = strlen(stem);
+    const int total = audio_dir_open("");
+    audio_dir_entry_t e[BROWSE_PAGE];
+    for (int k = 0; k < total;) {
+        const int got = audio_dir_read(k, e, BROWSE_PAGE);
+        if (got <= 0) break;
+        for (int i = 0; i < got; i++)
+            if (!e[i].dir && !strncmp(e[i].name, stem, sl) && atoi(e[i].name + sl) > top) top = atoi(e[i].name + sl);
+        k += got;
+    }
+    snprintf(out, (size_t)n, "%s%d", stem, top + 1);
 }
 
 // `op`: an EDIT_* operation and its amount as the page shows it; `chop`: a padding to `amount` frames instead (then the chop follows).
@@ -184,8 +345,8 @@ static void render_start(app_t *app, int pad, int op, int32_t amount, bool chop)
     char root[HISTORY_NAME];
     history_root(&app->history, p->file, root);
     history_new_name(&app->history, root, r->name);
-    for (int k = 2; lib_index(r->name) >= 0 && k < 100; k++) {             // a file of that name is already there (an older history): further on
-        char stem[19];
+    for (int k = 2; sample_use(app, r->name) >= 0 && k < 100; k++) {       // a file of that name is already on the card (an older history): further on
+        char stem[HISTORY_NAME - 5];
         snprintf(stem, sizeof stem, "%s", root);
         snprintf(r->name, sizeof r->name, "%s~%d", stem, k);
     }
@@ -267,7 +428,7 @@ static void render_poll(app_t *app, uint32_t now) {
         int pct = 0;
         const int st = audio_render_poll(&pct);
         if (pct != app->ui.render_pct) { app->ui.render_pct = pct; app->dirty = true; }
-        if (st == RENDER_STATE_DONE) { audio_samples_rescan(); r->stage = 2; r->since = now; }
+        if (st == RENDER_STATE_DONE) { r->stage = 2; r->since = now; }
         else if (st == RENDER_STATE_FAILED) {
             audio_render_done();
             r->stage = 0;
@@ -277,8 +438,8 @@ static void render_poll(app_t *app, uint32_t now) {
         }
     }
     if (r->stage == 2) {
-        if (lib_index(r->name) >= 0) render_adopt(app);
-        else if (now - r->since > 15000) {                                   // the card task never listed it
+        if (sample_use(app, r->name) >= 0) render_adopt(app);                // the new file, into the catalog
+        else if (now - r->since > 15000) {                                   // it cannot be read back (or the catalog stays full)
             audio_render_done();
             r->stage = 0;
             app->ui.render_pct = -1;
@@ -323,10 +484,7 @@ static void capture_key(app_t *app) {
         if (pad_empty(&app->pads.pad[i])) pad = i;
     }
     if (pad < 0) { popup_info(&app->popup, "REC", "No empty pad", 0, now, POPUP_INFO_MS); app->dirty = true; return; }
-    for (int n = 1; n < 1000; n++) {                        // the first free name
-        snprintf(c->name, sizeof c->name, "rec%d", n);
-        if (lib_index(c->name) < 0) break;
-    }
+    lib_new_name("rec", c->name, sizeof c->name);           // the first free name
     const uint32_t rate = (uint32_t)audio_rate();
     const int bpm = app->seq.bpm > 0 ? app->seq.bpm : 120;
     const uint32_t limit = c->bars ? (uint32_t)(((uint64_t)c->bars * 4u * 60u * rate + (uint32_t)bpm / 2) / (uint32_t)bpm) : CAPTURE_MAX_S * rate;
@@ -350,7 +508,7 @@ static void capture_poll(app_t *app, uint32_t now) {
         const int st = audio_capture_poll(&frames, &dropped);
         const uint16_t secs = (uint16_t)(frames / (uint32_t)(audio_rate() > 0 ? audio_rate() : 48000));
         if (st != app->ui.cap_state || secs != app->ui.cap_secs) { app->ui.cap_state = (uint8_t)st; app->ui.cap_secs = secs; app->dirty = true; }
-        if (st == CAPTURE_ST_DONE) { c->frames = frames; c->dropped = dropped; audio_samples_rescan(); c->stage = 2; c->since = now; }
+        if (st == CAPTURE_ST_DONE) { c->frames = frames; c->dropped = dropped; c->stage = 2; c->since = now; }
         else if (st == CAPTURE_ST_EMPTY || st == CAPTURE_ST_FAILED || st == CAPTURE_ST_IDLE) {
             audio_capture_done();
             c->stage = 0;
@@ -361,7 +519,7 @@ static void capture_poll(app_t *app, uint32_t now) {
         }
     }
     if (c->stage == 2) {
-        if (lib_index(c->name) >= 0) {                      // in the library: onto its pad, at full level (a copy of a copy must not fade)
+        if (sample_use(app, c->name) >= 0) {                // in the catalog: onto its pad, at full level (a copy of a copy must not fade)
             pad_t *p = &app->pads.pad[c->pad];
             pad_default(p);
             snprintf(p->file, PAD_NAME_MAX, "%s", c->name);
@@ -432,8 +590,10 @@ static void chop_ask(app_t *app) {
 
 // Gives the UI one event; pushes the sound to the audio side when a value changed.
 static void ui_event(app_t *app, ui_event_t ev) {
+    if (app->ui.br_open) { browse_ui_event(&app->ui, ev, audio_millis()); app->dirty = true; return; }   // the sample browser is on top
     if (in_pads(app)) { pads_event(app, ev); return; }
     if (synth_ui_handle(&app->ui, &app->params, &app->seq, &app->rack, ev)) audio_set_params(&app->rack, &app->params);
+    if (app->ui.br_req) { app->ui.br_req = 0; browse_open(app, BROWSE_RACK); }                             // the SAMPLES tab's File row
     app->dirty = true;
     catch_stale = true;
 }
@@ -444,8 +604,9 @@ static void ui_event_n(app_t *app, int n, ui_event_t down_or_next, ui_event_t up
     const ui_event_t ev = n > 0 ? down_or_next : up_or_prev;
     if (n < 0) n = -n;
     if (n > 16) n = 16;
-    if (in_pads(app)) { for (int i = 0; i < n; i++) pads_event(app, ev); return; }
-    for (int i = 0; i < n; i++) changed |= synth_ui_handle(&app->ui, &app->params, &app->seq, &app->rack, ev);
+    if (app->ui.br_open || in_pads(app)) { for (int i = 0; i < n; i++) ui_event(app, ev); return; }
+    for (int i = 0; i < n && !app->ui.br_req; i++) changed |= synth_ui_handle(&app->ui, &app->params, &app->seq, &app->rack, ev);
+    if (app->ui.br_req) { app->ui.br_req = 0; browse_open(app, BROWSE_RACK); }
     if (changed) audio_set_params(&app->rack, &app->params);
     app->dirty = true;
     catch_stale = true;
@@ -568,6 +729,7 @@ static void synth_xy_off(app_t *app);
 // (the engine loads the other graph). The keys take the section's layout (core/keymap.h).
 static void section_set(app_t *app, bool pads) {
     if (pads == in_pads(app)) return;
+    if (app->ui.br_open) browse_close(app, false);
     for (int c = 0; c < CTL_COUNT; c++) {
         if (app->in.held[c]) audio_note_off(app->in.held[c] - 1);
         app->in.held[c] = 0;
@@ -595,6 +757,12 @@ static void section_set(app_t *app, bool pads) {
 // opens its editor, with Shift held only selects it. Its release reaches the same pad (pad_held), so a gate pad stops even after a bank change.
 static void pad_key_down(app_t *app, control_id_t ctl, int k) {
     if (!in_pads(app) || k < 0 || k >= PADS_PER_BANK) return;
+    if (app->ui.br_open == BROWSE_PAD) {                     // the browser: every pad key plays the highlighted sample (on the pad it is for)
+        if (app->ui.br_state == BR_FRESH) browse_load(app);
+        audio_pad_push(app->ui.br_target);
+        app->in.pad_held[ctl] = (uint8_t)(app->ui.br_target + 1);
+        return;
+    }
     const int pad = app->ui.pad_bank * PADS_PER_BANK + k;
     app->ui.pad_cur = (uint8_t)k;
     app->dirty = true;
@@ -733,6 +901,7 @@ static void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
         case ACT_ROW_TOP:      ui_event(app, UI_ROW_TOP); break;
         case ACT_SELECT:       ui_event(app, UI_SELECT); break;
         case ACT_MENU:                                      // Shift + Menu (its Shift entry Default): Synth <-> Pads
+            if (app->ui.br_open) browse_close(app, false);  // (the sample browser goes first, nothing chosen)
             if (app->in.shift && !app->in.mod) section_set(app, !in_pads(app));
             else if (in_pads(app)) { pads_ui_fx_open(&app->ui, !app->ui.pad_fx); app->dirty = true; }   // Pads: the FX chains
             else ui_event(app, UI_MENU);
@@ -1104,7 +1273,8 @@ static void draw_frame(app_t *app) {
     u8g2_t *g = app->display;
     if (app->keys_notice) draw_keys_notice(app);   // the full-screen notice hides the popups until it goes (they wait in their queue)
     else {
-        if (in_pads(app)) pads_ui_draw(&app->ui, &app->rack, g, app->pads_shown, app->seq.bpm);
+        if (app->ui.br_open) browse_ui_draw(&app->ui, g);
+        else if (in_pads(app)) pads_ui_draw(&app->ui, &app->rack, g, app->pads_shown, app->seq.bpm);
         else synth_ui_draw(&app->ui, &app->params, &app->seq, &app->rack, g);
         gui_style_t st;
         gui_style_init(&st, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
@@ -1121,6 +1291,9 @@ static void check_sd(app_t *app) {
     const uint32_t gen = audio_sd_generation();
     if (gen == app->sd_gen) return;
     app->sd_gen = gen;
+    if (app->ui.br_open) browse_close(app, false);                      // (the folder it shows may be gone)
+    app->lib_missing = 0;                                               // the pads' files are looked for again (pads_resolve)
+    app->lib_dirty = true;
     if (audio_sd_state() != SD_NONE) {
         if (keymap_dirty()) keymap_save(); else keymap_load();
         if (curves_changed()) curves_save(); else curves_load();
@@ -1238,6 +1411,8 @@ bool app_step(app_t *app, input_event_t e) {
     settings_autosave(app, now);
     pads_autosave(app, now);
     fx_autosave(app, now);
+    browse_poll(app, now);
+    pads_resolve(app);
     if (in_pads(app)) {                                                  // the grid shows which pads sound: redraw when that changes
         app->ui.clock_bpm = app->seq.bpm;
         if (pads_ui_tick(&app->ui)) app->dirty = true;                       // a transient scan finished

@@ -107,7 +107,12 @@ void run(char *line) {
         Serial.printf("[CMD] pieconv: %d of %d sums differ from C (full scale, 1..64 vectors); 128 taps x 2 channels: %u cycles\n", bad, cases, (unsigned)cyc);
         return;
     }
-    if (!strcmp(line, "samples")) {
+    if (!strcmp(line, "samples")) {                       // the samples of the library's root folder join the catalog (the test tools pick from it), then the catalog
+        const int total = audio_dir_open("");
+        for (int k = 0; k < total; k++) {
+            audio_dir_entry_t e;
+            if (audio_dir_read(k, &e, 1) == 1 && !e.dir) audio_sample_use(e.name);
+        }
         audio_sample_info_t in;
         const int n = audio_sample_count();
         for (int i = 0; i < n; i++) if (audio_sample_info(i, &in)) Serial.printf("[CMD] sample %d %s %u frames %u Hz root %d loop %u..%u mode %d\n", i, in.name, (unsigned)in.frames, (unsigned)in.rate, in.root, (unsigned)in.loop_start, (unsigned)in.loop_end, in.loop_mode);

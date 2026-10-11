@@ -47,6 +47,9 @@ struct Synth {
     bool pads_mode = false;                   // the pads player is loaded instead of the synth (engine_synth_pads_build)
     int32_t pad_events = 0;                   // the counter of the pad events (sampler_modules.h: (n << 8) | pad)
     size_t resident_bytes = 0;                // pad samples kept whole in memory (kPadResidentBudget)
+    bool retire[AUDIO_SAMPLES_MAX] = {};      // the entry was removed while its sample was loaded: retire_samples unloads it
+    uint32_t retire_blk[AUDIO_SAMPLES_MAX] = {};   // ... the engine block it was removed in
+    int retire_n = 0;
     bool gc_due = false;                      // a graph was loaded: free the old one once the audio thread has switched
 };
 
@@ -77,7 +80,7 @@ void resolve_samples(const rack_t &rack) {
         if (rack.slot[i].type != MOD_SAMPLER) continue;
         const int f = static_cast<int>(rack.slot[i].v[MP_SM_FILE]) - 1;
         if (f < 0 || f >= s.cat_n || s.slot_of[f] >= 0 || s.cat[f].pending) continue;
-        char path[40];
+        char path[AUDIO_NAME_MAX + 8];
         std::snprintf(path, sizeof path, "%s.smp", s.cat[f].name);
         s.slot_of[f] = static_cast<int16_t>(s.bank.load(path, 150));
     }
@@ -169,7 +172,7 @@ PadBlob pad_blob(int idx, const pad_t &p) {
         if (s.slot_of[f] < 0) {
             const size_t bytes = static_cast<size_t>(s.cat[f].frames) * sizeof(q15);
             const bool whole = bytes <= kPadResidentMax && s.resident_bytes + bytes <= kPadResidentBudget;
-            char path[40];
+            char path[AUDIO_NAME_MAX + 8];
             std::snprintf(path, sizeof path, "%s.smp", s.cat[f].name);
             s.slot_of[f] = static_cast<int16_t>(s.bank.load(path, whole ? 0 : 150));
             if (whole && s.slot_of[f] >= 0) s.resident_bytes += bytes;
@@ -273,9 +276,36 @@ const char *engine_synth_build_reason(void) { return s_reason; }
 
 unsigned engine_synth_build_count(void) { return s_builds; }
 
+// The samples whose catalog entry was removed (engine_synth_catalog_remove) are unloaded once nothing can read them: every command
+// sent before the removal has reached the audio thread (4 blocks later: a pad pushed on its old settings has started its voice by
+// then, and its stream shows it), and the loader and the streams are off the sample (SampleBank::can_unload).
+static void retire_samples() {
+    Synth &s = s_synth;
+    std::lock_guard<std::mutex> lk(s.mx);
+    const uint32_t now = static_cast<uint32_t>(s.eng.blocks());
+    for (int i = 0; i < AUDIO_SAMPLES_MAX; i++) {
+        if (!s.retire[i] || now - s.retire_blk[i] < 4) continue;
+        const int slot = s.slot_of[i];
+        if (slot >= 0 && !s.bank.can_unload(slot)) continue;
+        if (slot >= 0) {
+            const SampleSlot *sl = s.bank.slot(slot);
+            if (sl && sl->state != SLOT_FREE && sl->head_ms == 0) {             // it was counted as a whole pad sample (pad_blob)
+                const size_t bytes = static_cast<size_t>(s.cat[i].frames) * sizeof(q15);
+                s.resident_bytes -= bytes < s.resident_bytes ? bytes : s.resident_bytes;
+            }
+            s.bank.unload(slot);
+            s.slot_of[i] = -1;
+        }
+        s.retire[i] = false;
+        s.retire_n--;
+    }
+}
+
 void engine_synth_housekeeping(void) {
     Synth &s = s_synth;
-    if (!s_ready || !s.gc_due || s.eng.switching()) return;
+    if (!s_ready) return;
+    if (s.retire_n > 0) retire_samples();
+    if (!s.gc_due || s.eng.switching()) return;
     std::lock_guard<std::mutex> lk(s.mx);                                       // (a freed Sampler leaves the loader's stream list)
     s.eng.gc();
     s.gc_due = s.eng.switching();
@@ -483,7 +513,7 @@ int engine_synth_sample_onsets(int index, uint32_t *frames, uint16_t *strength, 
     std::lock_guard<std::mutex> lk(s.mx);
     if (!s.bank_on || index < 0 || index >= s.cat_n || s.cat[index].pending) return 0;
     if (s.slot_of[index] < 0) {                                                 // not loaded yet: load it (a head) to scan it
-        char path[40];
+        char path[AUDIO_NAME_MAX + 8];
         std::snprintf(path, sizeof path, "%s.smp", s.cat[index].name);
         s.slot_of[index] = static_cast<int16_t>(s.bank.load(path, 150));
         if (s.slot_of[index] < 0) return 0;
@@ -541,6 +571,8 @@ void engine_synth_catalog_reset(void) {
     std::lock_guard<std::mutex> lk(s_synth.mx);
     s_synth.cat_n = 0;
     for (auto &v : s_synth.slot_of) v = -1;
+    for (auto &v : s_synth.retire) v = false;
+    s_synth.retire_n = 0;
 }
 
 void engine_synth_sampler_stats(uint32_t *underruns, uint32_t *block_reads) {
@@ -586,5 +618,36 @@ void engine_synth_catalog_set(const audio_sample_info_t *infos, int n) {
     if (n > AUDIO_SAMPLES_MAX) n = AUDIO_SAMPLES_MAX;
     for (int i = 0; i < n; i++) s_synth.cat[i] = infos[i];
     if (n > s_synth.cat_n) s_synth.cat_n = n;
+}
+
+int engine_synth_catalog_find(const char *name) {
+    if (!s_ready) return -1;
+    std::lock_guard<std::mutex> lk(s_synth.mx);
+    return catalog_find(name);
+}
+
+int engine_synth_catalog_add(const audio_sample_info_t *info) {
+    if (!s_ready || !info || !info->name[0]) return -1;
+    Synth &s = s_synth;
+    std::lock_guard<std::mutex> lk(s.mx);
+    int i = catalog_find(info->name);
+    for (int k = 0; k < s.cat_n && i < 0; k++) if (!s.cat[k].name[0] && s.slot_of[k] < 0 && !s.retire[k]) i = k;   // a removed entry, unloaded
+    if (i < 0 && s.cat_n < AUDIO_SAMPLES_MAX) i = s.cat_n++;
+    if (i < 0) return -1;
+    s.cat[i] = *info;
+    return i;
+}
+
+void engine_synth_catalog_remove(int index) {
+    if (!s_ready) return;
+    Synth &s = s_synth;
+    std::lock_guard<std::mutex> lk(s.mx);
+    if (index < 0 || index >= s.cat_n) return;
+    s.cat[index].name[0] = 0;
+    if (s.slot_of[index] >= 0 && !s.retire[index]) {
+        s.retire[index] = true;
+        s.retire_blk[index] = static_cast<uint32_t>(s.eng.blocks());
+        s.retire_n++;
+    }
 }
 #endif  // PLATFORM_SIM || ARDUINO_ARCH_ESP32

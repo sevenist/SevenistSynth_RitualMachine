@@ -63,7 +63,7 @@ C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --cmd "chord 3" --ra
 | `ping` | answers `[CMD] pong`: the board runs a firmware with commands |
 | `status` | notes held by `chord`, uptime, free heap |
 | `pieconv` | checks the Convolver's PIE dot products (`pie_conv2_s16`) against the C sums at full scale, 1..64 vectors, and prints the cost of a 128-tap call for both channels |
-| `samples` | the sample catalog of the TF card: index, name, frames, rate, root note, loop points and mode (the index is the F of `patch sampler`) |
+| `samples` | takes the samples of the library's root folder into the catalog (it holds the files in use, 32 at most; nothing is scanned at start), then prints the catalog: index, name, frames, rate, root note, loop points and mode (the index is the F of `patch sampler`) |
 | `dump N` | captures the next N output samples (1..16384, before the dev output gain) and prints them as `[DUMP] @index v v v ...` lines, 32 per line, between `[DUMP] begin` and `[DUMP] end`. For offline spectrum checks |
 
 ### The Pads section

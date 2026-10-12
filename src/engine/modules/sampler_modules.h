@@ -61,6 +61,9 @@ struct PadBlob {
     q15 gain_l = 0, gain_r = 0;                 // level x pan
     float a1 = 1.0f, a2 = 0.0f, a3 = 0.0f, k = 1.0f;   // low-pass SVF coefficients (dsp/svf.h, SvfCoefF), filter = 1
 };
+// A push from the pads' sequencer (engine/core/sequencer.h PadSeqEvent, by set_blob: its size tells it from a PadBlob): the pad starts
+// at once whatever its grid setting says, at (level + 1) / 16 of its level; a Toggle pad starts too (it is not switched off by the
+// push). `release`: the pad is let go: a Gate or Toggle pad stops with its tail, a one-shot plays on. Its Next is not started.
 // [any thread] the pads sounding now, bit i = pad i (published by the Pads module once per block; 0 when there is none), and where a pad's
 // sound is in its file (frames; -1 when it does not sound).
 uint64_t pads_playing();

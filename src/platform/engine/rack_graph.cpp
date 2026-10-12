@@ -712,6 +712,13 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                 e->param[ENV_A_CURVE] = q(s.v[MP_EN_ACV] / 100.0); e->param[ENV_D_CURVE] = q(s.v[MP_EN_DCV] / 100.0); e->param[ENV_R_CURVE] = q(s.v[MP_EN_RCV] / 100.0);
                 if (to_global) { ensure_gate_in(); b.cable(RN_GATE_IN, gate_of[ti], id, Dst::In, 0); } else b.cable(RN_NOTE, 1, id, Dst::In, 0);
                 dpth = s.v[MP_EN_DEPTH];
+            } else if (s.type == MOD_VEL) {                          // the note's velocity: no node of its own, a cable from the note
+                const q15 dv = qd(s.v[MP_VL_DEPTH] / dt.range);      // (a shared target: from the newest key, GateIn's "vel")
+                if (to_global) ensure_gate_in();
+                const int from = to_global ? RN_GATE_IN : RN_NOTE, port = to_global ? 3 : 2;
+                b.cable(from, port, tgt[ti].node, Dst::Param, dst_param, dv);
+                if (tgt[ti].node2) b.cable(from, port, tgt[ti].node2, Dst::Param, dst_param, dv);
+                continue;
             } else if (s.type == MOD_EG) {
                 if (to_global) continue;                             // (no global EG yet: not realised on the shared chain)
                 NodeDesc *e = b.add(id, T_EG);

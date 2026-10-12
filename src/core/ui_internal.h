@@ -29,7 +29,7 @@
 static inline int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
 typedef enum { GRAPH_WAVE, GRAPH_ENV, GRAPH_FILTER, GRAPH_SAT, GRAPH_AMP_ENV, GRAPH_SEQ, GRAPH_SEQ_CFG, GRAPH_FM, GRAPH_MS_STEPS, GRAPH_MS_LANE, GRAPH_SAMPLE, GRAPH_EG, GRAPH_EG_REL, GRAPH_COMB,
-               GRAPH_STR_OSC, GRAPH_STR_LP, GRAPH_STR_FILTER, GRAPH_FM_OP, GRAPH_FM_ENV, GRAPH_FX } graph_t;
+               GRAPH_STR_OSC, GRAPH_STR_LP, GRAPH_STR_FILTER, GRAPH_FM_OP, GRAPH_FM_ENV, GRAPH_FX, GRAPH_SEQ_PAT } graph_t;
 
 // A resolved page: what to show for ui->page right now.
 typedef struct {
@@ -42,6 +42,19 @@ typedef struct {
 } page_t;
 
 #define GLOBAL_PAGE 255
+
+// The SEQUENCER page's rows (handle_seq, draw_seq): the step, then its values, the chord's voice the Note row edits, Run, and the
+// quick edit tools: Tool picks one (a push runs it), On its scope (core/seq.h).
+enum { SEQ_ROW_STEP = 1, SEQ_ROW_NOTE, SEQ_ROW_LEN, SEQ_ROW_VEL, SEQ_ROW_PROB, SEQ_ROW_RATCHET, SEQ_ROW_VOICE, SEQ_ROW_RUN,
+       SEQ_ROW_TOOL, SEQ_ROW_SCOPE, SEQ_ROWS = SEQ_ROW_SCOPE };
+// The PATTERNS page's rows (handle_seq_pat): the pattern that plays (while it runs: the one that follows it), the chain on / off, its
+// length, the entry shown and the pattern that entry plays.
+enum { PAT_ROW_PAT = 1, PAT_ROW_CHAIN, PAT_ROW_LEN, PAT_ROW_SLOT, PAT_ROW_IS, PAT_ROWS = PAT_ROW_IS };
+// The label and the value of one of them.
+const char *seq_pat_row_text(const synth_ui_t *ui, const seq_t *seq, int row, char *val, int n);
+// The page's column knobs set Note, Len, Vel, Prob of the cursor's step. A knob writes only once it has moved this far (of
+// INPUT_VALUE_MAX) since the cursor came to the step, so its noise never changes a step that was just selected (user, 2026-10-11).
+#define SEQ_KNOB_HYST 24
 
 // Pseudo parameter indexes on a modulator's DEST page: the target module and its parameter live in the slot, not in slot.v[].
 #define PRM_TGT  100

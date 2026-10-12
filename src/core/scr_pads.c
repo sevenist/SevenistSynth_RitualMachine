@@ -409,6 +409,8 @@ void pads_ui_op_amount(int op, int32_t a, char *out, int n) {
 void pads_ui_init(synth_ui_t *ui) {
     ui->chop_pad = -1;
     ui->render_pct = -1;
+    ui->pad_steps = false; ui->pseq_step = ui->pseq_row = ui->pseq_chain_cur = 0;
+    ui->pseq_run = ui->pseq_rec = ui->pseq_rec_req = false; ui->pseq_pos = -1;
     for (int i = 0; i < PAD_EDIT_OPS; i++) ui->edit_amt[i] = op_default[i];
 }
 
@@ -636,6 +638,149 @@ static void fx_event(synth_ui_t *ui, ui_event_t e) {
     if (ui->fx_edit_id) { ui->pad_fx = 2; ui->fx_row = 1; ui->fx_latched = false; }      // Edit was pushed
 }
 
+/* ---------------- the sequencer's STEPS screen (ADR-042 stage 3; step mode: Select + Play) ----------------
+ * The selected pad's steps, 16 a page; under them the fields: the hit of the step under the cursor (Lvl, Prob, Rtch, Len), then the
+ * pattern (Pat, Steps, Rate, Swing, Dir), the sequencer On / Off and the chain (Chain, CLen, Slot, Is).
+ * Joystick: the cursor over the steps (left / right through the whole pattern, up / down a row); its push: the hit on / off.
+ * Encoder A: the field; encoder B: its value. Page - / +: 16 steps. Back: out of step mode. */
+
+enum { PSF_LEVEL, PSF_PROB, PSF_RATCHET, PSF_LEN, PSF_PAT, PSF_STEPS, PSF_RATE, PSF_SWING, PSF_DIR, PSF_ON, PSF_CHAIN, PSF_CLEN, PSF_SLOT, PSF_IS, PSF_REC, PSF_COUNT };
+
+static pseq_pattern_t *steps_pattern(const synth_ui_t *ui) { return ui->pbank && ui->pbank->pat ? &ui->pbank->pat[ui->pbank->cur] : NULL; }
+static int steps_cursor(const synth_ui_t *ui, const pseq_pattern_t *p) { return ui->pseq_step < p->steps ? ui->pseq_step : p->steps - 1; }
+
+static const char *steps_field_text(const synth_ui_t *ui, int f, char *val, int n) {
+    static const char *const label[PSF_COUNT] = {"Lvl", "Prob", "Rtch", "Len", "Pat", "Steps", "Rate", "Swing", "Dir", "Seq", "Chain", "CLen", "Slot", "Is", "Rec"};
+    const pseq_bank_t *b = ui->pbank;
+    const pseq_pattern_t *p = steps_pattern(ui);
+    val[0] = 0;
+    if (!p || f < 0 || f >= PSF_COUNT) return "?";
+    const int slot = ui->pseq_chain_cur < b->chain_len ? ui->pseq_chain_cur : b->chain_len - 1;
+    if (f <= PSF_LEN) {
+        const int at = pseq_find(p, pads_ui_pad(ui), steps_cursor(ui, p));
+        if (at < 0) snprintf(val, (size_t)n, "--"); else pseq_hit_format(&p->hit[at], (pseq_value_t)f, val, n);
+        return label[f];
+    }
+    switch (f) {
+        case PSF_PAT:
+            if (ui->pseq_run && !b->chain_on && b->next >= 0) snprintf(val, (size_t)n, "%d >%d", b->cur + 1, b->next + 1);
+            else snprintf(val, (size_t)n, "%d", b->cur + 1);
+            break;
+        case PSF_STEPS: pseq_param_format(p, PSP_STEPS, val, n); break;
+        case PSF_RATE:  pseq_param_format(p, PSP_RATE, val, n); break;
+        case PSF_SWING: pseq_param_format(p, PSP_SWING, val, n); break;
+        case PSF_DIR:   pseq_param_format(p, PSP_DIR, val, n); break;
+        case PSF_ON:    snprintf(val, (size_t)n, "%s", b->on ? "On" : "Off"); break;
+        case PSF_CHAIN: snprintf(val, (size_t)n, "%s", b->chain_on ? "On" : "Off"); break;
+        case PSF_CLEN:  snprintf(val, (size_t)n, "%d", b->chain_len); break;
+        case PSF_SLOT:  snprintf(val, (size_t)n, "%d/%d", slot + 1, b->chain_len); break;
+        case PSF_REC:   snprintf(val, (size_t)n, "%s", ui->pseq_rec ? "On" : "Off"); break;     // the live record (also Select + Rec)
+        default:        snprintf(val, (size_t)n, "%d", b->chain[slot] + 1); break;
+    }
+    return label[f];
+}
+
+static void steps_field_adjust(synth_ui_t *ui, int f, int dir) {
+    pseq_bank_t *b = ui->pbank;
+    pseq_pattern_t *p = steps_pattern(ui);
+    if (!p) return;
+    if (ui->pseq_chain_cur >= b->chain_len) ui->pseq_chain_cur = (uint8_t)(b->chain_len - 1);
+    if (f <= PSF_LEN) {
+        const int at = pseq_find(p, pads_ui_pad(ui), steps_cursor(ui, p));
+        if (at >= 0) pseq_hit_adjust(&p->hit[at], (pseq_value_t)f, dir);
+        return;
+    }
+    switch (f) {
+        case PSF_PAT:                                        // stopped: taken at once; running: it follows the playing one (not under the chain)
+            if (!ui->pseq_run) b->cur = (uint8_t)((b->cur + dir + PSEQ_PATTERNS) % PSEQ_PATTERNS);
+            else if (!b->chain_on) {
+                const int k = ((b->next >= 0 ? b->next : b->cur) + dir + PSEQ_PATTERNS) % PSEQ_PATTERNS;
+                b->next = (int8_t)(k == b->cur ? -1 : k);
+            }
+            break;
+        case PSF_STEPS: pseq_param_adjust(p, PSP_STEPS, dir); break;
+        case PSF_RATE:  pseq_param_adjust(p, PSP_RATE, dir); break;
+        case PSF_SWING: pseq_param_adjust(p, PSP_SWING, dir); break;
+        case PSF_DIR:   pseq_param_adjust(p, PSP_DIR, dir); break;
+        case PSF_ON:    b->on ^= 1; break;
+        case PSF_CHAIN:
+            b->chain_on ^= 1;
+            b->chain_pos = (uint8_t)(b->chain_len - 1);      // (running: its first entry follows the playing pattern)
+            b->next = -1;
+            break;
+        case PSF_CLEN: {
+            const int len = b->chain_len + dir;
+            if (len < 1 || len > SEQ_CHAIN_MAX) break;
+            if (dir > 0) b->chain[len - 1] = b->cur;
+            b->chain_len = (uint8_t)len;
+            if (b->chain_pos >= len) b->chain_pos = 0;
+            if (ui->pseq_chain_cur >= len) ui->pseq_chain_cur = (uint8_t)(len - 1);
+            break;
+        }
+        case PSF_SLOT: ui->pseq_chain_cur = (uint8_t)((ui->pseq_chain_cur + dir + b->chain_len) % b->chain_len); break;
+        case PSF_REC:  ui->pseq_rec_req = true; break;
+        default:       b->chain[ui->pseq_chain_cur] = (uint8_t)((b->chain[ui->pseq_chain_cur] + dir + PSEQ_PATTERNS) % PSEQ_PATTERNS); break;
+    }
+}
+
+static void steps_event(synth_ui_t *ui, ui_event_t e) {
+    pseq_pattern_t *p = steps_pattern(ui);
+    if (!p) { ui->pad_steps = false; return; }
+    int cur = steps_cursor(ui, p);
+    if (ui->pseq_row >= PSF_COUNT) ui->pseq_row = 0;
+    switch (e) {
+        case UI_NAV_LEFT:  cur = (cur + p->steps - 1) % p->steps; break;
+        case UI_NAV_RIGHT: cur = (cur + 1) % p->steps; break;
+        case UI_NAV_UP:    if (cur >= 4) cur -= 4; break;
+        case UI_NAV_DOWN:  if (cur + 4 < p->steps) cur += 4; break;
+        case UI_PAGE_PREV: if (cur >= SEQ_PAGE) cur -= SEQ_PAGE; break;
+        case UI_PAGE_NEXT: cur = cur + SEQ_PAGE < p->steps ? cur + SEQ_PAGE : p->steps - 1; break;
+        case UI_UP:        ui->pseq_row = (uint8_t)((ui->pseq_row + PSF_COUNT - 1) % PSF_COUNT); break;
+        case UI_DOWN:      ui->pseq_row = (uint8_t)((ui->pseq_row + 1) % PSF_COUNT); break;
+        case UI_VALUE_INC: case UI_RIGHT: steps_field_adjust(ui, ui->pseq_row, 1); break;
+        case UI_VALUE_DEC: case UI_LEFT:  steps_field_adjust(ui, ui->pseq_row, -1); break;
+        case UI_LATCH: case UI_SELECT: pseq_toggle(p, pads_ui_pad(ui), cur); break;
+        case UI_BACK:      ui->pad_steps = false; break;
+        default: break;
+    }
+    p = steps_pattern(ui);                                   // (the pattern or its length may have changed)
+    ui->pseq_step = (uint8_t)(cur < p->steps ? cur : p->steps - 1);
+}
+
+static void draw_steps(u8g2_t *g, const gui_style_t *st, const synth_ui_t *ui, gui_rect_t area) {
+    const pseq_pattern_t *p = steps_pattern(ui);
+    if (!p) return;
+    const int pad = pads_ui_pad(ui), cursor = steps_cursor(ui, p), first = cursor / SEQ_PAGE * SEQ_PAGE;
+    const uint64_t track = pseq_track(p, pad);
+    const int ch = area.h >= 100 ? 14 : 8;                   // the cells' height: four rows of them, the fields under
+    const gui_rect_t grid = gui_rect(area.x, area.y, area.w, 4 * ch);
+    char t[16], v[16];
+    for (int i = 0; i < SEQ_PAGE; i++) {
+        const int step = first + i;
+        const gui_rect_t r = gui_grid_cell(grid, 4, 4, i, 0), in = gui_inset(r, 1);
+        if (step >= p->steps) { for (int x = in.x; x < gui_right(in); x += 3) u8g2_DrawPixel(g, x, in.y + in.h / 2); continue; }   // past the end
+        const bool hit = (track >> step) & 1;
+        if (hit) u8g2_DrawBox(g, in.x, in.y, in.w, in.h); else u8g2_DrawFrame(g, in.x, in.y, in.w, in.h);
+        if (step == cursor) { u8g2_DrawFrame(g, r.x, r.y, r.w, r.h); if (!hit) u8g2_DrawFrame(g, in.x + 1, in.y + 1, in.w - 2, in.h - 2); }
+        u8g2_SetDrawColor(g, hit ? 0 : 1);
+        if (ch >= 12) { snprintf(t, sizeof t, "%d", step + 1); u8g2_DrawStr(g, in.x + 3, in.y + 9, t); }
+        if (step == ui->pseq_pos) u8g2_DrawBox(g, in.x + in.w - 7, in.y + 3, 4, in.h - 6);          // the playhead
+        u8g2_SetDrawColor(g, 1);
+    }
+    // the fields: two columns, as many rows as fit; the list moves with the selected one
+    const int rh = gui_row_h(g, st), rows = (area.h - grid.h - 2) / (rh + st->gap) > 0 ? (area.h - grid.h - 2) / (rh + st->gap) : 1;
+    const int sel = ui->pseq_row < PSF_COUNT ? ui->pseq_row : 0;
+    int top = 0;                                             // the first row of fields shown
+    if (sel / 2 >= rows) top = sel / 2 - rows + 1;
+    const gui_rect_t fields = gui_rect(area.x, gui_bottom(grid) + 2, area.w, rows * rh + (rows - 1) * st->gap);
+    for (int i = 0; i < 2 * rows; i++) {
+        const int f = 2 * top + i;
+        if (f >= PSF_COUNT) break;
+        const char *label = steps_field_text(ui, f, v, sizeof v);
+        gui_draw_field(g, st, gui_grid_cell(fields, 2, rows, i, st->gap), label, v, f == sel);
+    }
+}
+
 /* ---------------- events ---------------- */
 
 static bool grid_event(synth_ui_t *ui, ui_event_t e) {
@@ -658,6 +803,7 @@ static bool grid_event(synth_ui_t *ui, ui_event_t e) {
 bool pads_ui_handle(synth_ui_t *ui, rack_t *rack, ui_event_t e) {
     if (!ui->pads) return false;
     if (ui->pad_fx) { fx_event(ui, e); return false; }
+    if (ui->pad_steps && !ui->pad_edit) { steps_event(ui, e); return false; }
     if (!ui->pad_edit) return grid_event(ui, e);
     if (e == UI_BACK) {                                                           // TONE / CHOP -> PLAY -> the grid
         if (ui->pad_page) { ui->pad_page = 0; ui->pad_row = 1; }
@@ -734,6 +880,10 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
     } else if (ui->pad_fx) {
         const int load = rack_fx_load_pct(&ui->pads->fx);      // (with all 8 pads sounding; over 100 % the audio drops out)
         snprintf(t, sizeof t, ui->fx_row == 0 ? "< %s > %d%%%s" : "FX %s %d%%%s", rack_route_name(ui->pads->fx.fx_route), load, load >= 90 ? "!" : "");
+    } else if (ui->pad_steps && !ui->pad_edit && steps_pattern(ui)) {    // "A1 STEPS 2/4", "REC" while the live record is armed
+        const pseq_pattern_t *sp = steps_pattern(ui);
+        pad_label(sel, l, sizeof l);
+        snprintf(t, sizeof t, "%s %s %d/%d", l, ui->pseq_rec ? "REC" : "STEPS", steps_cursor(ui, sp) / SEQ_PAGE + 1, (sp->steps + SEQ_PAGE - 1) / SEQ_PAGE);
     } else if (ui->pad_edit) {
         pad_label(sel, l, sizeof l);
         const pad_t *p = &ui->pads->pad[sel];
@@ -751,7 +901,7 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
     const int bw = u8g2_GetStrWidth(g, bt) + 4;
     u8g2_DrawStr(g, header.x + 1, ty, bt);
     u8g2_DrawVLine(g, header.x + bw - 2, header.y + 2, header.h - 4);
-    if (ui->pad_fx || ui->pad_edit) gui_draw_text_centered(g, gui_rect(header.x + bw, header.y, header.w - bw, header.h), t);
+    if (ui->pad_fx || ui->pad_edit || ui->pad_steps) gui_draw_text_centered(g, gui_rect(header.x + bw, header.y, header.w - bw, header.h), t);
     else {                                                   // the grid: "BANK A", then the position at the right
         if (ui->cap_state == CAPTURE_ST_ARMED) snprintf(t, sizeof t, "REC ready");            // a recording (capture): waiting for a sound / the bar
         else if (ui->cap_state == CAPTURE_ST_RECORDING || ui->cap_state == CAPTURE_ST_FINISHING) snprintf(t, sizeof t, "REC %d:%02d", ui->cap_secs / 60, ui->cap_secs % 60);
@@ -789,6 +939,7 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
         w->row = row; w->latched = latched;
         return;
     }
+    if (ui->pad_steps) { draw_steps(g, st, ui, screen); return; }
     for (int i = 0; i < PADS_PER_BANK; i++) {
         const int pad = ui->pad_bank * PADS_PER_BANK + i;
         draw_cell(g, gui_grid_cell(screen, 4, 4, i, 0), i, &ui->pads->pad[pad], (playing >> pad) & 1, i == ui->pad_cur);

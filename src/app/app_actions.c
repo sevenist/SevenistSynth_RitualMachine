@@ -18,6 +18,10 @@ void app_ui_event(app_t *app, ui_event_t ev) {
     if (in_pads(app)) { app_pads_event(app, ev); return; }
     if (synth_ui_handle(&app->ui, &app->params, &app->seq, &app->rack, ev)) audio_set_params(&app->rack, &app->params);
     if (app->ui.br_req) { app->ui.br_req = 0; app_browse_open(app, BROWSE_RACK); }                             // the SAMPLES tab's File row
+    if (app->ui.seq_msg[0]) {                                                                                  // a sequencer tool ran: what it did
+        popup_info(&app->popup, "SEQUENCER", app->ui.seq_msg, 0, audio_millis(), POPUP_INFO_MS);
+        app->ui.seq_msg[0] = 0;
+    }
     app->dirty = true;
     app_catch_stale = true;
 }
@@ -43,6 +47,7 @@ static void note_on(app_t *app, control_id_t ctl, int semitones) {
     if (note < 0 || note > 127 || app->in.held[ctl]) return;
     app->in.held[ctl] = (uint8_t)(note + 1);
     audio_note_on(note);
+    app_seq_note_down(app, ctl, note);
 }
 
 void app_note_off(app_t *app, control_id_t ctl) {
@@ -166,7 +171,11 @@ void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             } else app_ui_event(app, UI_BACK);
             break;
         case ACT_PLAY:                                      // Pads: the clock (a start is bar 1); the synth: the sequencer, the clock with it
-            if (in_pads(app)) { app->pads_run = !app->pads_run; app->dirty = true; }
+            // Pads: Select + Play = step mode (user, 2026-10-12); Shift + Play too: Shift is what a board without the right block
+            // (and the simulator) has in place of Select, as for Shift + pad
+            if (in_pads(app) && (app->in.pad_select || (app->in.shift && !app->in.mod))) app_pseq_steps_set(app, !app->ui.pad_steps);
+            else if (in_pads(app)) { app->pads_run = !app->pads_run; app->dirty = true; }
+            else if (app->in.shift && !app->in.mod) app_seq_rec_set(app, !app->rec.armed);   // Shift + Play (its Shift entry Default): Rec
             else app_ui_event(app, UI_PLAY);
             break;
         case ACT_TEMPO:        set_tempo(app, app->seq.bpm + n, "TEMPO"); break;
@@ -176,7 +185,11 @@ void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             else { popup_info(&app->popup, "TAP", "Tap again", 0, audio_millis(), POPUP_INFO_MS); app->dirty = true; }
             break;
         }
-        case ACT_PAD_REC:      app_capture_key(app); break;
+        case ACT_PAD_REC:                                   // Rec: the Pads section's capture; the synth: the sequencer's recording
+            if (in_pads(app) && app->in.pad_select) app_pseq_rec_set(app, !app->prec.armed);       // Select + Rec: the pattern's live record
+            else if (in_pads(app)) app_capture_key(app);
+            else app_seq_rec_set(app, !app->rec.armed);
+            break;
         case ACT_METRONOME:
             app->metronome = !app->metronome;
             audio_set_metronome(app->metronome);

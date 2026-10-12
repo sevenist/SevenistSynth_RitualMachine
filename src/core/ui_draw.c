@@ -12,53 +12,97 @@
 
 /* ---------------- sequencer ---------------- */
 
-// Piano roll: one column per step (width follows seq->steps), one pixel per semitone,
-// bar width = note length. Below it: playhead strip, then the editable fields.
-// All coordinates come from the gui_* layout helpers and the style sheet.
-#define SEQ_RANGE (SEQ_NOTE_MAX - SEQ_NOTE_MIN + 1)   // semitones shown by the roll
+// Piano roll: one column per step of the page the cursor is on (SEQ_PAGE steps; a shorter pattern: wider columns), SEQ_ROLL_NOTES
+// semitones high, bar width = note length. A step's chord: a bar per note. A step that may not play (Prob) is dotted, a ratchet cuts
+// its first column into its hits. A note outside the window: a dot on the edge it is beyond. Below it: playhead strip, then the
+// editable fields. All coordinates come from the gui_* layout helpers and the style sheet.
+#define SEQ_ROLL_NOTES 24
+
+// The lowest note the roll shows: the octave of the lowest note of the page, moved up when the edited note would be above the window.
+static int seq_roll_low(const seq_t *q, int first, int shown, int focus) {
+    int low = 0;
+    for (int s = first; s < first + shown; s++)
+        for (int k = 0; k < SEQ_CHORD; k++) {
+            const int n = q->step[s].note[k];
+            if (n && (!low || n < low)) low = n;
+        }
+    if (!low) low = 48;
+    low = low / 12 * 12;
+    if (focus >= low + SEQ_ROLL_NOTES) low = focus / 12 * 12 - 12;
+    return low;
+}
 
 static void draw_seq(u8g2_t *g, const gui_style_t *st, gui_rect_t area, const synth_ui_t *ui, const seq_t *q) {
-    int cell = area.w / q->steps;
-    int roll_h = SEQ_RANGE * st->roll_pitch_px + 2 * (1 + st->roll_pad);     // frame + padding + notes
-    gui_rect_t roll = gui_center_box(gui_rect(area.x, area.y, area.w, roll_h), cell * q->steps, roll_h);
+    const bool tall = area.h >= 96;                                  // room for two pixels per semitone and every field
+    const int pitch = st->roll_pitch_px * (tall ? 2 : 1);
+    const int cursor = ui->cursor < q->steps ? ui->cursor : q->steps - 1;
+    const int first = cursor / SEQ_PAGE * SEQ_PAGE;                  // the page shown: the cursor's
+    const int cols = q->steps < SEQ_PAGE ? q->steps : SEQ_PAGE;
+    const int shown = q->steps - first < cols ? q->steps - first : cols;
+    const int voice = ui->seq_voice % SEQ_CHORD;
+    const seq_step_t *cs = &q->step[cursor];
+    int cell = area.w / cols;
+    int roll_h = SEQ_ROLL_NOTES * pitch + 2 * (1 + st->roll_pad);    // frame + padding + notes
+    gui_rect_t roll = gui_center_box(gui_rect(area.x, area.y, area.w, roll_h), cell * cols, roll_h);
     roll.y = area.y;
     u8g2_DrawFrame(g, roll.x, roll.y, roll.w, roll.h);
     gui_rect_t inner = gui_inset(roll, 1);
+    const int low = seq_roll_low(q, first, shown, cs->note[voice]);
 
-    for (int s = 0; s < q->steps; s++) {
-        int x = inner.x + s * cell;
-        if (s % st->roll_beat == 0 && s > 0)
+    for (int i = 0; i < shown; i++) {
+        const seq_step_t *sp = &q->step[first + i];
+        int x = inner.x + i * cell;
+        if (i % st->roll_beat == 0 && i > 0)
             for (int y = inner.y; y < gui_bottom(inner); y += 3) u8g2_DrawPixel(g, x, y);
-        if (q->note[s]) {
-            int w = q->len[s] * cell - 2;
-            if (x + 1 + w > gui_right(roll) - 1) w = gui_right(roll) - 1 - (x + 1);
-            u8g2_DrawBox(g, x + 1, inner.y + st->roll_pad + (SEQ_NOTE_MAX - q->note[s]) * st->roll_pitch_px, w, st->roll_bar_h);
+        int w = sp->len * cell - 2;
+        if (x + 1 + w > gui_right(roll) - 1) w = gui_right(roll) - 1 - (x + 1);
+        for (int k = 0; k < SEQ_CHORD; k++) {
+            const int n = sp->note[k];
+            if (!n) continue;
+            if (n < low || n >= low + SEQ_ROLL_NOTES) {
+                u8g2_DrawPixel(g, x + cell / 2, n < low ? gui_bottom(inner) - 1 : inner.y);
+                continue;
+            }
+            const int y = inner.y + st->roll_pad + (low + SEQ_ROLL_NOTES - 1 - n) * pitch;
+            if (sp->prob >= 100) u8g2_DrawBox(g, x + 1, y, w, st->roll_bar_h);
+            else for (int px = 0; px < w; px += 2) u8g2_DrawVLine(g, x + 1 + px, y, st->roll_bar_h);
+            if (sp->ratchet > 1) {
+                u8g2_SetDrawColor(g, 0);
+                for (int h = 1; h < sp->ratchet; h++) u8g2_DrawVLine(g, x + 1 + h * (cell - 2) / sp->ratchet, y, st->roll_bar_h);
+                u8g2_SetDrawColor(g, 1);
+            }
         }
     }
 
     // playhead strip right under the roll, same column geometry
     gui_rect_t strip = gui_below(roll, st->gap, st->strip_h);
-    if (q->running) u8g2_DrawBox(g, inner.x + q->pos * cell + 1, strip.y, cell - 2, strip.h);
+    if (q->running && q->pos >= first && q->pos < first + shown) u8g2_DrawBox(g, inner.x + (q->pos - first) * cell + 1, strip.y, cell - 2, strip.h);
 
     // cursor: frame while the Step row is selected, dotted line otherwise
-    int cx = inner.x + ui->cursor * cell;
-    if (ui->row == 1) u8g2_DrawFrame(g, cx, roll.y, cell + 1, roll.h);
-    else              for (int y = roll.y; y < gui_bottom(roll); y += 2) u8g2_DrawPixel(g, cx + cell / 2, y);
+    int cx = inner.x + (cursor - first) * cell;
+    if (ui->row == SEQ_ROW_STEP) u8g2_DrawFrame(g, cx, roll.y, cell + 1, roll.h);
+    else                         for (int y = roll.y; y < gui_bottom(roll); y += 2) u8g2_DrawPixel(g, cx + cell / 2, y);
 
-    // editable fields: 2x2 grid below the strip
-    gui_rect_t fields = gui_below(strip, st->gap, 2 * gui_row_h(g, st) + st->gap);
+    // editable fields: two columns below the strip, all of them on a tall screen, else the four around the selected one
+    const int rows = tall ? SEQ_ROWS / 2 : 2, first_field = tall || ui->row < 1 ? 0 : (ui->row - 1) / 4 * 4;
+    gui_rect_t fields = gui_below(strip, st->gap, rows * gui_row_h(g, st) + (rows - 1) * st->gap);
     fields.x = area.x; fields.w = area.w;
-    char name[8], step[16], len[8];
-    seq_note_name(q->note[ui->cursor], name, sizeof name);
-    snprintf(step, sizeof step, "%02d/%02d", ui->cursor + 1, q->steps);
-    snprintf(len, sizeof len, "%d", q->len[ui->cursor]);
-    const char *label[4] = {"Step", "Note", "Len", "Run"};
-    const char *value[4] = {step, name, len, NULL};
-    for (int i = 0; i < 4; i++) {
-        gui_rect_t c = gui_grid_cell(fields, 2, 2, i, st->gap);
-        gui_draw_field(g, st, c, label[i], value[i], ui->row == i + 1);
-        if (i == 3) {
-            if (ui->row == 4) u8g2_SetDrawColor(g, 0);
+    char name[8], step[16], len[8], vel[8], prob[8], rat[8], vc[8];
+    seq_note_name(cs->note[voice], name, sizeof name);
+    snprintf(step, sizeof step, "%02d/%02d", cursor + 1, q->steps);
+    snprintf(len, sizeof len, "%d", cs->len);
+    snprintf(vel, sizeof vel, "%d", cs->vel);
+    snprintf(prob, sizeof prob, "%d%%", cs->prob);
+    snprintf(rat, sizeof rat, "x%d", cs->ratchet);
+    snprintf(vc, sizeof vc, "%d/%d", voice + 1, SEQ_CHORD);
+    const char *label[SEQ_ROWS] = {"Step", "Note", "Len", "Vel", "Prob", "Rtch", "Voice", ui->seq_rec ? "Rec" : "Run", "Tool", "On"};
+    const char *value[SEQ_ROWS] = {step, name, len, vel, prob, rat, vc, NULL, seq_tool_name(ui->seq_tool), seq_scope_name(ui->seq_scope)};
+    for (int i = 0; i < 2 * rows && first_field + i < SEQ_ROWS; i++) {
+        const int fi = first_field + i;
+        gui_rect_t c = gui_grid_cell(fields, 2, rows, i, st->gap);
+        gui_draw_field(g, st, c, label[fi], value[fi], ui->row == fi + 1);
+        if (fi == SEQ_ROW_RUN - 1) {
+            if (ui->row == SEQ_ROW_RUN) u8g2_SetDrawColor(g, 0);
             if (q->running && ui->run_anim != GUI_ANIM_INVALID) gui_anim_draw_right(g, st, ui->run_anim, c);
             else gui_draw_sprite_right(g, st, q->running ? &spr_play : &spr_stop, c);
             u8g2_SetDrawColor(g, 1);
@@ -66,12 +110,12 @@ static void draw_seq(u8g2_t *g, const gui_style_t *st, gui_rect_t area, const sy
     }
 }
 
-// Timing preview for SEQ SETUP: one tick per step; odd ticks move right with swing.
+// Timing preview for SEQ SETUP: one tick per step of the first page; every second tick moves right with swing.
 static void draw_seq_cfg(u8g2_t *g, const gui_style_t *st, gui_rect_t box, const seq_t *q) {
     gui_rect_t in = gui_inset(box, 2 + st->padding);
-    char buf[16];
-    int step_w = in.w / SEQ_MAX_STEPS;
-    for (int s = 0; s < q->steps; s++) {
+    char buf[16], rate[8], dir[8];
+    int step_w = in.w / SEQ_PAGE;
+    for (int s = 0; s < q->steps && s < SEQ_PAGE; s++) {
         int x = in.x + s * step_w + ((s & 1) ? step_w * q->swing / 100 : 0);
         int h = (s % 4 == 0) ? 8 : 4;
         u8g2_DrawVLine(g, x, in.y + 10 - h / 2 + 4, h);
@@ -80,6 +124,33 @@ static void draw_seq_cfg(u8g2_t *g, const gui_style_t *st, gui_rect_t box, const
     gui_draw_text_centered(g, gui_rect(in.x, in.y + 2 * gui_row_h(g, st), in.w, gui_row_h(g, st)), buf);
     snprintf(buf, sizeof buf, "%d BPM", q->bpm);
     gui_draw_text_centered(g, gui_rect(in.x, in.y + 3 * gui_row_h(g, st) + 1, in.w, gui_row_h(g, st)), buf);
+    seq_param_format(q, SQP_RATE, rate, sizeof rate);
+    seq_param_format(q, SQP_DIR, dir, sizeof dir);
+    snprintf(buf, sizeof buf, "%s %s", rate, dir);
+    gui_draw_text_centered(g, gui_rect(in.x, in.y + 4 * gui_row_h(g, st) + 2, in.w, gui_row_h(g, st)), buf);
+}
+
+// PATTERNS: the chain, four entries a row, each the number of its pattern; the entry that plays is inverted (only while the chain
+// is on), the one the Slot row shows is framed. Under it the pattern that plays.
+static void draw_seq_pat(u8g2_t *g, const gui_style_t *st, gui_rect_t box, const synth_ui_t *ui, const seq_t *q) {
+    const seq_bank_t *b = ui->bank;
+    if (!b) return;
+    gui_rect_t in = gui_inset(box, 2 + st->padding);
+    const int cw = in.w / 4, ch = gui_row_h(g, st) + 2;
+    char t[16];
+    for (int i = 0; i < b->chain_len && i < SEQ_CHAIN_MAX; i++) {
+        const gui_rect_t c = gui_rect(in.x + (i % 4) * cw, in.y + (i / 4) * ch, cw - 1, ch - 1);
+        const bool playing = b->chain_on && i == b->chain_pos;
+        snprintf(t, sizeof t, "%d", b->chain[i] + 1);
+        if (playing) { u8g2_DrawBox(g, c.x, c.y, c.w, c.h); u8g2_SetDrawColor(g, 0); }
+        gui_draw_text_centered(g, c, t);
+        u8g2_SetDrawColor(g, 1);
+        if (i == ui->seq_chain_cur && !playing) u8g2_DrawFrame(g, c.x, c.y, c.w, c.h);
+    }
+    snprintf(t, sizeof t, "Pat %d%s", b->cur + 1, q->running ? " >" : "");
+    gui_draw_text_centered(g, gui_rect(in.x, in.y + 4 * ch + 2, in.w, gui_row_h(g, st)), t);
+    snprintf(t, sizeof t, "%d steps", q->steps);
+    gui_draw_text_centered(g, gui_rect(in.x, in.y + 4 * ch + 3 + gui_row_h(g, st), in.w, gui_row_h(g, st)), t);
 }
 
 /* ---------------- motion sequencer ---------------- */
@@ -88,16 +159,17 @@ static void draw_seq_cfg(u8g2_t *g, const gui_style_t *st, gui_rect_t box, const
 // a single dot at the stored value for an inactive one; bipolar lanes grow from the centre line. Playhead strip, cursor, fields.
 static void draw_ms_steps(u8g2_t *g, const gui_style_t *st, gui_rect_t area, const synth_ui_t *ui, const seq_t *q, const rack_t *r, int slot) {
     const ms_lane_t *l = &rack_ms_const(r, slot)->lane[ui->ms_lane];
-    const int cell = area.w / q->steps;
-    const int roll_h = SEQ_RANGE * st->roll_pitch_px + 2 * (1 + st->roll_pad);
-    gui_rect_t roll = gui_center_box(gui_rect(area.x, area.y, area.w, roll_h), cell * q->steps, roll_h);
+    const int steps = seq_motion_steps(q);                           // (a longer pattern plays the lane again every SEQ_PAGE steps)
+    const int cell = area.w / steps;
+    const int roll_h = SEQ_ROLL_NOTES * st->roll_pitch_px + 2 * (1 + st->roll_pad);
+    gui_rect_t roll = gui_center_box(gui_rect(area.x, area.y, area.w, roll_h), cell * steps, roll_h);
     roll.y = area.y;
     u8g2_DrawFrame(g, roll.x, roll.y, roll.w, roll.h);
     gui_rect_t inner = gui_inset(roll, 1);
     const int top = inner.y + 1, bottom = gui_bottom(inner) - 2, mid = (top + bottom) / 2;
     if (l->bipolar) for (int x = inner.x; x < gui_right(inner); x += 3) u8g2_DrawPixel(g, x, mid);
     int px = -1, py = 0;
-    for (int s = 0; s < q->steps; s++) {
+    for (int s = 0; s < steps; s++) {
         const int x = inner.x + s * cell;
         if (s % st->roll_beat == 0 && s > 0 && !l->bipolar) for (int y = inner.y; y < gui_bottom(inner); y += 3) u8g2_DrawPixel(g, x, y);
         const int y = bottom - (int)l->val[s] * (bottom - top) / 100;
@@ -113,7 +185,7 @@ static void draw_ms_steps(u8g2_t *g, const gui_style_t *st, gui_rect_t area, con
         }
     }
     gui_rect_t strip = gui_below(roll, st->gap, st->strip_h);
-    if (q->running) u8g2_DrawBox(g, inner.x + q->pos * cell + 1, strip.y, cell - 2, strip.h);
+    if (q->running && q->pos >= 0) u8g2_DrawBox(g, inner.x + q->pos % steps * cell + 1, strip.y, cell - 2, strip.h);
     const int cx = inner.x + ui->ms_step * cell;
     if (ui->row == 2) u8g2_DrawFrame(g, cx, roll.y, cell + 1, roll.h);
     else              for (int y = roll.y; y < gui_bottom(roll); y += 2) u8g2_DrawPixel(g, cx + cell / 2, y);
@@ -122,7 +194,7 @@ static void draw_ms_steps(u8g2_t *g, const gui_style_t *st, gui_rect_t area, con
     fields.x = area.x; fields.w = area.w;
     char lane[8], step[16], val[8];
     snprintf(lane, sizeof lane, "%d/%d", ui->ms_lane + 1, MS_LANES);
-    snprintf(step, sizeof step, "%02d/%02d", ui->ms_step + 1, q->steps);
+    snprintf(step, sizeof step, "%02d/%02d", ui->ms_step + 1, steps);
     snprintf(val, sizeof val, "%d%%", l->val[ui->ms_step]);
     const char *label[4] = {"Lane", "Step", "Val", "On"};
     const char *value[4] = {lane, step, val, (l->active >> ui->ms_step & 1u) ? "Yes" : "No"};
@@ -147,7 +219,7 @@ static void draw_ms_lane(u8g2_t *g, const gui_style_t *st0, gui_rect_t list, gui
         gui_draw_field(g, &st, row, label[i], value[i], ui->row == i + 1);
         row = gui_below(row, st.gap, row_h);
     }
-    draw_ms_curve(g, box, l, q->steps);
+    draw_ms_curve(g, box, l, seq_motion_steps(q));
 }
 
 /* ---------------- resonator ---------------- */
@@ -350,6 +422,8 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
             if (ms->type == MOD_SAMPLER && pg.params[i] == MP_SM_FILE) file_label((int)ms->v[MP_SM_FILE] - 1, val, sizeof val);
         } else if (graph_is_fm(pg.graph)) {
             label = fm_row_text(ui, rack, &pg, i + 1, val, sizeof val);
+        } else if (pg.graph == GRAPH_SEQ_PAT) {
+            label = seq_pat_row_text(ui, seq, i + 1, val, sizeof val);
         } else if (pg.graph == GRAPH_SEQ_CFG) {
             label = seq_param_label((seq_param_id_t)pg.params[i]);
             seq_param_format(seq, (seq_param_id_t)pg.params[i], val, sizeof val);
@@ -421,6 +495,7 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
             break;
         case GRAPH_STR_FILTER: draw_filter(g, box, p->str.ftype, p->str.fcut, p->str.fres); break;
         case GRAPH_SEQ_CFG: draw_seq_cfg(g, st, box, seq); break;
+        case GRAPH_SEQ_PAT: draw_seq_pat(g, st, box, ui, seq); break;
         case GRAPH_FM:      draw_algo(g, box, &rack->cfg.fm, -1); break;                                   // the operator tree
         case GRAPH_FM_OP:   draw_algo(g, box, &rack->cfg.fm, pg.def - GP_FM_OP_BASE); break;               // ... with this operator marked
         case GRAPH_FM_ENV:  draw_eg_editor(g, box, &rack->cfg.fm.op[pg.def - GP_FM_ENV_BASE], ui->fm_pt & 3); break;

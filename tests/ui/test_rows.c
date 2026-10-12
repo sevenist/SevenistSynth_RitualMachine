@@ -163,7 +163,7 @@ TEST(fx_modules_have_pages_and_spectral_a_cog) {
     char v[16];
     rack_mparam_format(&r.slot[k], MP_SP_HI, v, sizeof v);
     CHECK_STR(v, "20.0kHz");
-    for (int t = MOD_TREM; t < MOD_TYPE_COUNT; t++) {            // every FX type: a code, a name, parameters, a modulation target
+    for (int t = MOD_TREM; t <= MOD_ENSEMBLE; t++) {             // every FX type: a code, a name, parameters, a modulation target
         CHECK(rack_type_code((module_type_t)t)[0] != 0);
         CHECK(rack_mparam_count((module_type_t)t) >= 2);
         CHECK(rack_param_count((module_type_t)t) >= 1);

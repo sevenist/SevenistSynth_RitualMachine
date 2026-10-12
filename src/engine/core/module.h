@@ -55,6 +55,15 @@ struct Transport {
     }
 };
 
+// Where the engine's step sequencer (sequencer.h) is at the END of the block, for the modules that follow it (MotionSeq): the step that
+// plays and how far into it (Q16: step << 16 | fraction; the fraction runs down while the pattern goes backwards). Not running: stopped,
+// or waiting for its first step.
+struct SeqPos {
+    bool running = false;
+    uint8_t steps = 16;         // the pattern's length
+    uint32_t pos_q16 = 0;
+};
+
 // Per-voice state owned by the engine, visible to voice-scope modules.
 struct VoiceState {
     int note = 0;
@@ -82,6 +91,7 @@ struct ProcessCtx {
     int keys_held = 0;          // voices whose key is down
     int32_t *bus2_l = nullptr, *bus2_r = nullptr;   // the second voice bus (VoiceOut's input 2, BusIn with bus 1): the rack's branch 2 (ADR-041)
     const Transport *transport = nullptr;           // the machine clock at the start of this block
+    const SeqPos *seq = nullptr;                    // the step sequencer's place at the end of this block
 };
 
 struct Ports {

@@ -6,14 +6,95 @@
 #include <stdio.h>
 #include <string.h>
 
-// Sequencer rows: 1 Step (cursor), 2 Note, 3 Len, 4 Run.
+// Sequencer rows (SEQ_ROW_*): Step (the cursor), then that step's Note (of the chord's voice shown by Voice), Len, Vel, Prob, Rtch; Run.
 static void handle_seq(synth_ui_t *ui, seq_t *seq, int row, int dir) {
+    if (ui->cursor >= seq->steps) ui->cursor = seq->steps - 1;
     switch (row) {
-        case 1: ui->cursor = (ui->cursor + dir + seq->steps) % seq->steps; break;
-        case 2: seq_adjust_note(seq, ui->cursor, dir); break;
-        case 3: seq_adjust_len(seq, ui->cursor, dir); break;
-        case 4: seq_set_running(seq, !seq->running); break;
+        case SEQ_ROW_STEP:    ui->cursor = (ui->cursor + dir + seq->steps) % seq->steps; break;
+        case SEQ_ROW_NOTE:    seq_adjust_note(seq, ui->cursor, ui->seq_voice % SEQ_CHORD, dir); break;
+        case SEQ_ROW_LEN:     seq_adjust_len(seq, ui->cursor, dir); break;
+        case SEQ_ROW_VEL:     seq_adjust_vel(seq, ui->cursor, dir); break;
+        case SEQ_ROW_PROB:    seq_adjust_prob(seq, ui->cursor, dir); break;
+        case SEQ_ROW_RATCHET: seq_adjust_ratchet(seq, ui->cursor, dir); break;
+        case SEQ_ROW_VOICE:   ui->seq_voice = (ui->seq_voice + dir + SEQ_CHORD) % SEQ_CHORD; break;
+        case SEQ_ROW_RUN:     seq_set_running(seq, !seq->running); break;
+        case SEQ_ROW_TOOL:    ui->seq_tool = (uint8_t)((ui->seq_tool + dir + SQT_COUNT) % SQT_COUNT); break;
+        case SEQ_ROW_SCOPE:   ui->seq_scope = (uint8_t)((ui->seq_scope + dir + SQS_COUNT) % SQS_COUNT); break;
     }
+}
+
+// PATTERNS page rows (PAT_ROW_*). Pat: stopped, the pattern is taken at once; running, it is picked to follow the playing one (the
+// app hands it to the engine, which goes on to it at the pattern's end) -- not while the chain plays, which decides what follows.
+static void handle_seq_pat(synth_ui_t *ui, seq_t *seq, int row, int dir) {
+    seq_bank_t *b = ui->bank;
+    if (!b || !b->pat) return;
+    if (ui->seq_chain_cur >= b->chain_len) ui->seq_chain_cur = (uint8_t)(b->chain_len - 1);
+    switch (row) {
+        case PAT_ROW_PAT:
+            if (!seq->running) {
+                seq_bank_select(b, seq, (b->cur + dir + SEQ_PATTERNS) % SEQ_PATTERNS);
+                if (ui->cursor >= seq->steps) ui->cursor = seq->steps - 1;
+            } else if (!b->chain_on) {
+                const int k = ((b->next >= 0 ? b->next : b->cur) + dir + SEQ_PATTERNS) % SEQ_PATTERNS;
+                b->next = (int8_t)(k == b->cur ? -1 : k);
+            }
+            break;
+        case PAT_ROW_CHAIN:
+            b->chain_on ^= 1;
+            b->chain_pos = (uint8_t)(b->chain_len - 1);              // (running: its first entry follows the playing pattern)
+            b->next = -1;
+            break;
+        case PAT_ROW_LEN: {
+            const int len = b->chain_len + dir;
+            if (len < 1 || len > SEQ_CHAIN_MAX) break;
+            if (dir > 0) b->chain[len - 1] = b->cur;                 // a new entry: the pattern shown
+            b->chain_len = (uint8_t)len;
+            if (b->chain_pos >= len) b->chain_pos = 0;
+            if (ui->seq_chain_cur >= len) ui->seq_chain_cur = (uint8_t)(len - 1);
+            break;
+        }
+        case PAT_ROW_SLOT: ui->seq_chain_cur = (uint8_t)((ui->seq_chain_cur + dir + b->chain_len) % b->chain_len); break;
+        case PAT_ROW_IS:   b->chain[ui->seq_chain_cur] = (uint8_t)((b->chain[ui->seq_chain_cur] + dir + SEQ_PATTERNS) % SEQ_PATTERNS); break;
+    }
+}
+
+const char *seq_pat_row_text(const synth_ui_t *ui, const seq_t *seq, int row, char *val, int n) {
+    static const char *const label[PAT_ROWS] = {"Pat", "Chain", "Len", "Slot", "Is"};
+    const seq_bank_t *b = ui->bank;
+    val[0] = 0;
+    if (!b || row < 1 || row > PAT_ROWS) return "?";
+    const int slot = ui->seq_chain_cur < b->chain_len ? ui->seq_chain_cur : b->chain_len - 1;
+    switch (row) {
+        case PAT_ROW_PAT:
+            if (seq->running && !b->chain_on && b->next >= 0) snprintf(val, (size_t)n, "%d >%d", b->cur + 1, b->next + 1);
+            else snprintf(val, (size_t)n, "%d", b->cur + 1);
+            break;
+        case PAT_ROW_CHAIN: snprintf(val, (size_t)n, "%s", b->chain_on ? "On" : "Off"); break;
+        case PAT_ROW_LEN:   snprintf(val, (size_t)n, "%d", b->chain_len); break;
+        case PAT_ROW_SLOT:  snprintf(val, (size_t)n, "%d/%d", slot + 1, b->chain_len); break;
+        default:            snprintf(val, (size_t)n, "%d", b->chain[slot] + 1); break;
+    }
+    return label[row - 1];
+}
+
+// A column knob on the SEQUENCER page: Note, Len, Vel, Prob of the cursor's step, over the knob's travel. When the cursor (or the
+// chord's voice) has changed, every knob is referenced where it stands (the one that reports: where it reports from) and must move
+// SEQ_KNOB_HYST away before it writes: a knob at rest, or its noise, never changes the step just selected.
+static bool seq_knob(synth_ui_t *ui, seq_t *seq, int k, int value) {
+    if (ui->cursor >= seq->steps) ui->cursor = seq->steps - 1;
+    const int16_t key = (int16_t)((ui->cursor * SEQ_CHORD + ui->seq_voice % SEQ_CHORD) + 1);
+    if (ui->seq_knob_key != key) {
+        ui->seq_knob_key = key;
+        ui->seq_knob_live = 0;
+        for (int i = 0; i < SYNTH_UI_COL_KNOBS; i++) ui->seq_knob_ref[i] = (int16_t)(i == k ? value : ui->knob_val[i]);
+    }
+    if (!(ui->seq_knob_live >> k & 1)) {
+        if (ui->seq_knob_ref[k] < 0) { ui->seq_knob_ref[k] = (int16_t)value; return false; }     // first seen: this is where it stands
+        const int moved = value - ui->seq_knob_ref[k];
+        if (moved > -SEQ_KNOB_HYST && moved < SEQ_KNOB_HYST) return false;
+        ui->seq_knob_live |= (uint8_t)(1 << k);
+    }
+    return seq_set_norm(seq, ui->cursor, ui->seq_voice % SEQ_CHORD, (seq_knob_t)k, (float)value / INPUT_VALUE_MAX);
 }
 
 // Motion sequencer rows. Page 1 (MOTION): 1 Lane, 2 Step, 3 Val, 4 On.  Page 2 (LANE): 1 Lane, 2 Tgt, 3 Mode, 4 Pol, 5 Dpth.
@@ -22,7 +103,7 @@ static bool handle_ms(synth_ui_t *ui, rack_t *rack, const seq_t *seq, int slot, 
     ms_lane_t *l = &rack_ms(rack, slot)->lane[ui->ms_lane];
     if (row == 1) { ui->ms_lane = (ui->ms_lane + dir + MS_LANES) % MS_LANES; return false; }
     if (graph == GRAPH_MS_STEPS) {
-        const int n = seq->steps;
+        const int n = seq_motion_steps(seq);
         switch (row) {
             case 2: ui->ms_step = (ui->ms_step + dir + n) % n; return false;
             case 3: return rack_ms_adjust_step(l, ui->ms_step, dir);
@@ -51,7 +132,7 @@ static bool page_row_step(synth_ui_t *ui, synth_params_t *params, seq_t *seq, ra
     if (pg->slot != GLOBAL_PAGE && pg->graph == GRAPH_EG) {
         return handle_eg(ui, rack, pg->slot, row, dir);
     } else if (pg->slot != GLOBAL_PAGE && (pg->graph == GRAPH_MS_STEPS || pg->graph == GRAPH_MS_LANE)) {
-        if (ui->ms_step >= seq->steps) ui->ms_step = seq->steps - 1;
+        if (ui->ms_step >= seq_motion_steps(seq)) ui->ms_step = seq_motion_steps(seq) - 1;
         return handle_ms(ui, rack, seq, pg->slot, pg->graph, row, dir);
     } else if (pg->slot != GLOBAL_PAGE) {
         rack_slot_t *sl = &rack->slot[pg->slot];
@@ -81,6 +162,9 @@ static bool page_row_step(synth_ui_t *ui, synth_params_t *params, seq_t *seq, ra
         return dx7_value_adjust(&rack->cfg.fm, r.op, r.v, dir);
     } else if (pg->graph == GRAPH_SEQ) {
         handle_seq(ui, seq, row, dir);
+        return false;
+    } else if (pg->graph == GRAPH_SEQ_PAT) {
+        handle_seq_pat(ui, seq, row, dir);
         return false;
     } else if (pg->graph == GRAPH_SEQ_CFG) {
         const bool changed = seq_param_adjust(seq, (seq_param_id_t)pg->params[row - 1], dir);
@@ -208,7 +292,7 @@ static bool row_is_knobbable(const rack_t *rack, const page_t *pg, int row) {
         fm_row_t r;
         return fm_page_row(NULL, pg, row, &r) && !r.selector && r.cfg != CFGP_PATCH;
     }
-    if (pg->graph == GRAPH_SEQ || pg->graph == GRAPH_MS_STEPS || pg->graph == GRAPH_MS_LANE) return false;
+    if (pg->graph == GRAPH_SEQ || pg->graph == GRAPH_SEQ_PAT || pg->graph == GRAPH_MS_STEPS || pg->graph == GRAPH_MS_LANE) return false;
     if (pg->graph == GRAPH_EG && row == 1) return false;
     if (pg->slot == GLOBAL_PAGE) return true;
     const int prm = pg->params[row - 1];
@@ -220,6 +304,7 @@ bool synth_ui_knob_row(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_
     if (ui->in_rack || row < 1 || row > SYNTH_UI_COL_KNOBS) return false;
     page_t pg;
     get_page(ui, rack, ui->page, &pg);
+    if (pg.graph == GRAPH_SEQ) return seq_knob(ui, seq, row - 1, value);             // the step's values, not the page's rows
     if (row > pg.count || !row_is_knobbable(rack, &pg, row)) return false;
     if (!knob_new_position(ui, row - 1, ui->page * 8 + row, value)) return false;
     row_ctx_t c = {ui, params, seq, rack, &pg, row};
@@ -660,7 +745,17 @@ static int rows_on_screen(const synth_ui_t *ui, const rack_t *rack) {
     return pg.count;
 }
 
+static bool handle_event(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, ui_event_t e);
+
 bool synth_ui_handle(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, ui_event_t e) {
+    const int page = ui->page;
+    const bool menu = ui->in_rack;
+    const bool changed = handle_event(ui, params, seq, rack, e);
+    if (ui->page != page || ui->in_rack != menu) ui->seq_knob_key = 0;   // the SEQUENCER page was left or entered: its knobs must move again before they write
+    return changed;
+}
+
+static bool handle_event(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, ui_event_t e) {
     if (e == UI_PLAY) { seq_set_running(seq, !seq->running); return false; }
     if (e == UI_ROW_TOP) { ui->row = 0; ui->latched = false; return false; }
 
@@ -695,12 +790,17 @@ bool synth_ui_handle(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t 
             case UI_LATCH: e = UI_SELECT; break;
             default: break;
         }
+        if (e == UI_SELECT && ui->row == SEQ_ROW_TOOL && synth_ui_shows_seq(ui)) {   // the SEQUENCER page's Tool row: a push runs the tool
+            seq_tool_apply(seq, ui->seq_tool, ui->seq_scope, ui->cursor, ui->seq_msg, (int)sizeof ui->seq_msg);
+            if (ui->cursor >= seq->steps) ui->cursor = seq->steps - 1;
+            return false;
+        }
         if (e == UI_SELECT) { if (ui->row == 0) return false; e = UI_RIGHT; }   // push-to-activate: Insert, Delete, Run... act like Right
     }
     if (e == UI_PAGE_PREV || e == UI_PAGE_NEXT) {         // change page (or menu tab) from any row, keeping the row when the new one has it
         const int saved = ui->row;
         ui->row = 0;
-        synth_ui_handle(ui, params, seq, rack, e == UI_PAGE_NEXT ? UI_RIGHT : UI_LEFT);
+        handle_event(ui, params, seq, rack, e == UI_PAGE_NEXT ? UI_RIGHT : UI_LEFT);
         const int rows = rows_on_screen(ui, rack);
         ui->row = saved > rows ? rows : saved;
         ui->latched = false;

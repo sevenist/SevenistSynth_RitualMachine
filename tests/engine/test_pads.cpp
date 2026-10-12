@@ -10,6 +10,7 @@
 #include "platform/engine/sample_catalog.h"
 
 extern "C" {
+#include "core/pad_seq.h"
 #include "core/pads.h"
 #include "core/rack.h"
 #include "core/synth_config.h"
@@ -277,7 +278,7 @@ long onset(const std::vector<double> &x, size_t from, double thr = 300.0) {
 TEST(pads_clock_runs_in_beats_and_restarts_at_bar_one) {
     PadsApp a;
     a.build();
-    engine_synth_set_clock(120, 16, 0, 1);                                    // 120 BPM: a beat is 0.5 s
+    engine_synth_set_clock(120, 1);                                    // 120 BPM: a beat is 0.5 s
     a.run(1.25);
     int bar = 0, beat = 0, frac = 0;
     CHECK(engine_synth_transport(&bar, &beat, &frac));
@@ -286,10 +287,10 @@ TEST(pads_clock_runs_in_beats_and_restarts_at_bar_one) {
     a.run(1.0);                                                               // 2.25 s: bar 2, beat 1
     engine_synth_transport(&bar, &beat, &frac);
     CHECK(bar == 2 && beat == 1);
-    engine_synth_set_clock(120, 16, 0, 0);
+    engine_synth_set_clock(120, 0);
     a.run(0.1);
     CHECK(!engine_synth_transport(&bar, &beat, &frac));
-    engine_synth_set_clock(120, 16, 0, 1);                                    // a start is bar 1 beat 1 again
+    engine_synth_set_clock(120, 1);                                    // a start is bar 1 beat 1 again
     a.run(0.1);
     engine_synth_transport(&bar, &beat, &frac);
     CHECK(bar == 1 && beat == 1);
@@ -309,7 +310,7 @@ TEST(pads_start_on_grid_waits_for_the_beat_or_the_bar) {
     CHECK(onset(s0.l, 0) >= 0 && onset(s0.l, 0) < kBlock + 64);
     engine_synth_pads_stop();
     a.run(0.1);
-    engine_synth_set_clock(120, 16, 0, 1);
+    engine_synth_set_clock(120, 1);
     const long t0 = a.frames;                                                 // beat 0: the next block (runs are whole blocks)
     a.run(0.1);
     engine_synth_pad_push(0);                                                 // pushed 0.1 s in: waits for the beat at 0.5 s
@@ -338,7 +339,7 @@ TEST(pads_metronome_clicks_on_the_beats) {
     PadsApp a;
     a.build();
     engine_synth_set_metronome(1);
-    engine_synth_set_clock(120, 16, 0, 1);
+    engine_synth_set_clock(120, 1);
     const Stereo s = a.run(1.2);
     const long half = static_cast<long>(0.5 * kSampleRate), ms20 = static_cast<long>(0.02 * kSampleRate);
     auto win = [&](long from, long len) { return rms(std::vector<double>(s.l.begin() + from, s.l.begin() + from + len)); };
@@ -391,7 +392,7 @@ TEST(pads_loop_start_crossfade_and_launch_from_the_loop) {
     // a grid launch from the loop start: the first sound is already 500 Hz
     p.xfade_ms = 0; p.grid = PAD_GRID_BEAT; p.from = 1;
     engine_synth_pad_set(0, &p);
-    engine_synth_set_clock(120, 16, 0, 1);
+    engine_synth_set_clock(120, 1);
     a.run(0.1);
     engine_synth_pad_push(0);
     const Stereo g = a.run(0.8);
@@ -472,7 +473,7 @@ TEST(pads_sync_lands_the_loop_start_on_the_grid) {
     pad_t &p = a.pad(0, "swell");
     p.loop = PAD_LOOP_TRIM; p.lstart = static_cast<uint32_t>(kSampleRate / 2); p.sync = 1; p.grid = PAD_GRID_BAR;
     a.build();
-    engine_synth_set_clock(120, 16, 0, 1);                                    // a bar = 2 s
+    engine_synth_set_clock(120, 1);                                    // a bar = 2 s
     const long t0 = a.frames;
     a.run(0.1);
     engine_synth_pad_push(0);                                                 // 0.1 s in: the loop start can make the bar at 2.0 s
@@ -696,7 +697,7 @@ TEST(capture_on_the_clock_starts_on_a_bar_and_lasts_its_bars) {
     tone_pad(a, 0, 0);
     a.build();
     engine_synth_pad_push(0);                                                // a loop that sounds all along
-    engine_synth_set_clock(120, 16, 0, 1);                                   // 120 BPM: a bar = 2 s
+    engine_synth_set_clock(120, 1);                                   // 120 BPM: a bar = 2 s
     play(a, 0.5);
     const uint32_t bar = static_cast<uint32_t>(2 * kSampleRate);
     CHECK(engine_synth_capture_start("loop1", 300, 1, bar));                 // one bar, from the next bar line
@@ -712,7 +713,7 @@ TEST(capture_on_the_clock_starts_on_a_bar_and_lasts_its_bars) {
     CHECK_EQ(lost, 0u);
     CHECK(rms(x) > 8000.0);
     engine_synth_capture_done();
-    engine_synth_set_clock(120, 16, 0, 0);
+    engine_synth_set_clock(120, 0);
 }
 
 // The catalog holds the files in use (hal_audio.h audio_sample_use): an entry nothing uses any more is taken out, its sample stays in
@@ -771,4 +772,116 @@ TEST(pads_catalog_entry_leaves_and_its_sample_is_unloaded_once_nothing_plays_it)
     CHECK(power_at(s.l, 1760.0) > 1e5);
     CHECK(power_at(s.l, 880.0) > 1e5);
     CHECK(power_at(s.l, 220.0) * 1000.0 < power_at(s.l, 880.0));                // the old sample is not heard (what is left: the DFT's leakage)
+}
+
+// ---- the pads' sequencer (ADR-042 stage 3): a pattern of hits pushes the pads on the machine clock ----
+
+namespace {
+// The onsets of a recording (level above thr after a quiet stretch), in seconds.
+std::vector<double> onsets_of(const std::vector<double> &x, double thr = 300.0, double quiet_s = 0.02) {
+    std::vector<double> t;
+    const size_t quiet = static_cast<size_t>(quiet_s * kSampleRate);
+    size_t i = 0;
+    while (i < x.size()) {
+        if (std::fabs(x[i]) <= thr) { i++; continue; }
+        t.push_back(static_cast<double>(i) / kSampleRate);
+        size_t still = 0;                                                      // on to the next quiet stretch
+        while (i < x.size() && still < quiet) { still = std::fabs(x[i]) <= thr ? still + 1 : 0; i++; }
+    }
+    return t;
+}
+}  // namespace
+
+TEST(pads_sequencer_pushes_its_hits_on_the_clock_with_their_level) {
+    PadsApp a;
+    a.add("blip", sine(880.0, 0.05));                                          // 50 ms: over before the next step (125 ms at 120 BPM)
+    a.pad(0, "blip").grid = PAD_GRID_BAR;                                      // its own grid setting is ignored by the sequencer
+    a.pad(1, "blip");
+    a.build();
+    pseq_pattern_t p;
+    pseq_clear(&p);
+    p.steps = 8;
+    CHECK(pseq_put(&p, 0, 0, 16, 100, 1, 1));                                  // pad 1 on steps 1 and 5, pad 2 on step 3 at a quarter of its level
+    CHECK(pseq_put(&p, 0, 4, 16, 100, 1, 1));
+    CHECK(pseq_put(&p, 1, 2, 4, 100, 1, 1));
+    engine_synth_pseq_set(&p, 1);                                              // the sequencer first, then the clock: step 1 on beat 1
+    engine_synth_set_clock(120, 1);
+    const Stereo s = a.run(0.99);                                              // one pass of 8 steps = 1 s
+    const std::vector<double> on = onsets_of(s.l);
+    CHECK_EQ(on.size(), 3u);
+    if (on.size() == 3) {
+        const double tol = 1.5 * kBlock / kSampleRate + 0.002;
+        CHECK_NEAR(on[0], 0.0, tol); CHECK_NEAR(on[1], 0.25, tol); CHECK_NEAR(on[2], 0.5, tol);
+    }
+    auto level_at = [&](double t) { std::vector<double> w(s.l.begin() + static_cast<long>(t * kSampleRate), s.l.begin() + static_cast<long>((t + 0.04) * kSampleRate)); return rms(w); };
+    const double full = level_at(0.005), quarter = level_at(0.255);
+    std::printf("    a hit at 16/16: rms %.0f, at 4/16: %.0f\n", full, quarter);
+    CHECK_NEAR(quarter / full, 0.25, 0.03);
+    CHECK_EQ(engine_synth_pseq_pos(), 7);
+    // a hit added while it plays is heard at its turn; the sequencer switched off (the clock goes on): silence
+    CHECK(pseq_put(&p, 1, 1, 16, 100, 1, 1));
+    engine_synth_pseq_set(&p, 1);
+    const std::vector<double> on2 = onsets_of(a.run(1.0).l);
+    CHECK_EQ(on2.size(), 4u);
+    engine_synth_pseq_set(&p, 0);
+    a.run(0.2);
+    CHECK(rms(a.run(1.0).l) < 1.0);
+    CHECK_EQ(engine_synth_pseq_pos(), -1);
+    int bar = 0, beat = 0, frac = 0;
+    CHECK(engine_synth_transport(&bar, &beat, &frac));
+}
+
+TEST(pads_sequencer_ratchets_holds_gate_pads_for_their_length_and_takes_a_queued_pattern) {
+    PadsApp a;
+    a.add("blip", sine(880.0, 0.008));                                         // 8 ms: the ratchet's hits (31 ms apart) stay apart
+    a.add("tone", sine(440.0, 3.0));
+    a.pad(0, "blip");
+    pad_t &g = a.pad(1, "tone");
+    g.mode = PAD_GATE; g.tail_ms = 5;
+    pad_t &t = a.pad(2, "tone");
+    t.mode = PAD_TOGGLE; t.tail_ms = 5;
+    a.build();
+    pseq_pattern_t p;
+    pseq_clear(&p);
+    p.steps = 16;                                                              // 2 s a pass at 120 BPM
+    CHECK(pseq_put(&p, 0, 0, 16, 100, 4, 1));                                  // a ratchet of 4 in step 1: every 31 ms
+    CHECK(pseq_put(&p, 1, 4, 16, 100, 1, 2));                                  // the gate pad from step 5, two steps long: 0.5 s .. 0.75 s
+    engine_synth_pseq_set(&p, 1);
+    engine_synth_set_clock(120, 1);
+    const Stereo s = a.run(1.0);
+    const std::vector<double> on = onsets_of(s.l, 2000.0, 0.01);
+    CHECK(on.size() >= 5);
+    if (on.size() >= 5) {
+        for (int i = 0; i < 4; i++) CHECK_NEAR(on[static_cast<size_t>(i)], 0.125 * i / 4, 1.5 * kBlock / kSampleRate + 0.003);
+        CHECK_NEAR(on[4], 0.5, 1.5 * kBlock / kSampleRate + 0.003);
+    }
+    auto level = [&](const std::vector<double> &x, double from, double to) { std::vector<double> w(x.begin() + static_cast<long>(from * kSampleRate), x.begin() + static_cast<long>(to * kSampleRate)); return rms(w); };
+    CHECK(level(s.l, 0.55, 0.72) > 3000.0);                                    // held for its two steps ...
+    CHECK(level(s.l, 0.80, 0.98) < 5.0);                                       // ... then let go (a 3 s sample: it would still sound)
+    // a Toggle pad is started by its hit and stopped after its length, not flipped; a queued pattern follows at this one's end
+    pseq_pattern_t q;
+    pseq_clear(&q);
+    q.steps = 4;
+    CHECK(pseq_put(&q, 2, 0, 16, 100, 1, 1));
+    CHECK(engine_synth_pseq_queue(&q, 5) != 0);
+    CHECK_EQ(engine_synth_pseq_taken(), -1);
+    const Stereo s2 = a.run(1.5);                                              // 1.0 .. 2.5 s: the first pattern ends at 2.0 s
+    CHECK(level(s2.l, 0.1, 0.95) < 5.0);
+    CHECK_EQ(engine_synth_pseq_taken(), 5);
+    CHECK_EQ(engine_synth_pseq_taken(), -1);
+    CHECK(level(s2.l, 1.02, 1.11) > 3000.0);                                   // its hit at 2.0 s: the toggle pad sounds for one step (125 ms)
+    CHECK(level(s2.l, 1.20, 1.45) < 5.0);
+    engine_synth_pseq_set(&q, 1);                                              // (the application hands it over from now on)
+    const Stereo s3 = a.run(0.5);                                              // 2.5 .. 3.0: the next pass starts it again (it was not left on)
+    CHECK(level(s3.l, 0.02, 0.11) > 3000.0);
+    CHECK(level(s3.l, 0.20, 0.45) < 5.0);
+    // the clock stops under a held pad: it is let go
+    pseq_clear(&q);
+    q.steps = 16;
+    CHECK(pseq_put(&q, 1, 0, 16, 100, 1, 16));
+    engine_synth_pseq_set(&q, 1);
+    a.run(2.3);                                                                // into the pass that plays it (passes of the 4-step pattern end every 0.5 s)
+    engine_synth_set_clock(120, 0);
+    a.run(0.1);
+    CHECK(rms(a.run(0.3).l) < 5.0);
 }

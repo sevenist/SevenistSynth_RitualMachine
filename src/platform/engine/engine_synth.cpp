@@ -40,7 +40,14 @@ struct Synth {
     int cat_n = 0;
     int16_t slot_of[AUDIO_SAMPLES_MAX];       // catalog index -> bank slot (-1 = not loaded; samples stay loaded once used)
     std::mutex mx;                            // control calls (build, params, catalog) vs the loader thread; never taken by the audio thread
-    int clk_bpm = 110, clk_steps = 16, clk_swing = 0, clk_run = 0, clk_restart = 0;   // the note sequencer's clock, for the motion sequencers
+    int clk_bpm = 110, clk_run = 0;           // the machine clock as last set
+    SeqSetup seq_setup;                       // the step sequencer as the engine has it (seq_sent: all of it was sent once)
+    SeqStep seq_step[kSeqSteps];
+    bool seq_sent = false;
+    uint32_t seq_taken_seen = 0;              // Engine::seq_taken() as last looked at
+    bool pseq_sent = false;                   // the pads' sequencer: the pattern (its hash) and the run state the engine has
+    uint32_t pseq_hash = 0, pseq_taken_seen = 0;
+    int pseq_run = 0;
     bool click = false;                       // the metronome (the transport's click)
     int last_nv = 0, last_glide = 0, last_legato = 0;      // voice count / note handling of the loaded graph (a different count is a rebuild)
     bool last_mono = false;
@@ -123,18 +130,6 @@ void send_blob(const RackGraph &r) {
     if (r.fm) s_synth.eng.set_blob(r.dx7_node, &r.fm_patch, sizeof r.fm_patch);
     for (int i = 0; i < r.ms_count; i++) s_synth.eng.set_blob(r.ms_node[i], &r.ms_blob[i], sizeof(MotionBlob));
     for (int k = 0; k < r.conv_count; k++) send_conv(r, k);
-}
-
-void send_clock(const RackGraph &r) {                 // the motion sequencers' timing (not part of the rack: it follows the note sequencer)
-    Synth &s = s_synth;
-    for (int i = 0; i < r.ms_count; i++) {
-        const int id = r.ms_node[i];
-        s.eng.set_param(id, MSP_BPM, s.clk_bpm);
-        s.eng.set_param(id, MSP_STEPS, s.clk_steps);
-        s.eng.set_param(id, MSP_SWING, s.clk_swing);
-        s.eng.set_param(id, MSP_RESTART, s.clk_restart);
-        s.eng.set_param(id, MSP_RUN, s.clk_run);
-    }
 }
 
 /* ---- the Pads section ---- */
@@ -254,7 +249,10 @@ int engine_synth_init(void *fast, size_t fast_bytes, void *bulk, size_t bulk_byt
     s.bpos = kBlock;
     s.click = false;
     s.resident_bytes = 0;
-    s.clk_bpm = 110; s.clk_steps = 16; s.clk_swing = 0; s.clk_run = 0; s.clk_restart = 0;   // a new engine: set_clock compares with these
+    s.clk_bpm = 110; s.clk_run = 0;                         // a new engine: set_clock compares with these
+    s.seq_sent = false;                                     // ... and has no pattern yet
+    s.seq_taken_seen = 0;
+    s.pseq_sent = false; s.pseq_taken_seen = 0;
     s.eng.set_transport(s.clk_bpm, false, false);          // the machine clock: stopped, at the default tempo
     s_ready = true;
     return 0;
@@ -346,7 +344,6 @@ void engine_synth_build(const rack_t *rack, const synth_params_t *params) {
     s.last_nv = nv;
     send_voice_mode(*rack);
     send_blob(s.cur);
-    send_clock(s.cur);
     s.last = s.cur;
     s.have_last = true;
     s.eng.gc();
@@ -391,15 +388,146 @@ void engine_synth_set_params(const rack_t *rack, const synth_params_t *params) {
     s.last = s.cur;
 }
 
-void engine_synth_set_clock(int bpm, int steps, int swing, int running) {
+void engine_synth_set_clock(int bpm, int running) {
     if (!s_ready) return;
     Synth &s = s_synth;
     const int run = running ? 1 : 0;
-    if (bpm == s.clk_bpm && steps == s.clk_steps && swing == s.clk_swing && run == s.clk_run) return;     // called every UI step
-    s.clk_bpm = bpm; s.clk_steps = steps; s.clk_swing = swing; s.clk_run = running ? 1 : 0;
-    if (s.have_last) send_clock(s.last);
+    if (bpm == s.clk_bpm && run == s.clk_run) return;                           // called every UI step
+    s.clk_bpm = bpm; s.clk_run = run;
     s.eng.set_transport(bpm, running != 0, s.click);
 }
+
+namespace {
+uint8_t seq_clamp(int v, int lo, int hi) { return static_cast<uint8_t>(v < lo ? lo : (v > hi ? hi : v)); }
+
+void seq_steps_of(const seq_step_t *from, SeqStep *to, int n) {              // the application's steps as the engine's
+    for (int i = 0; i < n; i++) {
+        const seq_step_t &u = from[i];
+        for (int k = 0; k < kSeqChord; k++) to[i].note[k] = u.note[k] > 127 ? 0 : u.note[k];
+        to[i].len = seq_clamp(u.len, 1, kSeqSteps);
+        to[i].vel = seq_clamp(u.vel, 1, 127);
+        to[i].prob = seq_clamp(u.prob, 0, 100);
+        to[i].ratchet = seq_clamp(u.ratchet, 1, kSeqRatchet);
+    }
+}
+
+SeqSetup seq_setup_of(int run, int steps, int rate, int dir, int swing, int transpose) {
+    SeqSetup su;
+    su.run = run ? 1 : 0;
+    su.steps = seq_clamp(steps, 1, kSeqSteps);
+    su.rate = seq_clamp(rate, 0, SEQ_RATES - 1);
+    su.dir = seq_clamp(dir, 0, SEQ_DIRS - 1);
+    su.swing = seq_clamp(swing, 0, 75);
+    su.transpose = static_cast<int8_t>(transpose < -48 ? -48 : (transpose > 48 ? 48 : transpose));
+    return su;
+}
+}  // namespace
+
+// The pattern goes over in chunks of kSeqChunk steps, the settings after it (a run then starts on the steps it was given). What the
+// command queue did not take is sent again at the next call.
+void engine_synth_seq_set(const seq_t *q) {
+    if (!s_ready) return;
+    Synth &s = s_synth;
+    bool all = true;
+    for (int first = 0; first < kSeqSteps; first += kSeqChunk) {
+        SeqStep st[kSeqChunk];
+        seq_steps_of(&q->step[first], st, kSeqChunk);
+        if (s.seq_sent && !std::memcmp(st, &s.seq_step[first], sizeof st)) continue;
+        if (s.eng.seq_steps(first, kSeqChunk, st)) std::memcpy(&s.seq_step[first], st, sizeof st); else all = false;
+    }
+    const SeqSetup su = seq_setup_of(q->running, q->steps, q->rate, q->dir, q->swing, q->transpose);
+    if (!s.seq_sent || std::memcmp(&su, &s.seq_setup, sizeof su)) {
+        if (all && s.eng.seq_setup(su)) s.seq_setup = su; else all = false;
+    }
+    if (all) s.seq_sent = true;
+}
+
+int engine_synth_seq_queue(const seq_pattern_t *p, int id) {
+    if (!s_ready) return 0;
+    Synth &s = s_synth;
+    SeqSetup su;
+    if (!p) { su.queue = SEQ_UNQUEUE; return s.eng.seq_setup(su) ? 1 : 0; }
+    for (int first = 0; first < kSeqSteps; first += kSeqChunk) {
+        SeqStep st[kSeqChunk];
+        seq_steps_of(&p->step[first], st, kSeqChunk);
+        if (!s.eng.seq_steps(first, kSeqChunk, st, true)) return 0;
+    }
+    su = seq_setup_of(1, p->steps, p->rate, p->dir, p->swing, p->transpose);
+    su.queue = SEQ_QUEUE;
+    su.id = static_cast<uint8_t>(id);
+    return s.eng.seq_setup(su) ? 1 : 0;
+}
+
+// The audio thread went on to the queued pattern: what seq_set believes the engine holds is no longer true, so it sends everything
+// again (the application hands it that pattern from now on: the engine ends up with exactly what the application shows).
+int engine_synth_seq_taken(void) {
+    if (!s_ready) return -1;
+    Synth &s = s_synth;
+    const uint32_t t = s.eng.seq_taken();
+    if (t == s.seq_taken_seen) return -1;
+    s.seq_taken_seen = t;
+    s.seq_sent = false;
+    return static_cast<int>(t & 0xFF);
+}
+
+/* ---- the Pads section's sequencer ---- */
+
+namespace {
+bool send_pad_pattern(const pseq_pattern_t *p, bool queue) {                 // its hits, kPadSeqChunk per command
+    const int n = p->n > kPadSeqHits ? kPadSeqHits : p->n;
+    int first = 0;
+    do {
+        PadHit h[kPadSeqChunk];
+        const int count = n - first < kPadSeqChunk ? n - first : kPadSeqChunk;
+        for (int i = 0; i < count; i++) {
+            const pseq_hit_t &u = p->hit[first + i];
+            h[i].pad = u.pad; h[i].step = u.step; h[i].level = u.level; h[i].prob = u.prob; h[i].ratchet = u.ratchet; h[i].len = u.len;
+        }
+        if (!s_synth.eng.pseq_hits(first, count, h, n, queue)) return false;
+        first += count;
+    } while (first < n);
+    return true;
+}
+}  // namespace
+
+void engine_synth_pseq_set(const pseq_pattern_t *p, int run) {
+    if (!s_ready) return;
+    Synth &s = s_synth;
+    const uint32_t h = pseq_hash(p);
+    run = run ? 1 : 0;
+    if (s.pseq_sent && h == s.pseq_hash && run == s.pseq_run) return;         // called every UI step
+    if ((!s.pseq_sent || h != s.pseq_hash) && !send_pad_pattern(p, false)) { s.pseq_sent = false; return; }
+    if (!s.eng.pseq_setup(seq_setup_of(run, p->steps, p->rate, p->dir, p->swing, 0), RP_PADS)) { s.pseq_sent = false; return; }
+    s.pseq_sent = true; s.pseq_hash = h; s.pseq_run = run;
+}
+
+int engine_synth_pseq_queue(const pseq_pattern_t *p, int id) {
+    if (!s_ready) return 0;
+    Synth &s = s_synth;
+    SeqSetup su;
+    if (!p) { su.queue = SEQ_UNQUEUE; return s.eng.pseq_setup(su, RP_PADS) ? 1 : 0; }
+    if (!send_pad_pattern(p, true)) return 0;
+    su = seq_setup_of(1, p->steps, p->rate, p->dir, p->swing, 0);
+    su.queue = SEQ_QUEUE;
+    su.id = static_cast<uint8_t>(id);
+    return s.eng.pseq_setup(su, RP_PADS) ? 1 : 0;
+}
+
+int engine_synth_pseq_taken(void) {
+    if (!s_ready) return -1;
+    Synth &s = s_synth;
+    const uint32_t t = s.eng.pseq_taken();
+    if (t == s.pseq_taken_seen) return -1;
+    s.pseq_taken_seen = t;
+    s.pseq_sent = false;                                                      // (what the engine holds is the queued pattern now: the next set sends again)
+    return static_cast<int>(t & 0xFF);
+}
+
+int engine_synth_pseq_pos(void) { return s_ready ? s_synth.eng.pseq_step() : -1; }
+int engine_synth_pseq_where(int *step, int *frac, uint32_t *count) { return s_ready && s_synth.eng.pseq_where(step, frac, count) ? 1 : 0; }
+
+int engine_synth_seq_pos(void) { return s_ready ? s_synth.eng.seq_step() : -1; }
+int engine_synth_seq_where(int *step, int *frac, uint32_t *count) { return s_ready && s_synth.eng.seq_where(step, frac, count) ? 1 : 0; }
 
 void engine_synth_set_metronome(int on) {
     if (!s_ready || (on != 0) == s_synth.click) return;
@@ -414,13 +542,6 @@ int engine_synth_transport(int *bar, int *beat, int *frac) {
     if (beat) *beat = static_cast<int>(whole % 4) + 1;
     if (frac) *frac = static_cast<int>((b >> 24) & 0xFF);
     return s_ready && s_synth.eng.transport_running() ? 1 : 0;
-}
-
-void engine_synth_motion_restart(void) {
-    if (!s_ready) return;
-    Synth &s = s_synth;
-    s.clk_restart = (s.clk_restart + 1) & 0x7FFFFFFF;
-    if (s.have_last) for (int i = 0; i < s.last.ms_count; i++) s.eng.set_param(s.last.ms_node[i], MSP_RESTART, s.clk_restart);
 }
 
 void engine_synth_note_on(int note)  { if (s_ready) s_synth.eng.note_on(note, 100); }

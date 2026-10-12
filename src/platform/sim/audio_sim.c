@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include "hal/hal_audio.h"
+#include "hal/hal_mem.h"
 #include "platform/engine/engine_synth.h"
 
 #include "platform/sim/sim_card.h"
@@ -82,8 +83,18 @@ sd_state_t audio_sd_state(void)                                 { return sim_car
 uint32_t audio_sd_read_us(void)                                 { return 0; }
 uint32_t audio_sd_generation(void)                              { return sim_card_generation(); }
 bool audio_sample_prepare(int i)                                { return sim_samples_prepare(i) != 0; }
-void audio_set_clock(int bpm, int steps, int swing, int running) { engine_synth_set_clock(bpm, steps, swing, running); }
-void audio_motion_restart(void)                                 { engine_synth_motion_restart(); }
+void audio_seq_set(const seq_t *seq)                            { engine_synth_seq_set(seq); }
+int  audio_seq_pos(void)                                        { return engine_synth_seq_pos(); }
+bool audio_seq_where(int *step, int *frac, uint32_t *count)     { return engine_synth_seq_where(step, frac, count) != 0; }
+bool audio_seq_queue(const seq_pattern_t *p, int id)            { return engine_synth_seq_queue(p, id) != 0; }
+int  audio_seq_taken(void)                                      { return engine_synth_seq_taken(); }
+void audio_pseq_set(const pseq_pattern_t *p, bool run)          { engine_synth_pseq_set(p, run); }
+int  audio_pseq_pos(void)                                       { return engine_synth_pseq_pos(); }
+bool audio_pseq_where(int *step, int *frac, uint32_t *count)    { return engine_synth_pseq_where(step, frac, count) != 0; }
+bool audio_pseq_queue(const pseq_pattern_t *p, int id)          { return engine_synth_pseq_queue(p, id) != 0; }
+int  audio_pseq_taken(void)                                     { return engine_synth_pseq_taken(); }
+void *mem_bulk_alloc(size_t bytes)                              { return calloc(1, bytes); }
+void audio_set_clock(int bpm, int running)                      { engine_synth_set_clock(bpm, running); }
 void audio_set_metronome(bool on)                                { engine_synth_set_metronome(on); }
 bool audio_transport(int *bar, int *beat, int *frac)             { return engine_synth_transport(bar, beat, frac) != 0; }
 void audio_note_on(int midi_note)                               { engine_synth_note_on(midi_note); }

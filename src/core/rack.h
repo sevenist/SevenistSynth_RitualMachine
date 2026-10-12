@@ -51,6 +51,7 @@ typedef enum {
     MOD_OSC, MOD_FILTER, MOD_SAT, MOD_LFO, MOD_MSEQ, MOD_ENV, MOD_SAMPLER, MOD_EG, MOD_COMB,
     MOD_TREM, MOD_EQ, MOD_RING, MOD_PHASER, MOD_FLANGER, MOD_COMP,                            // FX: per voice, or shared after a Para point / in row M
     MOD_DELAY, MOD_REVERB, MOD_CHORUS, MOD_SPECTRAL, MOD_CAB, MOD_ENSEMBLE,                   // FX: always shared (rack_type_shared_only)
+    MOD_VEL,                                                                                  // a modulator: the note's velocity (user, 2026-10-11)
     MOD_TYPE_COUNT
 } module_type_t;
 
@@ -65,6 +66,7 @@ enum { MP_OC_WAVE, MP_OC_PW, MP_OC_LEVEL, MP_OC_COARSE, MP_OC_FINE, MP_OC_MUTE, 
 enum { MP_FL_TYPE, MP_FL_CUT, MP_FL_RES, MP_FL_ENVAMT, MP_FL_A, MP_FL_D, MP_FL_S, MP_FL_R, MP_FL_ACV, MP_FL_DCV, MP_FL_RCV };
 enum { MP_SA_MODE, MP_SA_DRIVE, MP_SA_MIX };
 enum { MP_LF_SHAPE, MP_LF_RATE, MP_LF_DEPTH };
+enum { MP_VL_DEPTH };
 enum { MP_EN_A, MP_EN_D, MP_EN_S, MP_EN_DEPTH, MP_EN_R, MP_EN_HOLD, MP_EN_START, MP_EN_ACV, MP_EN_DCV, MP_EN_RCV };
 // EG (four-point envelope): point i (0..3) = v[3 i] time ms (0 = unused), v[3 i + 1] level %, v[3 i + 2] curve %; then:
 enum { MP_EG_SUS = 12, MP_EG_REL, MP_EG_RCV, MP_EG_ONE, MP_EG_DEPTH };

@@ -40,6 +40,10 @@ void app_init(app_t *app, u8g2_t *display) {
     app->display = display;
     synth_params_default(&app->params);
     seq_init(&app->seq);
+    seq_tools_reset();
+    memset(&app->rec, 0, sizeof app->rec);
+    app_seq_init(app);
+    app_pseq_init(app);
     rack_init_startup(&app->rack);
     synth_ui_init(&app->ui, &app->rack);
     pads_init(&app->pads);
@@ -52,6 +56,8 @@ void app_init(app_t *app, u8g2_t *display) {
     memset(app->lib_stamp, 0, sizeof app->lib_stamp);
     pads_fx_load(&app->pads.fx);        // padsfx.cfg: the FX chains
     app->ui.pads = &app->pads;
+    app->ui.bank = &app->bank;              // (synth_ui_init cleared it)
+    app->ui.pbank = &app->pbank;
     pads_ui_init(&app->ui);                 // no chop yet, the EDIT page's amounts
     history_load(&app->history);
     app->ui.history = &app->history;
@@ -66,6 +72,8 @@ void app_init(app_t *app, u8g2_t *display) {
     curves_load();                      // before the sound and ui.cfg: their mappings name the user curves
     app_state_init(app);
     app_state_load(app);                // synth.cfg: the sound as it was left (the board's card shows up later: app_check_sd)
+    app_seq_load(app);                  // the sequencer's patterns
+    app_pseq_load(app);                 // ... and the Pads section's
     ui_settings_load(&app->ui, &app->rack);   // Knob mode, jump slots, the Shift / Mod layers (the board's card shows up later: app_check_sd)
     app->settings_pending = false;
     app->batt_warned = 0;
@@ -228,12 +236,15 @@ bool app_step(app_t *app, input_event_t e) {
     }
     bool animated = gui_anim_tick(audio_millis());
 
-    audio_set_clock(app->seq.bpm, app->seq.steps, app->seq.swing, clock_running(app));  // the machine clock; the motion sequencers follow it
-    if (app->seq.running && app->seq.fresh) audio_motion_restart();                     // a run starts on this tick: the lanes start with it
-    seq_event_t se;
-    bool stepped = seq_tick(&app->seq, audio_millis(), &se);
-    for (int i = 0; i < se.n_off; i++) audio_note_off(se.off[i]);
-    if (se.on)  audio_note_on(se.on);
+    // The sequencer plays in the engine, on the machine clock (ADR-042): it gets the pattern as it is now, then the clock, in this
+    // order, so that a Play starts both on the same beat. What comes back is the step that plays, for the screen.
+    app_pseq_step(app);
+    app_seq_step(app, clock_running(app));
+    app_seq_poll(app);
+    app_pseq_poll(app);
+    const int pos = app->seq.running ? audio_seq_pos() : -1;
+    const bool stepped = pos != app->seq.pos;
+    app->seq.pos = pos;
 
     // Redraw only when something visible changed. Notes and the modifier do not change the screen. While more input is queued the redraw
     // is owed, not done: every pending note and knob turn is handled first and the screen is drawn once after them.

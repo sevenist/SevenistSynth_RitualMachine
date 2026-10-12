@@ -9,7 +9,7 @@
 extern int ui_stub_builds;                  // tools/ui_stubs.c: audio_build calls
 static int ui_stub_builds_count(void) { return ui_stub_builds; }
 
-static uint32_t sound(void) { return patch_hash(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL); }
+static uint32_t sound(void) { return patch_hash(&ui_app.rack, &ui_app.params, &ui_app.ui); }
 
 // The menu on the PRESETS tab, then a push on its row `row` (1 Load, 2 Save, 3 Save as, 4 Init).
 static void preset_button(int row) {
@@ -38,7 +38,7 @@ TEST(patch_text_round_trip_keeps_the_sound_and_the_machine_settings) {
     const uint32_t h = sound();
     const int count = ui_app.rack.count, id = ui_app.rack.slot[fl].id;
     static char txt[STORAGE_FILE_MAX];
-    const int n = patch_to_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, false, txt, sizeof txt);
+    const int n = patch_to_text(&ui_app.rack, &ui_app.params, &ui_app.ui, false, NULL, false, txt, sizeof txt);
     CHECK(n > 0 && n < 2000);                                            // the start sound: well inside a settings file
     CHECK(strstr(txt, "patch 1\n") != NULL);
     CHECK(strstr(txt, "seq ") == NULL && strstr(txt, "from ") == NULL);  // a preset: no sequencer, no "from"
@@ -48,7 +48,7 @@ TEST(patch_text_round_trip_keeps_the_sound_and_the_machine_settings) {
     ui_app.rack.cfg.volume = 1.5f;
     ui_app.rack.cfg.knob_mode = 1;
     CHECK(sound() != h);
-    CHECK(patch_from_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, NULL, txt));
+    CHECK(patch_from_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, txt));
     CHECK_EQ(sound(), h);
     CHECK_EQ(ui_app.rack.count, count);
     CHECK_EQ(ui_app.rack.slot[fl].id, id);
@@ -56,9 +56,9 @@ TEST(patch_text_round_trip_keeps_the_sound_and_the_machine_settings) {
     CHECK_EQ(ui_app.ui.macro[2].n, 1);
     CHECK_EQ((int)(ui_app.rack.cfg.volume * 10), 15);                    // the machine's settings are not the patch's
     CHECK_EQ(ui_app.rack.cfg.knob_mode, 1);
-    CHECK(!patch_from_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, NULL, "knob catch\nvol 1\n"));   // not a patch: nothing changes
+    CHECK(!patch_from_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, "knob catch\nvol 1\n"));   // not a patch: nothing changes
     CHECK_EQ(sound(), h);
-    CHECK_EQ(patch_to_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, false, txt, 200), -1);            // does not fit: said so
+    CHECK_EQ(patch_to_text(&ui_app.rack, &ui_app.params, &ui_app.ui, false, NULL, false, txt, 200), -1);            // does not fit: said so
 }
 
 TEST(patch_text_keeps_fm_and_the_motion_sequences) {
@@ -69,9 +69,9 @@ TEST(patch_text_keeps_fm_and_the_motion_sequences) {
     snprintf(ui_app.rack.cfg.fm.name, DX7_NAME_LEN, "MY BELL 2");
     const uint32_t h = sound();
     static char txt[STORAGE_FILE_MAX];
-    CHECK(patch_to_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, false, txt, sizeof txt) > 0);
+    CHECK(patch_to_text(&ui_app.rack, &ui_app.params, &ui_app.ui, false, NULL, false, txt, sizeof txt) > 0);
     ui_fresh();
-    CHECK(patch_from_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, NULL, txt));
+    CHECK(patch_from_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, txt));
     CHECK_EQ(ui_app.rack.cfg.type, SYNTH_FM);
     CHECK_EQ(ui_app.rack.cfg.fm.algorithm, 7);
     CHECK_EQ(ui_app.rack.cfg.fm.op[2].eg_t[1], 4321);
@@ -85,9 +85,9 @@ TEST(patch_text_keeps_fm_and_the_motion_sequences) {
     if (!m) return;
     m->lane[1].val[5] = 85; m->lane[1].active = 0x0421; m->lane[1].tgt_id = ui_app.rack.slot[0].id; m->lane[1].tgt_param = 2; m->lane[1].depth = 0.5f;
     const uint32_t h2 = sound();
-    CHECK(patch_to_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, false, txt, sizeof txt) > 0);
+    CHECK(patch_to_text(&ui_app.rack, &ui_app.params, &ui_app.ui, false, NULL, false, txt, sizeof txt) > 0);
     ui_fresh();
-    CHECK(patch_from_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, NULL, txt));
+    CHECK(patch_from_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, txt));
     const ms_pattern_t *back = rack_ms_const(&ui_app.rack, ui_app.rack.count - 1);
     CHECK(back != NULL && back->lane[1].val[5] == 85 && back->lane[1].active == 0x0421 && back->lane[1].tgt_param == 2);
     CHECK_EQ(sound(), h2);
@@ -102,16 +102,18 @@ TEST(sound_and_sequencer_come_back_after_a_restart) {
     CHECK(storage_read(PATCH_STATE_FILE, buf, sizeof buf) < 0);          // nothing changed yet: nothing written
     ui_app.rack.slot[fl].v[MP_FL_CUT] = 777.0f;
     ui_app.seq.bpm = 97;
-    ui_app.seq.note[3] = 60;
+    ui_app.seq.step[3].note[0] = 60;
     ui_app.rack.cfg.volume = 0.5f;
     ev_idle(20);
     CHECK(storage_read(PATCH_STATE_FILE, buf, sizeof buf) < 0);          // not at once: a moment after the last change
     ev_idle(600);
     CHECK(storage_read(PATCH_STATE_FILE, buf, sizeof buf) > 0);
+    CHECK(storage_read("system/config/seq.cfg", buf, sizeof buf) > 0);   // the sequencer: its own files (app/app_seq.c)
+    CHECK(storage_read("system/config/pattern1.cfg", buf, sizeof buf) > 0);
     ui_fresh();                                                          // power off, power on
     CHECK_EQ((int)ui_app.rack.slot[fl].v[MP_FL_CUT], 777);
     CHECK_EQ(ui_app.seq.bpm, 97);
-    CHECK_EQ(ui_app.seq.note[3], 60);
+    CHECK_EQ(ui_app.seq.step[3].note[0], 60);
     CHECK_EQ((int)(ui_app.rack.cfg.volume * 10), 5);                     // (the volume: ui.cfg)
     CHECK(!ui_app.state_pending);
     ev_idle(600);

@@ -5,6 +5,7 @@
 #include <stdint.h>
 #include "u8g2.h"
 #include "core/history.h"
+#include "core/pad_seq.h"
 #include "core/pads.h"
 #include "core/rack.h"
 #include "core/seq.h"
@@ -15,7 +16,7 @@
 extern "C" {
 #endif
 
-#define SYNTH_UI_MAX_PAGES (RACK_MAX * 4 + 4)
+#define SYNTH_UI_MAX_PAGES (RACK_MAX * 4 + 5)
 #define BROWSE_PAGE 12                      // the sample browser: the entries it holds at once (at least the rows it shows)
 
 // What the user interface understands. The input layer (core/bindings.c) turns hardware controls into these.
@@ -83,6 +84,16 @@ typedef struct {
     int page;           // index into the generated page list
     int row;     // 0 = page selector, 1..n = parameter rows
     int cursor;  // selected sequencer step
+    int seq_voice;      // ... and the note of its chord the Note row edits (0..SEQ_CHORD-1)
+    seq_bank_t *bank;              // the sequencer's patterns and chain (the app's), for the PATTERNS page
+    uint8_t seq_chain_cur;         // ... the chain entry its Slot row shows
+    bool    seq_rec;               // Rec is armed (the app's: notes played go into the pattern); the page's Run field says so
+    uint8_t seq_tool, seq_scope;   // SEQUENCER page: the quick edit tool and its scope (core/seq.h seq_tool_t / seq_scope_t)
+    char    seq_msg[28];           // ... what a tool just did, for the app to show (a popup); "" = nothing
+    // ... its column knobs (SEQ_KNOB_HYST): the step + voice + 1 they were referenced on (0 = none: every knob must move first),
+    // where each stood then (-1: not seen yet), and bit k = knob k moved far enough and writes
+    int16_t seq_knob_key, seq_knob_ref[SYNTH_UI_COL_KNOBS];
+    uint8_t seq_knob_live;
     int rack_cur;   // selected rack slot (== rack.count: the empty slot at the end)
     int rack_scroll; // first visible cell of the rack strip
     int rack_type;  // module type that Insert will add
@@ -165,6 +176,15 @@ typedef struct {
     const history_t *history;
     // The FX chains (ADR-041 decisions 23, 47-49): 0 = not shown, 1 = the chains (the RACK page on pads->fx), 2 = the values of the
     // module fx_edit_id (its rack id; the chains page's Edit sets it). fx_row / fx_latched: the focus on these two pages.
+    // The Pads section's sequencer (core/pad_seq.h, scr_pads.c): its patterns and chain (the app's), step mode (the STEPS screen; the
+    // pad keys are the selected pad's steps), the step and the field its screen has selected, the chain entry shown, and from the
+    // app: it runs, the step that plays (-1: none), live record is armed
+    pseq_bank_t *pbank;
+    bool    pad_steps;
+    uint8_t pseq_step, pseq_row, pseq_chain_cur;
+    bool    pseq_rec_req;          // ... its Rec field was turned: the app arms / disarms the live record
+    bool    pseq_run, pseq_rec;
+    int8_t  pseq_pos;
     uint8_t cap_state;         // capture (the app sets them): hal_audio.h CAPTURE_ST_*, and the seconds recorded
     uint16_t cap_secs;
     uint8_t pad_fx;

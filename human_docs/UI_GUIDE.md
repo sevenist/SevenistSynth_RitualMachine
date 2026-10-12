@@ -52,7 +52,11 @@ Declared in `synth_ui.h`. The fields that matter:
 | `in_rack` | true while the **menu** is open (the name is historical: it was the rack editor); then `menu_tab` is the tab |
 | `menu_tab` | which tab of the menu: RACK, GENERAL, SAMPLES, KEYS ... (modular synth), or RACK (row M only), GENERAL, ALGORITHM, KEYS ... (FM synth; the operators have main-view pages: OPn, OPn ENV) |
 | `rack_cur`, `rack_scroll`, `rack_type`, `rack_row`, `rack_col[]`, `rack_menu` | RACK tab: the selected module's slot (past the end on + / out), first visible column (all lanes), module type Insert will add, the lane the menu acts on, each lane's cell, the menu is open |
-| `cursor` | selected step of the step sequencer |
+| `cursor`, `seq_voice` | selected step of the step sequencer, and the note of its chord the Note row edits |
+| `seq_tool`, `seq_scope`, `seq_msg` | SEQUENCER page: the quick edit tool, its scope, and what a tool just did (the app shows it as a popup) |
+| `seq_knob_key`, `seq_knob_ref[]`, `seq_knob_live` | SEQUENCER page: its column knobs set the cursor's step once they moved `SEQ_KNOB_HYST` from where they stood when the cursor came to it |
+| `bank`, `seq_chain_cur`, `seq_rec` | the sequencer's patterns and chain (the app's), the chain entry the PATTERNS page shows, Rec armed (the app sets it) |
+| `pbank`, `pad_steps`, `pseq_step`, `pseq_row`, `pseq_chain_cur`, `pseq_pos`, `pseq_run`, `pseq_rec`, `pseq_rec_req` | the Pads section's sequencer: its patterns (the app's), step mode (the STEPS screen), its cursor step and field, and from the app: the step that plays, running, record armed; `_req` = the Rec field was turned |
 | `fm_op`, `fm_pt`, `ms_lane`, `ms_step`, `eg_pt`, `smp_cur`, `smp_tgt` | per-screen sub-selections (operator, envelope point, lane, step, sample...) |
 | `pg_slot[]`, `pg_def[]`, `page_count` | the generated page list (section 3) |
 | `rack_dirty`, `rebuild` | structural edits pending / the audio graph must be rebuilt |
@@ -96,6 +100,8 @@ Some pages are drawn and handled by hand because they are not "rows of parameter
 | --- | --- | --- | --- |
 | Step sequencer (piano roll) | `GRAPH_SEQ` | `draw_seq` | `handle_seq` |
 | Sequencer setup | `GRAPH_SEQ_CFG` | `draw_seq_cfg` | `seq_param_adjust` through `page_row_step` |
+| Sequencer patterns and chain | `GRAPH_SEQ_PAT` | `draw_seq_pat`, rows by `seq_pat_row_text` | `handle_seq_pat` |
+| Pads sequencer steps (step mode; not a page: `ui->pad_steps`) | `scr_pads.c` | `draw_steps` | `steps_event`, `steps_field_adjust`; the pad keys: `app_pseq_step_key` |
 | Motion sequencer steps / lane | `GRAPH_MS_STEPS`, `GRAPH_MS_LANE` | `draw_ms_steps`, `draw_ms_lane` | `handle_ms` |
 | Multi-stage envelope | `GRAPH_EG` | `draw_eg_page` | `handle_eg` |
 | FM synth page | `GRAPH_FM` | generic list + `draw_cfg_list`, `draw_synth_info` | `synth_config_adjust` through `page_row_step` |

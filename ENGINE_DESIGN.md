@@ -300,7 +300,8 @@ A global-scope engine module `MotionSeq` with 4 outputs (lane 1..4) feeding voic
 (a global module may feed a voice module, not the reverse). Lane data (16 values 0..100, an active bit per step, STEP /
 LINEAR, bipolar / unipolar) travels as one `MotionBlob` with `set_blob`; target, depth and the rest stay in `rack_t`
 (`ms_pattern_t ms[2]`, the MS slot's `v[0]` is its pool index; a third MS cannot be inserted).
-- **Clock in the engine, sample-accurate.** The module counts frames from a restart point using the *same integer-ms rules as
+- **Clock (superseded by ADR-042, 2026-10-11: the module follows the engine's step sequencer, `ProcessCtx::seq`, and has no clock
+  and no parameters of its own).** As first built: the module counts frames from a restart point using the *same integer-ms rules as
   `seq.c`* (step = 15000 / bpm ms, swing lengthens even steps / shortens odd ones, step start times accumulate in ms and are
   then converted to frames), so it cannot drift against the note sequencer. `engine_synth_set_clock(bpm, steps, swing,
   running)` (called every UI step, sends only changes) and `engine_synth_motion_restart()` (called when the note sequencer
@@ -1196,6 +1197,124 @@ UI step; same card, 1800 files in one folder):**
   Not done: a whole pad sample is still one read of up to 0.4 s during which the streams wait (it would have to be split in the bank).
 - 220 engine tests in the 6 configurations, 106 UI tests (`browser_list_moves_on_while_the_card_reads_a_sample`), simulator and
   firmware built (RAM 66.1 %), flashed and measured; NOT tried by hand.
+
+### ADR-042: The step sequencer plays in the engine, on the machine clock (Accepted; user choices of 2026-10-11 / 12; stages 1 to 3 built and host-tested, NOT flashed, NOT listened to)
+
+**User choices (2026-10-11, options with pros / cons offered):** for the synth's sequencer: velocity, probability, ratchet, chords
+(up to 4 notes), "quick edition tools" (their own words, not specified yet); record from the keys, up to 64 steps, several patterns +
+chain, direction + step rate. For the Pads section: **a step grid with live record** (one track per pad, the pad keys as steps, Rec +
+Play writes the pads hit to the nearest step). Timing: **in the engine** (all three my recommendation). Built in stages; stage 1 is
+this record.
+
+1. **A `Sequencer` owned by the `Engine`** (`engine/core/sequencer.h`), run by the audio thread at the start of every block, after the
+   commands: its events become `do_note_on` / `do_note_off`, exactly like played notes (same voices, same Mono / Poly rules). The
+   control thread posts the pattern (`Engine::seq_steps`, 16 steps per command) and its settings (`Engine::seq_setup`); the step that
+   plays is published (`Engine::seq_step`). The UI loop no longer times anything: a card read that holds it does not move a note.
+2. **Step times come from the step count, not from an accumulation**: slot k of a run is at `base + k / steps_per_beat` beats (Q32),
+   the odd slots late by `swing` % of a step (`seq_slot_time`). Rates: a step = 1/8, 1/8T, 1/16, 1/16T, 1/32 (2, 3, 4, 6, 8 per beat).
+   An event sounds in the block nearest to its time (within half a block: 0.36 ms at 44.1 kHz / 32), the pads' start-on-grid rule.
+   Test: ten minutes of triplets at 133 BPM end on the computed step.
+3. **A step** (`SeqStep`, 8 bytes): 4 notes (0 = none), gate length in steps, velocity, probability, ratchet 1..4. A ratchet's hits
+   share the step equally; each lasts until the next, the last one until the gate's end. A pitch that still sounds is released before
+   it starts again (notes are keyed by number); 16 notes held at most, the one that ends first gives way. Transpose is applied at
+   playback, clamped to 1..127.
+4. **Directions**: forward, reverse, ping-pong (the ends are not played twice), random. The swing belongs to the time slot, not to
+   the step's number, so a reversed pattern swings the same way.
+5. **Start and stop**: it plays while the clock runs and `run` is set. Armed before the clock starts, its first step is on beat 0:
+   the application posts the sequencer BEFORE the clock at every step (`audio_seq_set`, then `audio_set_clock`; the commands are
+   applied in order). Switched on under a running clock it waits for the next bar line (what the Pads section will use). A clock that
+   is started again restarts the pattern; a stop releases every held note. Another rate while it plays: the next step keeps its time.
+6. **The motion sequencers follow its position** (`ProcessCtx::seq`: the step and the fraction of it at the block's end), replacing
+   their own millisecond clock of ADR-029 (which would have drifted against the transport: its step was `15000 / bpm` in whole ms).
+   `MotionSeq` has no parameters any more; a pattern longer than the lanes' 16 steps plays them again every 16; going backwards the
+   fraction runs down, so a LINEAR lane stays continuous. `engine_synth_set_clock` is `(bpm, running)`; `audio_motion_restart` is gone.
+7. **The application's model** is `core/seq.h` (`seq_t`: 64 `seq_step_t`, BPM, Steps, Trsp, Swing, Rate, Dir, the step that plays as
+   the engine reports it). No timing in it: `seq_tick` is gone. `engine_synth_seq_set` compares with what the engine has and sends
+   the chunks that differ.
+8. **Saved with the machine, in its own files** (stage 2, decision 12): not in `synth.cfg` any more, never in presets.
+
+**Stage 2 (user answers of 2026-10-11, second round: every edit tool offered, plus their own words "have some hysteresis to the step
+edit so a knob noise won't change the step as soon as step to edit is changed"; recording = step entry + live; patterns = with the
+machine; velocity = a source in the rack, against my recommendation "amp level"):**
+
+9. **Quick edit tools** on the SEQUENCER page: a Tool row (Copy, Paste, Clear, Shift < / >, Reverse, Double, RndNote, Human, RndProb,
+   Undo) and its scope On (Step / Page / All); a push on the Tool row runs it and a popup says what it did. One clipboard (a step, a
+   page of 16 or a pattern: Paste follows what was copied, so a pattern copies onto another pattern) and one level of undo (again =
+   redo), both in `core/seq.c`. Rests stay rests under the random tools; RndNote stays between the pattern's lowest and highest note.
+10. **The four column knobs set Note, Len, Vel, Prob of the cursor's step**, over their travel (Note: the bottom = a rest; Len 1..16).
+   **A knob writes only once it has moved 24 of 1023 (`SEQ_KNOB_HYST`) from where it stood when the cursor came to the step** (or the
+   chord's voice changed, or the page was entered): the user's rule against knob noise. No catch: after that it writes directly.
+11. **Recording from the keys** (`app/app_seq.c`): Rec is armed by Shift + Play, or the key function Rec (the Pads capture key, which
+   in the synth section arms this). Stopped = step entry: a note goes to the cursor's step, notes pressed while others are held into
+   the same step (4 at most), the cursor moves on when every key is up; the step's other values stay. Running = live: a note goes to
+   the step nearest to the press (the next step only when the pattern runs forward), with the length it was held for, added to the
+   step's chord. It is written once the playhead is on that step, so the sequencer never plays it a second time under the finger.
+   The engine publishes the step, how far into it and a step count for this (`Engine::seq_where`). Notes are stored without the
+   pattern's transpose. The Run field of the page reads Rec while armed.
+12. **8 patterns and a chain of up to 16 entries, kept with the machine**: `seq_t` stays the pattern that plays and is edited,
+   `seq_bank_t` (core/seq.h) holds all of them; Steps, Trsp, Swing, Rate, Dir belong to a pattern, the tempo to the machine. Files:
+   `system/config/seq.cfg` (tempo, current pattern, chain) and `pattern1.cfg` .. `pattern8.cfg`, each written 2 s after the last
+   change, one file per pass; a pattern never touched has no file. Loading a preset leaves them alone.
+13. **The change of pattern is the audio thread's** (the user: at the pattern's end): the control thread hands the next pattern over
+   ahead (`Engine::seq_steps(.., queue)` + `seq_setup` with `SEQ_QUEUE` and an id); the `Sequencer` goes on to it when the playing one
+   has played as many steps as it has (also in ping-pong and random), from its first step, its time counted from there. It says so
+   (`seq_taken`); the application then makes that pattern `seq_t` and `engine_synth_seq_set` sends it whole again, so the engine ends
+   up with exactly what the screen shows whatever was edited meanwhile. Stopped, a pattern is taken at once. The chain's next entry is
+   queued as soon as an entry starts; an entry that repeats its pattern is queued as it is then (edits made after that reach the
+   repeat through the resend). If the queued pattern does not arrive in time the playing one loops once more.
+14. **PATTERNS page** (after SEQ SETUP): Pat, Chain On / Off, Len, Slot, Is, and the chain drawn (the entry that plays inverted). While
+   it runs without the chain, Pat picks what follows ("1 >3"); with the chain on the chain decides.
+15. **Velocity is a rack module, `MOD_VEL` ("VL")**: a modulator with Tgt / Prm / Dpth like an LFO, no engine node: a cable from the
+   note's velocity (NoteIn out 2), or from the newest key's (GateIn "vel") when the target is after a Para point or in row M. The
+   source is 0 .. 1 (velocity / 127: the keys play 100, the sequencer its steps' Vel); nothing is heard until it is aimed. Risk
+   (their choice): Vel does nothing in a Modular patch without the module; FM and Strings keep their built-in velocity.
+
+**Stage 3, the Pads section's sequencer (user answers of 2026-10-12: one pattern covers all 64 pads; a step carries level,
+probability, ratchet and a length for gate pads, and "you can compact ram/rom usage with bit-field struct"; step mode by Select + Play,
+against my recommendation of a Seq key; patterns as on the synth):**
+
+16. **A pads pattern is a list of hits, not a grid** (`core/pad_seq.h`): a hit = pad, step, level (16 steps of the pad's own level),
+   chance (tens of %), ratchet, length: **one 32-bit bit-field** (their request). 160 hits a pattern at most: 648 bytes, where a
+   64 x 64 grid of the same values would be 8 KB. The 8 patterns (5.2 KB) and the synth sequencer's 8 stored patterns (4.2 KB) are
+   in **bulk memory** (`hal/hal_mem.h` `mem_bulk_alloc`: PSRAM on the board, its internal heap when PSRAM has no room left); the
+   pads pattern that plays is edited in place. Risk: a pattern is full at 160 hits (a popup says so).
+17. **A second sequencer in the engine** (`PadSequencer`), on the same clock: `StepSeq` now holds what the two share (step times,
+   direction, the queued pattern, the position) and `Sequencer` / `PadSequencer` the patterns and how they play. A hit goes to the
+   Pads module as a `PadSeqEvent` by `set_blob`: the pad starts at once **whatever its own grid setting says**, at the hit's level
+   (the voice's gains times level / 16; a key's push is exactly the pad's level as before); a Toggle pad is started, not flipped;
+   after the hit's length the pad is let go: a Gate or Toggle pad stops with its tail, a one-shot plays on. A ratchet pushes again
+   inside the step. 16 pads wait to be let go at once, 8 ratchet at once.
+18. **It plays while the Pads clock runs and it is on** (the Seq field; Play starts it on bar 1), with 8 patterns + a chain of 16, the
+   change at the pattern's end done by the audio thread, as decisions 12 and 13. Files: `system/config/padseq.cfg`, `padpat1.cfg` ..
+   `padpat8.cfg` (`padpattern <steps> <swing> <rate> <dir>`, `hit <pad> <step> <level> <chance> <ratchet> <length>`).
+19. **Step mode = Select + Play** (their choice; **Shift + Play does the same**, since a board without the right block and the
+   simulator have no Select key: Shift stands in for it, as Shift + pad does): the 16 pad keys are the selected pad's steps of the page shown, lit when there is
+   a hit, the playhead in Play's colour; Select or Shift + pad picks the track (a Bank key first for another bank); Back leaves it.
+   The STEPS screen: the 16 steps, then the fields: the hit under the cursor (Lvl, Prob, Rtch, Len), Pat, Steps, Rate, Swing, Dir,
+   Seq On / Off, Chain, CLen, Slot, Is, Rec (the live record, for a board without a Rec key). Joystick = the cursor (its push: the hit on / off), encoder A = the field, encoder B = its
+   value, Page - / + = 16 steps.
+20. **Live record = Select + Rec** while it runs: a pad pushed goes to the nearest step, a Gate / Toggle pad with the length it was
+   held for, written once the playhead is on that step (as decision 11). Rec alone is still the audio capture.
+
+- Cost (static internal RAM, where the board is short; CONTINUE.md "Internal RAM"): the `Engine`'s two sequencers 3.4 KB (the notes'
+  pattern and the queued one 1.0 KB, the pads' two hit lists 1.3 KB, held notes, pads and ratchets 1.0 KB), `s_synth` 0.5 KB, the
+  application's pattern that plays 0.55 KB, the tools' clipboard and undo 1.0 KB, state 0.4 KB: **about 6 KB**; the stored patterns
+  (9.4 KB) are in bulk memory. The firmware's static RAM went from 66.2 % to 67.7 % (221996 bytes: +5.1 KB). Not measured on the board.
+  CPU: per block a pass over 16 + 16 + 8 pending slots; per step a pass over the pattern's hits (160 at most); a change of pattern
+  copies 512 or 640 bytes in the audio thread. Not measured on the board.
+- Limits: events are block-accurate, not sample-accurate. The sequencer and a key playing the same pitch share that note: the
+  sequencer's note-off releases it; a pad played by hand while its hits play is cut and restarted like any pad pushed twice. Live
+  recording has the control loop's latency (a note is placed when its key event is handled). The step count used for recorded
+  lengths starts again when the rate changes or a pattern is taken: a note held across that gets a wrong length. The longest synth
+  pattern (64 steps of 4-note chords) is 2.35 KB of text, a full pads pattern 3.15 KB, inside the 4 KB file buffer. The simulator
+  without an audio device does not sequence. The start reads up to 18 small files from the card (not measured on the board). The
+  pads' sequencer has no edit tools (copy, clear a track ...) and no step entry. The capture's "N bars" and a pads pattern both start on the bar: a captured pattern is on the grid.
+- Tests: `tests/engine/test_seq.cpp` (16: times at every rate / swing / tempo, no drift, gates, chords, velocity, transpose,
+  probability, ratchets, directions, start / stop / restart / next bar, live edits, the position, the queued pattern, the engine and
+  `engine_synth` paths, the Velocity module), `test_pads.cpp` (2 more: hits on the clock at their level, ratchets, a gate pad held
+  for its length, a toggle pad, the queued pattern, a stop), `test_motion.cpp` reworked (the lanes against the sequencer's step
+  times, 72 combinations); `tests/ui/test_seq*.c`, `test_vel.c`, `test_pseq.c` (25: the pages, the tools, the knobs' threshold, step
+  entry and live record, patterns, chain, the files, the hand-over to the engine, step mode and its LEDs).
 
 ## Known limits and ideas for later
 

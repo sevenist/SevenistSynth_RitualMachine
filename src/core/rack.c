@@ -194,6 +194,9 @@ static const mp_t es_mp[] = {
     [MP_ES_SHIM]  = {"Shim", K_LIN, 0, 1, 0.05f, 0.35f, "", 2, 0},
     [MP_ES_MIX]   = {"Mix",  K_LIN, 0, 1, 0.05f, 0.7f, "", 2, 0},
 };
+static const mp_t vel_mp[] = {
+    [MP_VL_DEPTH] = {"Dpth", K_LIN, 0, 2, 0.05f, 1, "", 2, 0},
+};
 #define NMP(a) ((int)(sizeof a / sizeof a[0]))
 
 typedef struct {
@@ -227,6 +230,9 @@ static const type_info_t info[MOD_TYPE_COUNT] = {
     [MOD_SPECTRAL] = {"SP", "Spectral",    true, false, 1, {"Mix"},         {"Mix"}, sp_mp, NMP(sp_mp)},
     [MOD_CAB]      = {"CB", "Cab / Body",  true, false, 1, {"Mix"},         {"Mix"}, cb_mp, NMP(cb_mp)},
     [MOD_ENSEMBLE] = {"ES", "Ensemble",    true, false, 1, {"Mix"},         {"Mix"}, es_mp, NMP(es_mp)},
+    // The note's velocity as a source (0 .. 1 = velocity 0 .. 127; the keys play 100, the sequencer its steps' Vel): Tgt / Prm / Dpth
+    // like an LFO or an envelope. A target after a Para point or in row M follows the newest key.
+    [MOD_VEL]      = {"VL", "Velocity",    false, true, 1, {"Dpth"},        {"Depth"}, vel_mp, NMP(vel_mp)},
 };
 
 static void depth_reset(rack_t *r, int slot);
@@ -575,6 +581,7 @@ int rack_depth_index(module_type_t t) {
         case MOD_ENV: return MP_EN_DEPTH;
         case MOD_OSC: return MP_OC_DEPTH;
         case MOD_EG:  return MP_EG_DEPTH;
+        case MOD_VEL: return MP_VL_DEPTH;
         default:      return -1;
     }
 }

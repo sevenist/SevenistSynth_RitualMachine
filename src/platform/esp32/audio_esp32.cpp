@@ -8,6 +8,7 @@
 #include <esp_heap_caps.h>
 #include <math.h>
 #include "hal/hal_audio.h"
+#include "hal/hal_mem.h"
 #include "platform/engine/engine_synth.h"
 #include "engine/modules/fx_modules.h"
 #include "engine/modules/mi_osc.h"
@@ -310,8 +311,22 @@ extern "C" void audio_dir_close(void)                                      { sam
 extern "C" sd_state_t audio_sd_state(void)                                  { return samples_esp32_sd_state(); }
 extern "C" uint32_t audio_sd_read_us(void)                                  { return samples_esp32_sd_read_us(); }
 extern "C" uint32_t audio_sd_generation(void)                               { return samples_esp32_sd_generation(); }
-extern "C" void audio_set_clock(int bpm, int steps, int swing, int running) { engine_synth_set_clock(bpm, steps, swing, running); }
-extern "C" void audio_motion_restart(void)                                 { engine_synth_motion_restart(); }
+extern "C" void audio_seq_set(const seq_t *seq)                            { engine_synth_seq_set(seq); }
+extern "C" int  audio_seq_pos(void)                                        { return engine_synth_seq_pos(); }
+extern "C" bool audio_seq_where(int *step, int *frac, uint32_t *count)     { return engine_synth_seq_where(step, frac, count) != 0; }
+extern "C" bool audio_seq_queue(const seq_pattern_t *p, int id)            { return engine_synth_seq_queue(p, id) != 0; }
+extern "C" int  audio_seq_taken(void)                                      { return engine_synth_seq_taken(); }
+extern "C" void audio_pseq_set(const pseq_pattern_t *p, bool run)          { engine_synth_pseq_set(p, run); }
+extern "C" int  audio_pseq_pos(void)                                       { return engine_synth_pseq_pos(); }
+extern "C" bool audio_pseq_where(int *step, int *frac, uint32_t *count)    { return engine_synth_pseq_where(step, frac, count) != 0; }
+extern "C" bool audio_pseq_queue(const pseq_pattern_t *p, int id)          { return engine_synth_pseq_queue(p, id) != 0; }
+extern "C" int  audio_pseq_taken(void)                                     { return engine_synth_pseq_taken(); }
+// Large application data (hal_mem.h): PSRAM when it has room left (the engine's bulk heap took most of it), else the internal heap.
+extern "C" void *mem_bulk_alloc(size_t bytes) {
+    void *p = heap_caps_calloc(1, bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    return p ? p : calloc(1, bytes);
+}
+extern "C" void audio_set_clock(int bpm, int running)                      { engine_synth_set_clock(bpm, running); }
 extern "C" void audio_set_metronome(bool on)                                { engine_synth_set_metronome(on); }
 extern "C" bool audio_transport(int *bar, int *beat, int *frac)             { return engine_synth_transport(bar, beat, frac) != 0; }
 extern "C" void audio_note_on(int midi_note)                               { engine_synth_note_on(midi_note); }

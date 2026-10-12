@@ -53,10 +53,10 @@ static const gui_sprite_t *module_sprite(int type) {
                                                           &spr_mod_lfo, &spr_mod_mseq, &spr_mod_env, &spr_mod_sampler, &spr_mod_eg, &spr_mod_comb,
                                                           &spr_mod_trem, &spr_mod_eq, &spr_mod_ring, &spr_mod_phaser, &spr_mod_flanger,
                                                           &spr_mod_comp, &spr_mod_delay, &spr_mod_reverb, &spr_mod_chorus, &spr_mod_spectral,
-                                                          &spr_mod_cab, &spr_mod_ensemble};
+                                                          &spr_mod_cab, &spr_mod_ensemble, &spr_mod_vel};
     static const char *const code[MOD_TYPE_COUNT] = {"osc", "filter", "sat", "lfo", "mseq", "env", "sampler", "eg", "comb",
                                                      "trem", "eq", "ring", "phaser", "flanger", "comp", "delay", "reverb", "chorus",
-                                                     "spectral", "cab", "ensemble"};
+                                                     "spectral", "cab", "ensemble", "vel"};
     char name[24];
     snprintf(name, sizeof name, "24/mod_%s", code[type]);
     const gui_sprite_t *art = ui_sprite(name);

@@ -57,6 +57,7 @@ static const mpage_def_t ch_pages[] = {{"CHORUS %d",   GRAPH_FX, 2, {MP_CH_MODE,
 static const mpage_def_t sp_pages[] = {{"SPECTRAL %d", GRAPH_FX, 4, {MP_SP_MODE, MP_SP_SHIFT, MP_SP_AMT, MP_SP_MIX}}};
 static const mpage_def_t cb_pages[] = {{"CAB %d",      GRAPH_FX, 4, {MP_CB_IR, MP_CB_LEN, MP_CB_MIX, MP_CB_LEVEL}}};
 static const mpage_def_t es_pages[] = {{"ENSEMBLE %d", GRAPH_FX, 4, {MP_ES_RATE, MP_ES_DEPTH, MP_ES_SHIM, MP_ES_MIX}}};
+static const mpage_def_t vl_pages[] = {{"VEL %d", GRAPH_FX, 3, {PRM_TGT, PRM_TPRM, MP_VL_DEPTH}}};   // (the box shows its name)
 static const mpage_def_t ms_pages[] = {
     {"MOTION %d",  GRAPH_MS_STEPS, 4, {0}},
     {"MS %d LANE", GRAPH_MS_LANE,  5, {0}},
@@ -76,6 +77,7 @@ static const struct { const mpage_def_t *defs; int n; } mod_pages[MOD_TYPE_COUNT
     [MOD_PHASER]   = {ph_pages, 1}, [MOD_FLANGER] = {fg_pages, 1}, [MOD_COMP]   = {cp_pages, 1}, [MOD_DELAY]    = {dl_pages, 1},
     [MOD_REVERB]   = {rv_pages, 1}, [MOD_CHORUS]  = {ch_pages, 1}, [MOD_SPECTRAL] = {sp_pages, 1}, [MOD_CAB]    = {cb_pages, 1},
     [MOD_ENSEMBLE] = {es_pages, 1},
+    [MOD_VEL]      = {vl_pages, 1},
 };
 
 // The hidden settings of a module: rarely used rows, shown in place of its first page's rows while its cog is open (ui->cog_page).
@@ -91,24 +93,25 @@ bool page_has_cog(const rack_t *rack, const page_t *pg) {
     return pg->slot != GLOBAL_PAGE && pg->def == 0 && module_hidden_count(rack->slot[pg->slot].type) > 0;
 }
 
-typedef struct { const char *title; graph_t graph; int count; int params[4]; } gpage_def_t;
-enum { GP_AMP_ENV, GP_SEQ, GP_SEQ_CFG, GP_FM, GP_AMP_CRV, GP_STR_OSC, GP_STR_TONE, GP_STR_LP, GP_STR_FILTER };
+typedef struct { const char *title; graph_t graph; int count; int params[6]; } gpage_def_t;
+enum { GP_AMP_ENV, GP_SEQ, GP_SEQ_CFG, GP_FM, GP_AMP_CRV, GP_STR_OSC, GP_STR_TONE, GP_STR_LP, GP_STR_FILTER, GP_SEQ_PAT };   // (saved in jump slots: append only)
 static const gpage_def_t global_pages[] = {
     [GP_AMP_ENV] = {"AMP ENV",   GRAPH_AMP_ENV, 4, {P_AMP_A, P_AMP_D, P_AMP_S, P_AMP_R}},
-    [GP_SEQ]     = {"SEQUENCER", GRAPH_SEQ,     4, {0}},   // rows: Step, Note, Len, Run (see handle_seq)
-    [GP_SEQ_CFG] = {"SEQ SETUP", GRAPH_SEQ_CFG, 4, {SQP_BPM, SQP_STEPS, SQP_TRANSPOSE, SQP_SWING}},
+    [GP_SEQ]     = {"SEQUENCER", GRAPH_SEQ,     SEQ_ROWS, {0}},   // rows: Step, Note, Len, Vel, Prob, Rtch, Voice, Run, Tool, On (see handle_seq)
+    [GP_SEQ_CFG] = {"SEQ SETUP", GRAPH_SEQ_CFG, 6, {SQP_BPM, SQP_STEPS, SQP_TRANSPOSE, SQP_SWING, SQP_RATE, SQP_DIR}},
     [GP_AMP_CRV] = {"AMP CURVE", GRAPH_AMP_ENV, 4, {P_AMP_HOLD, P_AMP_ACV, P_AMP_DCV, P_AMP_RCV}},
     [GP_FM]      = {"FM SYNTH",  GRAPH_FM,      4, {0}},       // FM mode: Patch, Algo, Fb, Vol (fm_page_row), then the operator pages
     [GP_STR_OSC]    = {"STRINGS",    GRAPH_STR_OSC,    4, {P_STR_WAVE, P_STR_OSC, P_STR_DETUNE, P_STR_MIX}},   // the Strings type (ADR-037)
     [GP_STR_TONE]   = {"STR TONE",   GRAPH_STR_OSC,    2, {P_STR_PW, P_STR_LEVEL}},
     [GP_STR_LP]     = {"VOICE LP",   GRAPH_STR_LP,     4, {P_STR_LP, P_STR_LPCUT, P_STR_LPENV, P_STR_LPKEY}},
     [GP_STR_FILTER] = {"STR FILTER", GRAPH_STR_FILTER, 3, {P_STR_FTYPE, P_STR_FCUT, P_STR_FRES}},
+    [GP_SEQ_PAT]    = {"PATTERNS",   GRAPH_SEQ_PAT,    PAT_ROWS, {0}},   // rows: Pat, Chain, Len, Slot, Is (see handle_seq_pat)
 };
 
 // Global pages shown after the module pages (modular synth) / the whole list (FM synth).
-static const uint8_t modular_globals[] = {GP_AMP_ENV, GP_AMP_CRV, GP_SEQ, GP_SEQ_CFG};
-static const uint8_t fm_globals[]      = {GP_FM, GP_SEQ, GP_SEQ_CFG};     // the operator pages go after GP_FM
-static const uint8_t str_globals[]     = {GP_STR_OSC, GP_STR_TONE, GP_STR_LP, GP_STR_FILTER, GP_AMP_ENV, GP_SEQ, GP_SEQ_CFG};
+static const uint8_t modular_globals[] = {GP_AMP_ENV, GP_AMP_CRV, GP_SEQ, GP_SEQ_CFG, GP_SEQ_PAT};
+static const uint8_t fm_globals[]      = {GP_FM, GP_SEQ, GP_SEQ_CFG, GP_SEQ_PAT};     // the operator pages go after GP_FM
+static const uint8_t str_globals[]     = {GP_STR_OSC, GP_STR_TONE, GP_STR_LP, GP_STR_FILTER, GP_AMP_ENV, GP_SEQ, GP_SEQ_CFG, GP_SEQ_PAT};
 
 // The pages of the rack's modules, appended at n. FM / Strings: only row M's effects (their own sound has no rack, ADR-041).
 static int add_module_pages(synth_ui_t *ui, const rack_t *rack, int n) {
@@ -209,8 +212,7 @@ void get_page(const synth_ui_t *ui, const rack_t *rack, int idx, page_t *out) {
         const gpage_def_t *g = &global_pages[def];
         snprintf(out->title, sizeof out->title, "%s", g->title);
         out->graph = g->graph; out->count = g->count;
-        for (int i = 0; i < 4; i++) out->params[i] = g->params[i];
-        for (int i = 4; i < 6; i++) out->params[i] = 0;
+        for (int i = 0; i < 6; i++) out->params[i] = g->params[i];
     } else {
         const mpage_def_t *m = &mod_pages[rack->slot[slot].type].defs[def];
         snprintf(out->title, sizeof out->title, m->fmt, rack_instance(rack, slot));
@@ -227,7 +229,8 @@ void get_page(const synth_ui_t *ui, const rack_t *rack, int idx, page_t *out) {
 }
 
 void synth_ui_init(synth_ui_t *ui, const rack_t *rack) {
-    ui->page = 0; ui->row = 0; ui->cursor = 0; ui->rack_cur = 0; ui->rack_scroll = 0; ui->rack_type = MOD_OSC;
+    ui->page = 0; ui->row = 0; ui->cursor = 0; ui->seq_voice = 0; ui->seq_tool = 0; ui->seq_scope = 0; ui->seq_msg[0] = 0; ui->seq_knob_key = 0; ui->seq_rec = false; ui->seq_chain_cur = 0; ui->bank = NULL;
+    ui->rack_cur = 0; ui->rack_scroll = 0; ui->rack_type = MOD_OSC;
     ui->rack_row = synth_type_is_rack(rack->cfg.type) ? 0 : ROW_M; ui->rack_menu = false;
     for (int l = 0; l < RACK_ROWS; l++) ui->rack_col[l] = 0;
     ui->rack_dirty = false; ui->rebuild = false; ui->in_rack = false; ui->menu_tab = 0; ui->fm_op = 0; ui->fm_pt = 0;
@@ -245,7 +248,7 @@ void synth_ui_init(synth_ui_t *ui, const rack_t *rack) {
 }
 
 void synth_ui_sound_loaded(synth_ui_t *ui, const rack_t *rack) {
-    ui->page = 0; ui->cursor = 0; ui->rack_cur = 0; ui->rack_scroll = 0; ui->rack_menu = false; ui->cog_page = -1;
+    ui->page = 0; ui->cursor = 0; ui->seq_voice = 0; ui->seq_knob_key = 0; ui->rack_cur = 0; ui->rack_scroll = 0; ui->rack_menu = false; ui->cog_page = -1;
     ui->rack_row = synth_type_is_rack(rack->cfg.type) ? 0 : ROW_M;
     for (int l = 0; l < RACK_ROWS; l++) ui->rack_col[l] = 0;
     ui->fm_op = 0; ui->fm_pt = 0; ui->ms_lane = 0; ui->ms_step = 0; ui->eg_pt = 0; ui->smp_tgt = 0; ui->macro_cur = 0; ui->macro_dest = 0;

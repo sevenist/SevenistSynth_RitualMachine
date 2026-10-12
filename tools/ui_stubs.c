@@ -7,6 +7,7 @@
 #include "hal/hal_audio.h"
 #include "hal/hal_display.h"
 #include "hal/hal_leds.h"
+#include "hal/hal_mem.h"
 #include "hal/hal_power.h"
 #include "hal/hal_storage.h"
 
@@ -146,10 +147,42 @@ uint32_t audio_sd_generation(void) { static int calls; return getenv("UI_DUMP_SD
 bool audio_sample_prepare(int i) { (void)i; return true; }
 // The machine clock: what the app last asked for (the UI tests read it); audio_transport reports bar 1 beat 1 while it "runs".
 int ui_stub_clock_bpm, ui_stub_clock_run, ui_stub_metronome;
-void audio_set_clock(int b, int s, int w, int r) { (void)s; (void)w; ui_stub_clock_bpm = b; ui_stub_clock_run = r; }
+void audio_set_clock(int b, int r) { ui_stub_clock_bpm = b; ui_stub_clock_run = r; }
+// The step sequencer: the pattern the app handed over last (the UI tests read it), the step it "plays" (the tests set it).
+seq_t ui_stub_seq;
+int ui_stub_seq_sets, ui_stub_seq_pos = -1;
+void audio_seq_set(const seq_t *q) { ui_stub_seq = *q; ui_stub_seq_sets++; }
+int  audio_seq_pos(void) { return ui_stub_seq.running && ui_stub_clock_run ? ui_stub_seq_pos : -1; }
+// The queued pattern: its id as the app handed it over (-1: none), how often; ui_stub_seq_take() = the "engine" goes on to it.
+int ui_stub_seq_queued = -1, ui_stub_seq_queues, ui_stub_seq_taken = -1;
+seq_pattern_t ui_stub_seq_next;
+bool audio_seq_queue(const seq_pattern_t *p, int id) { ui_stub_seq_queues++; ui_stub_seq_queued = p ? id : -1; if (p) ui_stub_seq_next = *p; return true; }
+void ui_stub_seq_take(void) { ui_stub_seq_taken = ui_stub_seq_queued; ui_stub_seq_queued = -1; }
+int  audio_seq_taken(void) { const int t = ui_stub_seq_taken; ui_stub_seq_taken = -1; return t; }
+// The Pads section's sequencer: the same stand-ins (ui_stub_pseq, _run, _pos, _frac, _count, _queued, ui_stub_pseq_take()).
+pseq_pattern_t ui_stub_pseq, ui_stub_pseq_next;
+int ui_stub_pseq_run, ui_stub_pseq_pos = -1, ui_stub_pseq_frac, ui_stub_pseq_queued = -1, ui_stub_pseq_taken = -1;
+uint32_t ui_stub_pseq_count;
+void audio_pseq_set(const pseq_pattern_t *p, bool run) { ui_stub_pseq = *p; ui_stub_pseq_run = run; }
+int  audio_pseq_pos(void) { return ui_stub_pseq_run && ui_stub_clock_run ? ui_stub_pseq_pos : -1; }
+bool audio_pseq_where(int *step, int *frac, uint32_t *count) {
+    if (audio_pseq_pos() < 0) return false;
+    *step = ui_stub_pseq_pos; *frac = ui_stub_pseq_frac; *count = ui_stub_pseq_count;
+    return true;
+}
+bool audio_pseq_queue(const pseq_pattern_t *p, int id) { ui_stub_pseq_queued = p ? id : -1; if (p) ui_stub_pseq_next = *p; return true; }
+void ui_stub_pseq_take(void) { ui_stub_pseq_taken = ui_stub_pseq_queued; ui_stub_pseq_queued = -1; }
+int  audio_pseq_taken(void) { const int t = ui_stub_pseq_taken; ui_stub_pseq_taken = -1; return t; }
+void *mem_bulk_alloc(size_t bytes) { return calloc(1, bytes); }
+int ui_stub_seq_frac;                        // ... how far into that step (0..255), and the steps played before it
+uint32_t ui_stub_seq_count;
+bool audio_seq_where(int *step, int *frac, uint32_t *count) {
+    if (audio_seq_pos() < 0) return false;
+    *step = ui_stub_seq_pos; *frac = ui_stub_seq_frac; *count = ui_stub_seq_count;
+    return true;
+}
 void audio_set_metronome(bool on) { ui_stub_metronome = on; }
 bool audio_transport(int *bar, int *beat, int *frac) { *bar = 1; *beat = 1; *frac = 0; return ui_stub_clock_run != 0; }
-void audio_motion_restart(void) {}
 void audio_note_on(int n) { (void)n; }
 void audio_note_off(int n) { (void)n; }
 // The Pads section: what the app asked for, for the UI tests (pushes / releases / stops counted; a pushed pad "plays" until released or

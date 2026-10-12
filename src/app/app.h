@@ -5,6 +5,7 @@
 #include "u8g2.h"
 #include "core/synth_params.h"
 #include "core/history.h"
+#include "core/pad_seq.h"
 #include "core/pads.h"
 #include "core/rack.h"
 #include "core/seq.h"
@@ -56,6 +57,27 @@ typedef struct {
     uint32_t frames, dropped, since;
 } pad_capture_t;
 
+// Recording into the step sequencer from the keys (app_seq.c): armed, the chord being entered step by step, and the notes of a live
+// recording, each from its key down to the moment its step is written.
+#define SEQ_REC_NOTES 8
+enum { SEQ_REC_FREE, SEQ_REC_ENTRY, SEQ_REC_DOWN, SEQ_REC_WAIT };
+typedef struct {
+    uint8_t  state;                     // SEQ_REC_*: free, a held key of the step entry, a live note held, a live note waiting for its step
+    uint8_t  ctl, note, step, len;      // the key, the note (without the transpose), the step it goes to, its length in steps
+    uint32_t count;                     // the sequencer's step count when that step plays
+} seq_rec_note_t;
+typedef struct {
+    bool     armed;
+    uint8_t  entry_held, entry_n;       // step entry: keys down, notes of the chord so far
+    seq_rec_note_t note[SEQ_REC_NOTES];
+} seq_rec_t;
+
+// Live recording into the Pads section's sequencer (app_pseq.c): armed (Select + Rec), and the pushes on their way to a step.
+#define PSEQ_REC_NOTES 8
+enum { PSEQ_REC_FREE, PSEQ_REC_DOWN, PSEQ_REC_WAIT };
+typedef struct { uint8_t state, pad, step, len; uint32_t count; } pseq_rec_note_t;
+typedef struct { bool armed; pseq_rec_note_t note[PSEQ_REC_NOTES]; } pseq_rec_t;
+
 // The two workflows (ADR-041 decision 5): the synth, or the Pads section (an SP-404-style sampler). Shift + Menu switches.
 typedef enum { SECTION_SYNTH, SECTION_PADS } section_t;
 
@@ -63,6 +85,24 @@ typedef struct {
     u8g2_t        *display;   // injected by the platform layer
     synth_params_t params;
     seq_t          seq;
+    seq_rec_t      rec;         // recording into it from the keys
+    // Its patterns and their chain (app_seq.c; seq.cfg and pattern1.cfg .. on the card): the pattern handed to the engine as the
+    // next one (-1: none), whether it ran at the last step, the hashes of what the card holds, and the autosave's state
+    seq_bank_t     bank;
+    int8_t         seq_queued;
+    bool           seq_was_running;
+    uint32_t       pat_saved[SEQ_PATTERNS], seq_cfg_saved;
+    uint32_t       seq_seen, seq_ms, seq_look_ms;
+    bool           seq_pending;
+    // The Pads section's sequencer (app_pseq.c; padseq.cfg and padpat1.cfg .. on the card): its patterns (bulk memory) and chain, the
+    // same hand-over and autosave state as the synth sequencer's, and its live recording
+    pseq_bank_t    pbank;
+    pseq_rec_t     prec;
+    int8_t         pseq_queued;
+    bool           pseq_was_running;
+    uint32_t       ppat_saved[PSEQ_PATTERNS], pseq_cfg_saved;
+    uint32_t       pseq_seen, pseq_ms, pseq_look_ms;
+    bool           pseq_pending;
     rack_t         rack;
     pads_t         pads;        // the Pads section's 64 pads (pads.cfg)
     history_t      history;     // the versions of the library's samples (history.cfg next to them)

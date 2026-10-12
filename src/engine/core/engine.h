@@ -17,6 +17,7 @@
 #include "engine/core/heap.h"
 #include "engine/core/module.h"
 #include "engine/core/plan.h"
+#include "engine/core/sequencer.h"
 
 namespace sc {
 
@@ -49,6 +50,33 @@ public:
     bool set_transport(int bpm, bool running, bool click);
     uint64_t transport_beat() const { return tr_beat_.load(std::memory_order_relaxed); }    // [any thread] the position, beats Q32
     bool transport_running() const { return tr_run_.load(std::memory_order_relaxed); }
+    // [CONTROL] the step sequencer (sequencer.h): it plays its pattern on the machine clock and its notes go to the voices like played
+    // ones. To start it with the clock, post the setup (run = 1) before set_transport. seq_steps sends steps first .. first + count - 1.
+    // A pattern to go on to at the end of the playing one: its steps with queue = true, then seq_setup with queue = SEQ_QUEUE and an
+    // id; seq_taken() changes when the audio thread has taken it (a count << 8 | that id). SEQ_UNQUEUE drops it.
+    bool seq_setup(const SeqSetup &s);
+    bool seq_steps(int first, int count, const SeqStep *steps, bool queue = false);
+    uint32_t seq_taken() const { return seq_taken_.load(std::memory_order_relaxed); }      // [any thread]
+    // [CONTROL] the pads' sequencer, the same way: its hits push the pads of the Pads module `node` (set_blob with a PadSeqEvent: a
+    // push at a level, or the pad let go). pseq_hits sends hits first .. first + count - 1 of a pattern of `total` hits.
+    bool pseq_setup(const SeqSetup &s, int node);
+    bool pseq_hits(int first, int count, const PadHit *hits, int total, bool queue = false);
+    int pseq_step() const { return pseq_step_.load(std::memory_order_relaxed); }
+    uint32_t pseq_taken() const { return pseq_taken_.load(std::memory_order_relaxed); }
+    bool pseq_where(int *step, int *frac, uint32_t *count) const {
+        const uint64_t w = pseq_where_.load(std::memory_order_relaxed);
+        if (!(w >> 63)) return false;
+        *frac = static_cast<int>(w & 0xFF); *step = static_cast<int>((w >> 8) & 0xFF); *count = static_cast<uint32_t>(w >> 16);
+        return true;
+    }
+    int seq_step() const { return seq_step_.load(std::memory_order_relaxed); }             // [any thread] the step that plays, -1 = none
+    // [any thread] the same with how far into the step it is (0..255) and how many steps played before it; false = none plays
+    bool seq_where(int *step, int *frac, uint32_t *count) const {
+        const uint64_t w = seq_where_.load(std::memory_order_relaxed);
+        if (!(w >> 63)) return false;
+        *frac = static_cast<int>(w & 0xFF); *step = static_cast<int>((w >> 8) & 0xFF); *count = static_cast<uint32_t>(w >> 16);
+        return true;
+    }
 
     void render(q15 *l, q15 *r);                        // [AUDIO] exactly kBlock frames
     int active_voices() const;
@@ -106,6 +134,15 @@ private:
     int32_t click_env_ = 0;                             // ... with a fast decay (q15)
     std::atomic<uint64_t> tr_beat_{0};
     std::atomic<bool> tr_run_{false};
+    Sequencer seq_;                                     // audio thread
+    std::atomic<int> seq_step_{-1};
+    std::atomic<uint32_t> seq_taken_{0};
+    PadSequencer pseq_;                                 // audio thread
+    int pseq_node_ = -1;                                // the Pads module its events go to
+    std::atomic<int> pseq_step_{-1};
+    std::atomic<uint32_t> pseq_taken_{0};
+    std::atomic<uint64_t> pseq_where_{0};
+    std::atomic<uint64_t> seq_where_{0};                // bit 63 = a step plays; count << 16 | step << 8 | fraction
     void transport_block(q15 *l, q15 *r);               // [AUDIO] the click into the output, then the clock moves on
 #ifdef ENGINE_PROFILE
     ProfEntry prof_[kProfMax] = {};

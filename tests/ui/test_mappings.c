@@ -121,11 +121,11 @@ TEST(macros_saved_with_the_sound_with_range_and_curve) {
     macro_def_t before[SYNTH_UI_MACROS];
     memcpy(before, ui_app.ui.macro, sizeof before);
     static char txt[STORAGE_FILE_MAX];
-    CHECK(patch_to_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, false, txt, sizeof txt) > 0);   // the macros belong to the sound (core/patch.h)
+    CHECK(patch_to_text(&ui_app.rack, &ui_app.params, &ui_app.ui, false, NULL, false, txt, sizeof txt) > 0);   // the macros belong to the sound (core/patch.h)
     CHECK(strstr(txt, "macro 7 fm 2 9\n") != NULL);
     CHECK(strstr(txt, " range 10 70 curve s\n") != NULL);
     memset(ui_app.ui.macro, 0, sizeof ui_app.ui.macro);
-    CHECK(patch_from_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, NULL, txt));
+    CHECK(patch_from_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, txt));
     CHECK(memcmp(before, ui_app.ui.macro, sizeof before) == 0);
     // ui.cfg no longer holds them, and reading it leaves them alone
     ui_settings_to_text(&ui_app.ui, &ui_app.rack, txt, sizeof txt);

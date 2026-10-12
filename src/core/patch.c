@@ -48,12 +48,12 @@ static void sampler_name(const rack_slot_t *s, char *out, int n) {
     if (s->type == MOD_SAMPLER && index >= 0 && audio_sample_info(index, &in)) snprintf(out, (size_t)n, "%s", in.name);
 }
 
-int patch_to_text(const rack_t *rack, const synth_params_t *params, const synth_ui_t *ui, const seq_t *seq, const char *preset,
+int patch_to_text(const rack_t *rack, const synth_params_t *params, const synth_ui_t *ui, bool state, const char *preset,
                   bool edited, char *buf, int cap) {
     int n = 0;
     const synth_config_t *c = &rack->cfg;
-    add(buf, cap, &n, "# Ritual Machine %s\npatch 1\n", seq ? "working state (synth.cfg): the sound as it was left, saved by itself" : "preset");
-    if (seq) add(buf, cap, &n, "from %d %s\n", edited ? 1 : 0, preset ? preset : "");
+    add(buf, cap, &n, "# Ritual Machine %s\npatch 1\n", state ? "working state (synth.cfg): the sound as it was left, saved by itself" : "preset");
+    if (state) add(buf, cap, &n, "from %d %s\n", edited ? 1 : 0, preset ? preset : "");
     add(buf, cap, &n, "type %d voices %d strvoices %d glide %d legato %d fmpatch %d\n", c->type, c->voices, c->str_voices, c->glide, c->legato, c->fm_patch);
     {
         const str_params_t *st = &params->str;
@@ -113,13 +113,6 @@ int patch_to_text(const rack_t *rack, const synth_params_t *params, const synth_
         char t[64];
         if (mapping_to_text(&ui->joy[a], t, sizeof t)) add(buf, cap, &n, "joy %s %s\n", a ? "y" : "x", t);
     }
-    if (seq) {
-        add(buf, cap, &n, "seq %d %d %d %d\nnotes", seq->bpm, seq->steps, seq->transpose, seq->swing);
-        for (int k = 0; k < SEQ_MAX_STEPS; k++) add(buf, cap, &n, " %d", seq->note[k]);
-        add(buf, cap, &n, "\nlens");
-        for (int k = 0; k < SEQ_MAX_STEPS; k++) add(buf, cap, &n, " %d", seq->len[k]);
-        add(buf, cap, &n, "\n");
-    }
     return n < cap ? n : -1;
 }
 
@@ -162,7 +155,7 @@ static void rest(const char *s, char *out, int n) {
 
 #define EACH_LINE(line, txt) for (const char *line = txt; line && *line; line = strchr(line, '\n'), line = line ? line + 1 : NULL)
 
-bool patch_from_text(rack_t *rack, synth_params_t *params, synth_ui_t *ui, seq_t *seq, char *preset, bool *edited, const char *txt) {
+bool patch_from_text(rack_t *rack, synth_params_t *params, synth_ui_t *ui, char *preset, bool *edited, const char *txt) {
     bool is_patch = false;
     EACH_LINE(line, txt) if (word(line, "patch")) { is_patch = true; break; }
     if (!is_patch) return false;
@@ -176,9 +169,6 @@ bool patch_from_text(rack_t *rack, synth_params_t *params, synth_ui_t *ui, seq_t
     mapping_t joy[2];
     memset(macro, 0, sizeof macro);
     memset(joy, 0, sizeof joy);
-    seq_t sq;
-    memset(&sq, 0, sizeof sq);
-    if (seq) sq = *seq;
     char from[PRESET_NAME_MAX] = "";
     int from_edited = 0;
 
@@ -281,17 +271,6 @@ bool patch_from_text(rack_t *rack, synth_params_t *params, synth_ui_t *ui, seq_t
             mapping_t mp;
             if (sscanf(line, "joy %3s %n", w, &at) != 1 || !at || (strcmp(w, "x") && strcmp(w, "y")) || !mapping_parse(line + at, &mp)) continue;
             joy[w[0] == 'y'] = mp;
-        } else if (seq && word(line, "seq")) {
-            if (sscanf(line, "seq %d %d %d %d", &a, &b, &c, &d) != 4) continue;
-            sq.bpm = clampi_(a, 40, 240); sq.steps = clampi_(b, 1, SEQ_MAX_STEPS); sq.transpose = clampi_(c, -24, 24); sq.swing = clampi_(d, 0, 50);
-        } else if (seq && word(line, "notes")) {
-            float nv[SEQ_MAX_STEPS];
-            if (floats(line + 5, nv, SEQ_MAX_STEPS) != SEQ_MAX_STEPS) continue;
-            for (int k = 0; k < SEQ_MAX_STEPS; k++) sq.note[k] = (uint8_t)(nv[k] < 1 ? 0 : clampi_((int)nv[k], SEQ_NOTE_MIN, SEQ_NOTE_MAX));
-        } else if (seq && word(line, "lens")) {
-            float nv[SEQ_MAX_STEPS];
-            if (floats(line + 4, nv, SEQ_MAX_STEPS) != SEQ_MAX_STEPS) continue;
-            for (int k = 0; k < SEQ_MAX_STEPS; k++) sq.len[k] = (uint8_t)clampi_((int)nv[k], 1, SEQ_LEN_MAX);
         } else if (word(line, "from")) {
             if (sscanf(line, "from %d%n", &from_edited, &at) == 1 && at) rest(line + at, from, sizeof from);
         }
@@ -312,7 +291,6 @@ bool patch_from_text(rack_t *rack, synth_params_t *params, synth_ui_t *ui, seq_t
     memcpy(ui->joy, joy, sizeof joy);
     memset(ui->joy_prev, 0, sizeof ui->joy_prev);
     ui->joy_fresh = -1;
-    if (seq) { memcpy(seq->note, sq.note, sizeof sq.note); memcpy(seq->len, sq.len, sizeof sq.len); seq->bpm = sq.bpm; seq->steps = sq.steps; seq->transpose = sq.transpose; seq->swing = sq.swing; }
     if (preset) snprintf(preset, PRESET_NAME_MAX, "%s", from);
     if (edited) *edited = from_edited != 0;
     return true;
@@ -327,7 +305,7 @@ static uint32_t fnv(uint32_t h, const void *data, size_t n) {
 }
 #define H(x) h = fnv(h, &(x), sizeof(x))
 
-uint32_t patch_hash(const rack_t *rack, const synth_params_t *params, const synth_ui_t *ui, const seq_t *seq) {
+uint32_t patch_hash(const rack_t *rack, const synth_params_t *params, const synth_ui_t *ui) {
     uint32_t h = 2166136261u;
     const synth_config_t *c = &rack->cfg;
     H(c->type); H(c->voices); H(c->str_voices); H(c->glide); H(c->legato); H(c->fm_patch);
@@ -356,7 +334,6 @@ uint32_t patch_hash(const rack_t *rack, const synth_params_t *params, const synt
     }
     for (int k = 0; k < SYNTH_UI_MACROS; k++) { H(ui->macro[k].n); h = fnv(h, ui->macro[k].dest, sizeof ui->macro[k].dest[0] * (ui->macro[k].n < SYNTH_UI_MACRO_DESTS ? ui->macro[k].n : SYNTH_UI_MACRO_DESTS)); }
     H(ui->joy);
-    if (seq) { H(seq->note); H(seq->len); H(seq->bpm); H(seq->steps); H(seq->transpose); H(seq->swing); }
     return h;
 }
 
@@ -367,13 +344,13 @@ bool preset_file(const char *name, char *out, int n) {
     return len > 0 && len < n;
 }
 
-bool patch_save(const char *file, const rack_t *rack, const synth_params_t *params, const synth_ui_t *ui, const seq_t *seq, const char *preset,
+bool patch_save(const char *file, const rack_t *rack, const synth_params_t *params, const synth_ui_t *ui, bool state, const char *preset,
                 bool edited, bool *too_big) {
-    const int n = patch_to_text(rack, params, ui, seq, preset, edited, g_buf, STORAGE_FILE_MAX);
+    const int n = patch_to_text(rack, params, ui, state, preset, edited, g_buf, STORAGE_FILE_MAX);
     if (too_big) *too_big = n < 0;
     return n >= 0 && storage_write(file, g_buf, n);
 }
 
-bool patch_load(const char *file, rack_t *rack, synth_params_t *params, synth_ui_t *ui, seq_t *seq, char *preset, bool *edited) {
-    return storage_read(file, g_buf, STORAGE_FILE_MAX) >= 0 && patch_from_text(rack, params, ui, seq, preset, edited, g_buf);
+bool patch_load(const char *file, rack_t *rack, synth_params_t *params, synth_ui_t *ui, char *preset, bool *edited) {
+    return storage_read(file, g_buf, STORAGE_FILE_MAX) >= 0 && patch_from_text(rack, params, ui, preset, edited, g_buf);
 }

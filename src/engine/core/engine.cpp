@@ -37,6 +37,15 @@ bool Engine::init(Memory mem, int nvoices) {
     mem_ = mem;
     nvoices_ = default_nv_ = nvoices < 1 ? 1 : (nvoices > kMaxVoices ? kMaxVoices : nvoices);
     register_builtin_modules(reg_);
+    seq_.clear();
+    seq_step_.store(-1, std::memory_order_relaxed);
+    seq_where_.store(0, std::memory_order_relaxed);
+    seq_taken_.store(0, std::memory_order_relaxed);
+    pseq_.clear();
+    pseq_node_ = -1;
+    pseq_step_.store(-1, std::memory_order_relaxed);
+    pseq_taken_.store(0, std::memory_order_relaxed);
+    pseq_where_.store(0, std::memory_order_relaxed);
     return true;
 }
 
@@ -290,6 +299,42 @@ bool Engine::set_transport(int bpm, bool running, bool click) {
     return cmd_.push(c);
 }
 
+bool Engine::seq_setup(const SeqSetup &s) {
+    Command c;
+    c.type = Cmd::SeqSetup; c.size = sizeof s;
+    std::memcpy(c.blob, &s, sizeof s);
+    return cmd_.push(c);
+}
+
+bool Engine::seq_steps(int first, int count, const SeqStep *steps, bool queue) {
+    if (first < 0 || count < 1 || count > kSeqChunk || first + count > kSeqSteps) return false;
+    SeqChunk k;
+    k.first = static_cast<uint8_t>(first); k.count = static_cast<uint8_t>(count); k.queue = queue ? 1 : 0;
+    for (int i = 0; i < count; i++) k.step[i] = steps[i];
+    Command c;
+    c.type = Cmd::SeqSteps; c.size = sizeof k;
+    std::memcpy(c.blob, &k, sizeof k);
+    return cmd_.push(c);
+}
+
+bool Engine::pseq_setup(const SeqSetup &s, int node) {
+    Command c;
+    c.type = Cmd::PadSeqSetup; c.node = static_cast<uint8_t>(node); c.size = sizeof s;
+    std::memcpy(c.blob, &s, sizeof s);
+    return cmd_.push(c);
+}
+
+bool Engine::pseq_hits(int first, int count, const PadHit *hits, int total, bool queue) {
+    if (first < 0 || count < 0 || count > kPadSeqChunk || first + count > kPadSeqHits || total > kPadSeqHits) return false;
+    PadHitChunk k;
+    k.first = static_cast<uint8_t>(first); k.count = static_cast<uint8_t>(count); k.total = static_cast<uint8_t>(total); k.queue = queue ? 1 : 0;
+    for (int i = 0; i < count; i++) k.hit[i] = hits[i];
+    Command c;
+    c.type = Cmd::PadSeqHits; c.size = sizeof k;
+    std::memcpy(c.blob, &k, sizeof k);
+    return cmd_.push(c);
+}
+
 // The metronome click (a 1.5 kHz sine burst, 3 kHz on beat 1 of the bar, decaying in a few ms, at about -12 dBFS) is added after the
 // master output: the master volume does not change it. Then the position moves by the block.
 void Engine::transport_block(q15 *l, q15 *r) {
@@ -319,13 +364,17 @@ void Engine::transport_block(q15 *l, q15 *r) {
 void Engine::apply(const Command &c) {
     switch (c.type) {
     case Cmd::Transport:
-        if (c.node && !tr_.running) tr_.beat_q32 = 0;                                // a start: bar 1, beat 1
+        if (c.node && !tr_.running) { tr_.beat_q32 = 0; seq_.rewind(); pseq_.rewind(); }   // a start: bar 1, beat 1 (the sequencers' first step)
         tr_.running = c.node != 0;
         tr_.bpm = c.value;
         tr_.inc_q32 = (static_cast<uint64_t>(c.value) << 32) / (60ull * static_cast<uint64_t>(kSampleRate));
         click_on_ = c.idx != 0;
         if (!click_on_) click_env_ = 0;
         break;
+    case Cmd::SeqSetup: { SeqSetup s; std::memcpy(&s, c.blob, sizeof s); seq_.setup(s); break; }
+    case Cmd::SeqSteps: { SeqChunk k; std::memcpy(&k, c.blob, sizeof k); seq_.chunk(k); break; }
+    case Cmd::PadSeqSetup: { SeqSetup s; std::memcpy(&s, c.blob, sizeof s); pseq_.setup(s); pseq_node_ = c.node; break; }
+    case Cmd::PadSeqHits: { PadHitChunk k; std::memcpy(&k, c.blob, sizeof k); pseq_.chunk(k); break; }
     case Cmd::NoteOn: do_note_on(c.note, c.value); break;
     case Cmd::NoteOff: do_note_off(c.note); break;
     case Cmd::AllNotesOff: for (auto &v : voices_) v = VoiceState{}; stack_n_ = 0; break;
@@ -438,6 +487,30 @@ void Engine::render(q15 *l, q15 *r) {
     }
     Command c;
     while (cmd_.pop(c)) apply(c);
+    {                                                                            // the step sequencer: its notes of this block, like played ones
+        SeqEvent ev[kSeqEvents];
+        const int n = seq_.advance(tr_, kBlock, ev, kSeqEvents);
+        for (int i = 0; i < n; i++) { if (ev[i].on) do_note_on(ev[i].note, ev[i].vel); else do_note_off(ev[i].note); }
+        seq_step_.store(seq_.step(), std::memory_order_relaxed);
+        seq_taken_.store(seq_.taken(), std::memory_order_relaxed);
+        seq_where_.store(seq_.step() < 0 ? 0 : (1ull << 63) | (static_cast<uint64_t>(seq_.count()) << 16) |
+                         (static_cast<uint64_t>(seq_.step()) << 8) | (seq_.frac() >> 8), std::memory_order_relaxed);
+    }
+
+    {                                                                            // the pads' sequencer: its pushes of this block, to the Pads module
+        PadSeqEvent ev[kPadSeqEvents];
+        const int n = pseq_.advance(tr_, kBlock, ev, kPadSeqEvents);
+        const Plan *pp = n ? active_.load(std::memory_order_acquire) : nullptr;
+        Module *pads = nullptr;
+        for (int k = 0; pp && k < pp->n_nodes && !pads; k++) if (pp->node_id[k] == pseq_node_) pads = pp->inst(k, 0);
+        if (pads && std::strcmp(pads->info().name, "Pads") != 0) pads = nullptr;     // (another graph was loaded since: that id is not the pads player)
+        for (int i = 0; pads && i < n; i++) pads->set_blob(&ev[i], sizeof ev[i]);
+        const int st = pseq_.step();
+        pseq_step_.store(st, std::memory_order_relaxed);
+        pseq_taken_.store(pseq_.taken(), std::memory_order_relaxed);
+        pseq_where_.store(st < 0 ? 0 : (1ull << 63) | (static_cast<uint64_t>(pseq_.count()) << 16) | (static_cast<uint64_t>(st) << 8) | (pseq_.frac() >> 8),
+                          std::memory_order_relaxed);
+    }
 
     block_clear(l);
     block_clear(r);
@@ -461,6 +534,7 @@ void Engine::render(q15 *l, q15 *r) {
     ProcessCtx ctx{kBlock, t, nullptr, bus_l_, bus_r_, l, r};
     ctx.bus2_l = bus2_l_; ctx.bus2_r = bus2_r_;
     ctx.transport = &tr_;
+    ctx.seq = &seq_.pos();
     ctx.voices = voices_;
     ctx.nvoices = nvoices_;
     for (int v = 0; v < nvoices_; v++) ctx.keys_held += voices_[v].active && voices_[v].gate;

@@ -4,8 +4,10 @@
 // UI thread. See ENGINE_DESIGN.md (ADR-024) for the threading rules.
 #include <stddef.h>
 #include <stdint.h>
+#include "core/pad_seq.h"
 #include "core/pads.h"
 #include "core/rack.h"
+#include "core/seq.h"
 #include "core/synth_params.h"
 #include "hal/hal_audio.h"
 
@@ -28,12 +30,27 @@ void engine_synth_heap_stats(size_t *fast_used, size_t *fast_cap, size_t *fast_h
 unsigned engine_synth_build_count(void);                                           // how many full graph (re)loads happened (a rebuild is slow: tests and diagnostics watch it)
 void engine_synth_build(const rack_t *rack, const synth_params_t *params);        // structure changed: (re)load the voice graph
 void engine_synth_set_params(const rack_t *rack, const synth_params_t *params);   // a value changed: update live, rebuild only if needed
-// The note sequencer's timing for the motion sequencers (call when bpm / steps / swing / running change), and the moment the
-// note sequencer starts a run (the motion lanes restart at their first step).
-void engine_synth_set_clock(int bpm, int steps, int swing, int running);
-void engine_synth_motion_restart(void);
-// The machine clock (ADR-041 decision 24) follows set_clock (bpm, running: a start is bar 1 beat 1). The metronome click on / off, and
+// The synth's step sequencer (core/seq.h; ADR-042): seq_set hands the pattern and its settings to the engine's sequencer, which plays
+// them on the machine clock while seq->running (call it often: only the steps and settings that changed are sent, and before set_clock
+// when both start together). The motion sequencers follow it. seq_pos: the step that plays, -1 while none does.
+void engine_synth_seq_set(const seq_t *seq);
+int  engine_synth_seq_pos(void);
+// Several patterns: seq_queue hands over the pattern the sequencer goes on to when the playing one has played all its steps (NULL:
+// none after all); 0 when the command queue was full (call again). seq_taken answers `id` once, when the audio thread has gone on to
+// it (-1 otherwise): the application then makes that pattern the one it edits and hands to seq_set, which sends it whole again.
+int  engine_synth_seq_queue(const seq_pattern_t *p, int id);
+int  engine_synth_seq_taken(void);
+int  engine_synth_seq_where(int *step, int *frac, uint32_t *count);
+// The Pads section's sequencer (core/pad_seq.h), the same five: pseq_set hands over the pattern that plays and whether it runs (it is
+// sent whole when it changed), its hits push the pads of the loaded pads player.
+void engine_synth_pseq_set(const pseq_pattern_t *p, int run);
+int  engine_synth_pseq_pos(void);
+int  engine_synth_pseq_where(int *step, int *frac, uint32_t *count);
+int  engine_synth_pseq_queue(const pseq_pattern_t *p, int id);
+int  engine_synth_pseq_taken(void);   // 1 while a step plays: it, how far into it (0..255), the steps before it
+// The machine clock (ADR-041 decision 24): its tempo, and whether it runs (a start is bar 1 beat 1). The metronome click on / off, and
 // where the clock is: returns 1 while it runs; bar from 1, beat 1..4, frac = 0..255 of the beat.
+void engine_synth_set_clock(int bpm, int running);
 void engine_synth_set_metronome(int on);
 int  engine_synth_transport(int *bar, int *beat, int *frac);
 void engine_synth_note_on(int midi_note);

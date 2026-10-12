@@ -1,4 +1,5 @@
 #include "engine/modules/sampler_modules.h"
+#include "engine/core/sequencer.h"
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -505,6 +506,15 @@ public:
         }
     }
     void set_blob(const void *data, size_t bytes) override {
+        if (bytes == sizeof(PadSeqEvent)) {                                      // the sequencer: a push, or the pad let go
+            PadSeqEvent e;
+            std::memcpy(&e, data, sizeof e);
+            if (e.pad >= kPadCount) return;
+            if (!e.release) { want_[e.pad] = 0; start(e.pad, false, true, e.level); return; }
+            if (pads_[e.pad].mode == PADM_ONESHOT) return;
+            if (Voice *x = sounding(e.pad)) stop(*x, pads_[e.pad].tail);
+            return;
+        }
         if (bytes != sizeof(PadBlob)) return;
         PadBlob b;
         std::memcpy(&b, data, sizeof b);
@@ -541,7 +551,7 @@ public:
             const int bus = b.bus < kPadBuses ? b.bus : 0;
             int32_t *acc_l = acc[2 * bus], *acc_r = acc[2 * bus + 1];
             if (!used[bus]) { used[bus] = true; std::memset(acc_l, 0, sizeof(int32_t) * n); std::memset(acc_r, 0, sizeof(int32_t) * n); }
-            const int32_t tl = b.mute ? 0 : b.gain_l, tr = b.mute ? 0 : b.gain_r;
+            const int32_t tl = b.mute ? 0 : (b.gain_l * v.lvl) >> 15, tr = b.mute ? 0 : (b.gain_r * v.lvl) >> 15;
             const int32_t dl = (tl - v.gl) / n, dr = (tr - v.gr) / n;
             int32_t gl = v.gl, gr = v.gr, env = v.env;
             for (int i = 0; i < n; i++) {
@@ -582,6 +592,7 @@ private:
         bool stopping = false;                                                   // fading out: no longer the pad's sound
         int32_t env = 32767, env_step = 0;                                       // q15 envelope and its step per sample
         int32_t gl = 0, gr = 0;                                                  // the gains reached at the end of the last block
+        int32_t lvl = 32768;                                                     // the push's level (Q15: 32768 = the pad's own; a sequenced hit: less)
         SvfStateF svf;
         VoiceState vs;
     };
@@ -631,11 +642,11 @@ private:
         }
     }
 
-    void start(int pad, bool at_loop = false) {
+    void start(int pad, bool at_loop = false, bool seq = false, int level = 15) {
         const PadBlob &b = pads_[pad];
         if (b.slot < 0) return;
         if (Voice *cur = sounding(pad)) {
-            if (b.mode == PADM_TOGGLE) { stop(*cur, b.tail); follow(pad); return; }   // a toggle pad: the push stops it (and starts its Next)
+            if (b.mode == PADM_TOGGLE && !seq) { stop(*cur, b.tail); follow(pad); return; }   // a toggle pad: the push stops it (and starts its Next)
             cut(*cur);                                                           // mono: the new start replaces it
         }
         if (b.choke)
@@ -663,8 +674,9 @@ private:
         const bool mid = (at_loop ? b.lstart : b.start) > 0;
         v->env = mid ? 0 : 32767;                                                // a trimmed start may be mid-wave: 1 ms fade-in
         v->env_step = mid ? 32767 / (kSampleRate / 1000) + 1 : 0;
-        v->gl = b.mute ? 0 : b.gain_l;
-        v->gr = b.mute ? 0 : b.gain_r;
+        v->lvl = (level < 0 ? 1 : (level > 15 ? 16 : level + 1)) * 2048;
+        v->gl = b.mute ? 0 : (b.gain_l * v->lvl) >> 15;
+        v->gr = b.mute ? 0 : (b.gain_r * v->lvl) >> 15;
         v->vs.note = 60; v->vs.velocity = 32767; v->vs.gate = true; v->vs.active = true;
     }
 

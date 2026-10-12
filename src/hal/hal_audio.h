@@ -3,8 +3,10 @@
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "core/pad_seq.h"
 #include "core/pads.h"
 #include "core/rack.h"
+#include "core/seq.h"
 #include "core/synth_params.h"
 
 #ifdef __cplusplus
@@ -21,13 +23,35 @@ void audio_build(const rack_t *rack, const synth_params_t *params);
 // Applies the full sound definition (oscillator, envelopes, filter) to the synth.
 void audio_set_params(const rack_t *rack, const synth_params_t *params);
 
-// The note sequencer's timing, for the motion sequencers (cheap: call whenever it may have changed), and the start of a run.
-void audio_set_clock(int bpm, int steps, int swing, int running);
-void audio_motion_restart(void);
-// The machine clock (ADR-041 decision 24) runs at audio_set_clock's bpm while `running`: a start is bar 1, beat 1. The metronome click,
+// The synth's step sequencer (core/seq.h) plays in the engine, on the machine clock (ENGINE_DESIGN.md ADR-042): its timing does not
+// depend on the UI. audio_seq_set: the pattern and its settings as they are now (cheap: call it at every step, only what changed is
+// sent), BEFORE audio_set_clock, so that a sequencer started with the clock plays its first step on the first beat. It plays while
+// `seq->running` and the clock runs; the motion sequencers follow it. audio_seq_pos: the step that plays, -1 while none does.
+void audio_seq_set(const seq_t *seq);
+int  audio_seq_pos(void);
+// Several patterns (core/seq.h seq_bank_t): audio_seq_queue hands over the pattern to go on to when the playing one has played all
+// its steps (NULL: none after all; false: not taken, call again). audio_seq_taken answers its `id` once, when the engine has gone on
+// to it (-1 otherwise): call it BEFORE audio_seq_set, and make that pattern the one handed to audio_seq_set from then on.
+bool audio_seq_queue(const seq_pattern_t *p, int id);
+int  audio_seq_taken(void);
+// The same for recording into it: true while a step plays, with how far into the step it is (0..255) and how many steps played
+// before it since the run started (the count starts again when the rate changes).
+bool audio_seq_where(int *step, int *frac, uint32_t *count);
+// The machine clock (ADR-041 decision 24) runs at `bpm` while `running`: a start is bar 1, beat 1. The metronome click,
 // and where the clock is (true while it runs; bar from 1, beat 1..4, frac 0..255 of the beat).
+void audio_set_clock(int bpm, int running);
 void audio_set_metronome(bool on);
 bool audio_transport(int *bar, int *beat, int *frac);
+
+// The Pads section's sequencer (core/pad_seq.h; ADR-042 stage 3), the same way: audio_pseq_set hands over the pattern that plays as
+// it is now (only what changed is sent; BEFORE audio_set_clock) and whether it runs (with the clock); a hit pushes its pad whatever
+// the pad's own grid setting says, at the hit's level, and lets a Gate / Toggle pad go after the hit's length. pos / where / queue /
+// taken: as the synth sequencer's.
+void audio_pseq_set(const pseq_pattern_t *p, bool run);
+int  audio_pseq_pos(void);
+bool audio_pseq_where(int *step, int *frac, uint32_t *count);
+bool audio_pseq_queue(const pseq_pattern_t *p, int id);
+int  audio_pseq_taken(void);
 
 // Polyphonic notes: every audio_note_on() must be followed by an audio_note_off().
 void audio_note_on(int midi_note);

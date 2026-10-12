@@ -1,5 +1,5 @@
-// Motion sequencer: the lane rules (STEP / LINEAR between active steps), the module's clock against the note sequencer's
-// own timing (core/seq.c), restart / stop, and the whole path rack -> engine -> filter.
+// Motion sequencer: the lane rules (STEP / LINEAR between active steps), how the module follows the engine's step sequencer
+// (rates, swing, odd lengths, long patterns), restart / stop, and the whole path rack -> engine -> filter.
 #include <algorithm>
 #include <utility>
 #include <vector>
@@ -32,21 +32,25 @@ double lane_at(const MotionBlob &b, int steps, double pos) {                  //
     return static_cast<double>(motion_lane_value_q16(b, 0, steps, static_cast<uint32_t>(pos * 65536.0))) / 65536.0;
 }
 
-// one motion sequencer (global node 1) with lanes 0 and 1 routed to the master's two inputs
+// one motion sequencer (global node 1) with lanes 0 and 1 routed to the master's two inputs; the engine's step sequencer (an empty
+// pattern) gives it its place
 struct MsBench {
     DspRig rig;
-    int restart_ = 0;
-    explicit MsBench(const MotionBlob &b, int bpm = 120, int steps = 16, int swing = 0) {
+    int bpm_;
+    SeqSetup su;
+    explicit MsBench(const MotionBlob &b, int bpm = 120, int steps = 16, int swing = 0, int rate = SEQ_RATE_16) : bpm_(bpm) {
         GraphDesc g;
-        NodeDesc *m = rig.add(g, 1, T_MSEQ);
-        m->param[MSP_BPM] = bpm; m->param[MSP_STEPS] = steps; m->param[MSP_SWING] = swing;
+        rig.add(g, 1, T_MSEQ);
         rig.add(g, 2, T_MASTER_OUT);
         g.connect(1, 0, 2, Dst::In, 0);
         g.connect(1, 1, 2, Dst::In, 1);
         CHECK(rig.eng.load(g) == Err::Ok);
         rig.eng.set_blob(1, &b, sizeof b);
+        su.run = 1; su.steps = static_cast<uint8_t>(steps); su.swing = static_cast<uint8_t>(swing); su.rate = static_cast<uint8_t>(rate);
+        rig.eng.seq_setup(su);
     }
-    void start() { rig.eng.set_param(1, MSP_RUN, 1); rig.eng.set_param(1, MSP_RESTART, ++restart_); }
+    void start() { rig.eng.set_transport(bpm_, false, false); rig.eng.set_transport(bpm_, true, false); }   // (again: a restart)
+    void stop() { rig.eng.set_transport(bpm_, false, false); }
     std::vector<double> run(double seconds) { std::vector<double> x; rig.run(DspRig::blocks_for(seconds), &x); return x; }
 };
 }  // namespace
@@ -98,35 +102,31 @@ TEST(motion_module_outputs_unipolar_and_bipolar_steps_and_follows_run) {
     CHECK_NEAR(r[at(0.06)], 32767.0, 40);                                    // bipolar: 100 % = +1
     CHECK_NEAR(r[at(0.185)], -32767.0, 40);                                  // 0 % = -1
     CHECK_NEAR(r[at(0.31)], 0.0, 40);                                        // 50 % = 0
-    m.rig.eng.set_param(1, MSP_RUN, 0);
+    m.stop();
     std::vector<double> off = m.run(0.05);
     CHECK_EQ(off.back(), 0);
 }
 
-TEST(motion_clock_matches_the_note_sequencer_with_swing_and_odd_lengths) {
-    for (int swing : {0, 20, 50}) for (int steps : {4, 7, 16}) for (int bpm : {90, 110, 133, 240}) {
+TEST(motion_follows_the_step_sequencer_with_swing_rates_and_odd_lengths) {
+    for (int swing : {0, 20, 50}) for (int steps : {4, 7, 16, 40}) for (int bpm : {90, 133, 240}) for (int rate : {static_cast<int>(SEQ_RATE_16), static_cast<int>(SEQ_RATE_8T)}) {
         // each step has its own value so the step boundaries can be read from the output
         int v[16];
         for (int i = 0; i < 16; i++) v[i] = 5 + 6 * i;
-        MsBench m(blob_with(v, 0xFFFF, false, false), bpm, steps, swing);
+        MsBench m(blob_with(v, 0xFFFF, false, false), bpm, steps, swing, rate);
         m.start();
         std::vector<double> y = m.run(4.0);
-        // the note sequencer's step times, polled every millisecond like the application's loop
-        seq_t q;
-        seq_init(&q);
-        q.bpm = bpm; q.steps = steps; q.swing = swing;
-        seq_set_running(&q, true);
-        std::vector<std::pair<uint32_t, int>> ev;                           // (ms, step)
-        seq_event_t se;
-        for (uint32_t t = 0; t < 4000; t++) if (seq_tick(&q, t, &se)) ev.push_back({t, q.pos});
-        int bad = 0;
-        for (auto &e : ev) {
-            const size_t first = static_cast<size_t>(e.first) * static_cast<size_t>(kSampleRate) / 1000 + 2 * kBlock;     // just after the start of that step
+        // the sequencer's step times; a pattern longer than the lanes plays them again every 16 steps
+        const double beat_s = 60.0 / bpm;
+        int bad = 0, n = 0;
+        for (uint32_t k = 0;; k++, n++) {
+            const double t = static_cast<double>(seq_slot_time(0, k, seq_steps_per_beat(rate), swing)) / 4294967296.0 * beat_s;
+            const size_t first = static_cast<size_t>(t * kSampleRate) + 3 * kBlock;      // just after the start of that step
             if (first >= y.size()) break;
-            const double want = (5 + 6 * e.second) / 100.0 * 32767.0;
+            const int step = static_cast<int>(k % static_cast<uint32_t>(steps)) % (steps < 16 ? steps : 16);
+            const double want = (5 + 6 * step) / 100.0 * 32767.0;
             if (std::fabs(y[first] - want) > 60.0) bad++;
         }
-        if (bad) std::printf("    swing %d steps %d bpm %d: %d of %zu step starts disagree\n", swing, steps, bpm, bad, ev.size());
+        if (bad) std::printf("    swing %d steps %d bpm %d rate %d: %d of %d step starts disagree\n", swing, steps, bpm, rate, bad, n);
         CHECK_EQ(bad, 0);
     }
 }
@@ -146,7 +146,7 @@ TEST(motion_linear_lane_is_smooth_and_restart_rewinds) {
     CHECK_NEAR(y[static_cast<size_t>(1.5 * kSampleRate)], 16384.0, 200);
     // restart in the middle of the pattern: the lane is back at its first step
     m.run(0.3);
-    m.rig.eng.set_param(1, MSP_RESTART, ++m.restart_);
+    m.start();
     std::vector<double> z = m.run(0.1);
     CHECK_NEAR(z[static_cast<size_t>(0.05 * kSampleRate)], 0.05 * 32767.0, 250);       // 50 ms into a 1 s ramp (without the restart it would be near 35 %)
 }
@@ -194,8 +194,12 @@ TEST(motion_sequencer_in_the_rack_moves_the_filter_in_time) {
     CHECK(!rack_insert(&rack, 4, MOD_MSEQ));                                // a third does not
     rack_delete(&rack, 3);
     engine_synth_build(&rack, &params);
-    engine_synth_set_clock(120, 16, 0, 1);                                  // 125 ms steps
-    engine_synth_motion_restart();
+    seq_t q;
+    seq_init(&q);
+    for (int k = 0; k < SEQ_MAX_STEPS; k++) seq_step_clear(&q.step[k]);     // no notes of its own: the test plays one
+    seq_set_running(&q, true);
+    engine_synth_seq_set(&q);
+    engine_synth_set_clock(120, 1);                                         // 125 ms steps
     engine_synth_note_on(45);
     std::vector<double> y = a.run(1.0);
     const double dark = roughness_between(y, 0.3, 0.37), bright = roughness_between(y, 0.43, 0.49);   // steps 2 (0 %) and 3 (100 %) after the filter has settled
@@ -205,7 +209,7 @@ TEST(motion_sequencer_in_the_rack_moves_the_filter_in_time) {
     ln->val[1] = 100; ln->val[3] = 0;
     engine_synth_set_params(&rack, &params);
     a.run(0.5);
-    engine_synth_set_clock(120, 16, 0, 0);
+    engine_synth_set_clock(120, 0);
     std::vector<double> s = a.run(0.5);
     const double idle = roughness_between(s, 0.2, 0.5);
     std::printf("    sequencer stopped: roughness %.0f (neutral cutoff)\n", idle);

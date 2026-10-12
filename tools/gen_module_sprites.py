@@ -13,7 +13,8 @@ W = H = 24
 ROWB = (W + 7) // 8      # bytes per row
 MODULES = [("osc", "OC"), ("filter", "FL"), ("sat", "SA"), ("lfo", "LF"), ("mseq", "MS"), ("env", "EN"), ("sampler", "SM"), ("eg", "EG"), ("comb", "RS"),
            ("trem", "TR"), ("eq", "EQ"), ("ring", "RG"), ("phaser", "PH"), ("flanger", "FG"), ("comp", "CP"),
-           ("delay", "DL"), ("reverb", "RV"), ("chorus", "CH"), ("spectral", "SP"), ("cab", "CB"), ("ensemble", "ES")]
+           ("delay", "DL"), ("reverb", "RV"), ("chorus", "CH"), ("spectral", "SP"), ("cab", "CB"), ("ensemble", "ES"),
+           ("vel", "VL")]
 
 # 5x7 glyphs, '#' = pixel on
 GLYPHS = {

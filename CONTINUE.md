@@ -6,9 +6,25 @@ not: state, the latest measurements and what to do next, the user's working styl
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
 `tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
-## Session todo (updated 2026-10-11)
+## Session todo (updated 2026-10-12)
 
-**Where things stand (end of 2026-10-11):** everything is on **`main`**, committed and pushed, and published as the pre-release
+**Where things stand (end of 2026-10-12):** the session of 2026-10-11 / 12 built **the sequencers** (ENGINE_DESIGN.md ADR-042, three
+stages, three rounds of options with the user): the synth's step sequencer now plays in the engine on the machine clock, with
+chords, velocity, probability, ratchet, 64 steps, rate, direction, quick edit tools, step knobs with a movement threshold, recording
+from the keys, 8 patterns + a chain, and a Velocity rack module (VL); the Pads section has its own sequencer (a list of bit-field
+hits over all 64 pads, step mode, live record, 8 patterns + a chain). **All of it is in the working tree, UNCOMMITTED** (the user
+commits themselves), host-tested (237 engine tests x 6 configurations, 141 UI tests), the simulator and the firmware build
+(static RAM 67.7 %); **nothing was flashed, nothing was listened to, the user has not tried any of it yet** (they asked two
+questions at the end: where the Select key is, and where to record in the synth: the answers are in the two "Sequencer" entries
+below). Left in the repository by mistake: **a stash, `stash@{0}`**, an early copy of stage 1 (a `git stash` + `git stash apply`
+typed by Claude; dropping it was refused by the permission system): the user can `git stash drop` it. Not Claude's: six sprite
+PNGs of `assets/UI_Sprites/24` changed during the session (the user painting) and `src/core/ui_sprites_gen.c` regenerated from
+them by `build.ps1`. Firmware builds of this session went to a scratch build directory (`PLATFORMIO_BUILD_DIR`): `.pio/build`
+still holds the build of before. Next: the user tries the sequencers (simulator first, then a flash: ask before flashing), then
+what they report; an on-screen Rec control for the synth's SEQUENCER page was offered and not answered; the pads sequencer has no
+edit tools yet.
+
+**Where things stood before it (end of 2026-10-11):** everything is on **`main`**, committed and pushed, and published as the pre-release
 **`beta-1.0`** on GitHub (one flashable image for the first prototype + the Windows simulator; `tools/make_release.ps1`). **The
 release image itself was NOT run on the board** (the user's choice: publish as untested): it is `[env:release]` (no serial
 commands, output 18 %), and it holds the persistent sound, the presets and the simple storage screen, none of which ran on
@@ -29,6 +45,59 @@ sample name with `[ ]` stopped the build).
 Order: what is built and waits for the user's try, this session's choices, then the Pads section (user, 2026-10-09), the rest as chosen by Claude earlier (user: "I let you choose the order"). The user has made no sound design yet: **no saved patch or data to keep, old
 patches can be deleted, no migration code** (user, 2026-10-09). The rest of the workflow plan: "Next: the production workflow" below.
 
+- [ ] **Sequencer stages 1 + 2 (ADR-042): try it, by ear** (user, 2026-10-11: "add more features to the step sequencer and let's have
+  a sequencer for the sample pad section"; two rounds of options, their choices in ADR-042). BUILT 2026-10-11 / 12, host-tested
+  (with stage 3: 237 engine tests x 6, 141 UI tests), simulator + firmware built (static RAM 67.7 %, 221996 bytes; 66.2 % before
+  this work, 68.4 % before the stored patterns moved to PSRAM), **NOT flashed, NOT listened to,
+  uncommitted**. What is there:
+  the sequencer plays in the audio thread on the machine clock (`engine/core/sequencer.*`; the UI loop times nothing any more);
+  per step Note, Len, Vel, Prob, Rtch and a chord of 4 (the Voice row picks the note the Note row edits); SEQ SETUP has Rate (1/8 ..
+  1/32, triplets) and Dir (Fwd / Rev / Ping / Rand), Steps goes to 64 (the roll shows the 16 around the cursor), notes C0 .. C8; the
+  motion lanes follow the sequencer's position; **tools** (Tool + On rows, a push runs: Copy, Paste, Clear, Shift, Reverse, Double,
+  RndNote, Human, RndProb, Undo); **the four column knobs = Note, Len, Vel, Prob of the cursor's step**, each only after it moved
+  (their rule; `SEQ_KNOB_HYST` 24 of 1023, ui_internal.h: raise it if a resting knob still writes, lower it if it feels dead);
+  **Rec** = Shift + Play (or the key function Rec; the user asked "where to record in synth mode?" on 2026-10-12: there is no
+  on-screen control, the SEQUENCER page's Run field reads Rec while armed; an on-screen Rec row was offered, not answered):
+  stopped = step entry with chords, running = live to the nearest step;
+  **8 patterns + a chain of 16** on the new PATTERNS page, the change at the pattern's end, done by the audio thread; saved by
+  themselves (`system/config/seq.cfg`, `pattern1.cfg` ..), not in the sound's state, not in presets; **the VL module** (Velocity as
+  a source in the rack: Tgt / Prm / Dpth).
+  To try: Play on the SEQUENCER page; a ratchet, Prob 50 %, a chord; Rate 1/8T, Dir Ping, Steps 32 and the cursor past step 16; the
+  knobs on a step, then the cursor to another step with a knob left where it is (it must not write); Tool Double then Undo; Shift +
+  Play, play a chord (stopped), then Play and play a line (running); PATTERNS: Pat while it runs ("1 >2", changes at the end), a chain
+  1 1 2; power off and on (the patterns are back); insert VL, aim it at an oscillator's Lvl, give steps different Vel; on the board,
+  scroll the sample browser while it plays (the timing must not move).
+  Chosen by me (say if one is wrong): the row order; a ratchet's last hit keeps the step's length; a rest raised takes the last note
+  entered; Vel and Prob move in fives; Prob 0 = never; the roll's window follows the page's lowest note; a pattern longer than 16
+  plays the motion lanes again every 16 steps; the Note knob covers C0 .. C8 (coarse: 10 positions a semitone) and Len 1..16; the
+  knobs write directly once moved (no catch arrows on that page); step entry replaces the step's notes and keeps its Len / Vel;
+  live notes add to the chord (a full chord loses its first note) and take the step's Len; the cursor does not follow the playhead;
+  with the chain on, Play starts at its first entry and the Pat row is ignored while it runs; a new chain entry = the pattern shown;
+  Steps / Trsp / Swing / Rate / Dir belong to a pattern, the tempo to the machine; the velocity source is 0 .. 1 (keys = 100 / 127).
+  **Known gaps**: Vel does nothing in a Modular patch without a VL module (their choice); **about 5 KB more static internal RAM** for the three stages
+  (ADR-042 "Cost"; the stored patterns are in PSRAM), not measured on the board; the start now reads up to
+  9 more small files from the card; no LED shows Rec; the Pads layout is untouched. A stale `synth.cfg` with `seq` / `notes` lines
+  is read without them (from: user)
+- [ ] **Sequencer stage 3, the Pads section's sequencer (ADR-042 decisions 16-20): try it, by ear** (from: user). Their answers of
+  2026-10-12 (options offered): a step grid with live record; **one pattern covers all 64 pads**; a step carries **level,
+  probability, ratchet and a length for gate pads**, and "you can compact ram/rom usage with bit-field struct"; step mode by
+  **Select + Play** (against my recommendation, a Seq key on the free row); **patterns as on the synth**. BUILT 2026-10-12,
+  host-tested (237 engine tests x 6, 141 UI tests; simulator + firmware built), **NOT flashed, NOT listened to, uncommitted**. What is there: a pattern = a list of hits (a 32-bit bit-field each, 160 at most, 648 bytes); it plays in the
+  engine (a second sequencer; a hit starts its pad whatever the pad's own Grid says, at the hit's level; a Gate / Toggle pad is let
+  go after the hit's Len); 8 patterns + chain, their own files (`padseq.cfg`, `padpat1.cfg` ..); **Select + Play, or Shift + Play** (the user asked where Select is: it is the right block's
+  second row, first key, on the prototype; the simulator shows only the 4 left columns, so there it is Shift + Play) = step mode
+  (the pad keys are the selected pad's steps, lit; Select or Shift + pad picks the track; Back leaves), the STEPS screen (joystick
+  = cursor, its push = hit on / off, encoder A = field, encoder B = value: Lvl, Prob, Rtch, Len, Pat, Steps, Rate, Swing, Dir,
+  Seq, Chain, CLen, Slot, Is, Rec); **Select + Rec** or the Rec field = live record while it runs. The stored patterns (pads and synth) are in PSRAM.
+  To try: Pads section, a sample on A1 and A2; Select + Play; push pad keys 1, 5, 9, 13; Play; Select + A2, more steps; a step's
+  Lvl and Rtch with the encoders; Steps 32 and Page +; Back, then Select + Rec and play pads in time; a Gate pad with a long Len;
+  Pat while it runs; power off and on.
+  Chosen by me (say if one is wrong): 160 hits a pattern; level in 16 steps, chance in tens of %; a hit's Len only matters for Gate
+  and Toggle pads; a Toggle pad is started by a hit and stopped after its Len (never flipped); a pad's Next is not started by the
+  sequencer; in step mode Mute + pad still mutes; the cursor does not follow the playhead; the sequencer runs with Play (the Seq
+  field switches it off); the fields' order; live record keeps a hit's level / chance / ratchet when the step already has one.
+  **Known gaps**: no edit tools for a pads pattern (copy, clear a track, shift), no LED for the armed record or for step mode, the
+  Pads key layout's free bottom row is still free.
 - [ ] **Flash the working tree, then look at the start** (from: notes). After the upload: the boot animation loops with its bar
   until the UI shows whole; a joystick push acts when pushed. To measure a start: build with `PLATFORMIO_BUILD_FLAGS=-DBOOT_TRACE`
   and read the `[BOOT]` lines (`serial_test.py --raw --seconds 10 --log run.txt` right after the upload); flash the normal build
@@ -227,10 +296,10 @@ The decisions are in ENGINE_DESIGN.md ADR-041; the user's design brief with scre
 Take the phases in order; each ends with host tests green, docs updated and the user trying the result. Ask the "ask first" points with
 options (pros / cons) before building.
 
-- **Phase 3, step sequencer for the synth.** Ask first: steps, pattern length, polyphony per step (chords?), per-step values (velocity,
-  length, probability?), pattern count, how it is shown (16 keys as steps?). Then extend `seq.c` (today: monophonic, 16 steps, note + length,
-  BPM, swing, transpose); a clock module (internal BPM, MIDI clock in / out behind a HAL, so prototype 1 builds without MIDI); MIDI input
-  recorded into the sequencer (prototype 2; on prototype 1 record the keyboard). A captured sequenced pattern gives an on-grid sample.
+- **Phase 3, step sequencer for the synth.** **Started 2026-10-11: ENGINE_DESIGN.md ADR-042, stage 1 built** (in the engine on the
+  machine clock; chords, velocity, probability, ratchet, 64 steps, rate, direction), **stage 2 built** (edit tools, step knobs,
+  recording from the keys, 8 patterns + chain, the VL module); stage 3 is in the todo above (the Pads step grid). Still open from the plan: MIDI clock in / out behind a HAL (prototype 1 has no
+  MIDI), MIDI input recorded into the sequencer (prototype 2). A captured sequenced pattern gives an on-grid sample.
 - **Phase 4, capture.** A global shortcut from any page (ask which combo; check `bindings.c`, `modifiers.c` for free ones). Record the
   engine output into PSRAM, write a WAV to the card, add it to the sample catalog. Modes: manual, threshold (start on level, trim the
   trailing silence), N bars (starts on the next bar, uses the clock); the auto-sampler later. Prototype 1 has no input: capture = resampling.

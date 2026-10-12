@@ -23,7 +23,7 @@ static void app_dispatch(app_t *app, input_event_t e) {
 
 // Every control but the matrix keys and the joystick axes.
 static void control_event(app_t *app, input_event_t e) {
-    if (e.kind == IN_RELEASE) { app_note_off(app, e.ctl); app_dispatch(app, e); return; }   // a layer may have started a note on it
+    if (e.kind == IN_RELEASE) { app_seq_note_up(app, e.ctl); app_note_off(app, e.ctl); app_dispatch(app, e); return; }   // a layer may have started a note on it
     if (app_curves_tab_knob(app, e) || app_mods_tab_select(app, e) || app_layer_event(app, e)) return;
     app_dispatch(app, e);
 }
@@ -33,6 +33,7 @@ static void control_event(app_t *app, input_event_t e) {
 static void key_event(app_t *app, input_event_t e, uint32_t now) {
     const int key = e.ctl - CTL_KEY_FIRST;
     if (e.kind == IN_RELEASE) {
+        app_seq_note_up(app, e.ctl);                        // (the key is up, whether its note is latched or not: Rec, app_seq.c)
         app_note_off(app, e.ctl);
         app_pad_key_up(app, e.ctl);
         const key_fn_t rf = keymap_get(key);

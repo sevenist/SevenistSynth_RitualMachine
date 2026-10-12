@@ -59,6 +59,7 @@ MODULES = {
     "trem": ("TR", "io"), "eq": ("EQ", "io"), "ring": ("RG", "io"), "phaser": ("PH", "io"), "flanger": ("FG", "io"),
     "comp": ("CP", "io"), "delay": ("DL", "io"), "reverb": ("RV", "io"), "chorus": ("CH", "io"), "spectral": ("SP", "io"), "cab": ("CB", "io"),
     "ensemble": ("ES", "io"),
+    "vel": ("VL", "o"),      # the Velocity modulator (ADR-042)
 }
 # menu tab -> code (the names of tab_icon() in ui_pages.c)
 # oscillator waves and engines (wave_names in core/rack.c, Wav values 0..14) -> a drawn shape, or a 3-letter code for an engine

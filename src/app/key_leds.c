@@ -49,6 +49,17 @@ void key_leds_update(const app_t *app, bool input_event, uint32_t now_ms) {
             const key_fn_t f = keymap_get(r * KEY_COLS + c);
             const int role = led_role_of(f);
             if (preview) { leds_set(ctl, role == app->ui.led_role ? led_role_rgb(role, !preview_idle) : (led_color_t){0, 0, 0}); continue; }
+            if (f.act == ACT_PAD && app->ui.pad_steps && app->pbank.pat) {   // step mode: the selected pad's steps of the page shown
+                const pseq_pattern_t *pt = &app->pbank.pat[app->pbank.cur];
+                const int cursor = app->ui.pseq_step < pt->steps ? app->ui.pseq_step : pt->steps - 1;
+                const int step = cursor / SEQ_PAGE * SEQ_PAGE + (f.arg & 15);
+                const bool hit = step < pt->steps && pseq_find(pt, pads_ui_pad(&app->ui), step) >= 0;
+                if (step >= pt->steps) leds_set(ctl, (led_color_t){0, 0, 0});                      // past the pattern's end
+                else if (step == app->ui.pseq_pos) leds_set(ctl, led_role_rgb(LR_PLAY, true));     // the playhead
+                else if (hit) leds_set(ctl, led_role_rgb(LR_PAD, true));
+                else leds_set(ctl, led_role_rgb(LR_PAD, false));
+                continue;
+            }
             if (f.act == ACT_PAD) {                          // an empty pad is dark, a muted one shows Back's idle colour (unless it sounds)
                 const pad_t *p = &app->pads.pad[app->ui.pad_bank * PADS_PER_BANK + (f.arg & 15)];
                 if (pad_empty(p)) { leds_set(ctl, (led_color_t){0, 0, 0}); continue; }

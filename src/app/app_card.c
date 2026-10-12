@@ -25,6 +25,8 @@ void app_check_sd(app_t *app) {
         if (keymap_dirty()) keymap_save(); else keymap_load();
         if (curves_changed()) curves_save(); else curves_load();
         if (app_state_unsaved(app)) app_state_save(app); else app_state_load(app);   // (before ui.cfg: its jump slots name the sound's modules)
+        if (app_seq_unsaved(app)) app_seq_save(app); else app_seq_load(app);         // the sequencer's patterns
+        if (app_pseq_unsaved(app)) app_pseq_save(app); else app_pseq_load(app);      // ... and the Pads section's
         if (ui_settings_changed(&app->ui, &app->rack)) ui_settings_save(&app->ui, &app->rack); else ui_settings_load(&app->ui, &app->rack);
         if (app->pads_pending) { if (pads_save(&app->pads)) app->pads_pending = false; } else pads_load(&app->pads);
         if (app->fx_pending) { if (pads_fx_save(&app->pads.fx)) app->fx_pending = false; } else pads_fx_load(&app->pads.fx);
@@ -67,6 +69,8 @@ void app_autosave(app_t *app, uint32_t now) {
     settings_autosave(app, now);
     pads_autosave(app, now);
     fx_autosave(app, now);
+    app_seq_autosave(app, now);
+    app_pseq_autosave(app, now);
 }
 
 void app_save_now(app_t *app) {
@@ -74,6 +78,8 @@ void app_save_now(app_t *app) {
     if (keymap_dirty()) keymap_save();
     if (curves_changed()) curves_save();
     if (app_state_unsaved(app)) app_state_save(app);
+    if (app_seq_unsaved(app)) app_seq_save(app);
+    if (app_pseq_unsaved(app)) app_pseq_save(app);
     if (ui_settings_changed(&app->ui, &app->rack)) ui_settings_save(&app->ui, &app->rack);
     if (app->pads_pending && pads_save(&app->pads)) app->pads_pending = false;
     if (app->fx_pending && pads_fx_save(&app->pads.fx)) app->fx_pending = false;

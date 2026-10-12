@@ -9,6 +9,8 @@
 //   app_library.c   the samples in use (the catalog) and the sample browser
 //   app_render.c    a pad's sample processed into a new version (the EDIT page)
 //   app_capture.c   the Rec key: what plays, recorded onto a pad
+//   app_pseq.c      the Pads section's sequencer: its patterns to the engine, their files, step mode, live record
+//   app_seq.c       the step sequencer: its patterns and chain handed to the engine, their files, recording from the keys
 //   app_card.c      the card: the settings files read and saved, the card's events as popups
 //   app_power.c     the battery: a warning when it gets low
 //   app_preset.c    the sound's working state (saved by itself, back at power-on) and the presets
@@ -82,6 +84,34 @@ void app_render_poll(app_t *app, uint32_t now);
 
 void app_capture_key(app_t *app);                                   // the Rec key
 void app_capture_poll(app_t *app, uint32_t now);
+
+/* ---------------- app_seq.c ---------------- */
+
+void app_seq_init(app_t *app);                                      // app_init: pattern 1 = the pattern there is, the others empty
+void app_seq_step(app_t *app, bool clock_running);                  // every step: the pattern, what follows it and the clock, to the engine
+bool app_seq_load(app_t *app);                                      // seq.cfg and the pattern files into the application
+bool app_seq_unsaved(const app_t *app);                             // the patterns differ from what the card holds
+bool app_seq_save(app_t *app);                                      // ... all written now
+void app_seq_autosave(app_t *app, uint32_t now);                    // every step: a file at a time, a moment after the last change
+void app_seq_rec_set(app_t *app, bool on);                          // Rec armed / off (Shift + Play, the key function Rec)
+void app_seq_note_down(app_t *app, control_id_t ctl, int note);     // a key started a note / let it go: into the pattern while Rec is armed
+void app_seq_note_up(app_t *app, control_id_t ctl);
+void app_seq_poll(app_t *app);                                      // every step: the live notes whose step has come are written
+
+/* ---------------- app_pseq.c ---------------- */
+
+void app_pseq_init(app_t *app);                                     // app_init: the patterns' memory, all empty
+void app_pseq_step(app_t *app);                                     // every step, BEFORE app_seq_step (which sets the clock): the pattern to the engine
+bool app_pseq_load(app_t *app);                                     // padseq.cfg and the pattern files into the application
+bool app_pseq_unsaved(const app_t *app);
+bool app_pseq_save(app_t *app);
+void app_pseq_autosave(app_t *app, uint32_t now);
+void app_pseq_steps_set(app_t *app, bool on);                       // step mode (Select + Play): the pad keys are the selected pad's steps
+void app_pseq_step_key(app_t *app, int k);                          // ... one of them was pushed
+void app_pseq_rec_set(app_t *app, bool on);                         // live record armed / off (Select + Rec)
+void app_pseq_pad_down(app_t *app, int pad);                        // a pad was pushed / let go: into the pattern while it records
+void app_pseq_pad_up(app_t *app, int pad);
+void app_pseq_poll(app_t *app);                                     // every step: the recorded pushes whose step has come are written
 
 /* ---------------- app_card.c ---------------- */
 

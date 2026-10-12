@@ -77,6 +77,7 @@ void app_pads_event(app_t *app, ui_event_t ev) {
     if (app->ui.br_req) { app->ui.br_req = 0; app_browse_open(app, BROWSE_PAD); }   // the sample row: the browser
     if (app->ui.rack_dirty) fx_changed(app);                // the FX pages edited the chains
     if (app->ui.pad_chop_req) { app->ui.pad_chop_req = false; chop_ask(app); }
+    if (app->ui.pseq_rec_req) { app->ui.pseq_rec_req = false; app_pseq_rec_set(app, !app->prec.armed); }   // the STEPS screen's Rec field
     if (app->ui.pad_render_req) {
         app->ui.pad_render_req = false;
         app_render_start(app, pads_ui_pad(&app->ui), app->ui.edit_op, app->ui.edit_amt[app->ui.edit_op % PAD_EDIT_OPS], false);
@@ -98,7 +99,10 @@ void app_set_section(app_t *app, bool pads) {
     }
     app->in.pad_select = app->in.pad_mute = false;
     if (app->seq.running) seq_set_running(&app->seq, false);
+    if (app->rec.armed) { memset(&app->rec, 0, sizeof app->rec); app->ui.seq_rec = false; }   // (the sequencer's Rec goes off with its section)
     app->pads_run = false;                                  // the clock stops with the section's music
+    app->ui.pad_steps = false;                              // (step mode and the pattern's live record end with it)
+    if (app->prec.armed) { memset(&app->prec, 0, sizeof app->prec); app->ui.pseq_rec = false; }
     if (app->capture.stage == 1) audio_capture_stop();      // (a recording ends with the section's music too)
     app_joy_xy_off(app);
     app->section = pads ? SECTION_PADS : SECTION_SYNTH;
@@ -124,8 +128,11 @@ void app_pad_key_down(app_t *app, control_id_t ctl, int k) {
         return;
     }
     const int pad = app->ui.pad_bank * PADS_PER_BANK + k;
+    const bool pick = app->in.pad_select || (app->in.shift && !app->in.mod);
+    if (app->ui.pad_steps && !pick && !app->in.pad_mute) { app_pseq_step_key(app, k); return; }   // step mode: the pad keys are steps
     app->ui.pad_cur = (uint8_t)k;
     app->dirty = true;
+    if (app->ui.pad_steps && pick) return;                   // step mode: Select / Shift + pad picks the track, nothing else
     if (app->in.pad_mute) {
         app->pads.pad[pad].mute = !app->pads.pad[pad].mute;
         app_pad_changed(app, pad);
@@ -138,10 +145,12 @@ void app_pad_key_down(app_t *app, control_id_t ctl, int k) {
     if (app->in.shift && !app->in.mod) return;               // Shift + pad: selected, no sound (the 4-column board's Select)
     audio_pad_push(pad);
     app->in.pad_held[ctl] = (uint8_t)(pad + 1);
+    app_pseq_pad_down(app, pad);                             // (into the pattern while it records)
 }
 
 void app_pad_key_up(app_t *app, control_id_t ctl) {
     if (!app->in.pad_held[ctl]) return;
+    app_pseq_pad_up(app, app->in.pad_held[ctl] - 1);
     audio_pad_release(app->in.pad_held[ctl] - 1);
     app->in.pad_held[ctl] = 0;
 }

@@ -14,7 +14,7 @@ The engine's design, every decision with its reasons and the measurements behind
 cd D:\DEV\SevenSynthCore\ui\oled_sim
 .\build.ps1                      # clean build ~5 s, one changed file ~1.5 s (per-file objects in build\obj, parallel)
 .\build\oled_sim.exe             # SDL2.dll must be on PATH (C:\msys64\ucrt64\bin)
-.\tools\build_engine_tests.ps1 -Matrix    # 133 engine tests in six sample-rate / block-size configurations
+.\tools\build_engine_tests.ps1 -Matrix    # 237 engine tests in six sample-rate / block-size configurations
 .\tools\build_ui_tests.ps1                # UI tests (tests/ui): the core driven by control events on the stubs of tools/ui_stubs.c
 ```
 
@@ -40,7 +40,7 @@ control -> action and the octave / Shift state.
 | Button 1 | open / close the menu | Enter |
 | Button 2 | delete the selected module (RACK tab) | Backspace / Delete |
 | Button 3 (hold) | **Shift** | Left Shift |
-| Play | start / stop the sequencer | Space |
+| Play | start / stop the sequencer. **Shift + Play = Rec**: notes played go into the pattern (stopped: step by step; running: live). In the Pads section: Play = the clock and its sequencer, **Select + Play or Shift + Play = step mode** (the pad keys are steps) | Space |
 | Matrix keys | **the key layout** (`core/keymap.c`, KEYS tab of the menu): function row F1..F4 = Shift, Menu, Back, Play (F5..F8 on the simulator: Octave - / +, Page - / +); note rows by layout: *Keys 8x4* (default: bottom-left = C4 (60) + octave, +1 per key to the right, +8 per row up), *Two 4x4* (left block 0..15 with +4 per row, right block 16..31), *Notes+Nav* (left block 0..15, right block = octave, cursor cross with Latch, Select, Value, Row, Page), *User* | `F1`-`F8` / `1`-`8` / `Q`-`I` / `A`-`K` / `Z`-`,` (top to bottom) |
 | Octave | -5..+4: every MIDI note 0..127 is reachable | Shift + joystick up / down |
 | Column knobs 1..4 | the value of row 1..4 of the current page. **Catch mode (default, GENERAL tab "Knob")**: a knob is ignored until it crosses the current value (or lands on it), so no jump; a small arrow at the right edge of the row says which way to turn (right = turn right). It is re-evaluated after every manual change (page, row, encoder / joystick edit, macro, Shift) but never after a knob move. *Direct* mode: the value follows the knob at once, no arrows. **With Shift / Mod**: what the MODIFIERS tab gives it (default Shift + knob 1 = speaker level, Shift + knob 2 = master volume): a parameter, with the same catch, or a step action | mouse |
@@ -82,7 +82,7 @@ first format's `shift N cfg <setting>` lines are still read.
 
 **Key LED colours (LEDS tab, `core/led_roles.h`, `scr_leds.c`, `key_leds.c`).** Every key has a role from its function: Note, Sharp, Root (C), Shift, Mod, Menu, Back, Play, Octave, Jump, Nav, Pad, Bank, None. A role has an Idle and an Active colour, each one of 16 named colours at 0..100 %; Active = a held note (the note roles), Shift / Mod held, the menu open, the sequencer running, the octave shifted that way, a jump slot saved (Back, Nav, None have none). The defaults are the first version's colours. Rows: Role, Idle, Idle %, Active, Act %, Reset; the picture fills the keys of that role; while the tab is open those keys light in the Active colour. Saved in ui.cfg (`leds` then `led <role> <colour> <pct> <colour> <pct>` for the roles that differ). The simulator's panel does not draw the LEDs yet: judge on the board. `input_control_present()` (HAL) tells which non-key controls the board has.
 
-**The Pads section (`core/pads.h`, `scr_pads.c`, `app/app_pads.c`; ADR-041 decisions 14-26).** **Shift + Menu** switches Synth <-> Pads (also the key function "Sectn"). In Pads the synth is unloaded (its notes and sequencer stop) and the engine runs the `Pads` module (8 voices, `sampler_modules.cpp`); the keys take the built-in Pads layout: the function row as always, the left 4 x 4 block = pads 1..16 of the bank shown (top left = 1), the right block = Bank A-D, then Select, Mute, -, Stop all (roles Pad / Bank for the LEDs: an empty pad is dark, a muted one red). Shift + pad = select without sound, Shift + Back = Stop all (for the 4-column board). Screen: the grid (joystick / encoder A = selection, encoder B or Page = bank, push = the pad's editor); the editor, pages PLAY / TONE / CHOP from its header (left / right on the header; the edited pad = the pad key pushed). PLAY (overview on top: the trim, the tail as a fade after End, the loop bracket with its crossfade; Smp, then Mode Strt End Loop (Off / Trim / File: a file with loop points sets File when assigned) LStr XFad XPos Tail | Grid Sync From Snap Next Chok Mute, the loop rows only while the pad loops); TONE: Lvl Pan Tune Fine | Cut Res and the filter's response; EDIT: Op (Normalize, Gain, Fade in / out, Trim silence, Crop = the pad's Start..End as a file, Reverse, Remove DC; Stretch, Pitch, Speed, Fit beats, Fit speed: the pad's loop or Start..End to N beats at the clock's tempo, the trim points scaled with the result; an Algo row Beat / Tonal for Stretch, Pitch, Fit beats; Paulstr.; Lo-fi rate, Bits, Drive, Low-pass, High-pass), its amount, Apply (a new version file `name~n` written by the card task), Ver / Undo / Redo over the version history (`history.cfg`; the last 8 versions and what the pads use are kept); Page - / + switches to the CHOP page: Mode Equal / Trans / Grid / Manual, N / Sens / Div / Cut, Pos, To, Add, Del, Chop to pads (the transient scan is the sample bank's `scan`); trims in frames, 1/200 of the file per step; the header steps the pad; Back = the grid). Column knobs = Start, End, Tune, Cut of the selected pad. Saved in `system/config/pads.cfg` 2 s after a change (one line per pad that differs from the defaults, the file name last). Menu alone does nothing in Pads (the shared settings page is phase 6). **The clock** (ADR-041 decisions 27-29): one tempo, the sequencer's BPM; Play in Pads starts / stops it (bar 1 at a start), in the synth Play is the sequencer and the clock runs with it; the grid header shows the tempo and bar.beat; pad row Grid = Off / Beat / Bar (block-accurate start); key functions Tap, Click (metronome), BPM -1 / +1 / -5 / +5 (the Pads layout's right block, row 3: Tap Click BPM-1 BPM+1), knob / encoder function Tempo. The engine side is `Transport` (`engine/core/module.h`, `Engine::set_transport`). **FX chains** (decisions 23, 47-49): Menu in the Pads section opens the FX page, the RACK page (`scr_rack.c`) on `pads_t.fx`, a `rack_t` with `fx` set whose rows are the chains FXA / FXB / FXC (4 effect modules each, `rack_can_insert`); the header is the routing (`fx_route`) and the estimated load (`rack_fx_load_pct`); Edit in a module's menu shows its values. A pad enters at its Bus (PLAY page). The engine side is `pads_graph_build` (rack_graph.cpp) and `engine_synth_pads_fx`; the chains are saved in `padsfx.cfg`. **Capture** (decision 50): the Rec key (`ACT_PAD_REC`, `app/app_capture.c`: `app_capture_key` / `app_capture_poll`) records what the master output receives, before the volume, mono, straight onto the card (`engine/sampler/capture.*` = the tap the audio thread feeds, `platform/engine/capture_job.cpp` = the card job) and puts the new sample on an empty pad; Shift + Rec sets a length in bars.
+**The Pads section (`core/pads.h`, `scr_pads.c`, `app/app_pads.c`; ADR-041 decisions 14-26).** **Shift + Menu** switches Synth <-> Pads (also the key function "Sectn"). In Pads the synth is unloaded (its notes and sequencer stop) and the engine runs the `Pads` module (8 voices, `sampler_modules.cpp`); the keys take the built-in Pads layout: the function row as always, the left 4 x 4 block = pads 1..16 of the bank shown (top left = 1), the right block = Bank A-D, then Select, Mute, -, Stop all (roles Pad / Bank for the LEDs: an empty pad is dark, a muted one red). Shift + pad = select without sound, Shift + Back = Stop all (for the 4-column board). The section has its own sequencer ("The Pads section's sequencer" below): Select + Play or Shift + Play = step mode, Select + Rec (or the STEPS screen's Rec field) = its live record. **The simulator shows only the 4 left key columns: no Select, Mute, Rec or Bank keys there, so whatever those keys do must also be reachable with Shift or from the screen.** Screen: the grid (joystick / encoder A = selection, encoder B or Page = bank, push = the pad's editor); the editor, pages PLAY / TONE / CHOP from its header (left / right on the header; the edited pad = the pad key pushed). PLAY (overview on top: the trim, the tail as a fade after End, the loop bracket with its crossfade; Smp, then Mode Strt End Loop (Off / Trim / File: a file with loop points sets File when assigned) LStr XFad XPos Tail | Grid Sync From Snap Next Chok Mute, the loop rows only while the pad loops); TONE: Lvl Pan Tune Fine | Cut Res and the filter's response; EDIT: Op (Normalize, Gain, Fade in / out, Trim silence, Crop = the pad's Start..End as a file, Reverse, Remove DC; Stretch, Pitch, Speed, Fit beats, Fit speed: the pad's loop or Start..End to N beats at the clock's tempo, the trim points scaled with the result; an Algo row Beat / Tonal for Stretch, Pitch, Fit beats; Paulstr.; Lo-fi rate, Bits, Drive, Low-pass, High-pass), its amount, Apply (a new version file `name~n` written by the card task), Ver / Undo / Redo over the version history (`history.cfg`; the last 8 versions and what the pads use are kept); Page - / + switches to the CHOP page: Mode Equal / Trans / Grid / Manual, N / Sens / Div / Cut, Pos, To, Add, Del, Chop to pads (the transient scan is the sample bank's `scan`); trims in frames, 1/200 of the file per step; the header steps the pad; Back = the grid). Column knobs = Start, End, Tune, Cut of the selected pad. Saved in `system/config/pads.cfg` 2 s after a change (one line per pad that differs from the defaults, the file name last). Menu alone does nothing in Pads (the shared settings page is phase 6). **The clock** (ADR-041 decisions 27-29): one tempo, the sequencer's BPM; Play in Pads starts / stops it (bar 1 at a start), in the synth Play is the sequencer and the clock runs with it; the grid header shows the tempo and bar.beat; pad row Grid = Off / Beat / Bar (block-accurate start); key functions Tap, Click (metronome), BPM -1 / +1 / -5 / +5 (the Pads layout's right block, row 3: Tap Click BPM-1 BPM+1), knob / encoder function Tempo. The engine side is `Transport` (`engine/core/module.h`, `Engine::set_transport`). **FX chains** (decisions 23, 47-49): Menu in the Pads section opens the FX page, the RACK page (`scr_rack.c`) on `pads_t.fx`, a `rack_t` with `fx` set whose rows are the chains FXA / FXB / FXC (4 effect modules each, `rack_can_insert`); the header is the routing (`fx_route`) and the estimated load (`rack_fx_load_pct`); Edit in a module's menu shows its values. A pad enters at its Bus (PLAY page). The engine side is `pads_graph_build` (rack_graph.cpp) and `engine_synth_pads_fx`; the chains are saved in `padsfx.cfg`. **Capture** (decision 50): the Rec key (`ACT_PAD_REC`, `app/app_capture.c`: `app_capture_key` / `app_capture_poll`) records what the master output receives, before the volume, mono, straight onto the card (`engine/sampler/capture.*` = the tap the audio thread feeds, `platform/engine/capture_job.cpp` = the card job) and puts the new sample on an empty pad; Shift + Rec sets a length in bars.
 
 Requirements: MSYS2 UCRT64 (`C:\msys64\ucrt64`) with gcc, g++ and SDL2, and Python 3 for the generator tools.
 `lib/` is not versioned. `lib/u8g2` (https://github.com/olikraus/u8g2, needs `csrc/` and `sys/sdl/common/`) is required; `lib/minimp3` (`minimp3.h`, `minimp3_ex.h` from
@@ -91,12 +91,12 @@ https://github.com/lieff/minimp3, public domain) enables the mp3 import of the s
 regenerate the DX7 tables.
 
 **The sound is persistent, and there are presets (`core/patch.h`, `app/app_preset.c`, `scr_preset.c`; user decisions 2026-10-11).** What plays is a
-working copy: 2 s after its last change it is written to `system/config/synth.cfg` (with the sequencer and the name of the preset it came from) and it
+working copy: 2 s after its last change it is written to `system/config/synth.cfg` (with the name of the preset it came from) and it
 is read at power-on, so the machine comes back as it was left. A preset is a text file `presets/<name>.preset` (sub-folders allowed): the rack, the
 voice settings, the amp envelope, the Strings and FM settings, the motion sequences, a sampler's file by name, **the macros and the joystick's XY
 bindings** (they point at that rack's modules; they left ui.cfg). Not in it: the machine's settings (volume, output, speaker, knob mode: ui.cfg, where
 the three first are saved now; key layout; LED colours; the Shift / Mod layers, whose Param entries are pruned when their module is gone) and the
-sequencer. **Menu > PRESETS** (second tab): Load opens the browser on the presets folder (the sample browser, `BROWSE_PRESET`; the listing is
+sequencers (their patterns have their own files: `seq.cfg`, `pattern1..8.cfg`, `padseq.cfg`, `padpat1..8.cfg`; ADR-042). **Menu > PRESETS** (second tab): Load opens the browser on the presets folder (the sample browser, `BROWSE_PRESET`; the listing is
 `audio_dir_open(":<folder>")`): the highlighted preset is put in place once the highlight rests, so the keys play it; a push keeps it, Back reads the
 working state again. Save writes over the preset the sound came from (asks first), Save as makes `Preset N` next to it (no naming on the machine:
 rename and sort the files on a computer, through the card reader), Init starts a new sound (asks first). The tab's box names the preset and says
@@ -122,6 +122,7 @@ oled_sim/
    │  ├─ keymap.c/.h        the key layouts (3 built in + User, and the Pads section's), the functions a key can take, keys.cfg on the card
    │  ├─ patch.c/.h         a sound as text (the rack, the voice settings, envelopes, FM / Strings, the macros and the joystick's bindings): the working state synth.cfg and the presets; its line format is in patch.h
    │  ├─ pads.c/.h          the Pads section's model (ADR-041): 4 banks x 16 pads, their settings, pads.cfg on the card; scr_pads.c = its grid and pad editor
+   │  ├─ pad_seq.c/.h       the Pads section's sequencer model (ADR-042): a pattern as a list of bit-field hits, the bank, their text
    │  ├─ history.c/.h       the version history of the library's samples (the pads' EDIT page): names, parents, the pad's trim points per version, trimming; history.cfg
    │  ├─ storage_buf.c      the one text buffer every settings file goes through (hal_storage.h `g_storage_buf`)
    │  ├─ synth_ui.h         public interface of the UI (cursor state, ui_event_t, knob / macro calls)
@@ -137,7 +138,7 @@ oled_sim/
    │  ├─ dx7.c/.h           editable 6-operator FM patch + editing helpers
    │  ├─ dx7_factory.c      GENERATED: the 128 factory DX7 patches as dx7_patch_t
    │  ├─ dx7_algos.c/.h     GENERATED: 32 algorithm diagrams (+ operator box positions)
-   │  ├─ seq.c/.h           polyphonic step sequencer (pure; time is passed in)
+   │  ├─ seq.c/.h           the step sequencer's pattern and settings (pure data; it plays in the engine: engine/core/sequencer.*)
    │  ├─ synth_params.c/.h  global amp envelope (AMP ENV page) + the generic LIN/LOG/ENUM parameter table
    │  ├─ gui.c/.h           style sheet + layout/text/sprite/animation helpers over u8g2
    │  └─ sprites.h, module_sprites.h (GENERATED)   1-bit sprites
@@ -151,14 +152,16 @@ oled_sim/
    │  ├─ app_library.c      the samples in use (the catalog) and the sample browser
    │  ├─ app_render.c       a pad's sample processed into a new version (the EDIT page)
    │  ├─ app_capture.c      the Rec key: what plays, recorded onto a pad
+   │  ├─ app_seq.c          the synth's sequencer: its patterns and chain handed to the engine, their files, recording from the keys
+   │  ├─ app_pseq.c         the Pads section's sequencer: the same, plus step mode and its live record
    │  ├─ app_card.c         the card: the settings files read and saved by themselves, the card's events as popups
    │  ├─ app_power.c        the battery (`hal_power.h`): a note when it gets low, a message to confirm when it is almost empty
    │  ├─ app_preset.c       the sound's working state (synth.cfg: written 2 s after the last change, read at power-on) and the presets (the PRESETS tab's requests, the browser that tries a preset before it is kept)
    │  └─ key_leds.c/.h      the LEDs under the keys, from the key layout and the application's state
-   ├─ hal/               INTERFACES the core uses; one implementation per platform (audio, display, input: the board's physical controls, storage: settings files on the card, power: the battery's level)
+   ├─ hal/               INTERFACES the core uses; one implementation per platform (audio, display, input: the board's physical controls, storage: settings files on the card, power: the battery's level, mem: large application data, PSRAM on the board)
    ├─ engine/            THE DSP ENGINE, portable C++17 (no exceptions, no RTTI, no heap after init; sees no core/ or hal/)
    │  ├─ dsp/               q15/q31 math, tables (GENERATED), phase/pitch, oscillators, SVF, FFT/STFT, delay, smoothing, CORDIC
-   │  ├─ core/              module API, graph description, plan compiler, engine (voices, command queue), heap
+   │  ├─ core/              module API, graph description, plan compiler, engine (voices, command queue), heap, sequencer (the two step sequencers: notes, pads)
    │  ├─ modules/           builtin, synth (Osc Env Lfo Filter Vca Mix Mult Shaper Const), fx (Delay Spectral Vocoder Chorus
    │  │                     Reverb), dx7_voice (FM), sampler_modules (Sampler Granular Pads), strings_modules (Strings voice, Ensemble), para_modules (GateIn, ParaGate: the Para switch)
    │  ├─ offline/           sample processing off the audio thread, block by block (process.*: normalize, gain, fades, trim, crop, reverse, DC, pad; stretch (WSOLA or phase vocoder), resample, pitch, paulstretch; lo-fi rate, bits, drive, filters; rfft.*: the 4096-point float FFT of the spectral ones)
@@ -188,7 +191,8 @@ input_poll() -> app_step() -> bindings[] -> app_run_action() -> synth_ui_handle(
                   |                |
                   |                +--> returns true when a sound value changed -> audio_set_params(rack, params)
                   |                +--> ui.rebuild set (menu closed with structural edits) -> audio_build(rack, params)
-                  +--> seq_tick(audio_millis()) -> audio_note_on / audio_note_off
+                  +--> audio_seq_set(seq), audio_set_clock(bpm, running)   the sequencer plays there ---> Engine's Sequencer: its notes, on the clock
+                  +--> audio_seq_pos() -> seq.pos (the playhead on the screen)
                   +--> synth_ui_draw() (only when something visible changed)
 
 audio_build / audio_set_params  ->  engine_synth_*  ->  rack_graph_build()  ->  Engine::load()  (atomic plan swap)
@@ -213,8 +217,8 @@ That is what lets one generic list renderer show any of them.
 
 - **Main view**: a list of pages (Left/Right on row 0). Pages are **generated** from the data
   (`synth_ui_rebuild_pages`): in Modular mode every rack module contributes its own pages (OC: `OSC n` + `OSC n TUNE` + `OSC n DEST`; every modulator (OC, LFO, ENV, EG) has a `... DEST` page with Tgt / Prm / Dpth, same as the RACK tab; FL: `FILTER n` + `FILT n ENV`; SA: `SAT n`; LFO: `LFO n`; ENV: `ENV n` + `ENV n CRV` (curves, hold, start); EG: `EG n` (the selected point) + `EG n REL`; RS: `RES n`; FL also has `FILT n CRV`; the global `AMP ENV` is followed by `AMP CURVE`;
-  MS: `MOTION n` + `MS n LANE`; SM: `SMP n`, `SMP n LOOP`, `SMP n SLICE`)
-  followed by `AMP ENV`, `SEQUENCER`, `SEQ SETUP`. In FM mode the pages are `FM SYNTH` (Patch, Vol), `SEQUENCER`, `SEQ SETUP`.
+  MS: `MOTION n` + `MS n LANE`; SM: `SMP n`, `SMP n LOOP`, `SMP n SLICE`; VL (the note's velocity as a source): `VEL n`)
+  followed by `AMP ENV`, `SEQUENCER`, `SEQ SETUP`, `PATTERNS`. In FM mode the pages are `FM SYNTH` (Patch, Vol), `SEQUENCER`, `SEQ SETUP`, `PATTERNS`.
 - **GENERAL tab**: **Type** = Modular, FM, Strings (ADR-041; a copy of every voice module per voice), Patch (FM), Voices (**1 = mono**: one real voice, last-note priority; Modular / FM), **Glide** and **Legato** (shown with Voices 1), Vol, Out, **Spk** (built-in loudspeaker: Off, 5..100 % in 5 % steps; ESP32 only, `audio_esp32.cpp`: the MAX98357A plays the left DAC channel (`kSpeakerCh`), so the level scales that channel; on the prototype the headphones do not follow it. Off = gain 0 on that channel; it also pulls `PIN_SPK_SD` (GPIO 5) low, but that alone did not silence the speaker (2026-10-05): GPIO 5 is not proven to reach the amplifier's SD_MODE, `[SPK]` on the serial log prints what the pin reads). Only the rows that apply are shown. The default is Modular with 1 voice (mono, ADR-036); the voice count is real: `Engine::load(graph, nvoices)`. Test with `synth_type_is_fm()` / `synth_type_is_rack()` / `synth_config_is_mono()`. Paraphonic is the Para switch on a rack module (RACK tab).
 - **Menu** (Enter): tabs switched with Left/Right on row 0. Modular: `RACK` (branches 1 and 2, row M = the effects on their sum), `GENERAL`, `SAMPLES` (a file for a rack sampler; its File row opens the sample browser, `scr_browse.c`), `KEYS` ...
   FM: `RACK` (row M only), `GENERAL`, `ALGORITHM` (Algo, Fb, Op: the operator tree; a push on Op opens that operator's page), `KEYS`, `MODIFIERS` ... Row M's effects have their pages after the FM / Strings pages. The FM patch is edited on main-view pages like a module's: FM SYNTH (Patch, Algo, Fb, Vol), then per operator OPn (Lvl, Crs, Fine, Fix) and OPn ENV (Pt, Lvl, Time); every row but Patch / Pt is a knob row and can be learned (`MACRO_FM` targets). The FM values are driven by the knobs exactly (`dx7_value_get / set`, 0..1): reading one for the catch never changes it. Closing the menu with structural edits
@@ -264,13 +268,44 @@ are MIDI x 256, times in ms or 1/16 ms, levels q15); `process(ctx, ports)` rende
 (always valid) and `mod[]` (null when no cable is connected; a bipolar q15 signal otherwise), writing `out[]`. Register it
 (`Registry::add(id, type_of<T>())`), then test it against a float reference (`tests/engine/rig.h` has the helpers).
 
-### Sequencer (`core/seq.c`)
+### Sequencer (`core/seq.c` the model, `engine/core/sequencer.cpp` the player, `app/app_seq.c`; ENGINE_DESIGN.md ADR-042)
 
-Per step: note + length. Global (page `SEQ SETUP`): BPM, Steps (1..16), Trsp (transpose), Swing (% delay of odd steps),
-edited through `seq_param_adjust/label/format` (table in `seq.c`). The sequencer is **polyphonic**: a note longer than one
-step keeps ringing over the following steps (up to `SEQ_POLY` = 8 held notes; the oldest is stolen when full; the same pitch
-is retriggered). `seq_tick(now_ms)` is polled from `app_step()` and returns the notes to release (`off[]`, applied first) and
-the note to start (`on`); stopping releases everything. The time base is the audio clock (`audio_millis()`).
+`seq_t` is the pattern that plays and is edited: 64 steps (`seq_step_t`: up to 4 notes = a chord, Len in steps, Vel, Prob, Rtch = hits
+inside the step) and the settings of page `SEQ SETUP`: BPM, Steps (1..64), Trsp (transpose), Swing (% delay of every second step),
+Rate (a step = 1/8, 1/8T, 1/16, 1/16T, 1/32), Dir (Fwd / Rev / Ping / Rand), edited through `seq_param_adjust/label/format` (table in
+`seq.c`; the `SQP_*` numbers are saved in ui.cfg: append only). **It holds no timing.** The engine's `Sequencer` plays it on the
+machine clock in the audio thread: every step `app_seq_step()` calls `audio_seq_set(&seq)` (only what changed is sent) and THEN
+`audio_set_clock(bpm, running)`; `app_step()` reads `audio_seq_pos()` (the step that plays, -1 = none) into `seq.pos` for the screens.
+A note longer than a step rings over the following ones (16 held at most; the same pitch is retriggered); stopping releases everything.
+
+- **Page `SEQUENCER`** (`draw_seq` / `handle_seq`, rows `SEQ_ROW_*`): Step, Note, Len, Vel, Prob, Rtch, Voice (which note of the chord
+  the Note row edits), Run, Tool, On. The roll shows the 16 steps around the cursor and two octaves (it follows the page's lowest note
+  and the edited one); a step with Prob < 100 is dotted, a ratchet cuts its first column. The motion pages keep 16 steps
+  (`seq_motion_steps`).
+- **Tools** (`seq_tool_apply`, core/seq.c): the Tool row picks one, On its scope (Step / Page / All), a push runs it; the UI leaves
+  what it did in `ui->seq_msg` and the app shows it as a popup. One clipboard, one level of undo.
+- **Knobs**: on that page the column knobs set Note, Len, Vel, Prob of the cursor's step (`seq_knob`, `seq_set_norm`), each only
+  after it moved `SEQ_KNOB_HYST` from where it stood when the cursor came to the step.
+- **Recording** (`app_seq.c`): Shift + Play or the key function Rec arms it; stopped = step entry at the cursor, running = live to
+  the nearest step (`audio_seq_where`: step, fraction, count), written once the playhead is there.
+- **Patterns and chain**: `seq_bank_t` (8 `seq_pattern_t`, the chain) is the app's; `seq_bank_select` stores `seq_t` and takes
+  another. Page `PATTERNS` (`handle_seq_pat`, rows `PAT_ROW_*`). While it runs the next pattern is handed to the engine ahead
+  (`audio_seq_queue`), which goes on to it at the pattern's end and says so (`audio_seq_taken`, called before `audio_seq_set`).
+  Files: `system/config/seq.cfg` + `pattern1.cfg` .. `pattern8.cfg` (`seq_pattern_to_text`), autosaved by `app_seq_autosave`,
+  read by `app_seq_load` at start and when the card shows up. The sound's `synth.cfg` and the presets hold no sequencer.
+- **Velocity** reaches a Modular sound through the rack module VL (`MOD_VEL`: Tgt / Prm / Dpth; `rack_graph.cpp`: a cable from the
+  note's velocity, no node). FM and Strings use velocity by themselves.
+
+**The Pads section's sequencer** (`core/pad_seq.h`, `app/app_pseq.c`, the STEPS screen of `scr_pads.c`; ADR-042 decisions 16-20): a
+pattern is a list of hits (`pseq_hit_t`, a 32-bit bit-field: pad, step, level, chance, ratchet, length; `PSEQ_HITS` 160), edited in
+place in `app->pbank.pat[cur]` (bulk memory, `hal/hal_mem.h`). It plays in the engine's `PadSequencer` while the Pads clock runs and
+the Seq field is On: `app_pseq_step()` (called BEFORE `app_seq_step()`, which sets the clock) hands it over with `audio_pseq_set`;
+patterns, chain and the queued pattern work as the synth's. **Select + Play** (or Shift + Play: no Select key in the simulator) = step mode (`ui->pad_steps`: the pad keys are the
+selected pad's steps, `app_pseq_step_key`; `key_leds.c` lights them), **Select + Rec** (or the STEPS screen's Rec field) = live record. Files: `padseq.cfg`,
+`padpat1.cfg` .. Tests: `tests/ui/test_pseq.c`, `tests/engine/test_pads.cpp` (the last two).
+
+To add a per-step value: `seq_step_t` + `SeqStep` (engine) + the conversion `seq_steps_of` in `engine_synth.cpp` + the `step` line of
+`seq_pattern_to_text / _from_text` + a row. Tests: `tests/engine/test_seq.cpp`, `tests/ui/test_seq*.c`, `tests/ui/test_vel.c`.
 
 ### GUI helpers (`core/gui.h`)
 
@@ -351,7 +386,7 @@ FM / AM / filter FM are just cables), `VoiceOut` summing the voices, then global
 | structure | NoteIn (pitch CV, gate, velocity), VoiceOut (sum, pan, frees silent voices), BusIn, MasterOut |
 | synthesis | Osc (sine, PolyBLEP saw / pulse, PolyBLAMP triangle, noise), **OscEngines** (Karplus-Strong, modal, FM2, folder, supersaw, vowel, additive, dust; ADR-033), Env (ADSR + hold / start / curves), **Eg** (4-point envelope), Lfo, Filter (TPT SVF, 12..48 dB/oct, LP/BP/HP/notch), Vca, Mult (ring / AM), Mix4, Shaper (10 modes), Const |
 | FM | Dx7 (6 operators, 32 algorithms, feedback, 4-stage envelopes) |
-| control | MotionSeq (4 lanes x 16 steps, own sample-accurate clock locked to the note sequencer's timing; ADR-029) |
+| control | MotionSeq (4 lanes x 16 steps; it follows the engine's step sequencer, `ProcessCtx::seq`; ADR-029, ADR-042); the two step sequencers (notes, pads) are not modules: `engine/core/sequencer.*`, owned by the `Engine` |
 | effects | Delay (stereo, Hermite, ping-pong), Chorus (Juno-like modes), Reverb (Dattorro plate), SpectralFx (freeze, gate/filter, robot, whisper, pitch shift), Vocoder, **Phaser, Flanger, Tremolo / Auto-pan, Compressor, EQ3, Ring mod / Shifter, Convolver (cab / body IRs), Comb (tuned resonator, voice scope)** (ADR-034) |
 | samples | (rack module SM, ADR-030) Sampler (streaming, pitched, loops, reverse, slices, key/velocity zones), Granular; `.smp` files via `tools/wav2smp.py` |
 
@@ -499,7 +534,7 @@ The firmware already runs on FreeRTOS (the Arduino core is built on ESP-IDF, dua
 | `audio` | 1 | 23 (`configMAX_PRIORITIES - 2`) | engine render + I2S write | a missed block is a click; core 1 is otherwise idle |
 | `input` | 0 | 8 | keyboard / mux / joystick scan | short and periodic, must not lose events |
 | `sd_io` | 0 | 5; 1 for work without a deadline | card mount / scan, the sample loader | has deadlines (a dry stream is audible) but only milliseconds of CPU; sleeps 2 ticks after 8 reads in a row and during a scan (the card driver busy-waits, so without that the core-0 idle task starves and the task watchdog fires). A sample's header, a folder's list and the load of a sample (hundreds of ms each) run at the UI's priority (`Calm`, `HWV1_SD_CALM_PRIO`): at 5 they held the UI for that long, at 0 they starved |
-| Arduino `loop()` | 0 | 1 | app, sequencer, LEDs; draws frames into RAM | notes and knobs must not wait for the display bus |
+| Arduino `loop()` | 0 | 1 | app, LEDs; draws frames into RAM (the sequencer's timing is the audio task's: ADR-042) | notes and knobs must not wait for the display bus |
 | `display` | 0 | 1 | sends the changed tiles of the newest frame over I2C | the bus waits block, so `loop()` runs meanwhile |
 | `boot` | 0 | 10 | the boot animation (`64/boot`): a frame every 50 ms (`BOOT_FRAME_MS`) from `display_init` on (the first thing `setup()` does), back and forth until the application reports its start (`display_boot_end`: the card read, the pads' files in), then on to the nearer end of the animation; under it a loading bar (`display_esp32_boot_stage` from `setup()` for its first 30 %, `display_boot_progress` from the application for the rest); it hands the panel to `display` and deletes itself | above everything else on core 0, so the frames keep their rhythm while the audio, the card and the application start (measured: a frame sent in 12 ms at most; the UI at 5.1 s on a card with 1800 samples in one folder, of which 2.3 s for three pads' files). While it plays, the card's work without a deadline keeps priority 5 |
 
@@ -520,7 +555,7 @@ If something new needs the CPU on core 0, give it a priority by its deadline, no
 - **Sampler in the application: done for one sample per module** (ADR-030). Left: zones (multisample keyboards, velocity layers) in the UI,
   the granular module in the rack, a sampler synth type, saving racks with file *names*. The TF card driver and I/O task exist (untuned: see CONTINUE.md for what to measure).
 - **Motion sequencer: done** (ADR-029). Left for later: more targets (needs mapper support: resonance, mix, modulator rates), a
-  lane copy / clear / randomise helper, sending the lane position to the screen from the engine instead of `seq.pos`.
+  lane copy / clear / randomise helper. (`seq.pos` is the engine's report since ADR-042.)
 - Modulation of resonance and of other modulators in the mapper (the engine can do both: they are cables).
 - LFO sync to the sequencer tempo, key tracking, per-voice phase retrigger options.
 - Saving / loading racks and FM patches (flash / NVS) and a patch list.

@@ -118,13 +118,13 @@ TEST(joy_range_curve_tab_and_the_patch_text) {
     CHECK_EQ(ui_app.ui.joy[1].t.kind, MACRO_NONE);
     CHECK(same_t(ui_app.ui.joy[0].t, a));
     static char txt[STORAGE_FILE_MAX];
-    CHECK(patch_to_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, false, txt, sizeof txt) > 0);   // the bindings belong to the sound (core/patch.h)
+    CHECK(patch_to_text(&ui_app.rack, &ui_app.params, &ui_app.ui, false, NULL, false, txt, sizeof txt) > 0);   // the bindings belong to the sound (core/patch.h)
     CHECK(strstr(txt, "\njoy x ") != NULL);
     CHECK(strstr(txt, "joy y") == NULL);
     CHECK(strstr(txt, " range 20 60 curve s\n") != NULL);
     memset(ui_app.ui.joy, 0, sizeof ui_app.ui.joy);
     ui_app.ui.joy[1] = (mapping_t){b, 0, 0, 0};                          // the file has no Y: it is unbound after loading
-    CHECK(patch_from_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, NULL, txt));
+    CHECK(patch_from_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, txt));
     CHECK(same_t(ui_app.ui.joy[0].t, a) && ui_app.ui.joy[0].min == 20 && mapping_max(&ui_app.ui.joy[0]) == 60 && ui_app.ui.joy[0].curve == CURVE_S);
     CHECK_EQ(ui_app.ui.joy[1].t.kind, MACRO_NONE);
 }

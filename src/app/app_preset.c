@@ -12,8 +12,8 @@
 #define STATE_SAVE_MS  2000             // ... and how long after its last change it is written (not while a knob still turns)
 #define PRESET_INFO_MS 2000
 
-static uint32_t sound_hash(const app_t *app) { return patch_hash(&app->rack, &app->params, &app->ui, NULL); }
-static uint32_t state_hash(const app_t *app) { return patch_hash(&app->rack, &app->params, &app->ui, &app->seq); }
+static uint32_t sound_hash(const app_t *app) { return patch_hash(&app->rack, &app->params, &app->ui); }
+static uint32_t state_hash(const app_t *app) { return sound_hash(app); }      // (the sequencer has its own files: app_seq.c)
 static bool edited(const app_t *app) { return app->preset[0] && sound_hash(app) != app->preset_hash; }
 
 // The preset the sound counts as coming from (""  = none), unchanged since (`clean`) or not.
@@ -51,7 +51,7 @@ void app_state_init(app_t *app) {
 bool app_state_load(app_t *app) {
     char name[PRESET_NAME_MAX] = "";
     bool was_edited = false;
-    const bool ok = patch_load(PATCH_STATE_FILE, &app->rack, &app->params, &app->ui, &app->seq, name, &was_edited);
+    const bool ok = patch_load(PATCH_STATE_FILE, &app->rack, &app->params, &app->ui, name, &was_edited);
     if (ok) {
         synth_ui_sound_loaded(&app->ui, &app->rack);
         set_preset(app, name, !was_edited);
@@ -66,7 +66,7 @@ bool app_state_load(app_t *app) {
 bool app_state_save(app_t *app) {
     bool too_big = false;
     const uint32_t h = state_hash(app);
-    if (!patch_save(PATCH_STATE_FILE, &app->rack, &app->params, &app->ui, &app->seq, app->preset, edited(app), &too_big)) {
+    if (!patch_save(PATCH_STATE_FILE, &app->rack, &app->params, &app->ui, true, app->preset, edited(app), &too_big)) {
         if (!too_big) return false;
         popup_error(&app->popup, "SOUND", "This sound is too large to be saved: take out macros or modules.", NULL, NULL);
         app->dirty = true;                                   // (said once: this very sound is not tried again)
@@ -97,7 +97,7 @@ static void state_poll(app_t *app, uint32_t now) {
 static bool preset_write(app_t *app, const char *name) {
     char file[PRESET_NAME_MAX + 24], t[POPUP_TEXT_LEN];
     bool too_big = false;
-    if (!preset_file(name, file, sizeof file) || !patch_save(file, &app->rack, &app->params, &app->ui, NULL, NULL, false, &too_big)) {
+    if (!preset_file(name, file, sizeof file) || !patch_save(file, &app->rack, &app->params, &app->ui, false, NULL, false, &too_big)) {
         popup_error(&app->popup, "PRESETS", too_big ? "This sound is too large for a preset: take out macros or modules." : "The preset could not be written to the card.",
                     NULL, NULL);
         app->dirty = true;
@@ -164,7 +164,7 @@ bool app_preset_browse_begin(app_t *app) {
 
 bool app_preset_try(app_t *app, const char *name) {
     char file[PRESET_NAME_MAX + 24];
-    if (!preset_file(name, file, sizeof file) || !patch_load(file, &app->rack, &app->params, &app->ui, NULL, NULL, NULL)) return false;
+    if (!preset_file(name, file, sizeof file) || !patch_load(file, &app->rack, &app->params, &app->ui, NULL, NULL)) return false;
     app->preset_tried = true;
     sound_replaced(app, false);
     return true;

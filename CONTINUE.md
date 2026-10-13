@@ -60,8 +60,14 @@ the user (features and GUI; framework): ask for their links, they are not in the
   beta 1.1 commit `cb6e406`**: files moved with plain moves, so `git add -A` before the commit (git then shows the
   renames; the user staged once before their move to `docs/`, so the index still names `guides/`: `git add -A` again).
   `README.md`: the microcontroller's photo `docs/images/MCU.png` added to its Hardware section at the user's request
-  (360 px wide; the picture is 3472 x 4624 with the board in its middle fifth: a crop was offered); still no link to
-  `docs/guides/` there (done 2026-10-13)
+  (360 px wide; the picture is 3472 x 4624 with the board in its middle fifth: a crop was offered). Then **`README.md` rewritten** at their request ("the DEVELOPING.md doc is
+  not really human readable, don't mention it in the readme, rewrite the readme to be more complete and concise"): it
+  no longer links DEVELOPING.md (nor ENGINE_DESIGN.md, my choice: the same kind of document); it points at the releases
+  page, `apps/template/README.md`, `CHANGELOG.md` and `docs/guides/`. Their hardware table, roadmap ticks, picture
+  placeholders and tone are kept. Changed on my reading of the code, to confirm with them: the "builds on Linux"
+  sentence is gone (the build scripts are PowerShell + MSYS2 paths; no Makefile); "Key matrix 8x5" became "36 keys:
+  4 function keys + 4 rows of 8"; the amplifier stays **LM4871 as they wrote it, while the code and DEVELOPING.md say
+  MAX98357A**: ask which is right. The repo has no licence file: the README states none (done 2026-10-13)
 - [ ] **The split, step 2c: try it** (committed by the user: `0ab1696`; from: user, "go for step 2c", 2026-10-13; ADR-043 decisions 15-17 and
   "Step 2c as built", with the six choices made while building: say if one is wrong). The user's answers at the start:
   the board is picked **at build time** (against my recommendation), the **panel stays the default**, the panel's

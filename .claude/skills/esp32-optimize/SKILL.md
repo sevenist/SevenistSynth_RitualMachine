@@ -1,6 +1,6 @@
 ---
 name: esp32-optimize
-description: Interactive CPU/memory optimization of the SynthCore engine on the real ESP32-S3 prototype. Use when the user asks to optimize, profile or reduce the cost of a module, an effect, the voice count, or to find out why the audio overruns on the board. Drives the measure -> locate -> change -> test -> user flashes -> re-measure loop with tools/serial_test.py.
+description: Interactive CPU/memory optimization of the SynthCore engine on the real ESP32-S3 prototype. Use when the user asks to optimize, profile or reduce the cost of a module, an effect, the voice count, or to find out why the audio overruns on the board. Drives the measure -> locate -> change -> test -> user flashes -> re-measure loop with apps/ritual_machine/tools/serial_test.py.
 ---
 
 # ESP32-S3 interactive optimization
@@ -27,13 +27,13 @@ If you change anything the docs describe, update them before you finish (see sec
 
 ## 2. Measure (the board must run the build you think it runs)
 
-Preconditions: firmware built with `-DDEV_SERIAL_CMD -DHWV1_DEBUG_AUDIO -DENGINE_PROFILE` (the default `platformio.ini` has them), the user's serial monitor closed (one program per COM port), board on COM8.
+Preconditions: firmware built with `-DDEV_SERIAL_CMD -DHWV1_DEBUG_AUDIO -DENGINE_PROFILE` (the default `apps/ritual_machine/platformio.ini` has them), the user's serial monitor closed (one program per COM port), board on COM8.
 
 ```
-C:/.platformio/penv/Scripts/python.exe tools/serial_test.py                       # idle, then 1, 3 and 6 held notes: render time, cycles per engine block, per-module table
-C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --chords 1,3,6 --hold 5 --log run.txt
-C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --engines "0,1,4,6;2,3,5,7" --chords 2     # cost of each oscillator engine (switched live)
-C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --raw --seconds 3     # just read the board (also a safe way to see which firmware runs)
+C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py                       # idle, then 1, 3 and 6 held notes: render time, cycles per engine block, per-module table
+C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py --chords 1,3,6 --hold 5 --log run.txt
+C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py --engines "0,1,4,6;2,3,5,7" --chords 2     # cost of each oscillator engine (switched live)
+C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py --raw --seconds 3     # just read the board (also a safe way to see which firmware runs)
 ```
 
 Budget: 160000 cycles per 32-frame block at 240 MHz / 48 kHz (`[PROF] ... budget`). The render line says `blocks over budget` (a 64-frame render slower than real time), and `[AUDIO] DMA underruns` counts the **real dropouts** (the I2S ring of 6 x 64 frames ran empty).
@@ -50,17 +50,17 @@ One round = **hypothesis -> change -> host test -> build + flash -> set the test
 
 ```
 # build + flash (log to a file: NEVER pipe pio into Select-Object -First, it kills the upload and leaves half an image; a busy COM8 is usually transient, retry once)
-C:\.platformio\penv\Scripts\pio.exe run -t upload *> $env:TEMP\pio_upload.log ; $LASTEXITCODE
-# experiments without editing platformio.ini: flags are appended
+C:\.platformio\penv\Scripts\pio.exe run -d apps/ritual_machine -t upload *> $env:TEMP\pio_upload.log ; $LASTEXITCODE
+# experiments without editing apps/ritual_machine/platformio.ini: flags are appended
 $env:PLATFORMIO_BUILD_FLAGS = "-DHWV1_SD_BENCH"   ... run ... ; Remove-Item Env:\PLATFORMIO_BUILD_FLAGS
 # set the synth under test over serial, then measure it (the patch lives in RAM until the next reset)
-C:\.platformio\penv\Scripts\python.exe tools\serial_test.py --cmd "patch sampler 3 2" --chords 1,3,6,8 --hold 6 --log run.txt
+C:\.platformio\penv\Scripts\python.exe apps\ritual_machine\tools\serial_test.py --cmd "patch sampler 3 2" --chords 1,3,6,8 --hold 6 --log run.txt
 ```
 - Dev serial commands (`DEV_SERIAL_CMD`): `patch startup`, `patch sampler F L` (catalog index F, loop mode L: 0 file 1 off 2 fwd 3 ping-pong; one sampler into one filter, effects off), `voices N`, `samples` (catalog), plus the older `on/off/chord/eng/release/status`.
   Add a `patch` for any other test synth you need (`rack_init_*` in `core/rack.c`): the loop is only as good as its repeatable patches.
 - The board reboots on flash (RTS): to see the **boot log** start `serial_test.py --raw --seconds 25` right after the upload returns. `--raw` prints only lines newer than the `--cmd` pauses, so replies to `--cmd` do not show there: use the normal mode, or read `run.txt`.
 - The report prints CPU (`cycles per engine block`, `blocks over budget`) and the card (`reads/s`, KB/s, average read, `sampler underruns`) side by side per phase: **over budget with no underruns = CPU, underruns with no over budget = card.** They cascade: an underrun sends a voice to the slow path, which costs more CPU.
-- Task watchdog / crash backtraces: decode with `C:\.platformio\packages\toolchain-xtensa-esp-elf\bin\xtensa-esp32s3-elf-addr2line.exe -pfiaC -e .pio\build\waveshare_esp32s3_pico\firmware.elf <addresses>` (the ELF must be the flashed build). Rules the watchdog taught: a task that busy-waits (the SD driver, loops over card reads) must give the CPU away (`vTaskDelay`) at least every few ms, and failing mount attempts included.
+- Task watchdog / crash backtraces: decode with `C:\.platformio\packages\toolchain-xtensa-esp-elf\bin\xtensa-esp32s3-elf-addr2line.exe -pfiaC -e apps\ritual_machine\.pio\build\waveshare_esp32s3_pico\firmware.elf <addresses>` (the ELF must be the flashed build). Rules the watchdog taught: a task that busy-waits (the SD driver, loops over card reads) must give the CPU away (`vTaskDelay`) at least every few ms, and failing mount attempts included.
 - **When to pause for human ears: after any change that can alter the sound** (not after an exact optimization proven by an identical checksum / SNR test), after fixing something that was reported as audible (loops, glitches), and before the loop moves on to a quality trade. Say exactly what to play and listen for (which patch, which notes, how many voices), then ask with `AskUserQuestion` using concrete options ("clean / click at the loop point / crackle with many notes / other") and wait. Do not stack further sound changes on an unlistened one.
 - Bit-exactness check for a hot-path rewrite: a host test that prints a checksum of a long render, run in the normal build and with a `-DSC_..._NO_FAST` switch that keeps the old path; the two numbers must match (done for the Sampler fast path).
 - Stop the loop and report when two rounds in a row move nothing, when a number gets worse for a reason you cannot explain, or when the next step is a quality trade (options with pros and cons, the user decides).
@@ -101,14 +101,14 @@ Never change the **shape of the graph** from a knob (adding/removing a node or c
 ## 6. Test on the host before the board
 
 ```
-powershell -NoProfile -File tools/build_engine_tests.ps1                      # default configuration, ~1 min
-powershell -NoProfile -File tools/build_engine_tests.ps1 -Defs "-DENGINE_REVERB_HALF=1"   # a flag variant
-powershell -NoProfile -File tools/build_engine_tests.ps1 -Matrix               # six rate/block configurations, before a milestone
+powershell -NoProfile -File test.ps1                      # default configuration, ~1 min
+powershell -NoProfile -File test.ps1 -Defs "-DENGINE_REVERB_HALF=1"   # a flag variant
+powershell -NoProfile -File test.ps1 -Matrix               # six rate/block configurations, before a milestone
 ```
 
 - Every optimization of numeric code gets a test that compares it to an independent reference (examples: `additive_recurrence_stays_on_its_harmonics` < -60 dB residual, `modal_fundamental_decays_with_its_designed_time_constant`, `svf_batch_float_coefficients_match_the_integer_ones`, `changing_a_modulation_depth_does_not_rebuild_the_graph`). A passing old test is not proof of accuracy.
 - If a test fails after an optimization, find out whether the test or the change is wrong (the analysis window of a test once leaked energy and looked like an engine bug).
-- Build the firmware (`/c/.platformio/penv/Scripts/pio.exe run`) and the simulator (`powershell -File build.ps1`; it writes `oled_sim_new.exe` if the sim is running). A single link failure with no error text once happened; run it again before investigating.
+- Build the firmware (`/c/.platformio/penv/Scripts/pio.exe run -d apps/ritual_machine`) and the simulator (`powershell -File build.ps1`, into `apps/ritual_machine/build`; it writes `oled_sim_new.exe` if the sim is running). A single link failure with no error text once happened; run it again before investigating.
 
 ## 7. Hand over to the user
 
@@ -118,7 +118,7 @@ After they say flashed: rerun section 2, compare with a before/now table, say if
 ## 8. Before you finish a session
 
 - Update `CONTINUE.md` (state, the newest measurements, next steps, new traps) and the parts of `DEVELOPING.md` / `ENGINE_DESIGN.md` (ADR-035, budget table) that you changed. Remove stale statements ("nothing built on hardware" was left wrong for a long time).
-- Clean up scratch files (`run*.txt`), keep dev flags documented in `platformio.ini`, and note which flags must go before a release.
+- Clean up scratch files (`run*.txt`), keep dev flags documented in `apps/ritual_machine/platformio.ini`, and note which flags must go before a release.
 - Do not commit unless asked.
 
 ## Lessons from the first optimization campaign (examples to imitate)
@@ -143,12 +143,12 @@ After they say flashed: rerun section 2, compare with a before/now table, say if
 - **Never bare `python` (or `py`)**: on this machine it is MSYS2 3.12.9 without pyserial (`py` is 3.13). Always `C:\.platformio\penv\Scripts\python.exe` (3.11.7, pyserial), and never bare `pio` either (see the skill `board-session`, section 2).
 
 - **Scripted edits through this harness lose one level of backslashes**: `\\n` written in a Python heredoc reaches the C file as a real newline (the printf then does not compile). Use the Edit tool for any line with `\n`, or build the character with `chr(92)` outside the quoted block. After a scripted printf edit, grep that the format string is one line.
-- A flag passed by `PLATFORMIO_BUILD_FLAGS` survives only builds you run: when the **user** uploads, `pio run -t upload` rebuilds without it (the bench
-  build was lost this way once). For a build the user flashes, put the flag in `platformio.ini` for that flash and comment it out after.
+- A flag passed by `PLATFORMIO_BUILD_FLAGS` survives only builds you run: when the **user** uploads, `pio run -d apps/ritual_machine -t upload` rebuilds without it (the bench
+  build was lost this way once). For a build the user flashes, put the flag in `apps/ritual_machine/platformio.ini` for that flash and comment it out after.
 - The boot bench is preempted by other tasks: time the fastest of several runs, not the average (outliers of 1M cycles were seen).
 - PowerShell does not expand `*.c` for gcc (compile ui_dump from bash); `Select-Object -First N` on a pipeline closes it and kills the upstream process (an upload!).
 
 - Bash heredocs and Python literals: `\n` inside a C string in a script becomes a real newline, and heredocs with quotes break. Edit with the Edit tool or write a script file with the Write tool, then run it. After any scripted edit of a `printf`, grep that the string is still on one line.
 - Many source files are CRLF; scripted edits must preserve the file's line endings (read with `newline=''`, normalise, write back).
-- `src/platform/engine/engine_synth.h` is included from C: no default arguments.
+- `apps/ritual_machine/src/platform/engine/engine_synth.h` is included from C: no default arguments.
 - One program per serial port: the user's monitor, the PlatformIO monitor and `serial_test.py` exclude each other. The tool opens with DTR/RTS low so it does not reset the board.

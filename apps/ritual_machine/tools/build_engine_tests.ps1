@@ -1,5 +1,7 @@
-# Build and run the engine unit tests on the desktop (g++ C++17 for the engine and tests, gcc for the C core files).
-# Run from oled_sim:
+# Build and run the Ritual Machine's engine tests on the desktop: the tests of tests/engine, which drive the engine through this app's
+# code (the rack, the pads, the sequencers, the bridge of src/platform/engine). g++ C++17 for the engine and the tests, gcc for the C
+# core files. The library's own tests (the engine alone) are framework/tools/build_engine_tests.ps1; the repo root's test.ps1 runs
+# both and the UI tests. Run it from anywhere:
 #   .\tools\build_engine_tests.ps1                       (default ENGINE_SR / ENGINE_BLOCK)
 #   .\tools\build_engine_tests.ps1 -Sr 44100 -Block 64   (one custom configuration)
 #   .\tools\build_engine_tests.ps1 -Matrix               (the six supported configurations, summary at the end)
@@ -8,9 +10,12 @@
 param([int]$Sr = 48000, [int]$Block = 32, [switch]$Matrix, [string]$Filter = "", [string]$Defs = "")
 $ErrorActionPreference = "Continue"
 $env:PATH = "C:\msys64\ucrt64\bin;" + $env:PATH
+$fw = "../../framework"                 # the library: its engine, and the tests' runner and rig (framework/tests)
+Push-Location (Join-Path $PSScriptRoot "..")
+try {
 
-$cpp = @((Get-ChildItem tests/engine/*.cpp).FullName) +
-       @((Get-ChildItem src/engine -Recurse -Filter *.cpp).FullName) +
+$cpp = @((Get-ChildItem tests/engine/*.cpp).FullName) + @((Get-Item "$fw/tests/test_main.cpp").FullName) +
+       @((Get-ChildItem "$fw/engine" -Recurse -Filter *.cpp).FullName) +
        @((Get-ChildItem src/platform/engine/*.cpp).FullName)
 # the C core files the integration tests use (the application's data model, compiled as C)
 $coreObj = @()
@@ -27,7 +32,7 @@ function Run-One($sr, $block) {
     if (Test-Path $out) { Remove-Item $out }
     $log = Join-Path $env:TEMP "engine_build.log"
     $args = @("-std=c++17", "-O2", "-pthread", "-Wall", "-Wextra", "-Wconversion", "-Wno-sign-conversion", "-Wno-unused-parameter", "-fno-exceptions", "-fno-rtti",
-              "-DPLATFORM_SIM", "-DENGINE_SR=$sr", "-DENGINE_BLOCK=$block", "-Isrc", "-Itests/engine") + @($Defs -split " " | Where-Object { $_ }) + $cpp + $coreObj + @("-o", $out)
+              "-DPLATFORM_SIM", "-DENGINE_SR=$sr", "-DENGINE_BLOCK=$block", "-Isrc", "-I$fw", "-I$fw/tests", "-Itests/engine") + @($Defs -split " " | Where-Object { $_ }) + $cpp + $coreObj + @("-o", $out)
     $p = Start-Process g++ -ArgumentList $args -NoNewWindow -PassThru -Wait -RedirectStandardError $log -RedirectStandardOutput "$log.out"
     if ($p.ExitCode -ne 0 -or -not (Test-Path $out)) {
         Get-Content $log | Select-Object -First 30 | ForEach-Object { Write-Host $_ }
@@ -52,3 +57,4 @@ if ($Matrix) {
     exit 0
 }
 exit (Run-One $Sr $Block)
+} finally { Pop-Location }

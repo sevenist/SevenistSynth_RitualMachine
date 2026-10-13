@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Writes a few synthetic demo samples (WAV, then cooked with wav2smp.py) into samples/ so the sampler has something to play.
 
-  python tools/make_demo_samples.py            (run from oled_sim; the simulator reads samples/*.smp at startup)
+  python ../../framework/tools/make_demo_samples.py [folder]     (run from an app's folder; default folder: samples/ there, which
+                                                                  the app's build.ps1 copies to its simulator's card)
 
   pad_c4    2.4 s warm pad, loop 0.6 .. 2.0 s          root C4
   pluck_c4  1.5 s plucked string (Karplus-Strong)      root C4
@@ -19,7 +20,7 @@ import wave
 
 RATE = 48000
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(os.path.dirname(HERE), "samples")
+OUT = os.path.abspath(sys.argv[1] if len(sys.argv) > 1 else "samples")
 
 
 def write_wav(path, x):

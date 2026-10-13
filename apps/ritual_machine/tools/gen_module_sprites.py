@@ -1,7 +1,7 @@
 """Generates src/core/module_sprites.h: one 24x24 rounded-square sprite per module type
 with a 2-letter code inside, plus an empty-slot sprite, an OUT arrow and the MIX cell of row M (ADR-041).
 
-Run from oled_sim:   python tools/gen_module_sprites.py
+Run from apps/ritual_machine:   python tools/gen_module_sprites.py
 Format: 24 px wide -> 3 bytes per row (MSB = leftmost pixel), 24 rows (the 24 px icon size of assets/UI_Sprites/README.md). The size is the one place to change (W, H);
 ui_internal.h has RACK_PITCH = sprite width + 4 and ui_draw / scr_rack.c check it.
 To add a module: add (name, code) to MODULES (order must match module_type_t in rack.h),

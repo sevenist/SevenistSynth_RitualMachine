@@ -1,0 +1,20 @@
+// Open this file in VS Code (File > Open Workspace from File): the repo, and every app as a folder of its own, because the
+// PlatformIO extension builds and flashes the folder that holds a platformio.ini (pick the app in its status bar).
+// tools/new_project.ps1 adds a new app after the template's two lines.
+{
+    "folders": [
+        { "name": "oled_sim", "path": "." },
+        { "name": "ritual_machine", "path": "apps/ritual_machine" },
+        { "name": "template", "path": "apps/template" }
+    ],
+    "settings": {
+        // An app is open twice (inside the repo and as its own folder): the repo's search leaves it to the app's folder.
+        "search.exclude": {
+            "apps/ritual_machine": true,
+            "apps/template": true
+        }
+    },
+    "extensions": {
+        "recommendations": ["pioarduino.pioarduino-ide"]
+    }
+}

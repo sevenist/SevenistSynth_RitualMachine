@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Converts a WAV file to the engine's cooked .smp format (see src/engine/sampler/smp_format.h).
+"""Converts a WAV file to the engine's cooked .smp format (see framework/engine/sampler/smp_format.h).
 
-  python tools/wav2smp.py kick.wav kick.smp --root 36
-  python tools/wav2smp.py pad.wav pad.smp --root 60 --loop 24000 96000 --loop-mode fwd
-  python tools/wav2smp.py break.wav break.smp --slices 0 12000 24000 36000
+  python framework/tools/wav2smp.py kick.wav kick.smp --root 36
+  python framework/tools/wav2smp.py pad.wav pad.smp --root 60 --loop 24000 96000 --loop-mode fwd
+  python framework/tools/wav2smp.py break.wav break.smp --slices 0 12000 24000 36000
 
 Accepts 8/16/24/32-bit PCM WAV, mono or stereo (stereo is averaged to mono). Loop points are taken from the
 WAV 'smpl' chunk when present, unless --loop is given. The audio is written as 16-bit PCM in 4 KB blocks after

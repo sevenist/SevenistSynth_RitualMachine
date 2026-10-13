@@ -2,7 +2,7 @@
 #include "rig.h"
 #include "engine/modules/sampler_modules.h"
 #include "engine/sampler/sample_bank.h"
-#include "platform/sim/sim_storage.h"
+#include "host/sim_storage.h"
 
 using namespace sc;
 using namespace tst;

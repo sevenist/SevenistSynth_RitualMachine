@@ -1,5 +1,5 @@
 #pragma once
-// Constant tables (generated, live in flash). See tools/gen_engine_tables.py.
+// Constant tables (generated, live in flash). See framework/tools/gen_engine_tables.py.
 #include <cstdint>
 
 // The tables are read at audio rate. On the ESP32 they are copied to internal RAM (DRAM_ATTR): a lookup that misses the flash cache costs

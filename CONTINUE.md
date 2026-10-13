@@ -4,28 +4,72 @@ Read [DEVELOPING.md](DEVELOPING.md) first (how to work in the code, where to cha
 [ENGINE_DESIGN.md](ENGINE_DESIGN.md) for the engine's decisions, measurements and limits (**ADR-035 = what was learned on the real chip**). This file only holds what they do
 not: state, the latest measurements and what to do next, the user's working style, known debt and traps.
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
-`tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
+`apps/ritual_machine/tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
-## Session todo (updated 2026-10-12)
+## Session todo (updated 2026-10-13)
 
-**Where things stand (end of 2026-10-12):** the session of 2026-10-11 / 12 built **the sequencers** (ENGINE_DESIGN.md ADR-042, three
+**Where things stand (2026-10-13): the repo is a library and its apps** (ENGINE_DESIGN.md ADR-043; the layout and the commands:
+the top of DEVELOPING.md). The user asked that developers can start a new project easily; their choices (two rounds of options):
+the engine first as the library, one repo with folders, a starter template with a script, a `platformio.ini` per app and a
+template that also targets the first prototype (the last two against my recommendation: recorded in ADR-043). The user committed
+the sequencer work first (`72b2334`); **the split itself is in the working tree, UNCOMMITTED** (git renames + the new files
+`apps/template/`, `tools/new_project.ps1`, `build.ps1` / `run.ps1` / `test.ps1` at the root, `framework/tools/sim_build.ps1` and
+`build_engine_tests.ps1`). Paths in this file below this entry were rewritten by a script; a bare `samples_src/`, `sdcard/`,
+`tools/` or `platformio.ini` in older notes is inside `apps/ritual_machine/`. Two glossaries were made the same day as documents
+for the user (features and GUI; framework): ask for their links, they are not in the repo.
+
+- [ ] **The split, step 1: try the root scripts, then commit** (from: user; their first priority, session start of 2026-10-13:
+  "finish the split"). Done = the user ran `.\build.ps1` + `.\run.ps1`, `.\test.ps1` and `.\tools\new_project.ps1` (a guide was
+  given in the chat that day: for each script when it is used, how, what it must print; they had tried none of the three yet) and
+  committed the working tree themselves. **Tried so far by the user (2026-10-13): the template synth ON THE BOARD, "it works
+  nicely"** (so its firmware has run on the prototype; `apps/template/README.md` still says it has not: correct that line), and
+  the firmware command `pio.exe run -d apps/ritual_machine` ("the command works"). VS Code's extension could not flash from the repo root (no
+  `platformio.ini` there): the user was shown File > Add Folder to Workspace / Open Folder on `apps/ritual_machine`; a committed
+  `oled_sim.code-workspace` and a single root `platformio.ini` were offered as ways to make a fresh clone open in one step, and
+  the user set the question aside ("forget what I said earlier"), then chose the workspace file at the session start of
+  2026-10-13: **`oled_sim.code-workspace` exists now** (the repo + each app as a folder; `new_project.ps1` adds a new app to it,
+  checked once with a scratch app, and no longer copies the template's `.vscode`, that last change NOT run). To try: open it in
+  VS Code, the PlatformIO status bar must offer both apps. Still to try: `.\build.ps1` then `.\run.ps1` (the simulator runs from `apps/ritual_machine`:
+  its card is `sdcard/` there, moved with `samples/`); `.\test.ps1`; `.\tools\new_project.ps1 my_synth`, `.\build.ps1 -App my_synth`,
+  `.\run.ps1 -App my_synth` (keys A W S E D F T G Y H U J K, Z / X octave, arrows cutoff). The firmware:
+  `C:\.platformio\penv\Scripts\pio.exe run -d apps/ritual_machine` (the first build there is a full one: its `.pio/build` is new;
+  the old root `.pio/build` and `build/` are stale and can be deleted; `.pio/libdeps` at the root is still used). **Claude
+  flashed nothing**: the Ritual Machine from its new folder should behave exactly as before (every project object has the same
+  size as before the move, ADR-043 "Checked") and has not run on the board from there; the template's firmware was flashed and
+  played by the user (ask before flashing either).
+  To know: Aseprite was open during the move, the sprites are in `apps/ritual_machine/assets/UI_Sprites` now (a save to the old
+  path recreates `assets/` at the root); VS Code's PlatformIO extension needs `apps/ritual_machine` as its project folder (the
+  root has no `platformio.ini`); `stash@{0}` is still there (the user can `git stash drop` it).
+- [ ] **The split, step 2** (from: user's choice "staged"): the generic HAL (display, input, LEDs, card, power, mem), the board's
+  drivers, the simulator's shell and the UI toolkit leave the Ritual Machine for `framework/`, so a new project gets a screen and
+  controls without copying. NOT started: it waits for the user's try of step 1 and their commit. **The design round is done**
+  (2026-10-13, two rounds of options; ADR-043 decisions 8-14 and "Step 2 as planned"): scope = the board and the drawing kit
+  (`gui`, `popup`; the declarative screens, bindings and layers stay the app's); audio = a render callback, the rack / seq /
+  pads calls become the app's bridge header; **a control table per board** with **the app's own map per board** (roles, saved
+  files unchanged); the sample library stays the app's, the card task goes to the library with a hook; **each app lists its own
+  card folders**; **the simulator's panel drawn from a board's table** (the prototype's 8 key columns on the desktop). Three
+  stages, each tried and committed by the user: 2a the moves, 2b the control tables, 2c the table-drawn panel. Before starting
+  2a: ask where it goes (`main` or a branch) and note the firmware's object sizes. Known work: `hal_audio.h` takes `rack_t` / `pads_t`
+  / `seq_t` (app types: it must be split), `ui_ctx_t` carries the rack, the template's copy of `kbd_tca8418.*` goes away.
+
+**Where things stood before it (end of 2026-10-12):** the session of 2026-10-11 / 12 built **the sequencers** (ENGINE_DESIGN.md ADR-042, three
 stages, three rounds of options with the user): the synth's step sequencer now plays in the engine on the machine clock, with
 chords, velocity, probability, ratchet, 64 steps, rate, direction, quick edit tools, step knobs with a movement threshold, recording
 from the keys, 8 patterns + a chain, and a Velocity rack module (VL); the Pads section has its own sequencer (a list of bit-field
-hits over all 64 pads, step mode, live record, 8 patterns + a chain). **All of it is in the working tree, UNCOMMITTED** (the user
-commits themselves), host-tested (237 engine tests x 6 configurations, 141 UI tests), the simulator and the firmware build
+hits over all 64 pads, step mode, live record, 8 patterns + a chain). **All of it was committed by the user on 2026-10-13
+(`72b2334`)**, host-tested (237 engine tests x 6 configurations, 141 UI tests), the simulator and the firmware build
 (static RAM 67.7 %); **nothing was flashed, nothing was listened to, the user has not tried any of it yet** (they asked two
 questions at the end: where the Select key is, and where to record in the synth: the answers are in the two "Sequencer" entries
 below). Left in the repository by mistake: **a stash, `stash@{0}`**, an early copy of stage 1 (a `git stash` + `git stash apply`
 typed by Claude; dropping it was refused by the permission system): the user can `git stash drop` it. Not Claude's: six sprite
-PNGs of `assets/UI_Sprites/24` changed during the session (the user painting) and `src/core/ui_sprites_gen.c` regenerated from
+PNGs of `assets/UI_Sprites/24` changed during the session (the user painting) and `apps/ritual_machine/src/core/ui_sprites_gen.c` regenerated from
 them by `build.ps1`. Firmware builds of this session went to a scratch build directory (`PLATFORMIO_BUILD_DIR`): `.pio/build`
 still holds the build of before. Next: the user tries the sequencers (simulator first, then a flash: ask before flashing), then
 what they report; an on-screen Rec control for the synth's SEQUENCER page was offered and not answered; the pads sequencer has no
 edit tools yet.
 
 **Where things stood before it (end of 2026-10-11):** everything is on **`main`**, committed and pushed, and published as the pre-release
-**`beta-1.0`** on GitHub (one flashable image for the first prototype + the Windows simulator; `tools/make_release.ps1`). **The
+**`beta-1.0`** on GitHub (one flashable image for the first prototype + the Windows simulator; `apps/ritual_machine/tools/make_release.ps1`). **The
 release image itself was NOT run on the board** (the user's choice: publish as untested): it is `[env:release]` (no serial
 commands, output 18 %), and it holds the persistent sound, the presets and the simple storage screen, none of which ran on
 hardware. What did run on the board that day: the card reader (the drive mounted and read at 543 KB/s) and the build with the
@@ -48,8 +92,8 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
 - [ ] **Sequencer stages 1 + 2 (ADR-042): try it, by ear** (user, 2026-10-11: "add more features to the step sequencer and let's have
   a sequencer for the sample pad section"; two rounds of options, their choices in ADR-042). BUILT 2026-10-11 / 12, host-tested
   (with stage 3: 237 engine tests x 6, 141 UI tests), simulator + firmware built (static RAM 67.7 %, 221996 bytes; 66.2 % before
-  this work, 68.4 % before the stored patterns moved to PSRAM), **NOT flashed, NOT listened to,
-  uncommitted**. What is there:
+  this work, 68.4 % before the stored patterns moved to PSRAM), **NOT flashed, NOT listened to**
+  (committed in `72b2334`). What is there:
   the sequencer plays in the audio thread on the machine clock (`engine/core/sequencer.*`; the UI loop times nothing any more);
   per step Note, Len, Vel, Prob, Rtch and a chord of 4 (the Voice row picks the note the Note row edits); SEQ SETUP has Rate (1/8 ..
   1/32, triplets) and Dir (Fwd / Rev / Ping / Rand), Steps goes to 64 (the roll shows the 16 around the cursor), notes C0 .. C8; the
@@ -82,7 +126,7 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
   2026-10-12 (options offered): a step grid with live record; **one pattern covers all 64 pads**; a step carries **level,
   probability, ratchet and a length for gate pads**, and "you can compact ram/rom usage with bit-field struct"; step mode by
   **Select + Play** (against my recommendation, a Seq key on the free row); **patterns as on the synth**. BUILT 2026-10-12,
-  host-tested (237 engine tests x 6, 141 UI tests; simulator + firmware built), **NOT flashed, NOT listened to, uncommitted**. What is there: a pattern = a list of hits (a 32-bit bit-field each, 160 at most, 648 bytes); it plays in the
+  host-tested (237 engine tests x 6, 141 UI tests; simulator + firmware built), **NOT flashed, NOT listened to** (committed in `72b2334`). What is there: a pattern = a list of hits (a 32-bit bit-field each, 160 at most, 648 bytes); it plays in the
   engine (a second sequencer; a hit starts its pad whatever the pad's own Grid says, at the hit's level; a Gate / Toggle pad is let
   go after the hit's Len); 8 patterns + chain, their own files (`padseq.cfg`, `padpat1.cfg` ..); **Select + Play, or Shift + Play** (the user asked where Select is: it is the right block's
   second row, first key, on the prototype; the simulator shows only the 4 left columns, so there it is Shift + Play) = step mode
@@ -102,15 +146,15 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
   until the UI shows whole; a joystick push acts when pushed. To measure a start: build with `PLATFORMIO_BUILD_FLAGS=-DBOOT_TRACE`
   and read the `[BOOT]` lines (`serial_test.py --raw --seconds 10 --log run.txt` right after the upload); flash the normal build
   again afterwards.
-- [ ] **Third session of 2026-10-11, built and host-tested, NOT flashed: check on the board** (from: user). (1) `src/core/app.c` is
-  now the folder `src/app/` (nine files, `app_internal.h` lists them; a move, 110 UI tests). (2) The boot screen says RITUAL
+- [ ] **Third session of 2026-10-11, built and host-tested, NOT flashed: check on the board** (from: user). (1) `apps/ritual_machine/src/core/app.c` is
+  now the folder `apps/ritual_machine/src/app/` (nine files, `app_internal.h` lists them; a move, 110 UI tests). (2) The boot screen says RITUAL
   MACHINE above the animation and beta 1.0 under the bar (`BOOT_TITLE` / `BOOT_VERSION`, app.h): look at the placing. (3) Battery:
   serial `power` prints the raw count, the pin's millivolts and the result; compare with a meter and correct
   `HW_BATT_FULL_SCALE_MV` (board_pins.h; the scale is the first firmware's 10.4 V, never measured here). It shows in the GENERAL
   tab's box; warnings at 15 % and 5 %. (4) Mux channel 0 is read as a button (`power` prints it): push whatever is there and see
   whether the count moves; its pushed level (`HWV1_AUX_PUSHED`) is a guess. (5) **The power button, now read as a latching switch
   (down = on, PWR_SENSE high), and the USB card reader**, a second firmware: flash it once with the button down,
-  `pio run -e card_reader -t upload` (it goes to the second slot; `pio run -t upload` is still the synth alone). Then: cable in,
+  `pio run -d apps/ritual_machine -e card_reader -t upload` (it goes to the second slot; `pio run -d apps/ritual_machine -t upload` is still the synth alone). Then: cable in,
   button up = the screen USB STORAGE and the card as a drive on the computer; button down = the synth. **If USB STORAGE shows
   with the button down, the level is the other way**: hold the joystick 2 s and keep it held until the boot screen, then set
   `HW_PWR_SENSE_ON 0` (board_pins.h). In the card reader there is no serial port: to flash, switch the button on first (or the
@@ -138,7 +182,7 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
   Controller firmware, 24 frames of 37 x 55, the "7"; "the animation should start with a high priority task, and the task is deleted
   at the end"; "the screen shows partially on startup, we can finish loading in the background while the animation loops back and
   forth", with 20 frames a second, `BOOT_FRAME_MS` 50; "add a loading bar at the bottom and keep the long loading").
-  Its frames are `assets/UI_Sprites/64/boot_00.png` .. `_23.png` (centred in 64 x 64; `tools/import_boot_anim.py`; editable in
+  Its frames are `assets/UI_Sprites/64/boot_00.png` .. `_23.png` (centred in 64 x 64; `apps/ritual_machine/tools/import_boot_anim.py`; editable in
   Aseprite like the other sprites; the first and the last must stay empty: the animation stops there). **On the board**
   `display_init` is the first thing `setup()` does and starts the task `boot` (priority 10, core 0, display_esp32.cpp): a frame every
   50 ms, first .. last .. first .., while everything else starts under it. The application reports its start once (`start_poll` in
@@ -171,7 +215,7 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
   flashed.** That HIGH means pushed is inferred (only the rest level was measured): if a push never acts after the flash, set it
   back to 0 and look at the wiring (from: measurements + user)
 - [ ] **Pads fixed cost: ~9k cycles a block for the 64-pad bookkeeping** ("Pads on the board": 13.1k with one pad, ~3.6k per voice).
-  An exact change. Done = before / after with `tools/pads_test.py` on the board, the output bit-identical, host tests green in the 6
+  An exact change. Done = before / after with `apps/ritual_machine/tools/pads_test.py` on the board, the output bit-identical, host tests green in the 6
   configurations (from: user)
 - [ ] **Internal RAM: the fast heap is in PSRAM on the board** (measured 2026-10-09, `[RAM]` boot lines): largest internal block 59 KB at boot,
   51 KB before `audio_init`, so the fast heap (needs 64 KB + 16 KB margin) falls back whole to PSRAM: every module's state is in PSRAM. On
@@ -181,7 +225,7 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
   71 KB free, largest 32 KB at that point (the display's task and bus are allocated before the audio now: count them in). Done = the `[RAM]` lines show the fast heap in internal
   RAM and the startup patch + the Pads cases are re-measured; options to the user where a trade exists (from: user + measurements)
 - [ ] **Sample browser, the rest: try it** (built in 00235fb + 49dfdce; ADR-041 decisions 51-52 + "As built" + "On the board",
-  `tools/library_test.py`): folders, the waveform, the audition from any pad key, push = take it, Back = the pad as it was. The
+  `apps/ritual_machine/tools/library_test.py`): folders, the waveform, the audition from any pad key, push = take it, Back = the pad as it was. The
   board tests left pad A1 as it was and `1 - BASS C` looping on A2 (from: user)
 - [ ] **Test round on the board** (the user's choice of 2026-10-11: pause features, test): everything in "Built, not tried by the
   user yet" below. The 38-item test list of the earlier session was written in the chat only: rebuild it from that section when
@@ -256,7 +300,7 @@ On the board since the flash of 5162be7 unless an entry says otherwise. "try it"
 - **Joystick swap: try it**: a push on an already bound parameter swaps X and Y, each keeps its range / curve (built 2026-10-09, 71 UI
   tests; on the board since the flash of 5162be7, NOT tried by the user) (from: user)
 
-## Pads on the board (2026-10-10; flashed and measured by Claude with the user's permission, `tools/pads_test.py`, 44.1 kHz)
+## Pads on the board (2026-10-10; flashed and measured by Claude with the user's permission, `apps/ritual_machine/tools/pads_test.py`, 44.1 kHz)
 
 Cycles per engine block (budget 174149), the Pads section alone (Pads + MasterOut), pads looping (Trim):
 
@@ -345,7 +389,7 @@ section, capture, sequencer; phase 0 done 2026-10-09); the stage-1 code below ge
 - User decisions (four rounds of options, recorded in ENGINE_DESIGN.md ADR-040): Sum point per lane, 3 parallel lanes, cheap FX per voice /
   heavy only after a Sum, 16 slots, master FX tab kept, one module per effect, level / pan on the lane's Sum, Sum = the Para split generalised,
   RACK tab = **lanes + push menu**.
-- Stage 1 done: model + rules + pages + the RACK tab (3 lanes, popup menu) + placeholder icons; tests `tests/ui/test_lanes.c`. Lanes B / C and
+- Stage 1 done: model + rules + pages + the RACK tab (3 lanes, popup menu) + placeholder icons; tests `apps/ritual_machine/tests/ui/test_lanes.c`. Lanes B / C and
   the Sum / FX modules are **silent until stage 2** (the mapper builds lane A only).
 - Next: the user tries the RACK tab in the simulator (navigation, the menu, links across lanes); then stage 2 (engine: 3 voice buses,
   per-voice FX `<Scope>` templates, the mapper per lane, lane mix into the master FX), then stage 3 (board, listening).
@@ -417,7 +461,7 @@ User design (the click rules were confirmed on a worked example; options asked f
 - **FM parameters mappable**: BUILT with the above: `MACRO_FM` targets (op + `dx7_value_t`, ui.cfg `param fm <op> <v>`), learn / Shift / Mod / macros on
   every FM row but Patch and Pt. FM values are driven exactly (`dx7_value_get / set` + `knob_drv_t` in ui_input.c): the walking measure would have changed
   off-grid fine values and envelope times just by showing a page. Envelope time scale: at least 1 ms per knob position (found by the new test)
-- **UI tests in the repo** (2026-10-07): `tests/ui/*.c` + `tools/build_ui_tests.ps1` (45 tests: modifiers, FM, mappings / macros, curves, LEDs; they found a parse bug: a mapping line read the range / curve of the NEXT line of ui.cfg), stubs `tools/ui_stubs.c` (RAM card, prototype
+- **UI tests in the repo** (2026-10-07): `apps/ritual_machine/tests/ui/*.c` + `apps/ritual_machine/tools/build_ui_tests.ps1` (45 tests: modifiers, FM, mappings / macros, curves, LEDs; they found a parse bug: a mapping line read the range / curve of the NEXT line of ui.cfg), stubs `apps/ritual_machine/tools/ui_stubs.c` (RAM card, prototype
   controls). `STORAGE_FILE_MAX` 2 -> 4 KB (ui.cfg with many layer entries could be cut; +6 KB RAM on the board, 55.5 %)
 - **Range per mapping**: BUILT 2026-10-07 (with the two items below; UI tests green). Every mapping (a Shift / Mod knob target, each macro destination) has Min and Max as a % of the parameter's range; Min > Max inverts.
   The knob's full turn sweeps Min..Max through the mapping's curve. Decided: % (not the parameter's unit)
@@ -527,7 +571,7 @@ Decisions in ENGINE_DESIGN.md (ADR-036 stage 2 "as built", ADR-037 decision 5). 
 User decisions in ENGINE_DESIGN.md ADR-037 (do not re-litigate). What exists:
 - `engine/modules/strings_modules.*`: `Strings` (voice scope: two detuned oscillators saw / pulse / tri, naive or mipmap, linear ADSR per block, one-pole LP on / off with
   key and envelope tracking, velocity, level; one render loop per wave x osc kind x LP, chosen per block) and `Ensemble` (global: three taps on one 11 ms line, slow + fast LFO at 0 / 120 / 240 degrees).
-- `engine/dsp/wavetables.*` (generated, `tools/gen_wavetables.py`): saw and triangle, 10 octave bands, 1024 samples + guard, 41 KB in flash (`ENGINE_WT_RAM=1` for RAM).
+- `engine/dsp/wavetables.*` (generated, `framework/tools/gen_wavetables.py`): saw and triangle, 10 octave bands, 1024 samples + guard, 41 KB in flash (`ENGINE_WT_RAM=1` for RAM).
 - Type `SYNTH_STRINGS` (GENERAL Type "Strings", `str_voices` 1..32 kept apart from the 8 of Modular / FM); pages STRINGS (Wav Osc Det Mix), STR TONE (PW Lvl), VOICE LP (LP Cut Env Key),
   STR FILTER (Typ Cut Res; Off = no node), AMP ENV (A D S R; the curves are ignored), SEQ, SEQ SETUP; menu tabs GENERAL, FX RACK, KEYS (since ADR-041: RACK with row M first). Params in `synth_params_t.str` (P_STR_*).
   FX rack type `FX_ENSEMBLE` ("EN": Rate Dpth Shim Mix) for every synth type (since ADR-041: the rack module `MOD_ENSEMBLE`, "ES"). Serial `patch strings`.
@@ -546,7 +590,7 @@ an outside engine needs its own voice allocator, mono -> stereo and its own meas
 
 ## State (end of the ESP32 bring-up and optimization session)
 
-- The application runs on **our own DSP engine** (`src/engine`, C++17, q15) on **both** the desktop simulator and the **first hardware prototype** ("HWV1": ESP32-S3-Pico, SH1107 128 x 128 OLED, TCA8418
+- The application runs on **our own DSP engine** (`framework/engine`, C++17, q15) on **both** the desktop simulator and the **first hardware prototype** ("HWV1": ESP32-S3-Pico, SH1107 128 x 128 OLED, TCA8418
   keyboard, quadrature knobs behind an analog mux, joystick, I2S DAC). 132 engine tests are green in all six rate / block configurations (`-Matrix`, run at the end of this session); the simulator and the firmware build.
 - Working on the board (checked by the user): display, keyboard (map found from their key log), the 7 knobs (quadrature decode with hysteresis) and the joystick, power hold, I2S audio (the test tone and the engine),
   serial debugging, the boot-time benchmark, the serial command channel. The default patch is now `rack_init_startup`: **four oscillators on four different engines (Karplus, Modal, Supersaw, Additive) into one filter, delay 1000 ms / 40 %,
@@ -593,7 +637,7 @@ The user reported glitchy sampler playback, loops misplaced / shifted, 2-3 voice
 
 ## Latest measurements (prototype, startup patch, mono FX + half-rate reverb, budget 160000 cycles per 32-frame block)
 
-Measured with `tools/serial_test.py` on the last build that was on the board (engines still with the generic per-sample loop; the loop fast path below was built after it):
+Measured with `apps/ritual_machine/tools/serial_test.py` on the last build that was on the board (engines still with the generic per-sample loop; the loop fast path below was built after it):
 
 | notes held | cycles per block | % of budget | worst render (limit 1333 us) | blocks over budget |
 |---|---|---|---|---|
@@ -683,6 +727,14 @@ The user decides and I record the reasoning and move on, without re-litigating:
   ~12 effect modules next to 8 pad voices and the live synth.
 - **Pads screen = grid full screen, a push opens the pad** (2026-10-10, ADR-041 decision 25; I recommended grid on top + pad below): risk =
   editing a pad hides the other pads.
+- **A control table per board** (2026-10-13, ADR-043 decision 10; I recommended one shared control list): risk = the Ritual
+  Machine's bindings, key layouts, layer entries and the control names saved in `ui.cfg` / `keys.cfg` are written against the
+  shared list; the larger step, and the one that can break saved settings. Mostly taken away by decision 11 (the app keeps its
+  role list and maps each board onto it).
+- **Each app lists its own card folders** (2026-10-13, ADR-043 decision 13; I recommended shared samples and `apps/<name>/` for
+  any other app): risk = no shared sample folder unless apps agree, two firmwares on one card can overwrite each other's files.
+- **The simulator's panel drawn from a board's table** (2026-10-13, ADR-043 decision 14; I recommended moving today's two windows
+  as they are): risk = `panel_sim.c` rewritten, about half a session more, a generic drawing in place of today's panel.
 - **4 effect slots per FX chain** (2026-10-11, ADR-041 decision 47; I recommended 2): risk = twelve effects never fit (measured: four to
   six do next to 8 pads); nothing is refused, the FX page shows the estimated load.
 - **Paulstretch with a 4096-point window** (2026-10-11, decision 44; I recommended 2048, which always fits): it fits (37 KB of PSRAM
@@ -701,7 +753,7 @@ The user decides and I record the reasoning and move on, without re-litigating:
   must fit 4 KB and now stores paths (64 pads with long paths can pass it: the end is cut silently; a file per bank would fix it);
   a folder shows 2048 names / 30 KB of names at most (the card's 1800 use 28 KB); every open of a file searches its folder from the
   start (0.4 s for the last of 1800: ADR-041 "On the board"); a long name is cut at the row's edge; no audition from the SAMPLES tab;
-  `tools/sample_sim_check.cpp` still expects the old scan at start (not updated, not built by any script).
+  `apps/ritual_machine/tools/sample_sim_check.cpp` still expects the old scan at start (not updated, not built by any script).
 
 From the session todo (long-term; moved here 2026-10-11):
 
@@ -718,29 +770,29 @@ From the session todo (long-term; moved here 2026-10-11):
   cut silently (the cut lines are lost at the next load). Fix if it bites: split macros into their own file, or write in chunks. Min / Max step by 5 %.
 
 - UI: the main view (pages) is not a declarative screen yet (no latch, old events); the GENERAL tab has up to 9 rows (Glide / Legato only with Voices 1) and scrolls; the Knob mode, jump slots and Shift-knob targets are saved in ui.cfg (2026-10-07);
-  the sim's panel does not draw the key LEDs; this session's UI changes were verified on the board by the user, not by host tests (the 160 engine tests do not cover `src/core/ui_*.c`; `tools/ui_dump.c` can).
+  the sim's panel does not draw the key LEDs; this session's UI changes were verified on the board by the user, not by host tests (the 160 engine tests do not cover `apps/ritual_machine/src/core/ui_*.c`; `apps/ritual_machine/tools/ui_dump.c` can).
 - Sample library: whole files are copied to RAM in the simulator; loaded samples are never unloaded; imports block the UI thread; a rack stores the file *index*
   (names needed when saving). Zones are engine-only (no UI). MS targets are limited to what the mapper realises (OC Pit / Lvl / PW, FL Cut, SA Drv, SM Pit).
 - Sound-design round (ADR-031..034), not listened to: the convolver (PIE since 2026-10-09: 10k cycles per block at 128 taps, ADR-034), the compressor / shifter / engines are tested against theory only,
   the engine previews in the OSC graph box are sketches.
-- `samples/` holds the generated demo files (`tools/make_demo_samples.py`); `lib/minimp3` is not versioned like the other libs.
+- `samples/` holds the generated demo files (`framework/tools/make_demo_samples.py`); `lib/minimp3` is not versioned like the other libs.
 - `synth_params_t` and `param_id_t` still contain the old oscillator / filter fields; only the amp envelope is used.
 - Rebuilding on menu close keeps held notes (state by node id), but removing the module a note uses silences it. Mapper limits: no modulation of resonance, mix or other modulators; MS has no sound.
 - `svf_tick` (integer, 202 cycles) and `svf_coef_f` remain in `dsp/svf.h` only as the references the boot benchmark compares against; the engine uses `svf_tick_f`.
 - The reverb / delay stage timers (`SEC_BEGIN` / `SEC_MARK`) and the oscillator counters stay in the code under `ENGINE_PROFILE` (zero cost without it).
-- `tests/engine/test_sampler.cpp` has a `run_trace` helper that prints underruns. Engine items under "Known limits" in ENGINE_DESIGN.md (reverb q15 floor, block-rate envelopes, mono samples, ...).
+- `framework/tests/test_sampler.cpp` has a `run_trace` helper that prints underruns. Engine items under "Known limits" in ENGINE_DESIGN.md (reverb q15 floor, block-rate envelopes, mono samples, ...).
 
 ## Working style and environment traps
 
 - The user iterates with short requests, tests on the board or in the SDL window, and wants concise answers that say what was verified vs not. Windows 11, PowerShell, MSYS2 UCRT64; AZERTY keyboard; English with some French.
   For design work they want options with pros and cons at each stage; they often pick against my recommendation. **By default they flash the board themselves** (COM8). On 2026-10-10 / 11 they allowed Claude to flash and measure (asked each time: "flash and measure?"): ask again in a new session before the first flash. They sometimes say "flashed" about an older build: check (see the skill).
-- A profiling build goes through the environment, not platformio.ini: `$env:PLATFORMIO_BUILD_FLAGS = "-DHWV1_DEBUG_AUDIO -DENGINE_PROFILE"` then `pio.exe run -t upload`; **flash the normal build again afterwards** (the profiling one prints every second and costs RAM).
-- Board tools for the Pads work (all over serial, `DEV_SERIAL_CMD`; see human_docs/SERIAL_COMMANDS.md, `pad ...`, `dir`, `use`): `tools/library_test.py` (the folder list, header reads by place in the folder, samples cycled on a pad, a stream while a folder is read), the serial command `browse N REST FIRST` (the browser driven as by hand: how long each UI step took, stream underruns; `serial_test.py --cmd "pad on" --cmd "browse 6 1500 1750" --raw --seconds 12 --log run.txt`, then read the log: `--raw` does not print the replies), `tools/pads_test.py` (pad voices), `padsfx_test.py` (FX chains, per-module costs), `edit_test.py` (sample jobs: time, memory), `capture_test.py` (recording).
-- UI tests address some rows by number (the RACK page's menu rows in `tests/ui/test_rows.c`, the EDIT page's rows in `tests/ui/test_pads.c`): inserting a row in those screens shifts them.
+- A profiling build goes through the environment, not platformio.ini: `$env:PLATFORMIO_BUILD_FLAGS = "-DHWV1_DEBUG_AUDIO -DENGINE_PROFILE"` then `pio.exe run -d apps/ritual_machine -t upload`; **flash the normal build again afterwards** (the profiling one prints every second and costs RAM).
+- Board tools for the Pads work (all over serial, `DEV_SERIAL_CMD`; see human_docs/SERIAL_COMMANDS.md, `pad ...`, `dir`, `use`): `apps/ritual_machine/tools/library_test.py` (the folder list, header reads by place in the folder, samples cycled on a pad, a stream while a folder is read), the serial command `browse N REST FIRST` (the browser driven as by hand: how long each UI step took, stream underruns; `serial_test.py --cmd "pad on" --cmd "browse 6 1500 1750" --raw --seconds 12 --log run.txt`, then read the log: `--raw` does not print the replies), `apps/ritual_machine/tools/pads_test.py` (pad voices), `padsfx_test.py` (FX chains, per-module costs), `edit_test.py` (sample jobs: time, memory), `capture_test.py` (recording).
+- UI tests address some rows by number (the RACK page's menu rows in `apps/ritual_machine/tests/ui/test_rows.c`, the EDIT page's rows in `apps/ritual_machine/tests/ui/test_pads.c`): inserting a row in those screens shifts them.
 - The user often keeps the simulator open: `build.ps1` then builds `oled_sim_new.exe`. A stale exe has caused a false "bug" before.
 - PlatformIO: use `C:\.platformio\penv\Scripts\pio.exe`, **never a bare `pio`** (PATH points at Python 3.13's pio, which recreates and destroys the penv). It happened twice; the second time (2026-10-05) Claude did it, and the user had to restore the penv by hand. Repair steps: DEVELOPING.md, "ESP32 firmware" warning. One link failure with no error text happened twice; the immediate rerun succeeded.
 - One program per serial port: close the serial monitor before `serial_test.py`. Before an upload, check that the board is there
-  (`[System.IO.Ports.SerialPort]::GetPortNames()`): switched off or unplugged it is on no port, and `pio run -t upload` fails after
+  (`[System.IO.Ports.SerialPort]::GetPortNames()`): switched off or unplugged it is on no port, and `pio run -d apps/ritual_machine -t upload` fails after
   the whole build ("Please specify `upload_port`"). A build to check only: `PLATFORMIO_BUILD_DIR` in the scratchpad.
 - Start-up traces: `-DBOOT_TRACE` (DEVELOPING.md, build flags) prints `[BOOT]` lines; found with it on 2026-10-11: an input event
   that waits in the queue at start acts on the UI's first step (the joystick switch read as pushed).
@@ -748,9 +800,9 @@ From the session todo (long-term; moved here 2026-10-11):
   Write multi-line scripts with the Write tool and run them; edit with the Edit tool. Many sources are CRLF: scripted edits must keep each file's line endings.
   **`sed -i` in this Git Bash rewrites a CRLF file with LF endings** (hit twice on 2026-10-09; git hides it in the diff): use a Python script that reads
   with `newline=''` and writes the endings back, and check with `file <path>` after any scripted edit.
-- `src/platform/engine/engine_synth.h` is included from C: no default arguments, no C++ in it.
+- `apps/ritual_machine/src/platform/engine/engine_synth.h` is included from C: no default arguments, no C++ in it.
 - Tool calls that run `g++` through PowerShell hide compiler errors (`NativeCommandError`): compile from bash to see them. A test executable needs `C:\msys64\ucrt64\bin` on PATH.
-- Python on Windows: always `open(..., encoding="utf-8")`. The test runner takes a name filter (`engine_tests.exe reverb`) and, via the script, engine flags: `build_engine_tests.ps1 -Defs "-DENGINE_REVERB_HALF=1"`; `-Matrix` takes a few minutes, one configuration about 1 min.
+- Python on Windows: always `open(..., encoding="utf-8")`. The test runner takes a name filter (`engine_tests.exe reverb`) and, via the script, engine flags: `test.ps1 -Defs "-DENGINE_REVERB_HALF=1"`; `-Matrix` takes a few minutes, one configuration about 1 min.
 - Do not commit unless asked. (The Pads work: the user asked for a commit at every step; it was on the branch `pads-step1`, merged into `main` and removed on 2026-10-11. Ask where the next work goes: `main` or a new branch.) Delete `run*.txt` serial captures when done (ignored by git now); keep the numbers in this file.
 
 ## Starting the next session (compact prompt)
@@ -759,4 +811,4 @@ Run `/session-start` (skill `.claude/skills/session-start/SKILL.md`): it reads t
 For board performance work directly:
 
 > Read `CONTINUE.md`, `DEVELOPING.md` and `ENGINE_DESIGN.md` (ADR-035, and ADR-041 for the Pads section), and the skill `esp32-optimize`. The work is on `main`. The board is connected on COM8 with the last build flashed. <what I heard / what to change>.
-> Then re-measure with `tools/serial_test.py` and continue with "Next performance steps".
+> Then re-measure with `apps/ritual_machine/tools/serial_test.py` and continue with "Next performance steps".

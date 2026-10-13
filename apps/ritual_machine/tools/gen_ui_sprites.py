@@ -1,6 +1,6 @@
 """Turns the images of assets/UI_Sprites/ into src/core/ui_sprites_gen.c / .h (the format: assets/UI_Sprites/README.md).
 
-Run from oled_sim:   python tools/gen_ui_sprites.py          (build.ps1 and the PlatformIO pre-build script run it)
+Run from apps/ritual_machine:   python tools/gen_ui_sprites.py          (build.ps1 and the PlatformIO pre-build script run it)
                      python tools/gen_ui_sprites.py --selftest
 Plain Python (zlib only): the PlatformIO Python has no Pillow, and installing into it is not worth the risk.
 The output files are only rewritten when their content changes, so an unchanged image set does not trigger a rebuild.

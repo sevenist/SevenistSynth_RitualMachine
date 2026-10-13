@@ -22,8 +22,8 @@
 #include <vector>
 #include "hal/hal_storage.h"
 #include "platform/sim/sim_card.h"
-#include "platform/sim/sim_storage.h"
-#include "platform/sim/sample_convert.h"
+#include "host/sim_storage.h"
+#include "host/sample_convert.h"
 #include "platform/engine/engine_synth.h"
 #include "platform/engine/sample_catalog.h"
 

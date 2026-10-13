@@ -5,7 +5,7 @@
 //
 // Tiers 1 and 2 of the selection (the cheap ones in CPU and RAM); the models close to our own engines are set aside for a later comparison
 // (Braids VOWEL / VOWEL_FOF / FM / SAW_SWARM / PARTICLE, Plaits FM / Waveshaping / Particle). Braids runs at our sample rate with its tables
-// regenerated (tools/gen_mi_tables.py); its per-sample time constants (kick decay, noise clocks ...) were written for 96 kHz and run slower here.
+// regenerated (framework/tools/gen_mi_tables.py); its per-sample time constants (kick decay, noise clocks ...) were written for 96 kHz and run slower here.
 //
 // in 0 pitch CV (like Osc), in 1 gate (strikes the percussive models); mod: pitch (+-pitch_mod), timbre, morph, harm (q15, block rate).
 #include "engine/core/module.h"

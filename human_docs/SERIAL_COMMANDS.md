@@ -1,7 +1,7 @@
 # Serial commands (prototype, dev builds)
 
 Text commands over the board's USB serial port to play notes, load test patches, change settings and measure the engine, without touching the keys.
-Code: [src/platform/esp32/serial_cmd_esp32.cpp](../src/platform/esp32/serial_cmd_esp32.cpp). Measurement tool: [tools/serial_test.py](../tools/serial_test.py).
+Code: [apps/ritual_machine/src/platform/esp32/serial_cmd_esp32.cpp](../src/platform/esp32/serial_cmd_esp32.cpp). Measurement tool: [apps/ritual_machine/tools/serial_test.py](../tools/serial_test.py).
 Paths and commands below are from the `oled_sim` folder (the project root), not from `human_docs/`.
 
 ## Before you start
@@ -18,7 +18,7 @@ Two ways to send commands:
 
 ```
 C:\.platformio\penv\Scripts\pio.exe device monitor        # type commands by hand (never a bare "pio": see ../DEVELOPING.md)
-C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --cmd "chord 3" --raw --seconds 5
+C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py --cmd "chord 3" --raw --seconds 5
 ```
 
 `serial_test.py` opens the port without resetting the board and waits 1.5 s after each `--cmd`.
@@ -80,12 +80,12 @@ C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --cmd "chord 3" --ra
 | `pad stop` | Stop all |
 | `pad clock 1` / `pad clock 0` | the clock in the Pads section (Play) |
 | `pad mem` | internal RAM and PSRAM free / largest block, the engine's heaps, the pads sounding |
-| `pad fx clear`, `pad fx route N`, `pad fx <A\|B\|C> <code> [values]` | the Pads section's FX chains: empty them, set the routing (0 A/B/C, 1 A+B/C, 2 A+B+C, 3 A+C/A+B), append a module to a chain (the codes of the RACK page: DL RV CH EQ CP PH FG TR FL SA ...; values in the module's units, missing = default). Not saved. A pad enters a chain with `pad def A1 bus a ...`. `tools/padsfx_test.py` measures a set of chains |
-| `pad rec S` | records what plays for S seconds (1..60, default 5) into a scratch file `zzrec.smp`, waits, and prints the frames recorded, the frames the card could not take in time and the stream underruns meanwhile. `tools/capture_test.py` runs a set |
+| `pad fx clear`, `pad fx route N`, `pad fx <A\|B\|C> <code> [values]` | the Pads section's FX chains: empty them, set the routing (0 A/B/C, 1 A+B/C, 2 A+B+C, 3 A+C/A+B), append a module to a chain (the codes of the RACK page: DL RV CH EQ CP PH FG TR FL SA ...; values in the module's units, missing = default). Not saved. A pad enters a chain with `pad def A1 bus a ...`. `apps/ritual_machine/tools/padsfx_test.py` measures a set of chains |
+| `pad rec S` | records what plays for S seconds (1..60, default 5) into a scratch file `zzrec.smp`, waits, and prints the frames recorded, the frames the card could not take in time and the stream underruns meanwhile. `apps/ritual_machine/tools/capture_test.py` runs a set |
 | `pad verify 1` / `pad verify 0` | the card driver reads every sector it writes back and compares it (slow); prints the sectors compared and those that differed so far |
-| `pad edit F OP AMOUNT [AMOUNT2]` | runs one sample processing job (the EDIT page's) on catalog file F: OP is the engine operation number (0 Normalize, 5 Reverse, 8 Stretch, 9 Resample, 10 Pitch, 15 Low-pass, 17 Tonal stretch, 18 Tonal pitch, 19 Paulstretch...), waits for it and prints the time, the PSRAM it borrowed and the stream underruns meanwhile. Writes and deletes `zzedit.smp`. `tools/edit_test.py` runs the set |
+| `pad edit F OP AMOUNT [AMOUNT2]` | runs one sample processing job (the EDIT page's) on catalog file F: OP is the engine operation number (0 Normalize, 5 Reverse, 8 Stretch, 9 Resample, 10 Pitch, 15 Low-pass, 17 Tonal stretch, 18 Tonal pitch, 19 Paulstretch...), waits for it and prints the time, the PSRAM it borrowed and the stream underruns meanwhile. Writes and deletes `zzedit.smp`. `apps/ritual_machine/tools/edit_test.py` runs the set |
 
-`tools/pads_test.py` uses them: 1 / 4 / 8 pads looping on a short (whole in memory) and a long (streamed) sample, a crossfade, the
+`apps/ritual_machine/tools/pads_test.py` uses them: 1 / 4 / 8 pads looping on a short (whole in memory) and a long (streamed) sample, a crossfade, the
 heaps before and after the section switch.
 
 ### Key LEDs (HWV1)
@@ -102,7 +102,7 @@ heaps before and after the section switch.
 | Command | Does |
 | --- | --- |
 | `power` | prints the power button (`down` = on, `up` = off), whether a computer is on the USB cable, the battery (the mux's raw count, the millivolts on the pin, the battery voltage computed from them and the percentage; `0 mV -1 %` = no battery seen) and the mux's spare input (channel 0: raw count, `pushed` / `idle`). To check the battery scale against a meter (`HW_BATT_FULL_SCALE_MV` in `board_pins.h`) and to find out what the spare input is |
-| `storage` | saves what waits to be saved, then restarts the board into the USB card reader (its own firmware, `pio run -e card_reader -t upload` once) whatever the power button says: the serial port goes away and the TF card shows up on the computer as a drive. Back to the synth: hold the joystick pushed for 2 s, or switch the power button off and on. Answers `no card reader firmware` when that firmware was never flashed |
+| `storage` | saves what waits to be saved, then restarts the board into the USB card reader (its own firmware, `pio run -d apps/ritual_machine -e card_reader -t upload` once) whatever the power button says: the serial port goes away and the TF card shows up on the computer as a drive. Back to the synth: hold the joystick pushed for 2 s, or switch the power button off and on. Answers `no card reader firmware` when that firmware was never flashed |
 
 ### Popups (UI test)
 
@@ -129,7 +129,7 @@ heaps before and after the section switch.
 ## serial_test.py
 
 ```
-C:/.platformio/penv/Scripts/python.exe tools/serial_test.py [options]
+C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py [options]
 ```
 
 | Option | Default | Meaning |

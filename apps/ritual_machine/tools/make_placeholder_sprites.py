@@ -1,6 +1,6 @@
 """Writes placeholder PNGs into assets/UI_Sprites/ for every sprite the UI looks for, so each one can be opened and painted over.
 
-Run from oled_sim:   python tools/make_placeholder_sprites.py            (only the files that do not exist yet)
+Run from apps/ritual_machine:   python tools/make_placeholder_sprites.py            (only the files that do not exist yet)
                      python tools/make_placeholder_sprites.py --force    (rewrites every placeholder: your own art with the same name is lost)
                      python tools/make_placeholder_sprites.py --convert  (rewrites every PNG of assets/UI_Sprites/ in the 3-colour format
                                                                           below; a pixel keeps what the converter made of it)

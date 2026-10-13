@@ -2,7 +2,7 @@
 LSB = left pixel, as u8g2's drawXBM takes them) into the boot animation's images: assets/UI_Sprites/64/boot_00.png ... (README.md
 there). Each frame is centred in a 64 x 64 image, black behind it; tools/gen_ui_sprites.py then makes the sprite `spr64_boot`.
 
-Run from oled_sim:   python tools/import_boot_anim.py path/to/loading7.h [--sheet out.png]
+Run from apps/ritual_machine:   python tools/import_boot_anim.py path/to/loading7.h [--sheet out.png]
 The existing boot_NN.png files are replaced (frames painted by hand are lost). --sheet also writes every frame side by side, x4.
 """
 import os

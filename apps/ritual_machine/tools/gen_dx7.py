@@ -3,13 +3,13 @@
   src/core/dx7_factory.c   the 128 DX7 patches (AMY patch numbers 128..255) as editable parameters
   src/core/dx7_algos.c     one 61x49 diagram sprite per algorithm (+ operator box positions)
 
-Run from oled_sim:   python tools/gen_dx7.py
-Inputs: lib/amy/src/patches.h (patch strings) and lib/amy/src/algorithms.c (operator wiring).
+Run from apps/ritual_machine:   python tools/gen_dx7.py
+Inputs: ../../lib/amy/src/patches.h (patch strings) and ../../lib/amy/src/algorithms.c (operator wiring).
 """
 import math, os, re
 
 ROOT = os.path.join(os.path.dirname(__file__), "..")
-AMY = os.path.join(ROOT, "lib", "amy", "src")
+AMY = os.path.join(ROOT, "..", "..", "lib", "amy", "src")      # third-party, at the repo root
 OUT = os.path.join(ROOT, "src", "core")
 
 # ------------------------------------------------------------------ factory patches

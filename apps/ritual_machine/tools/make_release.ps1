@@ -1,4 +1,4 @@
-# Builds what a release holds, into build/release (not versioned). Run from oled_sim:
+# Builds what a release holds, into build/release (not versioned). Run it from anywhere:
 #   .\tools\make_release.ps1 -Version beta-1.0          (-SkipFirmware / -SkipSimulator: one of the two only)
 #
 #   ritual-machine-<version>-hwv1.bin
@@ -8,13 +8,16 @@
 #           esptool --chip esp32s3 write-flash 0x0 ritual-machine-<version>-hwv1.bin
 #   ritual-machine-simulator-<version>-win64.zip
 #       The desktop simulator (build.ps1) with the DLLs it needs, a card folder holding the synthetic demo samples of
-#       tools/make_demo_samples.py (nothing from samples/: those files are the user's own), a readme and the licence notices.
+#       framework/tools/make_demo_samples.py (nothing from samples/: those files are the user's own), a readme and the licence notices.
 param([string]$Version = "beta-1.0", [switch]$SkipFirmware, [switch]$SkipSimulator)
 $ErrorActionPreference = "Continue"
 $pio = "C:\.platformio\penv\Scripts\pio.exe"            # never a bare pio / python (CONTINUE.md, traps)
 $py  = "C:\.platformio\penv\Scripts\python.exe"
 $msys = "C:\msys64\ucrt64"
 $out = "build/release"
+$fw = "../../framework"
+Push-Location (Join-Path $PSScriptRoot "..")
+try {
 New-Item -ItemType Directory -Force $out | Out-Null
 
 if (-not $SkipFirmware) {
@@ -40,14 +43,13 @@ if (-not $SkipSimulator) {
     Copy-Item $exe.FullName "$stage/ritual-machine-sim.exe"
     foreach ($dll in @("SDL2.dll", "libstdc++-6.dll", "libgcc_s_seh-1.dll", "libwinpthread-1.dll")) { Copy-Item "$msys\bin\$dll" $stage }
 
-    # The demo samples, made in a scratch copy of the tools folder: the generator writes next to its own folder, and samples/ is the user's.
+    # The demo samples, made in a scratch folder: samples/ is the user's.
     $scratch = "$out/_demo"
     if (Test-Path $scratch) { Remove-Item -Recurse -Force $scratch }
-    New-Item -ItemType Directory -Force "$scratch/tools", "$scratch/samples" | Out-Null
-    Copy-Item tools/make_demo_samples.py, tools/wav2smp.py "$scratch/tools"
-    & $py "$scratch/tools/make_demo_samples.py" | Out-Null
+    New-Item -ItemType Directory -Force $scratch | Out-Null
+    & $py "$fw/tools/make_demo_samples.py" $scratch | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Host "Demo samples FAILED" -ForegroundColor Red; exit 1 }
-    Copy-Item "$scratch/samples/*.smp" "$stage/sdcard/system/samples"
+    Copy-Item "$scratch/*.smp" "$stage/sdcard/system/samples"
     Remove-Item -Recurse -Force $scratch
 
     # (a file in each folder: a zip does not keep an empty one, and the simulator would ask to create it)
@@ -55,9 +57,9 @@ if (-not $SkipSimulator) {
     Set-Content "$stage/sdcard/import/readme.txt" "Reserved for .wav / .mp3 files to import." -Encoding ascii
     Set-Content "$stage/sdcard/system/config/readme.txt" "The machine's settings and the sound as it was left (written by the simulator)." -Encoding ascii
     (Get-Content tools/release/README-simulator.txt -Raw).Replace("{VERSION}", $Version) | Set-Content "$stage/README.txt" -Encoding ascii -NoNewline
-    Copy-Item THIRD_PARTY_NOTICES.md $stage
-    Copy-Item src/engine/mi/LICENSE "$stage/licenses/MutableInstruments-LICENSE.txt"
-    Copy-Item lib/u8g2/LICENSE "$stage/licenses/U8g2-LICENSE.txt"
+    Copy-Item ../../THIRD_PARTY_NOTICES.md $stage
+    Copy-Item "$fw/engine/mi/LICENSE" "$stage/licenses/MutableInstruments-LICENSE.txt"
+    Copy-Item ../../lib/u8g2/LICENSE "$stage/licenses/U8g2-LICENSE.txt"
     Copy-Item "$msys\share\licenses\SDL2\LICENSE.txt" "$stage/licenses/SDL2-LICENSE.txt"
 
     $zip = "$out/$name.zip"
@@ -65,3 +67,4 @@ if (-not $SkipSimulator) {
     Compress-Archive -Path $stage -DestinationPath $zip
     Write-Host ("{0}: {1:N0} bytes" -f $zip, (Get-Item $zip).Length) -ForegroundColor Green
 }
+} finally { Pop-Location }

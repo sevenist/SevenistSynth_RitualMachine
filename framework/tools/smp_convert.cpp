@@ -1,5 +1,5 @@
 // Offline sample converter: every .wav / .mp3 in <src_dir> becomes <dst_dir>/<name>.smp (the cooked format the engine streams from the TF card).
-// build.ps1 runs it on samples_src/ -> samples/, so putting a file in samples_src/ and building is all it takes. Only new or changed files are
+// An app's build.ps1 runs it on its samples_src/ -> samples/, so putting a file in samples_src/ and building is all it takes. Only new or changed files are
 // converted (the .smp is older than its source), unless --force.
 //
 //   build\smp_convert.exe samples_src samples [--force]
@@ -9,7 +9,7 @@
 // (C4 = MIDI 60); otherwise it is C4. Names are cut to 23 characters (the catalog's limit).
 #include <cstdio>
 #include <cstring>
-#include "platform/sim/sample_convert.h"
+#include "host/sample_convert.h"
 
 using namespace smpconv;
 

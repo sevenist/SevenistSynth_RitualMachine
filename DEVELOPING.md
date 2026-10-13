@@ -8,14 +8,45 @@ editor. Both go through the master effects (chorus, delay, reverb).
 The engine's design, every decision with its reasons and the measurements behind them are in
 [ENGINE_DESIGN.md](ENGINE_DESIGN.md). This guide is about working in the code.
 
+## The repo: a library and its apps (ENGINE_DESIGN.md ADR-043)
+
+```
+oled_sim/
+├─ framework/            THE LIBRARY, shared by every app
+│  ├─ engine/               the DSP engine (C++17; includes nothing from an app). Included as "engine/..."
+│  ├─ host/                 desktop-only helpers (a slow-card model for tests and simulators, the .wav / .mp3 converter). "host/..."
+│  ├─ tests/                the library's own tests: the engine alone
+│  └─ tools/                table generators, sample tools, the shared desktop build (sim_build.ps1), build_engine_tests.ps1
+├─ apps/
+│  ├─ ritual_machine/       THE RITUAL MACHINE: this guide. Its own src/ (core, app, hal, platform), tests/, tools/, assets/,
+│  │                        build.ps1, platformio.ini, and the simulator's card (sdcard/, samples/, samples_src/)
+│  └─ template/             the starter app: a four-voice synth in about 300 lines, desktop + first prototype (its README.md)
+├─ tools/new_project.ps1    .\tools\new_project.ps1 my_synth  ->  apps/my_synth, a copy of the template under its own name
+├─ build.ps1, run.ps1       build / run an app's desktop program from here (-App name; default: ritual_machine)
+├─ test.ps1                 every host test: the library's, then the Ritual Machine's engine and UI tests
+└─ lib/                     third-party code for the desktop builds (u8g2, minimp3, amy; not versioned)
+```
+
+**In the rest of this guide a path without a prefix (`src/core/...`, `tools/...`, `tests/...`, `samples_src/`, `sdcard/`,
+`platformio.ini`) is inside `apps/ritual_machine/`,** and `engine/...` is `framework/engine/...`. An app's folder is a whole
+project: its scripts work from anywhere, and the firmware is built from it (`pio run -d apps/ritual_machine`; there is no
+`platformio.ini` at the repo root any more). **In VS Code open `oled_sim.code-workspace`** (File > Open Workspace from File): it
+lists the repo and every app as a folder of its own, which is what the PlatformIO extension needs to build and flash an app (pick
+the app in its status bar). An app shows twice in the explorer; the repo's search leaves its files to the app's folder.
+
+**A new project**: `.\tools\new_project.ps1 my_synth`, then `.\build.ps1 -App my_synth` and `.\run.ps1 -App my_synth`. What each
+file of the new app is and where to change things: its `README.md`. Step 1 of the split (2026-10-13) made the engine the library;
+the display, input and card code, the board's drivers and the UI toolkit are still the Ritual Machine's (step 2 moves the generic
+parts into `framework/`).
+
 ## Quick start (desktop simulator)
 
 ```powershell
 cd D:\DEV\SevenSynthCore\ui\oled_sim
-.\build.ps1                      # clean build ~5 s, one changed file ~1.5 s (per-file objects in build\obj, parallel)
-.\build\oled_sim.exe             # SDL2.dll must be on PATH (C:\msys64\ucrt64\bin)
-.\tools\build_engine_tests.ps1 -Matrix    # 237 engine tests in six sample-rate / block-size configurations
-.\tools\build_ui_tests.ps1                # UI tests (tests/ui): the core driven by control events on the stubs of tools/ui_stubs.c
+.\build.ps1                      # the Ritual Machine's simulator: clean build ~10 s, one changed file ~1.5 s (per-file objects in apps\ritual_machine\build\obj, parallel)
+.\run.ps1                        # runs apps\ritual_machine\build\oled_sim.exe in its folder (its card is sdcard\ there; SDL2.dll from C:\msys64\ucrt64\bin)
+.\test.ps1 -Matrix               # every host test: 237 engine tests (123 the library's, 114 the app's) in six sample-rate / block-size configurations, then the UI tests
+.\apps\ritual_machine\tools\build_ui_tests.ps1     # the UI tests alone (tests/ui): the core driven by control events on the stubs of tools/ui_stubs.c
 ```
 
 **Samples:** put `.wav` / `.mp3` files in `samples_src/` and run `.\build.ps1`: every new or changed file is converted to `samples/<name>.smp` (the cooked format; stereo is mixed to mono,
@@ -24,7 +55,7 @@ the loop and root note come from the WAV `smpl` chunk, or a note at the end of t
 TF card (its folders and `E:\system\samples`). **Card layout** (`hal_storage.h`, `STORAGE_FOLDERS`): `system/samples` (the library), `system/config` (keys.cfg, ui.cfg, synth.cfg ...), `import`, `presets` (the presets, `*.preset`, sub-folders allowed). `-NoSamples` skips the step. See `samples_src/README.txt`.
 
 If `oled_sim.exe` is running, `build.ps1` cannot overwrite it and builds `build\oled_sim_new.exe` instead (close the
-window to get the normal name back). `.\build.ps1 -Clean` rebuilds everything.
+window to get the normal name back; `run.ps1` starts the newer of the two). `.\build.ps1 -Clean` rebuilds everything.
 
 The simulator opens two windows: the **OLED** and a **Panel** drawing the prototype's front panel (left strip: master volume knob,
 encoders A and B with their switches, play button; centre: 8 x 5 matrix keys (a function row of 8, then 4 rows of 8) with a knob above each of the first 4 columns; right: 3 knobs,
@@ -87,7 +118,7 @@ first format's `shift N cfg <setting>` lines are still read.
 Requirements: MSYS2 UCRT64 (`C:\msys64\ucrt64`) with gcc, g++ and SDL2, and Python 3 for the generator tools.
 `lib/` is not versioned. `lib/u8g2` (https://github.com/olikraus/u8g2, needs `csrc/` and `sys/sdl/common/`) is required; `lib/minimp3` (`minimp3.h`, `minimp3_ex.h` from
 https://github.com/lieff/minimp3, public domain) enables the mp3 import of the simulator's sample folder (optional);
-`lib/amy` (`git clone --depth 1 https://github.com/shorepine/amy.git lib/amy`) is only read by `tools/gen_dx7.py` to
+`lib/amy` (`git clone --depth 1 https://github.com/shorepine/amy.git lib/amy`) is only read by `apps/ritual_machine/tools/gen_dx7.py` to
 regenerate the DX7 tables.
 
 **The sound is persistent, and there are presets (`core/patch.h`, `app/app_preset.c`, `scr_preset.c`; user decisions 2026-10-11).** What plays is a
@@ -106,17 +137,17 @@ like any edit, so it is saved and comes back at the next start (`patch startup` 
 
 ## Folder map
 
+The Ritual Machine's folder (the whole repo, and the engine's place in it: the section at the top). The `engine/` entry below is
+`framework/engine`, the library; everything else is under `apps/ritual_machine/`:
+
 ```
-oled_sim/
+apps/ritual_machine/
 ├─ build.ps1             desktop build (per-file objects, dependency tracking). Params: -Platform sim (default), -Clean
-├─ ENGINE_DESIGN.md      the engine's design document: ADRs, measurements, budget, known limits
 ├─ platformio.ini        ESP32 firmware build (Waveshare ESP32-S3-Pico; runs on the first prototype), flags documented inside
 ├─ samples_src/          YOUR .wav / .mp3 files: build.ps1 converts the new ones to samples/*.smp (README.txt inside)
-├─ tests/engine/         133 unit / integration tests (own tiny runner), see "Testing"
+├─ tests/engine/, ui/    the app's tests: the engine driven through the rack, the pads and the sequencers; the UI (see "Testing")
 ├─ tools/                generators, measuring tools and the serial test tool for the board (see "Tools")
-├─ .claude/skills/       project skills for Claude Code (esp32-optimize: the measure / change / test / flash / re-measure loop)
-├─ lib/u8g2/             graphics lib + its SDL display/key backend (not versioned)
-└─ src/
+└─ src/                  (+ the library's engine, drawn here where the code includes it from)
    ├─ core/              PORTABLE logic the application is built from (the UI, the key layouts, the data models), plain C. No Windows/SDL/Arduino/engine includes here, and nothing from app/.
    │  ├─ bindings.c/.h      THE table that links hardware controls to actions (the one place to change what a button does), except the matrix keys:
    │  ├─ keymap.c/.h        the key layouts (3 built in + User, and the Pads section's), the functions a key can take, keys.cfg on the card
@@ -159,7 +190,7 @@ oled_sim/
    │  ├─ app_preset.c       the sound's working state (synth.cfg: written 2 s after the last change, read at power-on) and the presets (the PRESETS tab's requests, the browser that tries a preset before it is kept)
    │  └─ key_leds.c/.h      the LEDs under the keys, from the key layout and the application's state
    ├─ hal/               INTERFACES the core uses; one implementation per platform (audio, display, input: the board's physical controls, storage: settings files on the card, power: the battery's level, mem: large application data, PSRAM on the board)
-   ├─ engine/            THE DSP ENGINE, portable C++17 (no exceptions, no RTTI, no heap after init; sees no core/ or hal/)
+   ├─ engine/            (= framework/engine, the library) THE DSP ENGINE, portable C++17 (no exceptions, no RTTI, no heap after init; sees no core/ or hal/)
    │  ├─ dsp/               q15/q31 math, tables (GENERATED), phase/pitch, oscillators, SVF, FFT/STFT, delay, smoothing, CORDIC
    │  ├─ core/              module API, graph description, plan compiler, engine (voices, command queue), heap, sequencer (the two step sequencers: notes, pads)
    │  ├─ modules/           builtin, synth (Osc Env Lfo Filter Vca Mix Mult Shaper Const), fx (Delay Spectral Vocoder Chorus
@@ -169,7 +200,7 @@ oled_sim/
    └─ platform/
       ├─ engine/            shared by desktop and ESP32: rack -> graph mapper, DX7 patch conversion, the C API
       │                     (engine_synth.h) the HAL calls; render_job.cpp = a sample processed into a new file on the card
-      ├─ sim/               desktop: SDL display, SDL audio thread, keyboard, the simulated card `sdcard/` (storage_sim.c, F12 = out / in) and its library on a SimStorage (sim_storage.h: a slow-card model, also used by the tests) (#ifdef PLATFORM_SIM)
+      ├─ sim/               desktop: SDL display, SDL audio thread, keyboard, the simulated card `sdcard/` (storage_sim.c, F12 = out / in) and its library on a SimStorage (framework/host/sim_storage.h: a slow-card model, also used by the tests) (#ifdef PLATFORM_SIM)
       └─ esp32/             the firmware for the first prototype (#if defined(ARDUINO_ARCH_ESP32), pins and drivers inside #ifdef HWV1): I2S audio task + profiling, SH1107 display,
                             TCA8418 keyboard, analog mux + quadrature knobs, joystick, key LEDs (FastLED), power, dev serial commands, boot benchmark (see "ESP32 firmware and performance work")
 ```
@@ -177,8 +208,8 @@ oled_sim/
 ### The rules that keep it portable
 
 1. `core/` only includes `hal/*.h`, `u8g2.h` and the C standard library; `app/` the same plus `core/*.h`. `core/` includes nothing from `app/`. Anything platform-specific goes behind a HAL function.
-2. `engine/` includes nothing from `core/`, `hal/` or the platform. `platform/engine/` is the only bridge between the two.
-3. Every file under `platform/<x>/` is wrapped in its guard, because PlatformIO compiles all of `src/`.
+2. `engine/` (the library, `framework/engine`) includes nothing from `core/`, `hal/` or the platform, nor from any app. `platform/engine/` is the only bridge between the two.
+3. Every file under `platform/<x>/` is wrapped in its guard, because PlatformIO compiles all of the app's `src/`.
 4. The display is created by the platform (`display_init()`), then handed to the app: `app_init(&app, display_init())`.
 5. HAL headers have `extern "C"`, so C core code links from C++ files. `core/*.c` and `app/*.c` stay C (they use C designated initializers).
 6. In the engine, nothing on the audio path allocates, locks, logs or uses `float` (see the guidelines in ENGINE_DESIGN.md).
@@ -241,9 +272,9 @@ That is what lets one generic list renderer show any of them.
 ### Add a module type
 
 `module_type_t` + the `info[]` row in `rack.c` (name, code, audio/modulator flag, target parameters, own parameters), a line
-in `tools/gen_module_sprites.py` (then run it), the sprite table `module_sprite()` in `ui_draw.c`, page definitions, and the
+in `apps/ritual_machine/tools/gen_module_sprites.py` (then run it), the sprite table `module_sprite()` in `ui_draw.c`, page definitions, and the
 branch in `rack_graph_build()` that creates the engine nodes and cables for it. A new *engine* module is a class in
-`src/engine/modules/` (see below) plus its `ModuleInfo`, registration and a test.
+`framework/engine/modules/` (see below) plus its `ModuleInfo`, registration and a test.
 
 ### Add a page or a graph
 
@@ -255,7 +286,7 @@ and a `case` in `synth_ui_draw()`.
 
 `core/synth_config.[ch]`: general values have a `cfg_param_id_t` and cases in `synth_config_adjust/format/label`; show it in the GENERAL tab
 and use it in `rack_graph.cpp`. Return `CFG_LIVE` for values applied immediately, `CFG_REBUILD` for structural ones. An effect is a rack module
-(ADR-041): a type in `rack.h` (appended; `tools/gen_module_sprites.py` and `make_placeholder_sprites.py` follow the order), its parameter table
+(ADR-041): a type in `rack.h` (appended; `apps/ritual_machine/tools/gen_module_sprites.py` and `make_placeholder_sprites.py` follow the order), its parameter table
 and `info[]` row in `rack.c`, a page in `ui_pages.c`, and its engine node in `fx_type` / `fx_params` of `rack_graph.cpp` (a cheap effect also needs a per-voice mono
 version: the `template <int CH>` pattern of `fx2_modules.cpp`).
 
@@ -266,7 +297,7 @@ parameters with defaults); `init(Memory&)` allocates buffers (`mem.fast` for hot
 destructor frees them; `reset()` clears state; `set_param(idx, value)` takes int32 in the module's own units (pitch values
 are MIDI x 256, times in ms or 1/16 ms, levels q15); `process(ctx, ports)` renders `kBlock` frames of q15 from `in[]`
 (always valid) and `mod[]` (null when no cable is connected; a bipolar q15 signal otherwise), writing `out[]`. Register it
-(`Registry::add(id, type_of<T>())`), then test it against a float reference (`tests/engine/rig.h` has the helpers).
+(`Registry::add(id, type_of<T>())`), then test it against a float reference (`framework/tests/rig.h` has the helpers).
 
 ### Sequencer (`core/seq.c` the model, `engine/core/sequencer.cpp` the player, `app/app_seq.c`; ENGINE_DESIGN.md ADR-042)
 
@@ -302,10 +333,10 @@ place in `app->pbank.pat[cur]` (bulk memory, `hal/hal_mem.h`). It plays in the e
 the Seq field is On: `app_pseq_step()` (called BEFORE `app_seq_step()`, which sets the clock) hands it over with `audio_pseq_set`;
 patterns, chain and the queued pattern work as the synth's. **Select + Play** (or Shift + Play: no Select key in the simulator) = step mode (`ui->pad_steps`: the pad keys are the
 selected pad's steps, `app_pseq_step_key`; `key_leds.c` lights them), **Select + Rec** (or the STEPS screen's Rec field) = live record. Files: `padseq.cfg`,
-`padpat1.cfg` .. Tests: `tests/ui/test_pseq.c`, `tests/engine/test_pads.cpp` (the last two).
+`padpat1.cfg` .. Tests: `apps/ritual_machine/tests/ui/test_pseq.c`, `apps/ritual_machine/tests/engine/test_pads.cpp` (the last two).
 
 To add a per-step value: `seq_step_t` + `SeqStep` (engine) + the conversion `seq_steps_of` in `engine_synth.cpp` + the `step` line of
-`seq_pattern_to_text / _from_text` + a row. Tests: `tests/engine/test_seq.cpp`, `tests/ui/test_seq*.c`, `tests/ui/test_vel.c`.
+`seq_pattern_to_text / _from_text` + a row. Tests: `apps/ritual_machine/tests/engine/test_seq.cpp`, `apps/ritual_machine/tests/ui/test_seq*.c`, `apps/ritual_machine/tests/ui/test_vel.c`.
 
 ### GUI helpers (`core/gui.h`)
 
@@ -351,12 +382,12 @@ Recipes:
   measured yet. A blocked knob is released when it crosses the value (a fast turn skips the exact step). The app sets `app_catch_stale` after manual changes and Shift, and calls
   `synth_ui_catch_refresh` before drawing (`app_catch_poll`, `app/app_layers.c`); `knob_cur[k] == -2` marks "the knob set this value itself" (walking can measure the step one off). The Catch / Direct choice is `cfg.knob_mode`.
   The Shift targets are `ui->knob_shift[]` (`macro_t`, today only `MACRO_GLOBAL` + `cfg_param_id_t`).
-- *Test without the window*: `tools/ui_dump.c` takes control events (`encA:+1`, `shift`, `knob:27:900`, `key:4.0`...), see the top of the file.
+- *Test without the window*: `apps/ritual_machine/tools/ui_dump.c` takes control events (`encA:+1`, `shift`, `knob:27:900`, `key:4.0`...), see the top of the file.
 
 ### Add a HAL function / a platform
 
 Declare it in `hal/hal_*.h`, implement it in **every** `platform/*/`. A new platform (Teensy, RP2040...) is a folder
-`src/platform/<name>/` with the three HAL implementations wrapped in a guard macro; for the desktop-style build
+`apps/ritual_machine/src/platform/<name>/` with the three HAL implementations wrapped in a guard macro; for the desktop-style build
 `.\build.ps1 -Platform <name>` compiles `core/` + `platform/<name>/*.c` with `-DPLATFORM_<NAME>`. The audio part of a platform is
 small: allocate two memory blocks, call `engine_synth_init`, and arrange for `engine_synth_render` to be called from an audio
 thread / DMA task.
@@ -366,7 +397,7 @@ thread / DMA task.
 The screen size is one setting: `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` in `hal/hal_display.h` (default 128 x 64; `.\build.ps1 -Clean -Display 128x128` for
 the simulator). The application reads the real size from the u8g2 instance and builds its style from it (`gui_style_init(st, w, h)` in `core/gui.c`, called by
 `synth_ui_draw`): the list column takes half the width and the graph box fills the rest, so a taller screen gives taller graphs without touching the drawing
-code. Check a size without SDL with `UI_DUMP_SIZE=128x128` and `tools/ui_dump.c`. A real 128 x 128 design (more rows per page, other fonts) starts from the
+code. Check a size without SDL with `UI_DUMP_SIZE=128x128` and `apps/ritual_machine/tools/ui_dump.c`. A real 128 x 128 design (more rows per page, other fonts) starts from the
 style: edit `gui_default_style` / `gui_style_init`. The pixel offsets that remain in `ui_draw.c` are multiples of the row height (`gui_row_h`), so they follow the font.
 
 The style (`gui_default_style` in `core/gui.c`) holds the font, margin, padding, gap, `list_w` / `list_top`, `graph` (graph box rect), the piano roll and the rack.
@@ -388,7 +419,7 @@ FM / AM / filter FM are just cables), `VoiceOut` summing the voices, then global
 | FM | Dx7 (6 operators, 32 algorithms, feedback, 4-stage envelopes) |
 | control | MotionSeq (4 lanes x 16 steps; it follows the engine's step sequencer, `ProcessCtx::seq`; ADR-029, ADR-042); the two step sequencers (notes, pads) are not modules: `engine/core/sequencer.*`, owned by the `Engine` |
 | effects | Delay (stereo, Hermite, ping-pong), Chorus (Juno-like modes), Reverb (Dattorro plate), SpectralFx (freeze, gate/filter, robot, whisper, pitch shift), Vocoder, **Phaser, Flanger, Tremolo / Auto-pan, Compressor, EQ3, Ring mod / Shifter, Convolver (cab / body IRs), Comb (tuned resonator, voice scope)** (ADR-034) |
-| samples | (rack module SM, ADR-030) Sampler (streaming, pitched, loops, reverse, slices, key/velocity zones), Granular; `.smp` files via `tools/wav2smp.py` |
+| samples | (rack module SM, ADR-030) Sampler (streaming, pitched, loops, reverse, slices, key/velocity zones), Granular; `.smp` files via `framework/tools/wav2smp.py` |
 
 Rack -> engine mapping and the master chain are described in ENGINE_DESIGN.md (ADR-026, ADR-034); the threading rules in ADR-024; modulation depths in ADR-032.
 
@@ -396,38 +427,39 @@ Rack -> engine mapping and the master chain are described in ENGINE_DESIGN.md (A
 
 | Tool | Generates / does | Run |
 | --- | --- | --- |
-| `gen_module_sprites.py` | `src/core/module_sprites.h` (module sprites with 2-letter codes) | `python tools/gen_module_sprites.py` |
-| `gen_dx7.py` | `src/core/dx7_factory.c` and `src/core/dx7_algos.c` (needs `lib/amy`) | `python tools/gen_dx7.py` |
-| `gen_engine_tables.py` | `src/engine/dsp/tables.cpp` (sine, exp2, tan, tanh, FFT twiddles, window, CORDIC) | `python tools/gen_engine_tables.py` |
-| `gen_wavetables.py` | `src/engine/dsp/wavetables.cpp`: band-limited saw / triangle tables, 10 octave bands, for the Strings oscillators (41 KB, flash) | `python tools/gen_wavetables.py` |
-| `make_demo_samples.py` | five synthetic demo samples into `samples/` (the simulator's card folder) | `python tools/make_demo_samples.py` |
-| `smp_convert.cpp` | every `.wav` / `.mp3` of a folder -> `.smp` (new or changed files only; shares `platform/sim/sample_convert.h` with the simulator's importer). build.ps1 builds and runs it on `samples_src/` | `build\smp_convert.exe samples_src samples [--force]` |
-| `wav2smp.py` | one WAV (8..32 bit, mono/stereo, `smpl` loops) -> cooked `.smp` sample, with `--slices` / `--loop` / `--root` options the converter has no way to give | `python tools/wav2smp.py in.wav out.smp --root 60 --slices 0 12000` |
-| `import_boot_anim.py` | a monochrome frame array in a C header (rows of bytes, LSB = left pixel) -> the boot animation's images `assets/UI_Sprites/64/boot_NN.png` (replaces the ones there; `--sheet out.png` = every frame side by side) | `python tools/import_boot_anim.py path/to/loading7.h` |
-| `build_engine_tests.ps1` | builds and runs the engine tests; `-Matrix` for all configurations, `-Filter name` for a few | see the file header |
-| `build_ui_tests.ps1` | builds and runs the UI tests (`tests/ui/*.c`, C: `TEST(name)` in `ui_test.h`; each test starts a fresh app with `ui_fresh()` and sends control events; `ui_stub_ramcard(true)` gives a card in RAM, `ui_board(true)` the prototype's controls); `-Filter name` for a few | see the file header |
+| `gen_module_sprites.py` | `apps/ritual_machine/src/core/module_sprites.h` (module sprites with 2-letter codes) | `python apps/ritual_machine/tools/gen_module_sprites.py` |
+| `gen_dx7.py` | `apps/ritual_machine/src/core/dx7_factory.c` and `apps/ritual_machine/src/core/dx7_algos.c` (needs `lib/amy`) | `python apps/ritual_machine/tools/gen_dx7.py` |
+| `gen_engine_tables.py` | `framework/engine/dsp/tables.cpp` (sine, exp2, tan, tanh, FFT twiddles, window, CORDIC) | `python framework/tools/gen_engine_tables.py` |
+| `gen_wavetables.py` | `framework/engine/dsp/wavetables.cpp`: band-limited saw / triangle tables, 10 octave bands, for the Strings oscillators (41 KB, flash) | `python framework/tools/gen_wavetables.py` |
+| `make_demo_samples.py` | five synthetic demo samples into `samples/` (the simulator's card folder) | `python framework/tools/make_demo_samples.py` |
+| `smp_convert.cpp` | every `.wav` / `.mp3` of a folder -> `.smp` (new or changed files only; shares `framework/host/sample_convert.h` with the simulator's importer). build.ps1 builds and runs it on `samples_src/` | `build\smp_convert.exe samples_src samples [--force]` |
+| `wav2smp.py` | one WAV (8..32 bit, mono/stereo, `smpl` loops) -> cooked `.smp` sample, with `--slices` / `--loop` / `--root` options the converter has no way to give | `python framework/tools/wav2smp.py in.wav out.smp --root 60 --slices 0 12000` |
+| `import_boot_anim.py` | a monochrome frame array in a C header (rows of bytes, LSB = left pixel) -> the boot animation's images `assets/UI_Sprites/64/boot_NN.png` (replaces the ones there; `--sheet out.png` = every frame side by side) | `python apps/ritual_machine/tools/import_boot_anim.py path/to/loading7.h` |
+| `build_engine_tests.ps1` | builds and runs the app's engine tests (`tests/engine`); `-Matrix` for all configurations, `-Filter name` for a few. The library's own are `framework/tools/build_engine_tests.ps1`; `test.ps1` at the repo root runs both and the UI tests | see the file header |
+| `build_ui_tests.ps1` | builds and runs the UI tests (`apps/ritual_machine/tests/ui/*.c`, C: `TEST(name)` in `ui_test.h`; each test starts a fresh app with `ui_fresh()` and sends control events; `ui_stub_ramcard(true)` gives a card in RAM, `ui_board(true)` the prototype's controls); `-Filter name` for a few | see the file header |
 | `ui_dump.c` | renders the screens to ASCII without SDL or audio (layout checks); its platform stand-ins are `ui_stubs.c`, shared with the UI tests | command at the top of the file |
 | `capture_test.py` | the capture on the prototype (serial `pad rec`): a few seconds recorded while pads in memory, effects and streamed pads play; the frames the card lost, the streams' underruns |
 | `padsfx_test.py` | the Pads section's FX chains on the prototype (serial `pad fx`): 8 pads into chains from empty to full, the cycles per block, the per-module costs, the dropouts |
 | `edit_test.py` | the sample processing jobs on the prototype (serial `pad edit`): the time and the PSRAM of each kind of operation, and a job while streamed pads play |
-| `library_test.py` | the sample library on the prototype (serial `dir`, `use`, `pad`): the time to list the root folder, a header read by the file's place in the folder, different samples cycled on one pad (the catalog and the memory must stay bounded), a streamed pad while a folder is read | `C:/.platformio/penv/Scripts/python.exe tools/library_test.py --cycle 40 --stream "<a long sample>"` |
-| `pads_test.py` | the Pads section on the prototype (the `pad` serial command): 1 / 4 / 8 looping pads, short and streamed, a crossfade, the heaps | `C:/.platformio/penv/Scripts/python.exe tools/pads_test.py` |
-| `serial_test.py` | talks to the prototype over its serial port: holds chords of 1 / 3 / 6 notes, switches oscillator engines live, prints render time, cycles per module and the memory use | `C:/.platformio/penv/Scripts/python.exe tools/serial_test.py` (see "ESP32 firmware and performance work") |
+| `library_test.py` | the sample library on the prototype (serial `dir`, `use`, `pad`): the time to list the root folder, a header read by the file's place in the folder, different samples cycled on one pad (the catalog and the memory must stay bounded), a streamed pad while a folder is read | `C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/library_test.py --cycle 40 --stream "<a long sample>"` |
+| `pads_test.py` | the Pads section on the prototype (the `pad` serial command): 1 / 4 / 8 looping pads, short and streamed, a crossfade, the heaps | `C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/pads_test.py` |
+| `serial_test.py` | talks to the prototype over its serial port: holds chords of 1 / 3 / 6 notes, switches oscillator engines live, prints render time, cycles per module and the memory use | `C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py` (see "ESP32 firmware and performance work") |
 
 The generated files are committed, so the generators are only needed when their inputs change. The FM loudness table
-`src/platform/engine/fm_patch_gain.h` is regenerated by the test run with `DX7_GAIN_OUT=src/platform/engine/fm_patch_gain.h`.
+`apps/ritual_machine/src/platform/engine/fm_patch_gain.h` is regenerated by the test run with `DX7_GAIN_OUT=apps/ritual_machine/src/platform/engine/fm_patch_gain.h`.
 
 ## Testing
 
-`tests/engine` has a small test runner (`TEST(name) { CHECK(...); }`, filter by name on the command line), DSP helpers (SNR, DFT)
-and `DspRig`, an engine with all modules registered. The suite covers the numeric kernels against float64 references, the plan
+`framework/tests` has a small test runner (`TEST(name) { CHECK(...); }`, filter by name on the command line), DSP helpers (SNR, DFT)
+and `DspRig`, an engine with all modules registered; the app's `tests/engine` use the same runner and rig. A test that needs no app
+code (no `core/`, no `platform/`) belongs to the library, the others to the app; `.\test.ps1` at the repo root runs both. The suite covers the numeric kernels against float64 references, the plan
 compiler and the engine (feedback relocation per voice, rebuilds that keep state, a two-thread stress test), every module
 against theory (filter responses against the analytic bilinear Butterworth, FM sidebands against Bessel functions, aliasing
 against the naive waveforms, reverb decay rate, chorus delay swing...), the sampler against a simulated slow card (latency,
 bandwidth, stalls), and the production path from `rack_t` to audio samples (`test_integration.cpp`). Run `-Matrix` after
 touching anything in `engine/`: the six configurations catch hard-coded rates and block sizes.
 
-Screens: `gcc -O1 -w -Isrc -Ilib/u8g2/csrc tools/ui_dump.c src/core/*.c src/app/*.c lib/u8g2/csrc/*.c -lm -o build/ui_dump.exe`, then
+Screens, in `apps/ritual_machine`: `gcc -O1 -w -Isrc -I../../lib/u8g2/csrc tools/ui_dump.c src/core/*.c src/app/*.c ../../lib/u8g2/csrc/*.c -lm -o build/ui_dump.exe`, then
 `build\ui_dump.exe "menu right right"` prints the frame after those events.
 
 ## ESP32 firmware and performance work
@@ -438,9 +470,9 @@ an SH1107 128 x 128 OLED, a PCM5102A DAC + MAX98357A speaker amplifier and WS281
 onto them by tables, so only `hwv1_layout.h` is board-specific.
 
 ```powershell
-C:\.platformio\penv\Scripts\pio.exe run                  # build (use this pio: another Python's pio recreates the penv and breaks it)
-C:\.platformio\penv\Scripts\pio.exe run -t upload        # flash. THE USER flashes the board, Claude never does
-C:\.platformio\penv\Scripts\python.exe tools\serial_test.py   # measure on COM8 (close any serial monitor first)
+C:\.platformio\penv\Scripts\pio.exe run -d apps/ritual_machine                  # build (use this pio: another Python's pio recreates the penv and breaks it)
+C:\.platformio\penv\Scripts\pio.exe run -d apps/ritual_machine -t upload        # flash. THE USER flashes the board, Claude never does
+C:\.platformio\penv\Scripts\python.exe apps\ritual_machine\tools\serial_test.py   # measure on COM8 (close any serial monitor first)
 ```
 
 > **Warning: never type a bare `pio`.** `pio` on PATH is `Python313\Scripts\pio.exe` (PlatformIO 6.2.0 installed into the user's Python 3.13). It sees that
@@ -450,7 +482,7 @@ C:\.platformio\penv\Scripts\python.exe tools\serial_test.py   # measure on COM8 
 > `C:\.platformio\penv\Scripts\python.exe -m pip install platformio` (or reopen VS Code and let the extension reinstall it). The bundled `C:\.platformio\python3`
 > (3.11.7) and the toolchains in `C:\.platformio\packages` / `platforms` are not touched by this failure.
 
-### Files (`src/platform/esp32/`)
+### Files (`apps/ritual_machine/src/platform/esp32/`)
 
 | File | What |
 | --- | --- |
@@ -460,7 +492,7 @@ C:\.platformio\penv\Scripts\python.exe tools\serial_test.py   # measure on COM8 
 | `kbd_tca8418.*`, `mux_esp32.*`, `input_esp32.cpp` | keyboard (Adafruit TCA8418 on Wire1, config watchdog, bus recovery), mux reads, and the scan task on core 0 that turns them into HAL events (quadrature decode with hysteresis, joystick) |
 | `display_esp32.cpp` | `U8G2_SH1107_128X128_F_HW_I2C`, 400 kHz (a full frame takes ~120 ms). `display_send()` (HAL, in place of `u8g2_SendBuffer`) copies the frame and wakes the `display` task, which sends only the changed 8 x 8 tiles; this panel's column offset (96) wraps, so a run starting at tile x is sent with the offset moved to (96 + 8x) mod 128. `app_step` also puts a redraw off while input is queued (`input_pending()`) |
 | `board_esp32.*` | power hold (PWR_ON_EN), amplifier / DAC enable (XSMT; SPK_SD left floating, `HWV1_SPK_SD_MODE=1` drives it). **The power button** is a latching switch, down = on, read on PWR_SENSE (`HW_PWR_SENSE_ON`, `board_power_button_on`); the USB cable feeds the board whatever it says, so a board that still runs after the latch was let go with the button up is on the cable (`board_power_started_off` at the start, `board_power_poll` / `board_power_off` later): on the battery the board stops, on the cable it restarts into the card reader (`board_card_reader`: `esp_ota_set_boot_partition` on the second slot, then a restart; with no firmware there the synth goes on). The joystick held at such a start keeps the synth (the button is ignored until it is next used). `board_usb_host`: a computer on the cable (the USB-Serial/JTAG port sees its frames). **The battery** (`hal_power.h`): mux channel 1 through a divider, millivolts on the pin x `HW_BATT_FULL_SCALE_MV` / 3300, smoothed, 6.0 .. 8.4 V = 0 .. 100 %, under 4 V = no battery; read by the input task every 100 ms with the mux's spare channel 0 (`HWV1_MUX_AUX`, kept as a button state, not a control yet). Serial (dev): `power`, `storage` |
-| `usb_storage_esp32.cpp` | **the card reader, a second firmware** (`[env:card_reader]`, built with `HWV1_CARD_READER` from this file, `board_esp32`, `display_esp32`, `mux_esp32` and the card driver; 540 KB, in the second application slot at 0x650000; `pio run -e card_reader -t upload`, once). With the power button up on the cable the TF card is a USB drive on the computer: TinyUSB mass storage over the card driver's raw sector access (`sd_card_raw_*`), its own screen, the USB transceiver taken from the serial console and given back before it restarts into the synth (the power button down, or the joystick held 2 s and kept held). Its first act is to point the bootloader back at the synth. Why not a mode of the synth: TinyUSB takes 23 KB of static internal RAM whether it runs or not (measured: the synth's link failed by 10 KB). `HWV1_USB_STORAGE=0` (synth) never starts it. On the board (2026-10-11): the drive mounts and reads at 543 KB/s (full-speed USB); writing and the way back to the synth not tried yet |
+| `usb_storage_esp32.cpp` | **the card reader, a second firmware** (`[env:card_reader]`, built with `HWV1_CARD_READER` from this file, `board_esp32`, `display_esp32`, `mux_esp32` and the card driver; 540 KB, in the second application slot at 0x650000; `pio run -d apps/ritual_machine -e card_reader -t upload`, once). With the power button up on the cable the TF card is a USB drive on the computer: TinyUSB mass storage over the card driver's raw sector access (`sd_card_raw_*`), its own screen, the USB transceiver taken from the serial console and given back before it restarts into the synth (the power button down, or the joystick held 2 s and kept held). Its first act is to point the bootloader back at the synth. Why not a mode of the synth: TinyUSB takes 23 KB of static internal RAM whether it runs or not (measured: the synth's link failed by 10 KB). `HWV1_USB_STORAGE=0` (synth) never starts it. On the board (2026-10-11): the drive mounts and reads at 543 KB/s (full-speed USB); writing and the way back to the synth not tried yet |
 | `leds_esp32.cpp` | LED HAL (`hal_leds.h`): FastLED 3.10.6 (pinned; its first RMT channel uses DMA on the S3), SK6812 colour order RGB, key -> chain map (physical columns, checked on the board), brightness capped at `HW_LED_MAX_BRIGHTNESS` = 20 % (power: the user's limit), sends only when the frame changed. Serial (dev): `leds N` (chain LED N red for 5 s), `leds all`, `leds off` / `leds on` (stop / resume every transfer). What the keys show: `app/key_leds.c` (play feedback, called at the end of `app_step`) |
 | `audio_esp32.cpp` | I2S (MSB format, no MCLK) and the audio task on core 1; sizes the fast heap (internal RAM) and the bulk heap (PSRAM); applies `DEV_OUTPUT_GAIN_PCT`; prints the `[AUDIO]` / `[PROF]` / `[SEC]` / `[OSC]` / `[HEAP]` lines |
 | `bench_esp32.*` | boot micro benchmark (`HWV1_BENCH`): cycles per operation, RAM vs PSRAM |
@@ -475,7 +507,7 @@ C:\.platformio\penv\Scripts\python.exe tools\serial_test.py   # measure on COM8 
 | `HWV1_USB_STORAGE=0` | (not set: 1) the synth never starts the card reader's firmware: with the power button up on the cable the synth runs, as before 2026-10-11 | leave unset |
 | `HWV1_CARD_READER` | set by `[env:card_reader]` only: this build is the card reader's firmware (`usb_storage_esp32.cpp`) | keep there |
 
-**A release** (`tools/make_release.ps1 -Version beta-1.0`, into `build/release`): `[env:release]` is the synth without `DEV_SERIAL_CMD` and with the output at
+**A release** (`apps/ritual_machine/tools/make_release.ps1 -Version beta-1.0`, into `build/release`): `[env:release]` is the synth without `DEV_SERIAL_CMD` and with the output at
 18 % (the user's settings for the first prototype, 2026-10-11); the script merges it with the bootloader, the partition table and the card reader into one image
 written at address 0 (`esptool --chip esp32s3 write-flash 0x0 ritual-machine-<version>-hwv1.bin`), and packs the simulator with its DLLs, the five synthetic
 demo samples (never the user's `samples/`), a readme (`tools/release/README-simulator.txt`) and the licence notices into a zip. Published with
@@ -502,7 +534,7 @@ demo samples (never the user's `samples/`), a readme (`tools/release/README-simu
 | `ENGINE_NO_IRAM` | (not set) keep module code in flash instead of IRAM | |
 
 The framework appends `-Os` after the project's `-O2`, so `build_src_flags` carries `-O2 -fno-stack-protector` for the project sources. Check `compile_commands.json` if the optimization level is ever in doubt.
-The host tests take the same engine flags: `.\tools\build_engine_tests.ps1 -Defs "-DENGINE_REVERB_HALF=1"` (the stereo-specific reverb and delay tests fail with `ENGINE_FX_MONO=1` by design).
+The host tests take the same engine flags: `.\test.ps1 -Defs "-DENGINE_REVERB_HALF=1"` (the stereo-specific reverb and delay tests fail with `ENGINE_FX_MONO=1` by design).
 
 ### Reading the serial log
 
@@ -516,10 +548,10 @@ The host tests take the same engine flags: `.\tools\build_engine_tests.ps1 -Defs
 ### The serial test tool
 
 ```
-C:/.platformio/penv/Scripts/python.exe tools/serial_test.py                                    # idle, then 1, 3 and 6 held notes
-C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --chords 1,2,4,8 --hold 8 --log run.txt
-C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --engines "0,1,4,6;2,3,5,7" --chords 2   # cost of each oscillator engine, per voice and sample
-C:/.platformio/penv/Scripts/python.exe tools/serial_test.py --raw --seconds 3                  # print what the board sends
+C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py                                    # idle, then 1, 3 and 6 held notes
+C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py --chords 1,2,4,8 --hold 8 --log run.txt
+C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py --engines "0,1,4,6;2,3,5,7" --chords 2   # cost of each oscillator engine, per voice and sample
+C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py --raw --seconds 3                  # print what the board sends
 ```
 
 It opens the port with DTR / RTS low (no reset). Its commands need `DEV_SERIAL_CMD` in the flashed build ("no answer to ping" otherwise), and it discards the first 2 s after each change. The notes it plays go straight to the engine and

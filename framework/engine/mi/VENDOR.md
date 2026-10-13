@@ -32,7 +32,7 @@ the ARM-only `ssat` / `usat` paths are gone. Replacing more helpers by our own (
 1. **Sample rate.** `plaits/dsp/dsp.h`: `kSampleRate` = `ENGINE_SR`, `kCorrectedSampleRate` = `kSampleRate` (no hardware clock correction).
    Braids: the tables that depend on the rate (`lut_oscillator_increments`, `_delays`, `lut_resonator_*`, `lut_svf_*`, `wav_bandlimited_comb_*`)
    are removed from `braids/resources.cpp` and generated for each supported `ENGINE_SR` into `braids/resources_sr.cpp` by
-   `tools/gen_mi_tables.py` (same formulas; checked equal to the original 96 kHz values). Braids' per-sample time constants that are not in
+   `framework/tools/gen_mi_tables.py` (same formulas; checked equal to the original 96 kHz values). Braids' per-sample time constants that are not in
    tables (kick decay, noise clocks ...) were written for 96 kHz and run slower at 44.1 kHz.
 2. **Braids delay lines.** `DigitalOscillator`'s 16 KB member union of delay lines is now a pointer (`set_delay_lines`, NULL after `Init`):
    the waveguide / comb / plucked models (not used yet) render silence without one. An instance is 688 bytes instead of ~17 KB.
@@ -45,4 +45,4 @@ the ARM-only `ssat` / `usat` paths are gone. Replacing more helpers by our own (
 
 Copy the new upstream file over the one here, then redo the changes above (they are marked "SevenSynth"), rename `.cc` to `.cpp`, rewrite the
 includes (`stmlib/...` -> `engine/dsp/fdsp*.h`, `braids/...` -> `engine/mi/braids/...`) and `stmlib::` -> `sc::fdsp::`; if a table of
-`braids/resources/lookup_tables.py` changed, update `tools/gen_mi_tables.py` and run `python tools/gen_mi_tables.py --check <upstream folder>`.
+`braids/resources/lookup_tables.py` changed, update `framework/tools/gen_mi_tables.py` and run `python framework/tools/gen_mi_tables.py --check <upstream folder>`.

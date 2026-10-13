@@ -75,8 +75,8 @@ Original hardware, designed and built from scratch.
 - [x] Custom modular rack engine
 - [x] FM (six-op) + Strings synth types with dx7 presets
 - [x] RGB key LEDs + OLED UI
-- [ ] Sampler engine - TF-card playback
-- [ ] Resampling workflow - record, mangle, and re-pitch any sound the synth makes
+- [x] Sampler engine - TF-card playback
+- [xS] Resampling workflow - record, mangle, and re-pitch any sound the synth makes
 - [ ] Hardware v2 - v1 schematics and 3D files releasing alongside it
 
 ---

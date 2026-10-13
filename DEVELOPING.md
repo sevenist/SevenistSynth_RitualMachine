@@ -570,9 +570,9 @@ The app's own: `main_esp32.cpp`, `audio_esp32.cpp`, `samples_esp32.*`, `serial_c
 | `HWV1_USB_STORAGE=0` | (not set: 1) the synth never starts the card reader's firmware: with the power button up on the cable the synth runs, as before 2026-10-11 | leave unset |
 | `HWV1_CARD_READER` | set by `[env:card_reader]` only: this build is the card reader's firmware (`usb_storage_esp32.cpp`) | keep there |
 
-**A release** (`apps/ritual_machine/tools/make_release.ps1 -Version beta-1.0`, into `build/release`): `[env:release]` is the synth without `DEV_SERIAL_CMD` and with the output at
+**A release** (`apps/ritual_machine/tools/make_release.ps1 -Version beta-1.1`, into `build/release`; the version shown at start is `BOOT_VERSION` in `app/app.h`): `[env:release]` is the synth without `DEV_SERIAL_CMD` and with the output at
 18 % (the user's settings for the first prototype, 2026-10-11); the script merges it with the bootloader, the partition table and the card reader into one image
-written at address 0 (`esptool --chip esp32s3 write-flash 0x0 ritual-machine-<version>-hwv1.bin`), and packs the simulator with its DLLs, the five synthetic
+written at address 0 (`esptool --chip esp32s3 write-flash 0x0 ritual-machine-<version>-hwv1.bin`), and packs the simulator (two programs, one per board: `ritual-machine-sim-hwv1.exe` and `ritual-machine-sim-panel.exe`) with its DLLs, the five synthetic
 demo samples (never the user's `samples/`), a readme (`tools/release/README-simulator.txt`) and the licence notices into a zip. Published with
 `gh release create <tag> --prerelease` and the two files.
 | `DEV_OUTPUT_GAIN_PCT=N` | output level in percent of full scale (the first prototype's output stage is harsh on headphones) | remove or 100 |

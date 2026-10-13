@@ -1,5 +1,5 @@
 # Builds what a release holds, into build/release (not versioned). Run it from anywhere:
-#   .\tools\make_release.ps1 -Version beta-1.0          (-SkipFirmware / -SkipSimulator: one of the two only)
+#   .\tools\make_release.ps1 -Version beta-1.1          (-SkipFirmware / -SkipSimulator: one of the two only)
 #
 #   ritual-machine-<version>-hwv1.bin
 #       One image of the whole flash for the first prototype (HWV1), written at address 0 with esptool: the bootloader, the partition
@@ -7,9 +7,11 @@
 #       second ([env:card_reader], 0x650000).
 #           esptool --chip esp32s3 write-flash 0x0 ritual-machine-<version>-hwv1.bin
 #   ritual-machine-simulator-<version>-win64.zip
-#       The desktop simulator (build.ps1) with the DLLs it needs, a card folder holding the synthetic demo samples of
-#       framework/tools/make_demo_samples.py (nothing from samples/: those files are the user's own), a readme and the licence notices.
-param([string]$Version = "beta-1.0", [switch]$SkipFirmware, [switch]$SkipSimulator)
+#       The desktop simulator, one program per board it draws (build.ps1 -Board: ritual-machine-sim-hwv1.exe, the first prototype,
+#       and ritual-machine-sim-panel.exe, the next panel), with the DLLs they need, a card folder holding the synthetic demo samples
+#       of framework/tools/make_demo_samples.py (nothing from samples/: those files are the user's own), a readme and the licence
+#       notices.
+param([string]$Version = "beta-1.1", [switch]$SkipFirmware, [switch]$SkipSimulator)
 $ErrorActionPreference = "Continue"
 $pio = "C:\.platformio\penv\Scripts\pio.exe"            # never a bare pio / python (CONTINUE.md, traps)
 $py  = "C:\.platformio\penv\Scripts\python.exe"
@@ -33,14 +35,17 @@ if (-not $SkipFirmware) {
 
 if (-not $SkipSimulator) {
     $env:PATH = "$msys\bin;" + $env:PATH
-    & .\build.ps1 -NoSamples
-    if ($LASTEXITCODE -ne 0) { Write-Host "Simulator build FAILED" -ForegroundColor Red; exit 1 }
-    $exe = Get-ChildItem build/oled_sim.exe, build/oled_sim_new.exe -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
     $name = "ritual-machine-simulator-$Version-win64"
     $stage = "$out/$name"
     if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
     foreach ($d in @("", "licenses", "sdcard/system/samples", "sdcard/system/config", "sdcard/import", "sdcard/presets")) { New-Item -ItemType Directory -Force "$stage/$d" | Out-Null }
-    Copy-Item $exe.FullName "$stage/ritual-machine-sim.exe"
+    # one program per board the panel window draws (framework/tools/sim_build.ps1, Get-SimBoard): build/oled_sim<suffix>.exe
+    foreach ($board in @(@{ Name = "hwv1"; Built = "oled_sim_hwv1" }, @{ Name = "panel"; Built = "oled_sim" })) {
+        & .\build.ps1 -NoSamples -Board $board.Name
+        if ($LASTEXITCODE -ne 0) { Write-Host "Simulator build FAILED ($($board.Name))" -ForegroundColor Red; exit 1 }
+        $exe = Get-ChildItem "build/$($board.Built).exe", "build/$($board.Built)_new.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+        Copy-Item $exe.FullName "$stage/ritual-machine-sim-$($board.Name).exe"
+    }
     foreach ($dll in @("SDL2.dll", "libstdc++-6.dll", "libgcc_s_seh-1.dll", "libwinpthread-1.dll")) { Copy-Item "$msys\bin\$dll" $stage }
 
     # The demo samples, made in a scratch folder: samples/ is the user's.

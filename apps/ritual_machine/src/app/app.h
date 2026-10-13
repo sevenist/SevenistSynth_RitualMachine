@@ -177,7 +177,7 @@ void app_boot_animation(app_t *app);
 // (no clear, no send); nothing on a screen too short to hold them beside the image (64 pixels). The board's own boot animation
 // shows the same words (display_esp32.cpp).
 #define BOOT_TITLE   "RITUAL MACHINE"
-#define BOOT_VERSION "beta 1.0"
+#define BOOT_VERSION "beta 1.1"
 void app_boot_draw_text(u8g2_t *g);
 
 // Handles one hardware input event (kind == IN_NONE: none) and redraws. Returns false when the app should exit.

@@ -4,7 +4,7 @@
 
 *Custom hardware . Custom DSP engine*
 
-A from-scratch polyphonic synthesizer running on bare metal.
+A from-scratch polyphonic synthesizer on a single microcontroller.
 Custom audio engine, modular signal graph, a 128×128 OLED UI,
 and a surprisingly large palette of weird sounds.
 
@@ -33,8 +33,8 @@ The goal is not to sound conventional.
 
 ## Under the hood
 
-Every part of the stack was written for this machine.
-No framework, no RTOS audio task abstraction, no compromise on determinism.
+The engine, the UI and the hardware layer were written for this machine.
+The audio path never allocates, never locks, never logs: no compromise on determinism.
 
 - **Desktop simulator**: the full engine and UI runs in a desktop window. What you hear is what you get.
 - **RGB key feedback**: 36 RGB LEDs across the key matrix. Piano-style note colours, held-note highlight, sequencer state and more to come.

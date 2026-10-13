@@ -18,13 +18,24 @@ working tree clean)**; their words at the next session start: "committed and bui
 too" (no fault reported; which points of the two try lists they went through was not said; nothing was flashed by me).
 The commit also holds the two things that were not Claude's: `apps/ritual_machine/.gitignore` (PlatformIO's) and the line
 gone from `apps/template/src/main_esp32.cpp` (the `board_card_reader()` call at start). **Step 2c** (the simulator's panel
-drawn from a board's table) was built on 2026-10-13 at the user's "go for step 2c": **in the working tree, UNCOMMITTED, not
-tried by the user** (two new files, `framework/boards/desktop/sim_board.c` / `.h`: `git add -A` before the commit). With it
-step 2 of the split is complete. A bare `samples_src/`, `sdcard/`,
+drawn from a board's table) was built on 2026-10-13 at the user's "go for step 2c" and **committed by the user (`0ab1696`,
+the two new files included)**; they did not say whether they tried it. With it step 2 of the split is complete. At their
+request an update log for developers was written after the commit: `CHANGELOG.md` at the repo root (uncommitted). A bare `samples_src/`, `sdcard/`,
 `tools/` or `platformio.ini` in older notes is inside `apps/ritual_machine/`. Two glossaries were made that day as documents for
 the user (features and GUI; framework): ask for their links, they are not in the repo.
 
-- [ ] **The split, step 2c: try it, then commit** (from: user, "go for step 2c", 2026-10-13; ADR-043 decisions 15-17 and
+- [ ] **beta 1.1: flash the release image, then publish** (from: user, 2026-10-13, "let's commit and release a version
+  beta v1.1"). Their answers: the zip holds **both simulator programs** (`ritual-machine-sim-hwv1.exe`, `-panel.exe`); **they
+  flash the release image before anything is published**; on the board since beta 1.0 they tried the synth and the pads as
+  before and **the Pads sequencer** (not the synth's step sequencer, not the template). Done by Claude: `BOOT_VERSION`
+  "beta 1.1", `make_release.ps1` packs both programs, the simulator's readme rewritten for both boards, `CHANGELOG.md`
+  (beta 1.1 + the guide to the library), the commit on `main`, the two files in `apps/ritual_machine/build/release`, a
+  **draft** pre-release on GitHub with its notes. Still to do, in this order: the user flashes
+  `C:\.platformio\penv\Scripts\python.exe -m esptool --chip esp32s3 write-flash 0x0 apps\ritual_machine\build\release\ritual-machine-beta-1.1-hwv1.bin`
+  and reports; the notes' "tested" paragraph is set to what they saw; the tag `beta-1.1` goes on the commit the image was
+  built from and the draft is published (`gh release edit beta-1.1 --draft=false`). A fix after the flash = a new commit, the
+  image and the zip built again, the draft's files replaced.
+- [ ] **The split, step 2c: try it** (committed by the user: `0ab1696`; from: user, "go for step 2c", 2026-10-13; ADR-043 decisions 15-17 and
   "Step 2c as built", with the six choices made while building: say if one is wrong). The user's answers at the start:
   the board is picked **at build time** (against my recommendation), the **panel stays the default**, the panel's
   PC-only **key columns 5..8 are removed**. What is there: `.\build.ps1 -Board hwv1` builds `build/oled_sim_hwv1.exe`

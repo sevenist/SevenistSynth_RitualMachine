@@ -18,28 +18,24 @@ const control_map_t *controls_map_of(const char *board) {
 
 static uint8_t role_of[CONTROLS_BOARD_MAX];         // board control -> role (CTL_NONE: none)
 static uint8_t board_of[CTL_COUNT];                 // role -> board control + 1 (0: none)
-static uint8_t listed[(CTL_COUNT + 7) / 8];         // one bit per role: its control has a place on the panel
 
-static void assign(const input_control_t *table, int b, int role) {
+static void assign(int b, int role) {
     if (b < 0 || b >= CONTROLS_BOARD_MAX || role <= CTL_NONE || role >= CTL_HW_COUNT) return;
-    if (role_of[b]) { board_of[role_of[b]] = 0; listed[role_of[b] / 8] &= (uint8_t)~(1u << (role_of[b] % 8)); }   // the control leaves the role it had
-    if (board_of[role]) role_of[board_of[role] - 1] = CTL_NONE;                                                  // ... and the role its control
+    if (role_of[b]) board_of[role_of[b]] = 0;                           // the control leaves the role it had
+    if (board_of[role]) role_of[board_of[role] - 1] = CTL_NONE;         // ... and the role its control
     role_of[b] = (uint8_t)role;
     board_of[role] = (uint8_t)(b + 1);
-    if (table[b].px != INPUT_OFF_PANEL) listed[role / 8] |= (uint8_t)(1u << (role % 8));
-    else listed[role / 8] &= (uint8_t)~(1u << (role % 8));
 }
 
 void controls_bind(const input_control_t *table, int count, const control_map_t *map) {
     memset(role_of, 0, sizeof role_of);
     memset(board_of, 0, sizeof board_of);
-    memset(listed, 0, sizeof listed);
     if (!table) return;
     if (count > CONTROLS_BOARD_MAX) count = CONTROLS_BOARD_MAX;
     for (int b = 0; b < count; b++)
-        if (table[b].kind == CK_KEY && table[b].row < KEY_ROWS && table[b].col < KEY_COLS) assign(table, b, CTL_KEY(table[b].row, table[b].col));
+        if (table[b].kind == CK_KEY && table[b].row < KEY_ROWS && table[b].col < KEY_COLS) assign(b, CTL_KEY(table[b].row, table[b].col));
     for (int i = 0; map && i < map->count; i++)
-        if (map->rows[i].board_ctl < count) assign(table, map->rows[i].board_ctl, map->rows[i].role);
+        if (map->rows[i].board_ctl < count) assign(map->rows[i].board_ctl, map->rows[i].role);
 }
 
 control_id_t controls_role(int board_ctl) {
@@ -50,9 +46,7 @@ int controls_board_ctl(control_id_t role) {
     return role > CTL_NONE && role < CTL_COUNT && board_of[role] ? board_of[role] - 1 : INPUT_NO_CONTROL;
 }
 
-bool controls_listed(control_id_t role) {
-    return role > CTL_NONE && role < CTL_COUNT && ((listed[role / 8] >> (role % 8)) & 1);
-}
+bool controls_listed(control_id_t role) { return controls_board_ctl(role) != INPUT_NO_CONTROL; }
 
 input_event_t controls_event(input_event_t e) {
     if (e.kind == IN_NONE) { e.ctl = CTL_NONE; return e; }             // nothing happened (or quit, which travels with it)

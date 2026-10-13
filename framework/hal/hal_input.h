@@ -33,14 +33,13 @@ typedef enum {
     CK_AXIS,                // a joystick axis (it rests at INPUT_AXIS_CENTER)
 } control_kind_t;
 
-#define INPUT_OFF_PANEL 255                         // `px` of a control that reports but has no part on the panel (the desktop: PC keys only)
-
 // One control of a board. The tables are constants (flash on the ESP32).
 typedef struct {
     const char *name;       // the part's name on this board: "F1", "KEY 2.3", "POT 4", "JOY X"
     uint8_t     kind;       // control_kind_t
     uint8_t     row, col;   // CK_KEY: its place in the key matrix (0 for the other kinds)
-    uint8_t     px, py;     // its place on the panel, in half key pitches from the top left corner (the desktop draws a board from it)
+    uint8_t     px, py;     // the centre of its part on the panel, in half key pitches from the top left (the desktop draws a board from
+                            // it; controls at the same place are one part: an encoder and its push, a joystick's axes and its push)
     uint8_t     led;        // 1: an LED sits under it (hal_leds.h)
 } input_control_t;
 

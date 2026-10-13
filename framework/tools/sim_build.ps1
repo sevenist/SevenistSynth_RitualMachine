@@ -20,6 +20,22 @@ function Get-DesktopBoardSources {
     return @(Get-ChildItem (Join-Path $PSScriptRoot "../boards/desktop") -Filter *.c)
 }
 
+# The board the desktop program simulates: its panel window is drawn from that board's control table (boards/desktop/sim_board.h).
+# An app's build.ps1 takes -Board <name> and asks here what the board needs:
+#   $board = Get-SimBoard $Board          $null (and a message) for a name that is not known
+#   -Flags ... + $board.Flags     -CSources ... + $board.Sources     -ObjDir "build/obj$($board.Suffix)"     -Out "build/<name>$($board.Suffix).exe"
+# The board is a compile-time choice, so each board has its own objects and its own program: "panel" (the default) builds <name>.exe,
+# any other board <name>_<board>.exe. To add a board: an entry here and its branch in sim_board.h.
+function Get-SimBoard([string]$Board = "panel") {
+    $boards = Join-Path $PSScriptRoot "../boards"
+    switch ($Board) {
+        { $_ -in "", "panel" } { return @{ Name = "panel"; Flags = @(); Sources = @(); Suffix = "" } }
+        "hwv1" { return @{ Name = "hwv1"; Flags = @("-DSIM_BOARD_HWV1"); Sources = @(Get-Item "$boards/hwv1/hwv1_controls.c"); Suffix = "_hwv1" } }
+    }
+    Write-Host "No board '$Board' for the desktop build (known: panel, hwv1)" -ForegroundColor Red
+    return $null
+}
+
 # Does this object need building? (missing, source newer, or any header listed in its .d file newer)
 function Test-NeedsBuild($src, $obj, $dep) {
     if (-not (Test-Path $obj)) { return $true }

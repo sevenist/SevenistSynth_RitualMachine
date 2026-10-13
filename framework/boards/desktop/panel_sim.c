@@ -1,6 +1,5 @@
 #ifdef PLATFORM_SIM
 #include "boards/desktop/panel_sim.h"
-#include "boards/desktop/panel_controls.h"
 #include "boards/desktop/leds_sim.h"
 #include <math.h>
 #include <stdio.h>
@@ -8,80 +7,40 @@
 #include <ctype.h>
 #include <stdlib.h>
 
-/* The simulator's second window: a drawing of the front panel. Layout in pixels (window PANEL_W x PANEL_H):
+/* The simulator's second window: a drawing of the front panel of the board the program was built for (sim_board.h).
  *
- *   left strip (x 20..90)    matrix keyboard (x 130..556)                right section (x 586..796)
- *     master volume knob       a knob above each of the first 4 columns    3 knobs
- *     encoder A                function row of 8 keys, then 4 x 8 notes    joystick pad + push button
- *     encoder B                                                            3 buttons
- *     play button
- *
- * Each control is one entry of widgets[] (built by build_layout), used both to draw it and to find it under the mouse. */
+ * Nothing here knows a board. The parts, their places and the size of the drawing come from the board's table (sim_board.c): a key,
+ * a button, an encoder, an endless pot, a knob, a joystick, each drawn by its kind at its place and found under the mouse by its
+ * body. The PC key written on a part is input_sim.c's. Under the parts: what the application last did (panel_set_status). */
 
 extern SDL_Surface *u8g_sdl_screen;       // the display window's surface (u8g2 SDL backend)
 
-#define PANEL_W 600
-#define KEY_PITCH 54             // matrix keys: distance between columns
-#define RIGHT_X 0                // future prototype: 4-column keyboard, no offset needed
-#define COL_KNOBS 4
-#define KEY_COLS_SIM PANEL_KEY_COLS_SHOWN     // the panel shows only the 4 columns the future prototype has
-#define PANEL_H PANEL_DRAW_HEIGHT
-
-typedef enum { W_KNOB, W_ENC, W_BTN, W_JOY } wtype_t;
 #define NONE INPUT_NO_CONTROL
 
-typedef struct {
-    wtype_t      type;
-    int          ctl;        // knob / button / key: the control (panel_controls.h); encoder: the turn; joystick: the X axis
-    int          ctl2;       // encoder: its switch; joystick: the Y axis (NONE: no second control)
-    int          x, y;       // centre (knob, encoder, joystick) or top-left (button)
-    int          w, h;       // button size; for round widgets w = radius
-    const char  *label;
-    const char  *key;        // the computer key that does the same (shown on the widget)
-} widget_t;
-
-#define MAX_WIDGETS 64
-static widget_t widgets[MAX_WIDGETS];
-static int n_widgets;
+static sim_panel_t layout;
+static bool laid_out;
 
 static SDL_Window   *window;
 static SDL_Renderer *rend;
-static int  val[PANEL_CONTROL_COUNT];          // knob / axis positions
-static int  angle[PANEL_CONTROL_COUNT];        // encoder rotation in detents (drawing only)
-static bool down[PANEL_CONTROL_COUNT];
+static int  val[SIM_CONTROL_COUNT];            // knob / axis positions; an endless pot's position when it reports one
+static int  angle[SIM_CONTROL_COUNT];          // encoder / endless pot rotation in detents (drawing only)
+static bool down[SIM_CONTROL_COUNT];
 static char status[64];
 static int  oct, shift;
 static bool dirty = true;
 static Uint32 last_draw;
 
-static void add(widget_t w) { if (n_widgets < MAX_WIDGETS) widgets[n_widgets++] = w; }
-
-static void build_layout(void) {
-    static const char *const key_labels[PANEL_KEY_ROWS][KEY_COLS_SIM] = {{"F1", "F2", "F3", "F4"}, {"1", "2", "3", "4"},
-                                                                   {"Q", "W", "E", "R"}, {"A", "S", "D", "F"},
-                                                                   {"Z", "X", "C", "V"}};
-    static const char *const col_labels[COL_KNOBS] = {"K1", "K2", "K3", "K4"};
-    // left strip
-    add((widget_t){W_KNOB, PANEL_VOLUME, NONE,       55, 62, 26, 0, "VOLUME", ""});
-    add((widget_t){W_ENC,  PANEL_ENC_A,  PANEL_ENC_A_SW,   55, 150, 22, 0, "ENC A", "[ ] \\"});
-    add((widget_t){W_ENC,  PANEL_ENC_B,  PANEL_ENC_B_SW,   55, 236, 22, 0, "ENC B", "; ' /"});
-    add((widget_t){W_BTN,  PANEL_PLAY,   NONE,       20, 292, 70, 34, "PLAY", "SPACE"});
-    // matrix: a knob above each of the 4 columns, then the function row and the 4 x 4 note keys
-    for (int c = 0; c < COL_KNOBS; c++)
-        add((widget_t){W_KNOB, PANEL_COL_KNOB_0 + c, NONE, 130 + c * KEY_PITCH + 24, 62, 17, 0, col_labels[c], ""});
-    for (int r = 0; r < PANEL_KEY_ROWS; r++)
-        for (int c = 0; c < KEY_COLS_SIM; c++)
-            add((widget_t){W_BTN, PANEL_KEY(r, c), NONE, 130 + c * KEY_PITCH, 104 + r * 52 + (r >= 1 ? 10 : 0), KEY_PITCH - 6, 44, "", key_labels[r][c]});
-    // right section
-    for (int k = 0; k < 3; k++) {
-        static const char *const names[3] = {"R1", "R2", "R3"};
-        add((widget_t){W_KNOB, PANEL_KNOB_R1 + k, NONE, 450 + k * 50, 62, 19, 0, names[k], ""});
+const sim_panel_t *panel_layout(void) {
+    if (!laid_out) {
+        laid_out = true;
+        sim_panel_build(&layout, SIM_CONTROLS, SIM_CONTROL_COUNT);
+        for (int i = 0; i < layout.count; i++) {                    // where the parts rest
+            const sim_part_t *p = &layout.parts[i];
+            if (p->kind == PART_KNOB) val[p->ctl] = INPUT_VALUE_MAX / 2;
+            if (p->kind == PART_JOYSTICK) { val[p->ctl] = INPUT_AXIS_CENTER; if (p->ctl2 != NONE) val[p->ctl2] = INPUT_AXIS_CENTER; }
+        }
     }
-    add((widget_t){W_JOY, PANEL_JOY_X, PANEL_JOY_Y, 505, 172, 50, 0, "JOYSTICK", "ARROWS"});
-    add((widget_t){W_BTN, PANEL_JOY_SW, NONE, 465, 258, 80, 40, "PUSH", "R CTRL"});
-    add((widget_t){W_BTN, PANEL_BTN_1, NONE, 430, 330, 50, 36, "B1", "ENTER"});
-    add((widget_t){W_BTN, PANEL_BTN_2, NONE, 485, 330, 50, 36, "B2", "BKSP"});
-    add((widget_t){W_BTN, PANEL_BTN_3, NONE, 540, 330, 50, 36, "B3", "L SHIFT"});
+    return &layout;
 }
 
 /* ---------------- drawing primitives ---------------- */
@@ -140,71 +99,108 @@ static void pointer(int cx, int cy, float deg, int from, int to) {
     SDL_RenderDrawLine(rend, cx + (int)(sx * (float)from), cy + (int)(sy * (float)from), cx + (int)(sx * (float)to), cy + (int)(sy * (float)to));
 }
 
-/* ---------------- widgets ---------------- */
+/* ---------------- parts ---------------- */
 
-static void draw_knob(const widget_t *w) {
-    const int r = w->w, v = val[w->ctl];
-    color(48, 52, 60); disc(w->x, w->y, r);
-    color(150, 156, 168); ring(w->x, w->y, r); ring(w->x, w->y, r - 1);
-    color(255, 190, 60); pointer(w->x, w->y, -135.0f + 270.0f * (float)v / (float)INPUT_VALUE_MAX, r / 3, r - 3);
-    color(190, 196, 208); text_centered(w->x, w->y + r + 5, 1, w->label);
+static bool is_down(int ctl) { return ctl != NONE && down[ctl]; }
+
+// The two lines under a round part: its name, then its PC keys (the turn, then the push).
+static void texts_under(const sim_part_t *p, const char *name) {
+    char keys[32];
+    const char *turn = input_sim_key_hint(p->ctl), *push = p->sw != NONE ? input_sim_key_hint(p->sw) : "";
+    snprintf(keys, sizeof keys, "%s%s%s", turn, turn[0] && push[0] ? " " : "", push);
+    color(190, 196, 208);
+    text_centered(p->x, p->y + p->hh + 5, 1, name);
+    if (keys[0]) text_centered(p->x, p->y + p->hh + 15, 1, keys);
 }
 
-static void draw_encoder(const widget_t *w) {
-    const int r = w->w;
-    const bool pressed = down[w->ctl2];
-    color(pressed ? 255 : 48, pressed ? 190 : 52, pressed ? 60 : 60); disc(w->x, w->y, r);
-    color(150, 156, 168); ring(w->x, w->y, r); ring(w->x, w->y, r - 1);
-    color(pressed ? 40 : 190, pressed ? 40 : 196, pressed ? 40 : 208);
-    for (int i = 0; i < 12; i++) pointer(w->x, w->y, (float)i * 30.0f + (float)angle[w->ctl] * 15.0f, r - 7, r - 2);
-    color(190, 196, 208); text_centered(w->x, w->y + r + 5, 1, w->label);
-    text_centered(w->x, w->y + r + 15, 1, w->key);
+static void body(const sim_part_t *p, bool pressed) {
+    const int r = p->hw;
+    color(pressed ? 255 : 48, pressed ? 190 : 52, pressed ? 60 : 60); disc(p->x, p->y, r);
+    color(150, 156, 168); ring(p->x, p->y, r); ring(p->x, p->y, r - 1);
 }
 
-static void draw_button(const widget_t *w) {
-    const bool pressed = down[w->ctl];
-    SDL_Rect r = {w->x, w->y, w->w, w->h};
+// A key shows its PC key (its name when it has none); a button its name, and its PC key under it.
+static void draw_key(const sim_part_t *p) {
+    const bool pressed = down[p->ctl];
+    const input_control_t *c = &SIM_CONTROLS[p->ctl];
+    const char *key = input_sim_key_hint(p->ctl);
+    SDL_Rect r = {p->x - p->hw, p->y - p->hh, 2 * p->hw, 2 * p->hh};
     color(pressed ? 255 : 48, pressed ? 190 : 52, pressed ? 60 : 60); SDL_RenderFillRect(rend, &r);
     color(150, 156, 168); SDL_RenderDrawRect(rend, &r);
-    if (kPanelControls[w->ctl].led) {                                // the key's LED (hal_leds.h): a strip along the top edge
-        const led_color_t c = leds_sim_get(w->ctl);
-        SDL_Rect led = {w->x + 4, w->y + 3, w->w - 8, 5};
-        if (c.r | c.g | c.b) { color(c.r, c.g, c.b); SDL_RenderFillRect(rend, &led); }
+    if (c->led) {                                                    // its LED (hal_leds.h): a strip along the top edge
+        const led_color_t l = leds_sim_get(p->ctl);
+        SDL_Rect led = {r.x + 4, r.y + 3, r.w - 8, 5};
+        if (l.r | l.g | l.b) { color(l.r, l.g, l.b); SDL_RenderFillRect(rend, &led); }
         else { color(70, 74, 82); SDL_RenderDrawRect(rend, &led); }
     }
     color(pressed ? 30 : 200, pressed ? 30 : 205, pressed ? 30 : 215);
-    if (w->label[0]) text_centered(w->x + w->w / 2, w->key[0] ? w->y + 5 : w->y + w->h / 2 - 7, 2, w->label);
-    if (w->key[0] && !w->label[0]) text_centered(w->x + w->w / 2, w->y + w->h / 2 - 7, 2, w->key);
-    else if (w->key[0]) text_centered(w->x + w->w / 2, w->y + w->h - 11, 1, w->key);
+    if (p->kind == PART_KEY) {
+        if (key[0]) text_centered(p->x, p->y - 7, 2, key);
+        else text_centered(p->x, p->y - 3, 1, c->name);
+        return;
+    }
+    const int scale = text_w(c->name, 2) <= 2 * p->hw - 2 ? 2 : 1;
+    text_centered(p->x, key[0] ? r.y + 5 : p->y - 7 * scale / 2, scale, c->name);
+    if (key[0]) text_centered(p->x, r.y + r.h - 11, 1, key);
 }
 
-static void draw_joystick(const widget_t *w) {
-    const int R = w->w, sx = w->x + (val[w->ctl] - INPUT_AXIS_CENTER) * (R - 14) / INPUT_AXIS_CENTER, sy = w->y + (val[w->ctl2] - INPUT_AXIS_CENTER) * (R - 14) / INPUT_AXIS_CENTER;
-    color(32, 36, 44); disc(w->x, w->y, R);
-    color(150, 156, 168); ring(w->x, w->y, R);
-    color(70, 76, 88); SDL_RenderDrawLine(rend, w->x - R, w->y, w->x + R, w->y); SDL_RenderDrawLine(rend, w->x, w->y - R, w->x, w->y + R);
-    color(110, 116, 130); disc(sx, sy, 14);
-    color(220, 225, 235); ring(sx, sy, 14);
-    color(190, 196, 208); text_centered(w->x, w->y + R + 5, 1, w->label);
-    text_centered(w->x, w->y + R + 15, 1, w->key);
+static void draw_knob(const sim_part_t *p) {
+    const int r = p->hw;
+    body(p, is_down(p->sw));
+    color(255, 190, 60); pointer(p->x, p->y, -135.0f + 270.0f * (float)val[p->ctl] / (float)INPUT_VALUE_MAX, r / 3, r - 3);
+    texts_under(p, SIM_CONTROLS[p->ctl].name);
 }
 
-// The display window is borderless and follows the panel: it sits to its right (outside the title bar's frame), centred vertically.
-static int off_y;                  // the window can be taller than the drawing (it matches the display window): the drawing is centred
-static int win_h = PANEL_H;
+static void draw_encoder(const sim_part_t *p) {
+    const int r = p->hw;
+    const bool pressed = is_down(p->sw);
+    body(p, pressed);
+    color(pressed ? 40 : 190, pressed ? 40 : 196, pressed ? 40 : 208);
+    for (int i = 0; i < 12; i++) pointer(p->x, p->y, (float)i * 30.0f + (float)angle[p->ctl] * 15.0f, r - 7, r - 2);
+    texts_under(p, SIM_CONTROLS[p->ctl].name);
+}
+
+// A pot without end stops: one pointer that goes all the way round (steps and position both turn it), a ring in the middle.
+static void draw_endless(const sim_part_t *p) {
+    const int r = p->hw;
+    const bool pressed = is_down(p->sw);
+    body(p, pressed);
+    color(pressed ? 40 : 150, pressed ? 40 : 156, pressed ? 40 : 168); ring(p->x, p->y, r / 3);
+    color(pressed ? 40 : 255, pressed ? 40 : 190, pressed ? 40 : 60);
+    pointer(p->x, p->y, (float)angle[p->ctl] * 15.0f + 360.0f * (float)val[p->ctl] / (float)(INPUT_VALUE_MAX + 1), r / 3, r - 3);
+    texts_under(p, SIM_CONTROLS[p->ctl].name);
+}
+
+static void draw_joystick(const sim_part_t *p) {
+    const int R = p->hw, cap = 13, vy = p->ctl2 != NONE ? val[p->ctl2] : INPUT_AXIS_CENTER;
+    const int sx = p->x + (val[p->ctl] - INPUT_AXIS_CENTER) * (R - cap) / INPUT_AXIS_CENTER, sy = p->y + (vy - INPUT_AXIS_CENTER) * (R - cap) / INPUT_AXIS_CENTER;
+    const bool pressed = is_down(p->sw);
+    color(32, 36, 44); disc(p->x, p->y, R);
+    color(150, 156, 168); ring(p->x, p->y, R);
+    color(70, 76, 88); SDL_RenderDrawLine(rend, p->x - R, p->y, p->x + R, p->y); SDL_RenderDrawLine(rend, p->x, p->y - R, p->x, p->y + R);
+    color(pressed ? 255 : 110, pressed ? 190 : 116, pressed ? 60 : 130); disc(sx, sy, cap);
+    color(220, 225, 235); ring(sx, sy, cap);
+    char name[24];                                                   // "JOY X" -> "JOY": the axis's name without its last word
+    snprintf(name, sizeof name, "%s", SIM_CONTROLS[p->ctl].name);
+    char *cut = strrchr(name, ' ');
+    if (cut) *cut = 0;
+    texts_under(p, name);
+}
+
+// The display window is borderless and follows the panel: it sits to its right (outside the title bar's frame), the tops line up.
+static int off_y;                  // the window can be taller than the drawing (it is at least as tall as the display window): the drawing is centred
+static int win_h;
 static int placed_x = -100000, placed_y = -100000;
 
 static void place_oled(void) {
     SDL_Window *oled = SDL_GetWindowFromID(1);
     if (!window || !oled) return;
-    int px, py, ow, oh, top = 0, left = 0, bottom = 0, right = 0;
+    int px, py, top = 0, left = 0, bottom = 0, right = 0;
     SDL_GetWindowPosition(window, &px, &py);
     if (px == placed_x && py == placed_y) return;                   // the panel has not moved
     placed_x = px; placed_y = py;
-    SDL_GetWindowSize(oled, &ow, &oh);
     SDL_GetWindowBordersSize(window, &top, &left, &bottom, &right);
-    (void)oh;
-    SDL_SetWindowPosition(oled, px + PANEL_W + right + 4, py);       // same height as the panel: the tops line up
+    SDL_SetWindowPosition(oled, px + layout.width + right + 4, py);
 }
 
 static int shot_done;
@@ -216,29 +212,34 @@ void panel_render(void) {
     if (!window || !dirty || now - last_draw < 15) return;
     dirty = false; last_draw = now;
     color(22, 24, 30); SDL_RenderClear(rend);
-    SDL_Rect vp = {0, off_y, PANEL_W, PANEL_H};
+    SDL_Rect vp = {0, off_y, layout.width, layout.height};
     SDL_RenderSetViewport(rend, &vp);
-    color(90, 96, 110);                                            // section frames
-    SDL_Rect f1 = {10, 20, 90, 330}, f2 = {120, 20, 290, 350}, f3 = {420, 20, 170, 360};
-    SDL_RenderDrawRect(rend, &f1); SDL_RenderDrawRect(rend, &f2); SDL_RenderDrawRect(rend, &f3);
-    for (int i = 0; i < n_widgets; i++) {
-        switch (widgets[i].type) {
-            case W_KNOB: draw_knob(&widgets[i]); break;
-            case W_ENC:  draw_encoder(&widgets[i]); break;
-            case W_BTN:  draw_button(&widgets[i]); break;
-            case W_JOY:  draw_joystick(&widgets[i]); break;
+    const int frame_top = SIM_PANEL_TOP - 8, parts_bottom = layout.height - SIM_PANEL_STATUS - 4;
+    color(90, 96, 110);                                            // the board's outline
+    SDL_Rect frame = {6, frame_top, layout.width - 12, parts_bottom - frame_top};
+    SDL_RenderDrawRect(rend, &frame);
+    for (int i = 0; i < layout.count; i++) {
+        const sim_part_t *p = &layout.parts[i];
+        switch (p->kind) {
+            case PART_KEY:
+            case PART_BUTTON:   draw_key(p); break;
+            case PART_ENCODER:  draw_encoder(p); break;
+            case PART_ENDLESS:  draw_endless(p); break;
+            case PART_KNOB:     draw_knob(p); break;
+            case PART_JOYSTICK: draw_joystick(p); break;
+            default: break;
         }
     }
     color(190, 196, 208);
-    text(20, 8, 1, "SEVEN SYNTH PANEL   (OLED = OTHER WINDOW)");
+    text(8, 6, 1, "BOARD " SIM_BOARD_NAME "   (DISPLAY = OTHER WINDOW)");
     char line[96];
     snprintf(line, sizeof line, "%s", status[0] ? status : "-");
-    color(255, 190, 60); text(20, 385, 2, line);
+    color(255, 190, 60); text(8, layout.height - SIM_PANEL_STATUS + 4, 2, line);
     snprintf(line, sizeof line, "OCTAVE %+d    SHIFT %s", oct, shift ? "ON" : "OFF");
-    color(shift ? 255 : 150, shift ? 190 : 156, shift ? 60 : 168); text(20, 410, 2, line);
+    color(shift ? 255 : 150, shift ? 190 : 156, shift ? 60 : 168); text(8, layout.height - SIM_PANEL_STATUS + 26, 2, line);
     const char *shot = getenv("OLED_SIM_PANEL_SHOT");                 // debugging aid: save the first frames of the panel as a BMP
     if (shot && !shot_done && SDL_GetTicks() > 700) {
-        SDL_Surface *surf = SDL_CreateRGBSurfaceWithFormat(0, PANEL_W, win_h, 32, SDL_PIXELFORMAT_ARGB8888);
+        SDL_Surface *surf = SDL_CreateRGBSurfaceWithFormat(0, layout.width, win_h, 32, SDL_PIXELFORMAT_ARGB8888);
         if (surf && SDL_RenderReadPixels(rend, NULL, SDL_PIXELFORMAT_ARGB8888, surf->pixels, surf->pitch) == 0) SDL_SaveBMP(surf, shot);
         if (surf) SDL_FreeSurface(surf);
         char oled_path[300];                                          // and the display window next to it
@@ -253,18 +254,16 @@ void panel_render(void) {
 
 void panel_open(void) {
     if (window) return;
-    build_layout();
-    for (int i = 0; i < PANEL_CONTROL_COUNT; i++) val[i] = INPUT_VALUE_MAX / 2;
-    val[PANEL_JOY_X] = val[PANEL_JOY_Y] = INPUT_AXIS_CENTER;
+    panel_layout();
     int x = SDL_WINDOWPOS_UNDEFINED, y = SDL_WINDOWPOS_UNDEFINED;
     SDL_Window *oled = SDL_GetWindowFromID(1);                      // the display window (borderless): the panel takes its place, the display goes to its right
     int ox = 0, oy = 0;
     if (oled) { SDL_GetWindowPosition(oled, &ox, &oy); x = ox; y = oy; }
     int oh = 0, ow = 0;
     if (oled) SDL_GetWindowSize(oled, &ow, &oh);
-    win_h = oh > PANEL_H ? oh : PANEL_H;                            // as tall as the display window (display_sim.c picks its scale for that)
-    off_y = (win_h - PANEL_H) / 2;
-    window = SDL_CreateWindow("Panel", x, y, PANEL_W, win_h, 0);
+    win_h = oh > layout.height ? oh : layout.height;                // at least as tall as the display window
+    off_y = (win_h - layout.height) / 2;
+    window = SDL_CreateWindow("Panel", x, y, layout.width, win_h, 0);
     if (window) rend = SDL_CreateRenderer(window, -1, 0);
     if (!rend) { if (window) SDL_DestroyWindow(window); window = NULL; }
     dirty = true;
@@ -273,7 +272,7 @@ void panel_open(void) {
 int panel_owns_window(Uint32 id) { return window && SDL_GetWindowID(window) == id; }
 
 void panel_track(int ctl, input_kind_t kind, int value) {
-    if (ctl < 0 || ctl >= PANEL_CONTROL_COUNT) return;
+    if (ctl < 0 || ctl >= SIM_CONTROL_COUNT) return;
     switch (kind) {
         case IN_PRESS:   down[ctl] = true; break;
         case IN_RELEASE: down[ctl] = false; break;
@@ -291,54 +290,78 @@ void panel_set_status(const char *s, int octave, int sh) {
 }
 
 static int hit(int mx, int my) {
-    for (int i = n_widgets - 1; i >= 0; i--) {
-        const widget_t *w = &widgets[i];
-        if (w->type == W_BTN) { if (mx >= w->x && mx < w->x + w->w && my >= w->y && my < w->y + w->h) return i; }
-        else { const int dx = mx - w->x, dy = my - w->y; if (dx * dx + dy * dy <= (w->w + 3) * (w->w + 3)) return i; }
+    for (int i = layout.count - 1; i >= 0; i--) {
+        const sim_part_t *p = &layout.parts[i];
+        const int dx = mx - p->x, dy = my - p->y;
+        if (p->kind == PART_KEY || p->kind == PART_BUTTON) { if (abs(dx) <= p->hw && abs(dy) <= p->hh) return i; }
+        else if (dx * dx + dy * dy <= (p->hw + 3) * (p->hw + 3)) return i;
     }
     return -1;
 }
 
 static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v; }
 
-static int active = -1;                      // widget held down by the mouse (button / encoder switch)
-static int drag_knob = -1, drag_y0, drag_v0; // knob being dragged
+static int held = NONE, held_right = NONE;   // the controls the left / the right mouse button holds down
+static int drag = -1, drag_y0, drag_v0;      // knob or endless pot being dragged: where the drag started, the knob's value then
+static int drag_sent;                        // endless pot: the steps the drag has reported
 static int drag_joy = -1;                    // joystick being dragged
 
-static void joy_from_mouse(const widget_t *w, int mx, int my, panel_emit_fn emit) {
-    const int x = clampi(INPUT_AXIS_CENTER + (mx - w->x) * INPUT_AXIS_CENTER / w->w, 0, INPUT_VALUE_MAX);
-    const int y = clampi(INPUT_AXIS_CENTER + (my - w->y) * INPUT_AXIS_CENTER / w->w, 0, INPUT_VALUE_MAX);
-    if (x != val[w->ctl])  emit(w->ctl, IN_VALUE, x);
-    if (y != val[w->ctl2]) emit(w->ctl2, IN_VALUE, y);
+#define DRAG_PER_STEP 6                      // pixels of drag for one step of an endless pot
+
+static void joy_from_mouse(const sim_part_t *p, int mx, int my, panel_emit_fn emit) {
+    const int x = clampi(INPUT_AXIS_CENTER + (mx - p->x) * INPUT_AXIS_CENTER / p->hw, 0, INPUT_VALUE_MAX);
+    const int y = clampi(INPUT_AXIS_CENTER + (my - p->y) * INPUT_AXIS_CENTER / p->hw, 0, INPUT_VALUE_MAX);
+    if (x != val[p->ctl]) emit(p->ctl, IN_VALUE, x);
+    if (p->ctl2 != NONE && y != val[p->ctl2]) emit(p->ctl2, IN_VALUE, y);
 }
 
 void panel_handle_event(const SDL_Event *ev, panel_emit_fn emit) {
     switch (ev->type) {
         case SDL_MOUSEBUTTONDOWN: {
-            if (ev->button.button != SDL_BUTTON_LEFT) break;
             const int i = hit(ev->button.x, ev->button.y - off_y);
             if (i < 0) break;
-            const widget_t *w = &widgets[i];
-            if (w->type == W_KNOB) { drag_knob = i; drag_y0 = ev->button.y - off_y; drag_v0 = val[w->ctl]; }
-            else if (w->type == W_JOY) { drag_joy = i; joy_from_mouse(w, ev->button.x, ev->button.y - off_y, emit); }
-            else { active = i; emit(w->type == W_ENC ? w->ctl2 : w->ctl, IN_PRESS, 0); }
+            const sim_part_t *p = &layout.parts[i];
+            if (ev->button.button == SDL_BUTTON_RIGHT) {            // the push of a round part
+                if (p->sw != NONE && held_right == NONE) { held_right = p->sw; emit(p->sw, IN_PRESS, 0); }
+                break;
+            }
+            if (ev->button.button != SDL_BUTTON_LEFT) break;
+            switch (p->kind) {
+                case PART_KNOB:
+                case PART_ENDLESS:  drag = i; drag_y0 = ev->button.y - off_y; drag_v0 = val[p->ctl]; drag_sent = 0; break;
+                case PART_JOYSTICK: drag_joy = i; joy_from_mouse(p, ev->button.x, ev->button.y - off_y, emit); break;
+                case PART_ENCODER:  if (p->sw != NONE && held == NONE) { held = p->sw; emit(p->sw, IN_PRESS, 0); } break;
+                default:            if (held == NONE) { held = p->ctl; emit(p->ctl, IN_PRESS, 0); } break;
+            }
             break;
         }
         case SDL_MOUSEMOTION:
-            if (drag_knob >= 0) {
-                const widget_t *w = &widgets[drag_knob];
-                const int v = clampi(drag_v0 + (drag_y0 - (ev->motion.y - off_y)) * 6, 0, INPUT_VALUE_MAX);
-                if (v != val[w->ctl]) emit(w->ctl, IN_VALUE, v);
-            } else if (drag_joy >= 0) joy_from_mouse(&widgets[drag_joy], ev->motion.x, ev->motion.y - off_y, emit);
+            if (drag >= 0) {
+                const sim_part_t *p = &layout.parts[drag];
+                const int moved = drag_y0 - (ev->motion.y - off_y);
+                if (p->kind == PART_KNOB) {
+                    const int v = clampi(drag_v0 + moved * 6, 0, INPUT_VALUE_MAX);
+                    if (v != val[p->ctl]) emit(p->ctl, IN_VALUE, v);
+                } else if (moved / DRAG_PER_STEP != drag_sent) {
+                    const int steps = moved / DRAG_PER_STEP - drag_sent;
+                    drag_sent += steps;
+                    emit(p->ctl, IN_DELTA, steps);
+                }
+            } else if (drag_joy >= 0) joy_from_mouse(&layout.parts[drag_joy], ev->motion.x, ev->motion.y - off_y, emit);
             break;
         case SDL_MOUSEBUTTONUP:
-            if (ev->button.button != SDL_BUTTON_LEFT) break;
-            if (active >= 0) { const widget_t *w = &widgets[active]; emit(w->type == W_ENC ? w->ctl2 : w->ctl, IN_RELEASE, 0); active = -1; }
-            if (drag_joy >= 0) {                                  // the stick springs back
-                const widget_t *w = &widgets[drag_joy];
-                emit(w->ctl, IN_VALUE, INPUT_AXIS_CENTER); emit(w->ctl2, IN_VALUE, INPUT_AXIS_CENTER);
+            if (ev->button.button == SDL_BUTTON_RIGHT) {
+                if (held_right != NONE) { emit(held_right, IN_RELEASE, 0); held_right = NONE; }
+                break;
             }
-            drag_knob = drag_joy = -1;
+            if (ev->button.button != SDL_BUTTON_LEFT) break;
+            if (held != NONE) { emit(held, IN_RELEASE, 0); held = NONE; }
+            if (drag_joy >= 0) {                                  // the stick springs back
+                const sim_part_t *p = &layout.parts[drag_joy];
+                emit(p->ctl, IN_VALUE, INPUT_AXIS_CENTER);
+                if (p->ctl2 != NONE) emit(p->ctl2, IN_VALUE, INPUT_AXIS_CENTER);
+            }
+            drag = drag_joy = -1;
             break;
         case SDL_MOUSEWHEEL: {
             int mx, my;
@@ -346,10 +369,10 @@ void panel_handle_event(const SDL_Event *ev, panel_emit_fn emit) {
             my -= off_y;
             const int i = hit(mx, my);
             if (i < 0) break;
-            const widget_t *w = &widgets[i];
+            const sim_part_t *p = &layout.parts[i];
             const int d = ev->wheel.y * (ev->wheel.direction == SDL_MOUSEWHEEL_FLIPPED ? -1 : 1);
-            if (w->type == W_ENC) emit(w->ctl, IN_DELTA, d);
-            else if (w->type == W_KNOB) { const int v = clampi(val[w->ctl] + d * 24, 0, INPUT_VALUE_MAX); if (v != val[w->ctl]) emit(w->ctl, IN_VALUE, v); }
+            if (p->kind == PART_ENCODER || p->kind == PART_ENDLESS) emit(p->ctl, IN_DELTA, d);
+            else if (p->kind == PART_KNOB) { const int v = clampi(val[p->ctl] + d * 24, 0, INPUT_VALUE_MAX); if (v != val[p->ctl]) emit(p->ctl, IN_VALUE, v); }
             break;
         }
         default: break;

@@ -14,6 +14,8 @@ From the repo root:
 ```powershell
 .\build.ps1 -App template               # desktop program (needs MSYS2 UCRT64 with gcc, g++ and SDL2, and lib/u8g2: DEVELOPING.md, "Requirements")
 .\run.ps1 -App template                 # two windows: the screen, and the panel (its controls work with the mouse)
+.\build.ps1 -App template -Board hwv1   # the same program as the first prototype: the panel window draws that board (8 key columns, 7 pots)
+.\run.ps1 -App template -Board hwv1     # ... its own program, build/template_hwv1.exe
 C:\.platformio\penv\Scripts\pio.exe run -d apps/template               # firmware for the first prototype (HWV1)
 C:\.platformio\penv\Scripts\pio.exe run -d apps/template -t upload     # flash it
 ```
@@ -22,10 +24,10 @@ The controls, the same on both:
 
 | Control | On the desktop | What it does |
 | --- | --- | --- |
-| The note rows | the PC keyboard's rows `1`.., `Q`.., `A`.., `Z`.. (8 keys each, by position) | notes: bottom left = C3, +1 per key to the right, +8 per row up |
+| The note rows | the PC keyboard's rows `1`.., `Q`.., `A`.., `Z`.. (by position; as many keys as the board has columns: 4 on the panel, 8 with `-Board hwv1`) | notes: bottom left = C3, +1 per key to the right, +8 per row up |
 | Function keys 1 / 2 | `F1` / `F2` | octave down / up |
 | Function keys 3 / 4 | `F3` / `F4` | filter cutoff down / up |
-| Anything that turns in steps: the two encoders of the panel, the seven pots of the first prototype | `[` / `]` and `;` / `'` (by position) | filter cutoff |
+| Anything that turns in steps: the two encoders of the panel, the seven pots of the first prototype | `[` / `]` and `;` / `'` (by position), then one pair per further pot: the panel window writes each part's keys under it | filter cutoff |
 
 Esc or closing a window quits the desktop program.
 
@@ -73,7 +75,8 @@ next to yours.
   kind of the control that spoke and, for a key, its place in the matrix, so it runs on any board. To give one particular control
   a job, compare `e.ctl` with its id from the board's header (`boards/hwv1/hwv1_controls.h`, `boards/desktop/panel_controls.h`).
 - **Another board**: a folder in `framework/boards` with the HAL behind it and its control table, added to `build_src_filter` in
-  `platformio.ini`.
+  `platformio.ini`. The desktop program can be built as that board too (the panel window is drawn from the board's table): a
+  branch in `framework/boards/desktop/sim_board.h` and an entry in `Get-SimBoard` (`framework/tools/sim_build.ps1`).
 
 ## Three rules the engine relies on
 

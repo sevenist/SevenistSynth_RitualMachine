@@ -8,14 +8,22 @@
 # by framework/tools/smp_convert.cpp), then copied to the simulator's card sdcard/system/samples (the folders of the card layout are made too):
 #   .\build.ps1 -Sd E:          also sets up the real card E: (the card's drive letter): its folders + E:\system\samples
 #   .\build.ps1 -NoSamples      skip the conversion
-param([string]$Platform = "sim", [switch]$Clean, [string]$Display = "", [string]$Defs = "", [switch]$NoSamples, [string]$Sd = "")   # selects src/platform/<Platform>; -Display 128x128 builds for another screen size, -Defs "-DENGINE_SR=44100" passes engine flags (both with -Clean)
+#
+# The board: the simulator's panel window is drawn from one board's control table, picked here (framework/boards/desktop/sim_board.h):
+#   .\build.ps1                 the panel (the future prototype: 4 key columns, encoders)   -> build/oled_sim.exe
+#   .\build.ps1 -Board hwv1     the first prototype (8 key columns, 7 endless pots)         -> build/oled_sim_hwv1.exe
+# Each board has its own objects and its own program: after a change, build the board you run (.\run.ps1 -Board hwv1).
+param([string]$Platform = "sim", [switch]$Clean, [string]$Display = "", [string]$Defs = "", [switch]$NoSamples, [string]$Sd = "", [string]$Board = "panel")   # selects src/platform/<Platform>; -Display 128x128 builds for another screen size, -Defs "-DENGINE_SR=44100" passes engine flags (both with -Clean)
 $ErrorActionPreference = "Stop"
 $fw = "../../framework"                 # the library: its engine, the desktop-only helpers (host/), the shared tools
 $lib = "../../lib"                      # third-party code for the desktop build (not versioned: DEVELOPING.md, "Requirements")
 $u8g2 = "$lib/u8g2"
-$objDir = "build/obj"
 Push-Location $PSScriptRoot
 try {
+. "$fw/tools/sim_build.ps1"
+$simBoard = Get-SimBoard $Board
+if (-not $simBoard) { exit 1 }
+$objDir = "build/obj$($simBoard.Suffix)"
 if ($Clean -and (Test-Path $objDir)) { Remove-Item -Recurse -Force $objDir }
 New-Item -ItemType Directory -Force $objDir | Out-Null
 
@@ -58,17 +66,16 @@ if (Test-Path $py) {
 } else { Write-Host "No PlatformIO Python: UI sprites not regenerated (the committed ui_sprites_gen.c is used)" -ForegroundColor Yellow }
 
 # ---- the program ----
-. "$fw/tools/sim_build.ps1"
 $cSrc   = @(Get-ChildItem src/core/*.c) + @(Get-ChildItem src/app/*.c) + @(Get-ChildItem src/platform/*.c) + @(Get-ChildItem src/platform/$Platform/*.c) +
-          @(Get-UiSources) + @(Get-DesktopBoardSources) +
+          @(Get-UiSources) + @(Get-DesktopBoardSources) + $simBoard.Sources +
           @(Get-ChildItem $u8g2/csrc/*.c) + @(Get-ChildItem $u8g2/sys/sdl/common/*.c)
 $cppSrc = @(Get-EngineSources) + @(Get-ChildItem src/platform/engine/*.cpp) +
           @(Get-ChildItem src/platform/$Platform/*.cpp -ErrorAction SilentlyContinue)
 
-$flags = @("-O2", "-DPLATFORM_$($Platform.ToUpper())", "-Isrc", "-I$fw", "-I$u8g2/csrc", "-IC:/msys64/ucrt64/include/SDL2", "-I$lib/minimp3")
+$flags = @("-O2", "-DPLATFORM_$($Platform.ToUpper())", "-Isrc", "-I$fw", "-I$u8g2/csrc", "-IC:/msys64/ucrt64/include/SDL2", "-I$lib/minimp3") + $simBoard.Flags
 if ($Display -match '^(\d+)x(\d+)$') { $flags += @("-DDISPLAY_WIDTH=$($Matches[1])", "-DDISPLAY_HEIGHT=$($Matches[2])") }
 if ($Defs) { $flags += @($Defs -split '\s+' | Where-Object { $_ }) }
 
-if (-not (Invoke-SimBuild -CSources $cSrc -CppSources $cppSrc -Flags $flags -ObjDir $objDir -Out "build/oled_sim.exe")) { exit 1 }
+if (-not (Invoke-SimBuild -CSources $cSrc -CppSources $cppSrc -Flags $flags -ObjDir $objDir -Out "build/oled_sim$($simBoard.Suffix).exe")) { exit 1 }
 exit 0
 } finally { Pop-Location }

@@ -47,8 +47,9 @@ step 2a (the same day) moved the HAL, the two boards and the drawing kit into `f
 controls, the card's files and the audio output without copying; step 2b (the same day) gave each board its own control table
 (`hal/hal_input.h`: `input_controls()`; the ids: `boards/hwv1/hwv1_controls.h`, `boards/desktop/panel_controls.h`), and the
 Ritual Machine its list of roles with a map per board (`core/controls.h`, `core/boards/map_*.h`: "Change what a control does"
-below). Still the Ritual Machine's: the declarative screens, the bindings, key layouts and layers, the sample library. Still to
-come: the simulator's panel drawn from a board's table (2c); until then the desktop is one board, the panel.
+below); step 2c (the same day) draws the simulator's panel window from a board's table, so the desktop program can be built as
+either board: `.\build.ps1 -Board hwv1` ("The simulated board" below). Still the Ritual Machine's: the declarative screens, the
+bindings, key layouts and layers, the sample library.
 
 ## Quick start (desktop simulator)
 
@@ -56,6 +57,8 @@ come: the simulator's panel drawn from a board's table (2c); until then the desk
 cd D:\DEV\SevenSynthCore\ui\oled_sim
 .\build.ps1                      # the Ritual Machine's simulator: clean build ~10 s, one changed file ~1.5 s (per-file objects in apps\ritual_machine\build\obj, parallel)
 .\run.ps1                        # runs apps\ritual_machine\build\oled_sim.exe in its folder (its card is sdcard\ there; SDL2.dll from C:\msys64\ucrt64\bin)
+.\build.ps1 -Board hwv1          # the same program as the first prototype (8 key columns, 7 pots): build\oled_sim_hwv1.exe, objects in build\obj_hwv1
+.\run.ps1 -Board hwv1            # ... and runs it ("The simulated board" below)
 .\test.ps1 -Matrix               # every host test: 237 engine tests (123 the library's, 114 the app's) in six sample-rate / block-size configurations, then the UI tests
 .\apps\ritual_machine\tools\build_ui_tests.ps1     # the UI tests alone (tests/ui): the core driven by control events on the stubs of tools/ui_stubs.c
 ```
@@ -68,11 +71,35 @@ TF card (its folders and `E:\system\samples`). **Card layout** (`hal_storage.h`,
 If `oled_sim.exe` is running, `build.ps1` cannot overwrite it and builds `build\oled_sim_new.exe` instead (close the
 window to get the normal name back; `run.ps1` starts the newer of the two). `.\build.ps1 -Clean` rebuilds everything.
 
-The simulator opens two windows: the **OLED** and a **Panel** drawing the prototype's front panel (left strip: master volume knob,
-encoders A and B with their switches, play button; centre: 8 x 5 matrix keys (a function row of 8, then 4 rows of 8) with a knob above each of the first 4 columns; right: 3 knobs,
-joystick with push, 3 buttons). Every control works with the mouse (click = press; wheel over a knob / encoder = turn; drag a knob
-up / down; drag inside the joystick pad) and, except the knobs, with the keyboard. The panel's bottom line shows the last
-control -> action and the octave / Shift state.
+The simulator opens two windows: the **OLED** and a **Panel** drawing the front panel of the board the program was built for. By
+default that is the desktop's own board, the *panel*, a drawing of the future prototype (left strip: master volume knob,
+encoders A and B with their switches, play button; centre: 4 x 5 matrix keys (a function row, then 4 note rows) with a knob above each column; right: 3 knobs,
+joystick with push, 3 buttons). Every control works with the mouse (click = press; wheel over a knob / pot / encoder = turn; drag a knob or a pot
+up / down; drag inside the joystick; right click on the joystick = its push) and, except the knobs, with the keyboard: each part shows its PC keys. The panel's bottom
+lines show the last control -> action and the octave / Shift state.
+
+**The simulated board (`-Board`).** The panel window is drawn from a board's control table (`hal/hal_input.h`: each control's kind
+and its place `px`, `py`, the centre of its part in half key pitches), and the app sees that board: its table, its name, so the
+Ritual Machine picks that board's map. The board is chosen when the program is built, and each board is a program of its own with its own objects:
+
+| Command | Board | Program | What is drawn |
+| --- | --- | --- | --- |
+| `.\build.ps1`, `.\run.ps1` | `panel` (default) | `build\oled_sim.exe` (`build\obj`) | the future prototype: 4 key columns, 2 encoders, 8 knobs, joystick, Play, B1..B3 |
+| `.\build.ps1 -Board hwv1`, `.\run.ps1 -Board hwv1` | `hwv1` | `build\oled_sim_hwv1.exe` (`build\obj_hwv1`) | the first prototype: 4 function keys + 4 x 8 keys, 7 pots without end stops, joystick |
+
+After a change, build the board you run: `run.ps1` says so when the program it starts is older than another board's. `-App` and
+`-Board` combine (`.\build.ps1 -App template -Board hwv1`). The files: `boards/desktop/sim_board.h` (the board behind `SIM_BOARD_<NAME>`;
+`Get-SimBoard` in `framework/tools/sim_build.ps1` sets the define and adds the board's table to the sources), `sim_board.c` (the table as
+parts and their places: controls at the same place are one part, an encoder with its push, a joystick's axes with its push; no SDL,
+`tests/ui/test_controls.c` lays out both boards and checks that no part sits on another), `panel_sim.c` (draws the parts, the mouse),
+`input_sim.c` (the PC keys, the pots' two readings). **PC keys come from a part's kind and place, not from the board**: a matrix key takes
+the key of its row and column in the block F1.. / 1.. / Q.. / A.. / Z.. (8 wide); what turns (encoders, pots without end stops) takes a
+pair each, `[ ]`, `; '`, `- =`, `9 0`, `O P`, `L .`, keypad `- +`, the two parts a board names first (`SIM_TURN_KEYS_FIRST`: the panel's
+encoders, HWV1's pots 1 and 2, the Ritual Machine's rows and value) then the table's order, and `\` `/` push the first two; buttons take
+Space, Enter, Backspace, Left Shift in the table's order; the joystick the arrows and Right Ctrl. On `hwv1`: `[ ]` = pot 1, `; '` = pot 2,
+`- =` = pot 0 (volume), `9 0` / `O P` / `L .` / keypad `- +` = pots 3 / 4 / 5 / 6. A pot without end stops reports steps, or a position when the
+app's map asks for one (a step moves it by 24 of 1023; the real board's noise thresholds are not simulated). **HWV1's panel places are a
+guess** (`boards/hwv1/hwv1_controls.c`): correct `px`, `py` there against the board. The table below is the `panel` board.
 
 | Control | Default role (table in `core/bindings.c`) | Keyboard (physical key, QWERTY names) |
 | --- | --- | --- |
@@ -83,7 +110,7 @@ control -> action and the octave / Shift state.
 | Button 2 | delete the selected module (RACK tab) | Backspace / Delete |
 | Button 3 (hold) | **Shift** | Left Shift |
 | Play | start / stop the sequencer. **Shift + Play = Rec**: notes played go into the pattern (stopped: step by step; running: live). In the Pads section: Play = the clock and its sequencer, **Select + Play or Shift + Play = step mode** (the pad keys are steps) | Space |
-| Matrix keys | **the key layout** (`core/keymap.c`, KEYS tab of the menu): function row F1..F4 = Shift, Menu, Back, Play (F5..F8 on the simulator: Octave - / +, Page - / +); note rows by layout: *Keys 8x4* (default: bottom-left = C4 (60) + octave, +1 per key to the right, +8 per row up), *Two 4x4* (left block 0..15 with +4 per row, right block 16..31), *Notes+Nav* (left block 0..15, right block = octave, cursor cross with Latch, Select, Value, Row, Page), *User* | `F1`-`F8` / `1`-`8` / `Q`-`I` / `A`-`K` / `Z`-`,` (top to bottom) |
+| Matrix keys | **the key layout** (`core/keymap.c`, KEYS tab of the menu): function row F1..F4 = Shift, Menu, Back, Play (the layouts also give the function row's columns 5..8 Octave - / +, Page - / +: no board has those four keys, the simulator's PC-only columns 5..8 went on 2026-10-13); note rows by layout: *Keys 8x4* (default: bottom-left = C4 (60) + octave, +1 per key to the right, +8 per row up), *Two 4x4* (left block 0..15 with +4 per row, right block 16..31), *Notes+Nav* (left block 0..15, right block = octave, cursor cross with Latch, Select, Value, Row, Page), *User* | the panel's 4 columns: `F1`-`F4` / `1`-`4` / `Q`-`R` / `A`-`F` / `Z`-`V` (top to bottom); `-Board hwv1`: `F1`-`F4`, then 8 columns, `1`-`8` / `Q`-`I` / `A`-`K` / `Z`-`,` |
 | Octave | -5..+4: every MIDI note 0..127 is reachable | Shift + joystick up / down |
 | Column knobs 1..4 | the value of row 1..4 of the current page. **Catch mode (default, GENERAL tab "Knob")**: a knob is ignored until it crosses the current value (or lands on it), so no jump; a small arrow at the right edge of the row says which way to turn (right = turn right). It is re-evaluated after every manual change (page, row, encoder / joystick edit, macro, Shift) but never after a knob move. *Direct* mode: the value follows the knob at once, no arrows. **With Shift / Mod**: what the MODIFIERS tab gives it (default Shift + knob 1 = speaker level, Shift + knob 2 = master volume): a parameter, with the same catch, or a step action | mouse |
 | Right knobs R1..R3 | macros 1..3 of 8 (MACROS tab): a macro drives up to 8 parameters, each through its own Min / Max / curve; they start on the first filter's cutoff / resonance and the first LFO's rate; **Shift + knob** adds the parameter under the cursor as a destination (Shift layer entries "Learn M1..3"). Not on the prototype: there any knob can play a macro through a Shift / Mod entry "Macro 1..8" (default on a board without R knobs: Shift + K3 / K4 = Macro 1 / 2, with the catch) | mouse |
@@ -91,7 +118,8 @@ control -> action and the octave / Shift state.
 | Esc, closing a window | quit | |
 
 On an AZERTY keyboard the keys keep their physical position: "Q" is the key labelled A, "W" is Z, "Z" is W, "A" is Q, `[` is `^`, `]` is `$`,
-`;` is `M`. The matrix block is therefore the 5 x 8 block starting at F1, `&`, A, Q, W on AZERTY (its last column: F8, `!`, I, K, `;`).
+`;` is `M`. The matrix block is therefore the block starting at F1, `&`, A, Q, W on AZERTY, 4 keys wide on the panel and 8 with `-Board hwv1`
+(its last column there: `!`, I, K, `;`).
 
 **Key layouts (KEYS tab).** The matrix keys are not in the binding table: each key gets one function from the active *layout* (`core/keymap.h`).
 Three layouts are built in (in flash); the fourth, *User*, is the user's. In the KEYS tab: *Layout* picks one, *Key* picks a key (or press it: on this tab a key
@@ -368,8 +396,8 @@ A non-looping animation stays on its last frame until removed. Up to `GUI_ANIM_M
 Input has four layers, so each change has one home:
 
 1. **The board** (`hal/hal_input.h`, one `input_poll()` per board): reports ITS OWN controls only, as `{control id, kind, value}`. Each board lists its
-   controls in a table (`input_controls()`: name, kind = key / button / encoder / endless pot / knob / axis, place in the key matrix, place on the panel,
-   LED); a control's id is its index there and has a name in the board's header (`boards/hwv1/hwv1_controls.h`: `HWV1_KEY(row, col)`, `HWV1_POT_0..6`,
+   controls in a table (`input_controls()`: name, kind = key / button / encoder / endless pot / knob / axis, place in the key matrix, place on the panel
+   (the simulator draws the board from it), LED); a control's id is its index there and has a name in the board's header (`boards/hwv1/hwv1_controls.h`: `HWV1_KEY(row, col)`, `HWV1_POT_0..6`,
    `HWV1_JOY_X`...; `boards/desktop/panel_controls.h`: `PANEL_ENC_A`, `PANEL_KEY(row, col)`...). It knows nothing about the application.
 2. **Roles and the board's map** (`core/controls.h`, `core/controls.c`, `core/boards/map_<board>.h`): the Ritual Machine's own control list, `control_id_t`
    (`CTL_ENC_A` `IN_DELTA` (detents), `CTL_KNOB_R1` `IN_VALUE` (0..1023), `CTL_KEY(row, col)` `IN_PRESS` / `IN_RELEASE`...), which everything below and
@@ -394,13 +422,14 @@ Recipes:
 - *Another board control plays a role* (the prototype's pots swapped, a pot read in steps instead of a position): the row in the board's map,
   `core/boards/map_hwv1.h`. No other file changes.
 - *New physical control on a board*: an id in the board's header and a line in its table at the same place (`hwv1_controls.h` + `hwv1_controls.c`, or
-  `panel_controls.h` + `panel_controls.c`), the driver code that reports it (`input_esp32.cpp`, pins in `board_pins.h`; on the desktop a widget in
-  `build_layout` of `framework/boards/desktop/panel_sim.c` and, optionally, a row in `keymap[]` of `input_sim.c`), then a row in the app's map of that board.
+  `panel_controls.h` + `panel_controls.c`), the driver code that reports it (`input_esp32.cpp`, pins in `board_pins.h`; on the desktop nothing more: the panel window
+  draws the table's line at its `px`, `py` and `input_sim.c` gives it a PC key by its kind), then a row in the app's map of that board.
 - *New role*: a value in `control_id_t` (`core/controls.h`, before `CTL_HW_COUNT`), a name in `control_name` (and in `others[]` of `modifiers.c` if the
   layers may use it), a row in `bindings[]`, and a row in each board's map that has a control for it.
 - *A new board*: its folder in `framework/boards` with its table and `input_board_name()`, then `core/boards/map_<board>.h` and a line in `maps[]` of
-  `core/controls.c`. Without a map the board's matrix keys still play their key roles; nothing else does.
-- *Keyboard shortcuts of the simulator*: the `keymap[]` table of `framework/boards/desktop/input_sim.c` (physical scancodes).
+  `core/controls.c`. Without a map the board's matrix keys still play their key roles; nothing else does. To see it on the desktop: its
+  branch in `boards/desktop/sim_board.h` and its entry in `Get-SimBoard` (`framework/tools/sim_build.ps1`), then `.\build.ps1 -Board <name>`.
+- *Keyboard shortcuts of the simulator*: `build_keys()` of `framework/boards/desktop/input_sim.c` (physical scancodes, given by a part's kind and place).
 - *The joystick* is reported as two axes; the core turns deflection into the virtual controls `CTL_JOY_LEFT / RIGHT / UP / DOWN` (with key repeat, thresholds in
   `bindings.h`), so bindings treat it as four buttons.
 - *Knobs*: a knob reports a position 0..1023 and a binding gives it an action (`ACT_PAGE_KNOB`, `ACT_MACRO`, `ACT_MASTER_VOLUME`). A parameter only knows
@@ -519,7 +548,7 @@ The app's own: `main_esp32.cpp`, `audio_esp32.cpp`, `samples_esp32.*`, `serial_c
 | --- | --- |
 | `main_esp32.cpp` | setup / loop: power, serial (115200, non-blocking TX), the hand-over to the card reader's firmware when the power button is up (`board_card_reader`), optional boot delay, input task, audio, app. The UI loop runs on core 0; when the power button goes up it saves (`app_save_now`) and lets the supply go |
 | `board_pins.h` | the pin map, inside `#ifdef HWV1` (I2S, OLED, mux, joystick, keyboard I2C, LED, power, SD), the power button's level and the battery's scale |
-| `hwv1_controls.h`, `hwv1_controls.c` | the board's control table (`hal_input.h`): the ids (`HWV1_KEY(row, col)`: the 4 function keys = row 0, the 4 x 8 note keys = rows 1..4; `HWV1_POT_0..6`; `HWV1_JOY_X / _Y / _SW`) and, per control, its name, kind, matrix place, panel place (not measured, nothing reads it before step 2c) and LED. Plain data: it also compiles on the desktop (the host tests read it) |
+| `hwv1_controls.h`, `hwv1_controls.c` | the board's control table (`hal_input.h`): the ids (`HWV1_KEY(row, col)`: the 4 function keys = row 0, the 4 x 8 note keys = rows 1..4; `HWV1_POT_0..6`; `HWV1_JOY_X / _Y / _SW`) and, per control, its name, kind, matrix place, panel place (not measured: a guess to correct against the board; the simulator built with `-Board hwv1` draws the board from it) and LED. Plain data: it also compiles on the desktop (the host tests read it) |
 | `hwv1_layout.h` | the wiring behind the table: the key controller's orientation (flip flags), each pot's direction (`kHwv1KnobSign`), counts per revolution and the noise thresholds, the joystick's levels, the mux's two other channels. Which role a control plays is the app's (`core/boards/map_hwv1.h`) |
 | `kbd_tca8418.*`, `mux_esp32.*`, `input_esp32.cpp` | keyboard (Adafruit TCA8418 on Wire1, config watchdog, bus recovery), mux reads, and the scan task on core 0 that turns them into events with the board's ids (quadrature decode with hysteresis, joystick). A pot reports steps, or a position once the app asked for it (`input_control_mode`, before `input_esp32_init`) |
 | `display_esp32.cpp` | `U8G2_SH1107_128X128_F_HW_I2C`, 400 kHz (a full frame takes ~120 ms). `display_send()` (HAL, in place of `u8g2_SendBuffer`) copies the frame and wakes the `display` task, which sends only the changed 8 x 8 tiles; this panel's column offset (96) wraps, so a run starting at tile x is sent with the offset moved to (96 + 8x) mod 128. `app_step` also puts a redraw off while input is queued (`input_pending()`) |

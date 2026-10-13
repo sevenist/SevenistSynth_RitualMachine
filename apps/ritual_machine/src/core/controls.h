@@ -78,7 +78,7 @@ const control_map_t *controls_map_of(const char *board);                // NULL:
 void         controls_bind(const input_control_t *table, int count, const control_map_t *map);
 control_id_t controls_role(int board_ctl);                              // CTL_NONE: that control has no role
 int          controls_board_ctl(control_id_t role);                     // INPUT_NO_CONTROL: no control plays that role
-bool         controls_listed(control_id_t role);                        // a control plays it and has a place on the panel
+bool         controls_listed(control_id_t role);                        // a control of the board plays it
 input_event_t controls_event(input_event_t board_event);                // the board's event as the app's (kind IN_NONE: no role)
 
 /* ---------------- on the board (platform/controls_board.c; the host tests and ui_dump have their own: tools/ui_stubs.c) ---------------- */

@@ -12,41 +12,48 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
 the top of DEVELOPING.md). The user asked that developers can start a new project easily. **Step 1** (the engine as the library,
 the Ritual Machine and a starter template as apps) is committed by the user on `main` (`ffaa378` the renames, `a07f37e` the
 contents; the first commit alone does not build: `git commit` without `git add`). **Step 2a** (the HAL, the two boards and the
-drawing kit into `framework/`) was built the same day and **committed by the user (`d6f929a`)**; they did not say whether they
-tried it, and nothing was flashed by me. **Step 2b** (a control table per board, the Ritual Machine's roles with a map per
-board) was built right after, at the user's "let's go for step 2b": **in the working tree, UNCOMMITTED, NOT flashed** (new
-files: `git add -A` before the commit). Not Claude's, both in the working tree: `apps/ritual_machine/.gitignore`, untracked
-(PlatformIO's, made when the app's folder was opened in VS Code; `apps/template` has one that is versioned), and one line
-gone from `apps/template/src/main_esp32.cpp` (the `board_card_reader()` call at start; the file changed at 03:00 on
-2026-10-13 while 2b was being built: the user's or another session's, left as found). A bare `samples_src/`, `sdcard/`,
+drawing kit into `framework/`) was built the same day and **committed by the user (`d6f929a`)**. **Step 2b** (a control table
+per board, the Ritual Machine's roles with a map per board) was built right after and **committed by the user (`4234482`,
+working tree clean)**; their words at the next session start: "committed and builds fine on prototype board, app tested
+too" (no fault reported; which points of the two try lists they went through was not said; nothing was flashed by me).
+The commit also holds the two things that were not Claude's: `apps/ritual_machine/.gitignore` (PlatformIO's) and the line
+gone from `apps/template/src/main_esp32.cpp` (the `board_card_reader()` call at start). **Step 2c** (the simulator's panel
+drawn from a board's table) was built on 2026-10-13 at the user's "go for step 2c": **in the working tree, UNCOMMITTED, not
+tried by the user** (two new files, `framework/boards/desktop/sim_board.c` / `.h`: `git add -A` before the commit). With it
+step 2 of the split is complete. A bare `samples_src/`, `sdcard/`,
 `tools/` or `platformio.ini` in older notes is inside `apps/ritual_machine/`. Two glossaries were made that day as documents for
 the user (features and GUI; framework): ask for their links, they are not in the repo.
 
-- [ ] **The split, step 2b: try it, then commit** (from: user, "let's go for step 2b"; ADR-043 "Step 2b as built", with
-  the eight choices made while building: say if one is wrong). What is there: `hal/hal_input.h` has no control list any more,
-  a board gives a table (`input_controls()`: name, kind, matrix place, panel place, LED; a control's id is its index) and
-  events and LEDs carry that id; `boards/hwv1/hwv1_controls.*` (36 keys, 7 endless pots, the joystick) and
-  `boards/desktop/panel_controls.*`; the Ritual Machine's roles are `core/controls.h` (`control_id_t`, the same values: no
-  saved file changes), bound to a board by `core/controls.c` with `core/boards/map_hwv1.h` / `map_panel.h` (the pots' rows are
-  what `hwv1_layout.h` had); `platform/controls_board.c` talks to the HAL; the template reads the table. Checked by me: 123 +
-  114 engine tests and 147 UI tests pass (6 new: `tests/ui/test_controls.c`), both simulators build and ran 5 s without a
-  window, a scratch program pushed every PC key and the panel's mouse parts through the real desktop code and each arrived as
-  its old role, the firmwares build (the Ritual Machine: static RAM 222260 bytes, 67.8 %, +176; every engine object the same
-  size as at `d6f929a`). **To try, simulator** (`.\build.ps1`, `.\run.ps1`): everything as before: the keys (F5..F8 too), both
-  encoders, the knobs with the mouse, the joystick, the key LEDs, the KEYS and MODIFIERS tabs listing the same controls;
-  `.\run.ps1 -App template` after `.\build.ps1 -App template`: notes on the rows 1.. / Q.. / A.. / Z.., F1 / F2 octave, F3 / F4
-  cutoff, and now BOTH encoders (`[` `]` and `;` `'`) move the cutoff. **To try, board (ask before flashing; 2a has not run
-  there either, as far as I know, so a fault can be either step's)**: 2a's list first (sound and its level, the boot
-  animation, a streamed pad and the browser, a setting saved and back, the card pulled and put back, the speaker), then 2b's:
-  every key and its LED, the three top pots in steps (volume, rows, value), the four around the joystick as positions (from
-  the middle, no jitter at rest), the joystick and its push; the template: every pot moves the cutoff now.
-- [ ] **The split, step 2c** (from: user; ADR-043 decision 14 and "Step 2 as planned"). NOT started: after the user's try
-  and commit of 2b. The simulator's panel drawn from a board's table (`-Board hwv1`: the prototype's 8 key columns on the
-  desktop). What 2b left ready: the tables carry a panel place per control (half key pitches; **HWV1's places are a guess,
-  to correct against the real board when it is first drawn**), the app picks its map by `input_board_name()`, so the desktop
-  only has to report another board; `hwv1_controls.c` compiles on the desktop already. Known work: `panel_sim.c` (356
-  lines) is rewritten; `input_sim.c`'s PC keys come from the control's kind and matrix place; the desktop's key columns
-  5..8 (`INPUT_OFF_PANEL` today) go when the panel board is drawn with its 4 columns.
+- [ ] **The split, step 2c: try it, then commit** (from: user, "go for step 2c", 2026-10-13; ADR-043 decisions 15-17 and
+  "Step 2c as built", with the six choices made while building: say if one is wrong). The user's answers at the start:
+  the board is picked **at build time** (against my recommendation), the **panel stays the default**, the panel's
+  PC-only **key columns 5..8 are removed**. What is there: `.\build.ps1 -Board hwv1` builds `build/oled_sim_hwv1.exe`
+  (its own objects, `build/obj_hwv1`), `.\run.ps1 -Board hwv1` runs it; the same with `-App template`. The panel window
+  is drawn from the board's table (`boards/desktop/sim_board.h` picks the board, `sim_board.c` makes the parts,
+  `panel_sim.c` draws them, `input_sim.c` gives the PC keys by kind and place); pots without end stops work on the
+  desktop in both readings. Checked by me: 150 UI tests (3 new), the four desktop programs build and ran 4 to 5 s without
+  a window, the panel pictures of both boards looked at, a scratch program pushed every PC key and the mouse on every part
+  through the real desktop code and the map for each board, both firmwares build (the Ritual Machine: static RAM 222260
+  bytes, 67.8 %, the same). **Nobody has used either program by hand yet.** **To try** (`.\build.ps1`, `.\run.ps1`): the
+  panel as before, minus F5..F8 and the right-hand half of the key block; the joystick's push is a right click on the
+  stick (or Right Ctrl), no "PUSH" button any more. Then `.\build.ps1 -Board hwv1`, `.\run.ps1 -Board hwv1`: 4 function
+  keys and 4 x 8 keys with their LEDs, `^ $` (AZERTY; `[ ]`) = rows, `M ù` (`; '`) = value, `) =` (`- =`) = volume, the
+  four pots around the joystick with the mouse (wheel or drag) or `9 0` / `O P` / `L .` / keypad `- +`; the KEYS and
+  MODIFIERS tabs must list what they list on the real board. **HWV1's panel places are still my guess**
+  (`boards/hwv1/hwv1_controls.c`, `px` / `py` in half key pitches): say where the pots and the joystick really sit and
+  I move them. Not built: `release`, `card_reader`.
+- [ ] **Octave / Page on the function row's columns 5..8 play on no board** (from: notes, a consequence of the user's
+  choice in 2c). The built-in key layouts still give F5..F8 those four functions; the octave is Shift + joystick up /
+  down. To decide when it matters: drop the four entries from the layouts, or give them other keys.
+- [ ] **Step 2b's board points not confirmed one by one** (from: notes). The user's report covers "builds fine on prototype
+  board, app tested too". If something feels off on the board, the lists to go through: 2a's (sound and its level, the
+  boot animation, a streamed pad and the browser, a setting saved and back, the card pulled and put back, the speaker),
+  then 2b's (every key and its LED, the three top pots in steps, the four around the joystick as positions from the middle
+  with no jitter at rest, the joystick and its push; the template: every pot moves the cutoff).
+- [x] **The split, step 2b** (committed by the user: `4234482`; ADR-043 "Step 2b as built", with the eight choices made
+  while building: none was called wrong. `hal/hal_input.h` has no control list any more, a board gives a table and events
+  and LEDs carry its ids; the Ritual Machine's roles are `core/controls.h` with `core/boards/map_hwv1.h` / `map_panel.h`.
+  Static RAM 222260 bytes, 67.8 %) (done 2026-10-13)
 - [x] **The split, step 2a** (committed by the user: `d6f929a`; ADR-043 "Step 2a as built". Its board try list is in the 2b
   item above; not known to have been flashed. Left for later, on purpose: `gui_style_t` still has the Ritual Machine's page
   fields; with `HWV1_TEST_TONE` the dev `dump` captures nothing) (done 2026-10-13)
@@ -741,6 +748,10 @@ The user decides and I record the reasoning and move on, without re-litigating:
   any other app): risk = no shared sample folder unless apps agree, two firmwares on one card can overwrite each other's files.
 - **The simulator's panel drawn from a board's table** (2026-10-13, ADR-043 decision 14; I recommended moving today's two windows
   as they are): risk = `panel_sim.c` rewritten, about half a session more, a generic drawing in place of today's panel.
+- **The simulated board picked at build time** (2026-10-13, ADR-043 decision 15; I recommended at run time, one program with
+  every table): risk = a rebuild to switch and a board that is not built can stop compiling unnoticed. Softened: each board has
+  its own program and objects, `run.ps1` says when the one it starts is older than another board's, the host tests read both
+  tables.
 - **4 effect slots per FX chain** (2026-10-11, ADR-041 decision 47; I recommended 2): risk = twelve effects never fit (measured: four to
   six do next to 8 pads); nothing is refused, the FX page shows the estimated load.
 - **Paulstretch with a 4096-point window** (2026-10-11, decision 44; I recommended 2048, which always fits): it fits (37 KB of PSRAM
@@ -776,7 +787,7 @@ From the session todo (long-term; moved here 2026-10-11):
   cut silently (the cut lines are lost at the next load). Fix if it bites: split macros into their own file, or write in chunks. Min / Max step by 5 %.
 
 - UI: the main view (pages) is not a declarative screen yet (no latch, old events); the GENERAL tab has up to 9 rows (Glide / Legato only with Voices 1) and scrolls; the Knob mode, jump slots and Shift-knob targets are saved in ui.cfg (2026-10-07);
-  the sim's panel does not draw the key LEDs; this session's UI changes were verified on the board by the user, not by host tests (the 160 engine tests do not cover `apps/ritual_machine/src/core/ui_*.c`; `apps/ritual_machine/tools/ui_dump.c` can).
+  this session's UI changes were verified on the board by the user, not by host tests (the 160 engine tests do not cover `apps/ritual_machine/src/core/ui_*.c`; `apps/ritual_machine/tools/ui_dump.c` can).
 - Sample library: whole files are copied to RAM in the simulator; loaded samples are never unloaded; imports block the UI thread; a rack stores the file *index*
   (names needed when saving). Zones are engine-only (no UI). MS targets are limited to what the mapper realises (OC Pit / Lvl / PW, FL Cut, SA Drv, SM Pit).
 - Sound-design round (ADR-031..034), not listened to: the convolver (PIE since 2026-10-09: 10k cycles per block at 128 taps, ADR-034), the compressor / shifter / engines are tested against theory only,
@@ -795,7 +806,7 @@ From the session todo (long-term; moved here 2026-10-11):
 - A profiling build goes through the environment, not platformio.ini: `$env:PLATFORMIO_BUILD_FLAGS = "-DHWV1_DEBUG_AUDIO -DENGINE_PROFILE"` then `pio.exe run -d apps/ritual_machine -t upload`; **flash the normal build again afterwards** (the profiling one prints every second and costs RAM).
 - Board tools for the Pads work (all over serial, `DEV_SERIAL_CMD`; see human_docs/SERIAL_COMMANDS.md, `pad ...`, `dir`, `use`): `apps/ritual_machine/tools/library_test.py` (the folder list, header reads by place in the folder, samples cycled on a pad, a stream while a folder is read), the serial command `browse N REST FIRST` (the browser driven as by hand: how long each UI step took, stream underruns; `serial_test.py --cmd "pad on" --cmd "browse 6 1500 1750" --raw --seconds 12 --log run.txt`, then read the log: `--raw` does not print the replies), `apps/ritual_machine/tools/pads_test.py` (pad voices), `padsfx_test.py` (FX chains, per-module costs), `edit_test.py` (sample jobs: time, memory), `capture_test.py` (recording).
 - UI tests address some rows by number (the RACK page's menu rows in `apps/ritual_machine/tests/ui/test_rows.c`, the EDIT page's rows in `apps/ritual_machine/tests/ui/test_pads.c`): inserting a row in those screens shifts them.
-- The user often keeps the simulator open: `build.ps1` then builds `oled_sim_new.exe`. A stale exe has caused a false "bug" before.
+- The user often keeps the simulator open: `build.ps1` then builds `oled_sim_new.exe`. A stale exe has caused a false "bug" before. Since 2026-10-13 each simulated board is its own exe (`oled_sim.exe`, `oled_sim_hwv1.exe`): a change built for one board is not in the other (`run.ps1` prints a note when the one it starts is the older).
 - PlatformIO: use `C:\.platformio\penv\Scripts\pio.exe`, **never a bare `pio`** (PATH points at Python 3.13's pio, which recreates and destroys the penv). It happened twice; the second time (2026-10-05) Claude did it, and the user had to restore the penv by hand. Repair steps: DEVELOPING.md, "ESP32 firmware" warning. One link failure with no error text happened twice; the immediate rerun succeeded.
 - One program per serial port: close the serial monitor before `serial_test.py`. Before an upload, check that the board is there
   (`[System.IO.Ports.SerialPort]::GetPortNames()`): switched off or unplugged it is on no port, and `pio run -d apps/ritual_machine -t upload` fails after

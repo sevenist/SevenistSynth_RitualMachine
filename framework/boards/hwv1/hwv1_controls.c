@@ -1,7 +1,8 @@
 // The control table of HWV1 (hwv1_controls.h). The order is the ids' order.
 //
-// Panel places (px, py: half key pitches from the top left) are NOT MEASURED on the board: the keys are a regular grid, the pots and
-// the joystick are put above it as the notes describe them. Nothing reads them until the simulator draws a board from its table.
+// Panel places (px, py: the centre of each part, in half key pitches from the top left) are NOT MEASURED on the board: the keys are a
+// regular grid, the pots and the joystick are put above it as the notes describe them. The desktop draws the board from them
+// (.\build.ps1 -Board hwv1; boards/desktop/sim_board.c): the firmware does not read them.
 #include "boards/hwv1/hwv1_controls.h"
 
 #define KEY(name, row, col) {name, CK_KEY, row, col, (col) * 2, 7 + (row) * 2, 1}
@@ -13,7 +14,7 @@ const input_control_t kHwv1Controls[HWV1_CONTROL_COUNT] = {
     KEY("F1", 0, 0), KEY("F2", 0, 1), KEY("F3", 0, 2), KEY("F4", 0, 3),
     ROW(1), ROW(2), ROW(3), ROW(4),
     POT("POT 0", 0, 1), POT("POT 1", 3, 1), POT("POT 2", 6, 1),                             // the top row, from the left
-    POT("POT 3", 14, 0), POT("POT 4", 14, 4), POT("POT 5", 10, 4), POT("POT 6", 10, 0),     // around the joystick: TR, BR, BL, TL
+    POT("POT 3", 15, 0), POT("POT 4", 15, 4), POT("POT 5", 9, 4), POT("POT 6", 9, 0),       // around the joystick: TR, BR, BL, TL
     {"JOY X",    CK_AXIS,   0, 0, 12, 2, 0},
     {"JOY Y",    CK_AXIS,   0, 0, 12, 2, 0},
     {"JOY PUSH", CK_BUTTON, 0, 0, 12, 2, 0},

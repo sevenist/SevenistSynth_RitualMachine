@@ -1,6 +1,5 @@
 #ifdef PLATFORM_SIM
 #include "hal/hal_display.h"
-#include "boards/desktop/panel_sim.h"
 #include "SDL.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -13,6 +12,8 @@ extern SDL_Window  *u8g_sdl_window;
 extern SDL_Surface *u8g_sdl_screen;
 extern uint32_t u8g_sdl_color[256];
 extern int u8g_sdl_height, u8g_sdl_width, u8g_sdl_multiple;
+
+#define WINDOW_MIN_HEIGHT 440     // the display window is at least this tall (the panel window next to it is as tall, or taller: panel_sim.c)
 
 static u8g2_t u8g2;
 static int light_palette;
@@ -41,7 +42,7 @@ static void set_mono_palette(void) {
 static void sdl_init(void) {
     u8g_sdl_width = DISPLAY_WIDTH;
     u8g_sdl_height = DISPLAY_HEIGHT;
-    u8g_sdl_multiple = (PANEL_DRAW_HEIGHT + DISPLAY_HEIGHT - 1) / DISPLAY_HEIGHT;   // pixels per display pixel: the window is at least as tall as the panel
+    u8g_sdl_multiple = (WINDOW_MIN_HEIGHT + DISPLAY_HEIGHT - 1) / DISPLAY_HEIGHT;   // pixels per display pixel: the same whatever board the panel draws
     if (SDL_Init(SDL_INIT_VIDEO) != 0) { fprintf(stderr, "Unable to initialize SDL: %s\n", SDL_GetError()); exit(1); }
     u8g_sdl_window = SDL_CreateWindow("OLED", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, u8g_sdl_width * u8g_sdl_multiple, u8g_sdl_height * u8g_sdl_multiple, SDL_WINDOW_BORDERLESS);   // no title bar: the panel window places it
     if (!u8g_sdl_window) { fprintf(stderr, "Couldn't create window: %s\n", SDL_GetError()); exit(1); }

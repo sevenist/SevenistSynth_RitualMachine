@@ -1,7 +1,8 @@
 #pragma once
-// The Ritual Machine on the desktop board (the simulator's panel; its controls: framework/boards/desktop/panel_controls.h): which
+// The Ritual Machine on the desktop's own board (the panel; its controls: framework/boards/desktop/panel_controls.h): which
 // control plays which role (core/controls.h). Included by core/controls.c only. The roles were written for this panel, so every
-// control has its role, one to one; the keys are not listed (a matrix key takes the key role of its place).
+// control has its role, one to one; the keys are not listed (a matrix key takes the key role of its place). The panel has 4 key
+// columns: the key roles of columns 5..8 are not present on it.
 #include "boards/desktop/panel_controls.h"
 #include "core/controls.h"
 

@@ -1,6 +1,6 @@
 #pragma once
 // The controls of HWV1 (the first prototype): their ids and the board's table (hal/hal_input.h). Plain data, no hardware code: it
-// also compiles on the desktop (the host tests read it; the simulator will draw the board from it).
+// also compiles on the desktop (the host tests read it; the simulator built with -Board hwv1 draws the board from it).
 //
 //   36 keys      the 4 function keys (the 4 leftmost places of the top row) and 4 rows of 8, each with an LED
 //   7 pots       without end stops (SynthBox numbering: 0, 1, 2 on the top row, 3..6 around the joystick: TL = 6, TR = 3, BL = 5, BR = 4)

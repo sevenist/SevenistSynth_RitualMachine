@@ -1317,7 +1317,7 @@ against my recommendation of a Seq key; patterns as on the synth):**
   times, 72 combinations); `apps/ritual_machine/tests/ui/test_seq*.c`, `test_vel.c`, `test_pseq.c` (25: the pages, the tools, the knobs' threshold, step
   entry and live record, patterns, chain, the files, the hand-over to the engine, step mode and its LEDs).
 
-### ADR-043: The repo is a library and its apps (Accepted; user choices of 2026-10-13; step 1 committed, the template flashed and played by the user; step 2a committed (`d6f929a`), step 2b built on top of it, uncommitted; both host-tested, firmware built, NOT flashed by me: no word that either app has run on the board since 2a)
+### ADR-043: The repo is a library and its apps (Accepted; user choices of 2026-10-13; step 1 committed, the template flashed and played by the user; step 2a (`d6f929a`) and step 2b (`4234482`) committed, the user: "builds fine on prototype board, app tested too"; step 2c built on top, uncommitted, host-tested, not tried by the user)
 **Why.** The user: "make sure devs can easily create a new project. Put the current firmware app under another folder, or create a
 system to have a separate library and app as example." Until then the repo was one program: `src/` held the engine and the Ritual
 Machine side by side, and both builds assumed one app.
@@ -1536,6 +1536,87 @@ Chosen by me while building (say if one is wrong):
   pots in steps (volume, rows, value) and the four around the joystick as positions (they must start from the middle and
   keep the hysteresis), the joystick and its push, then the KEYS and MODIFIERS tabs (the same controls listed as before).
   Neither simulator was used by hand. The `-Matrix` run was not repeated (no engine source changed).
+- Since then: committed by the user (`4234482`), with their word at the next session start: "builds fine on prototype board,
+  app tested too". Which points of the two lists they went through was not said.
+
+**Step 2c, decisions taken by the user** (2026-10-13, three questions with options at the start of the step; not to be
+re-litigated):
+
+15. **The simulated board is picked when the program is built** (against my recommendation: at run time, one program holding
+    every table, `run.ps1 -Board hwv1`). `.\build.ps1 -Board hwv1` builds a program for that board, the same shape as the
+    firmware: one board per build. Risk: a rebuild to switch (softened: each board has its own objects and its own program,
+    so both can sit side by side, and `run.ps1` says when the one it starts is older than the other); a board that is not
+    built can stop compiling unnoticed (the host tests still read both tables and lay both out; the board-specific desktop
+    code is five lines of `sim_board.h`).
+16. **Without `-Board` it is the panel, as before.** HWV1 is asked for by name.
+17. **The panel board's key columns 5..8 are removed** (they were PC keys only, not drawn). The panel is what is drawn:
+    4 x 5 keys; 8 columns are `-Board hwv1`. `INPUT_OFF_PANEL` left the HAL. Cost, accepted: on the panel board F5..F8
+    (Octave - / +, Page - / + in the built-in layouts), 5..8, T..I, G..K, B.., do nothing any more. The octave is still Shift +
+    joystick up / down; no board has a fifth function key, so those four layout entries play nowhere today.
+
+**Step 2c as built (2026-10-13, on `main` after `4234482`; uncommitted, NOT tried by the user, nothing flashed).** Decision 14:
+the simulator's panel window is drawn from a board's control table.
+- **The board behind the desktop** is `boards/desktop/sim_board.h`: `SIM_BOARD_HWV1` picks HWV1's table, nothing set the
+  panel's (`SIM_CONTROLS`, `SIM_CONTROL_COUNT`, `SIM_BOARD_NAME`, which is what `input_board_name()` now returns: the app picks
+  its map from it, as planned in 2b's choice 4, with no change in the app). `Get-SimBoard` (`framework/tools/sim_build.ps1`)
+  turns `-Board` into the define, the board's table file, and a suffix: objects in `build/obj_hwv1`, the program
+  `build/oled_sim_hwv1.exe` (the panel keeps `build/obj` and `oled_sim.exe`). Both apps' `build.ps1` and the root `run.ps1`
+  take `-Board`; an unknown name stops with the list of boards.
+- **A table as parts** (`boards/desktop/sim_board.c`, no SDL): one part per control, but controls at the same place are one
+  part: an encoder, a pot or a knob with the button there as its push, the two axes there as one joystick, with its push.
+  `px`, `py` are the centre of the part in half key pitches (27 pixels); the drawing starts at the margins whatever the
+  table's smallest place is, and its size comes from the parts. A size per kind (key 48 x 44, button 52 x 34, encoder / pot /
+  knob radius 22 / 20 / 18, joystick 42), the part's name and its PC keys under a round part.
+- **The window** (`panel_sim.c`, rewritten around the same font and primitives): draws the parts by kind (a pot without end
+  stops: one pointer all the way round and a ring in the middle; a key shows its PC key and its LED), one outline for the
+  board, the title "BOARD <name>", the app's two status lines. Mouse: as before, and a drag or the wheel turns a pot, a right
+  click on a round part is its push (an encoder's push is also the left click, as before).
+- **The PC keys** (`input_sim.c`, `build_keys`): from a part's kind and place, as planned. A matrix key takes the key of its
+  row and column in the block F1.. / 1.. / Q.. / A.. / Z.. (8 wide); encoders and pots without end stops take a pair each
+  (`[ ]`, `; '`, `- =`, `9 0`, `O P`, `L .`, keypad `- +`) and `\`, `/` push the first two; buttons take Space, Enter,
+  Backspace / Delete, Left Shift in the table's order; the first joystick the arrows and Right Ctrl. On the panel that is
+  every key it had.
+- **Pots without end stops on the desktop**: `input_control_mode` is real there now. A key press, a wheel notch or 6 pixels of
+  drag are one step; a pot read as a position moves by 24 per step from its start and stops at 0 and 1023. The board's
+  thresholds and its jump at the first move are not simulated.
+- **The panel's table** has 4 key columns (39 controls; its ids changed, nothing saved uses them), the joystick's push at the
+  joystick's place, Play on the bottom key row; **HWV1's** pots around the joystick moved one half pitch outwards so their texts
+  clear the stick (still a guess). The Ritual Machine's `core/controls.c` lost its "has a place on the panel" bits:
+  `controls_listed` is "a control plays the role".
+- **The display window** keeps its scale (4 pixels per pixel at 128 x 128) whatever the board; the panel window is as tall as
+  the display or taller (HWV1's drawing is 479 x 535, the panel's 535 x 398).
+
+Chosen by me while building (say if one is wrong):
+1. **Each board has its own program and objects**, not one program rebuilt in place. It takes the sting out of decision
+   15, and costs a second full compile the first time (about 10 s) and 10 MB.
+2. **A board names the two parts that take `[ ]` and `; '`** (`SIM_TURN_KEYS_FIRST` in `sim_board.h`: HWV1's pots 1 and 2,
+   the Ritual Machine's rows and value), the others follow in the table's order (pot 0, the volume: `- =`). It bends "keys
+   by kind and place": in the table's order alone `[ ]` would have been the volume on HWV1. The alternative: plain table
+   order, and read the keys off the window.
+3. **A push is a control at the same place** as its part. So the panel's joystick push is no longer a "PUSH" button of its
+   own: right click on the stick, or Right Ctrl.
+4. **Parts have one size per kind** (the master volume is as big as the other knobs), **one outline** for the board in place
+   of the three section frames, and the board's control names as labels ("POT 3", "ENC A"; a key shows its PC key). The app's
+   roles are not written on the parts: the window is the library's and knows no role.
+5. **The display's scale does not follow the panel's height** any more (it was "at least as tall as the panel"): HWV1's
+   drawing would have made every display pixel 5 x 5.
+6. **Seven key pairs for what turns**, so each of HWV1's pots has one; knobs with end stops stay mouse only, as before.
+
+- Checked: the host UI tests, 150 (three new in `tests/ui/test_controls.c`: the parts each board makes, pushes and axes
+  joined, no part on another, every part inside the drawing; the panel test now expects no role for key columns 5..8). The
+  four desktop programs build (the Ritual Machine and the template, each as panel and as hwv1) and ran 4 to 5 s without a
+  window; the panel pictures saved at start were looked at for the Ritual Machine on both boards (every part drawn, texts
+  clear of each other, the LED strips lit). A scratch program (not in the repo) pushed 67 PC keys and, on every part, mouse
+  presses, a drag and a right click through the real `input_sim.c` / `panel_sim.c` / `sim_board.c` and the app's map, for
+  each board: on the panel every key gives the control and the role it gave before and the removed columns give nothing; on
+  HWV1 the 36 keys give their key roles, `[ ]` pot 1 = Enc A, `; '` pot 2 = Enc B, `- =` pot 0 = Volume in steps, the four
+  other pairs pots 3..6 = column knobs 2 / 4 / 3 / 1 as positions from 512 (488 after one step down), the arrows and Right
+  Ctrl the joystick, F5..F8 and the panel's buttons nothing. Firmware (scratch build directories, not flashed): the Ritual
+  Machine builds, static RAM 222260 bytes (67.8 %, the same) and flash 1404587 -> 1404451; the template 72604 / 594279,
+  both the same; no engine source changed in this step, so the engine objects were not compared one by one. `ui_dump` builds.
+- **Not done / not checked**: neither program was used by hand, with a real window, by anybody: the look, the mouse on a
+  real screen, the display window's place next to a taller panel. The engine tests were not run again (no engine or app engine
+  file changed). `release` and `card_reader` were not built.
 
 ## Known limits and ideas for later
 

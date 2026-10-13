@@ -1317,7 +1317,7 @@ against my recommendation of a Seq key; patterns as on the synth):**
   times, 72 combinations); `apps/ritual_machine/tests/ui/test_seq*.c`, `test_vel.c`, `test_pseq.c` (25: the pages, the tools, the knobs' threshold, step
   entry and live record, patterns, chain, the files, the hand-over to the engine, step mode and its LEDs).
 
-### ADR-043: The repo is a library and its apps (Accepted; user choices of 2026-10-13; step 1 committed, the template flashed and played by the user; step 2a built, host-tested, firmware built, NOT flashed: neither app has run on the board since it)
+### ADR-043: The repo is a library and its apps (Accepted; user choices of 2026-10-13; step 1 committed, the template flashed and played by the user; step 2a committed (`d6f929a`), step 2b built on top of it, uncommitted; both host-tested, firmware built, NOT flashed by me: no word that either app has run on the board since 2a)
 **Why.** The user: "make sure devs can easily create a new project. Put the current firmware app under another folder, or create a
 system to have a separate library and app as example." Until then the repo was one program: `src/` held the engine and the Ritual
 Machine side by side, and both builds assumed one app.
@@ -1433,7 +1433,7 @@ its own (it is what the simulator draws today); an endless pot's reading (steps 
 the noise thresholds staying in the board's driver; the PC keys of a table-drawn panel come from the control's kind and place
 (the 5 x 8 key block as today), not from the table.
 
-**Step 2a as built (2026-10-13, on `main` after the user's commits `ffaa378` + `a07f37e`; uncommitted, NOT flashed).**
+**Step 2a as built (2026-10-13, on `main` after the user's commits `ffaa378` + `a07f37e`; committed by the user the same day, `d6f929a`; NOT flashed by me).**
 - Moved, content unchanged apart from include paths: `core/gui.*`, `core/popup.*` -> `framework/ui/`; the six HAL headers ->
   `framework/hal/`; the board's files (`board_pins.h`, `board_esp32.*`, `hwv1_layout.h`, `input_esp32.cpp`, `kbd_tca8418.*`,
   `mux_esp32.*`, `leds_esp32.*`, `display_esp32.cpp`, `sd_card.*`, `sd_card_spi.cpp`, `storage_sd.*`) -> `framework/boards/hwv1/`;
@@ -1472,6 +1472,70 @@ the noise thresholds staying in the board's driver; the PC keys of a table-drawn
   is still the one shared control list (2b); `panel_sim.c` still draws the new panel with 4 key columns (2c); the engine's
   fast heap policy is each app's (decision 9). With `HWV1_TEST_TONE` the dev `dump` command now captures nothing (the tone is
   the board's, the capture the app's).
+
+**Step 2b as built (2026-10-13, on `main` after `d6f929a`; uncommitted, NOT flashed).** Decisions 10 and 11: each board lists
+its own controls, the Ritual Machine keeps its roles and maps each board onto them.
+- **The HAL** (`hal/hal_input.h`) has no control list any more. A board gives a table, `input_controls(&count)`, of
+  `input_control_t` {name, kind (key, button, encoder, endless pot, knob, axis), row and column in the key matrix, place on
+  the panel, LED}; a control's id is its index in the table. `input_event_t.ctl` is that id (an `int`,
+  `INPUT_NO_CONTROL` = none), `leds_set(ctl, colour)` takes it too. New: `input_board_name()` ("hwv1", "panel") and
+  `input_control_mode(ctl, IN_DELTA | IN_VALUE, start)`, how an endless pot reports. `input_key_present` and
+  `input_control_present` left the HAL (they were questions about roles).
+- **HWV1**: `boards/hwv1/hwv1_controls.h` + `.c`, 46 controls: 36 keys (`HWV1_KEY(row, col)`, each with an LED), 7 endless
+  pots (`HWV1_POT_0..6`, SynthBox numbering), the joystick's two axes and its push. `hwv1_layout.h` keeps the wiring only (the
+  key controller's orientation, each pot's direction, the thresholds); `input_esp32.cpp` reports the board's ids and reads a
+  pot as steps unless the app asked for a position; `leds_esp32.cpp` finds a key's place in the chain from the table's row and
+  column.
+- **The desktop**: `boards/desktop/panel_controls.h` + `.c`, 60 controls, one per part of the panel window, and a key matrix of
+  5 x 8 of which the panel shows 4 columns. `input_sim.c`, `panel_sim.c` and `leds_sim.c` use those ids; the window is drawn
+  as before (2c redraws it from the table).
+- **The Ritual Machine**: `core/controls.h` is the role list (`control_id_t`, the same values in the same order: bindings, key
+  layouts, layers, `ui.cfg` and `keys.cfg` are untouched) and the map's types; `core/controls.c` binds a table to the roles
+  (plain data in, no hardware call); `core/boards/map_hwv1.h` and `map_panel.h` are the two maps, one row per control that is
+  not a key; `platform/controls_board.c` is the part that calls the HAL (`controls_init`, `controls_led`,
+  `controls_key_present`, `controls_present`). Both entry points call `controls_init()` before the board's scan starts and pass
+  every event through `controls_event()`. HWV1's rows are what `kHwv1Knobs` said: pots 0 / 1 / 2 = Volume / Enc A / Enc B in
+  steps, pots 3 / 4 / 5 / 6 = column knobs 2 / 4 / 3 / 1 as positions from 512.
+- **The template** reads the table: a key plays by its matrix place, anything that turns in steps moves the cutoff.
+
+Chosen by me while building (say if one is wrong):
+1. **One event type.** The app reuses the HAL's `input_event_t` with the role in `ctl` once `controls_event` has run, so the
+   700 uses of `CTL_` in the app and its tests did not change. Risk: a board event handed to the app without `controls_event`
+   compiles; there are two places that do it (`main_sim.c`, `main_esp32.cpp`).
+2. **Keys by place.** A matrix key takes the role `CTL_KEY(row, col)` of its place without a row in the map; a row can give
+   a key another role. A board the app has no map for still plays its keys.
+3. **The app tells the board how each endless pot reports**, before the scan starts; the board keeps both readings and its
+   noise thresholds (as planned). Not chosen: the board reports raw movement and the app makes steps or a position from it,
+   which would have moved the hysteresis tuned on 2026-10-07 out of the driver.
+4. **The map is picked by the board's name at run time**, not by `#ifdef`: the desktop can say "hwv1" in 2c with no change in
+   the app.
+5. **The desktop's key matrix keeps 8 columns, 4 of them on the panel.** The PC keys of columns 5..8 (F5..F8 = Octave and
+   Page in the built-in layouts) work as before and, as before, the KEYS and MODIFIERS tabs do not list them: their controls
+   carry `INPUT_OFF_PANEL`, and a role is "present" when its control has a place on the panel.
+6. **Panel places are in half key pitches from the top left.** The panel's are read off today's drawing. **HWV1's are a
+   guess**: the keys are a regular grid, the pots and the joystick are put above it as the notes describe them, not measured.
+   Nothing reads a place until 2c.
+7. **The template changed on the prototype**: every pot moves the cutoff (before: the pot that played Enc B). It is the
+   example of reading a kind from the table; a named control is one comparison with the board's id.
+8. Left as it was: `input_boot_reset()` (every board returns false), the prototype's spare mux input (read, still not a
+   control), `gui_style_t`'s page fields. The board's control names ("F1", "KEY 2.3", "POT 4") are shown nowhere yet.
+
+- Checked: the host tests (123 + 114 engine tests in the default configuration; 147 UI tests, six of them new,
+  `tests/ui/test_controls.c`: both tables in id order, HWV1 and the panel play the roles they had, an unknown board keeps its
+  keys, a row overrides a key's place) pass; both simulators build and ran 5 s without a window, and the panel's picture saved
+  at start shows the 20 keys with their LED colours; `ui_dump` builds and runs. A scratch program (not in the repo) pushed
+  every PC key of the old `keymap[]` and mouse actions on a key, an encoder, three knobs, the joystick and a button through
+  the real `input_sim.c` / `panel_sim.c` and the map: each arrived as its old role. Firmware, scratch build directories,
+  against a build of `d6f929a` made the same hour: all 42 engine objects have the same text / data / bss size; the Ritual
+  Machine 222084 -> 222260 bytes of static RAM (67.8 %, +176: the bound map is 168 bytes, a byte per pot) and 1403151 ->
+  1404587 of flash; `release` 221988 / 1391139 (was 221828 / 1389651); `card_reader` 73716 / 572315, unchanged (it has no
+  input code); the template 72564 -> 72604 and 593543 -> 594279 (its build also holds a change to its `main_esp32.cpp` that
+  is not part of 2b: see CONTINUE.md).
+- **Not done / not checked**: nothing flashed, so the board's side is checked by the tests of the map and by reading the
+  driver only. On the board look first at: every key and its LED (the LED's place now comes from the table), the three top
+  pots in steps (volume, rows, value) and the four around the joystick as positions (they must start from the middle and
+  keep the hysteresis), the joystick and its push, then the KEYS and MODIFIERS tabs (the same controls listed as before).
+  Neither simulator was used by hand. The `-Matrix` run was not repeated (no engine source changed).
 
 ## Known limits and ideas for later
 

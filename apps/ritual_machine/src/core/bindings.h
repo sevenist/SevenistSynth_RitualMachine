@@ -3,12 +3,12 @@
 // means changing a row there; no other file needs to know which control triggers which action. The keys of the matrix are the
 // exception: their functions come from the key layout chosen at run time (core/keymap.h), with the same actions.
 //
-//   control (hal/hal_input.h) + kind of event + modifier state  ->  action + argument
+//   control (a role: core/controls.h) + kind of event + modifier state  ->  action + argument
 //
 // Actions are implemented in app/app_actions.c (app_run_action). To add one: a value in action_id_t, its name in action_names[]
 // (bindings.c), a case in app_run_action, then use it in the table.
 #include <stdint.h>
-#include "hal/hal_input.h"
+#include "core/controls.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -87,7 +87,7 @@ const char *control_name(control_id_t c);               // "ENC A", "KEY 2.1" (a
 #define CURVES_KNOB_Y CTL_COL_KNOB_3
 #endif
 
-// Joystick as four buttons: the HAL reports axes, the application turns deflection into CTL_JOY_LEFT / RIGHT / UP / DOWN presses.
+// Joystick as four buttons: the board reports axes, the application turns deflection into CTL_JOY_LEFT / RIGHT / UP / DOWN presses.
 #define JOY_THRESHOLD_LOW    300                        // axis value below / above which the stick counts as pushed
 #define JOY_THRESHOLD_HIGH   724
 #define JOY_REPEAT_FIRST_MS  400                        // key repeat while held

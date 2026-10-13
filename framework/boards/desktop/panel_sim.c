@@ -1,5 +1,6 @@
 #ifdef PLATFORM_SIM
 #include "boards/desktop/panel_sim.h"
+#include "boards/desktop/panel_controls.h"
 #include "boards/desktop/leds_sim.h"
 #include <math.h>
 #include <stdio.h>
@@ -23,15 +24,16 @@ extern SDL_Surface *u8g_sdl_screen;       // the display window's surface (u8g2 
 #define KEY_PITCH 54             // matrix keys: distance between columns
 #define RIGHT_X 0                // future prototype: 4-column keyboard, no offset needed
 #define COL_KNOBS 4
-#define KEY_COLS_SIM 4           // simulator shows only the 4 columns the future prototype has
+#define KEY_COLS_SIM PANEL_KEY_COLS_SHOWN     // the panel shows only the 4 columns the future prototype has
 #define PANEL_H PANEL_DRAW_HEIGHT
 
 typedef enum { W_KNOB, W_ENC, W_BTN, W_JOY } wtype_t;
+#define NONE INPUT_NO_CONTROL
 
 typedef struct {
     wtype_t      type;
-    control_id_t ctl;        // knob / button / key: the control; encoder: the turn; joystick: the X axis
-    control_id_t ctl2;       // encoder: its switch; joystick: the Y axis
+    int          ctl;        // knob / button / key: the control (panel_controls.h); encoder: the turn; joystick: the X axis
+    int          ctl2;       // encoder: its switch; joystick: the Y axis (NONE: no second control)
     int          x, y;       // centre (knob, encoder, joystick) or top-left (button)
     int          w, h;       // button size; for round widgets w = radius
     const char  *label;
@@ -44,9 +46,9 @@ static int n_widgets;
 
 static SDL_Window   *window;
 static SDL_Renderer *rend;
-static int  val[CTL_COUNT];          // knob / axis positions
-static int  angle[CTL_COUNT];        // encoder rotation in detents (drawing only)
-static bool down[CTL_COUNT];
+static int  val[PANEL_CONTROL_COUNT];          // knob / axis positions
+static int  angle[PANEL_CONTROL_COUNT];        // encoder rotation in detents (drawing only)
+static bool down[PANEL_CONTROL_COUNT];
 static char status[64];
 static int  oct, shift;
 static bool dirty = true;
@@ -55,31 +57,31 @@ static Uint32 last_draw;
 static void add(widget_t w) { if (n_widgets < MAX_WIDGETS) widgets[n_widgets++] = w; }
 
 static void build_layout(void) {
-    static const char *const key_labels[KEY_ROWS][KEY_COLS_SIM] = {{"F1", "F2", "F3", "F4"}, {"1", "2", "3", "4"},
+    static const char *const key_labels[PANEL_KEY_ROWS][KEY_COLS_SIM] = {{"F1", "F2", "F3", "F4"}, {"1", "2", "3", "4"},
                                                                    {"Q", "W", "E", "R"}, {"A", "S", "D", "F"},
                                                                    {"Z", "X", "C", "V"}};
     static const char *const col_labels[COL_KNOBS] = {"K1", "K2", "K3", "K4"};
     // left strip
-    add((widget_t){W_KNOB, CTL_VOLUME, CTL_NONE,       55, 62, 26, 0, "VOLUME", ""});
-    add((widget_t){W_ENC,  CTL_ENC_A,  CTL_ENC_A_SW,   55, 150, 22, 0, "ENC A", "[ ] \\"});
-    add((widget_t){W_ENC,  CTL_ENC_B,  CTL_ENC_B_SW,   55, 236, 22, 0, "ENC B", "; ' /"});
-    add((widget_t){W_BTN,  CTL_PLAY,   CTL_NONE,       20, 292, 70, 34, "PLAY", "SPACE"});
+    add((widget_t){W_KNOB, PANEL_VOLUME, NONE,       55, 62, 26, 0, "VOLUME", ""});
+    add((widget_t){W_ENC,  PANEL_ENC_A,  PANEL_ENC_A_SW,   55, 150, 22, 0, "ENC A", "[ ] \\"});
+    add((widget_t){W_ENC,  PANEL_ENC_B,  PANEL_ENC_B_SW,   55, 236, 22, 0, "ENC B", "; ' /"});
+    add((widget_t){W_BTN,  PANEL_PLAY,   NONE,       20, 292, 70, 34, "PLAY", "SPACE"});
     // matrix: a knob above each of the 4 columns, then the function row and the 4 x 4 note keys
     for (int c = 0; c < COL_KNOBS; c++)
-        add((widget_t){W_KNOB, (control_id_t)(CTL_COL_KNOB_0 + c), CTL_NONE, 130 + c * KEY_PITCH + 24, 62, 17, 0, col_labels[c], ""});
-    for (int r = 0; r < KEY_ROWS; r++)
+        add((widget_t){W_KNOB, PANEL_COL_KNOB_0 + c, NONE, 130 + c * KEY_PITCH + 24, 62, 17, 0, col_labels[c], ""});
+    for (int r = 0; r < PANEL_KEY_ROWS; r++)
         for (int c = 0; c < KEY_COLS_SIM; c++)
-            add((widget_t){W_BTN, (control_id_t)CTL_KEY(r, c), CTL_NONE, 130 + c * KEY_PITCH, 104 + r * 52 + (r >= 1 ? 10 : 0), KEY_PITCH - 6, 44, "", key_labels[r][c]});
+            add((widget_t){W_BTN, PANEL_KEY(r, c), NONE, 130 + c * KEY_PITCH, 104 + r * 52 + (r >= 1 ? 10 : 0), KEY_PITCH - 6, 44, "", key_labels[r][c]});
     // right section
     for (int k = 0; k < 3; k++) {
         static const char *const names[3] = {"R1", "R2", "R3"};
-        add((widget_t){W_KNOB, (control_id_t)(CTL_KNOB_R1 + k), CTL_NONE, 450 + k * 50, 62, 19, 0, names[k], ""});
+        add((widget_t){W_KNOB, PANEL_KNOB_R1 + k, NONE, 450 + k * 50, 62, 19, 0, names[k], ""});
     }
-    add((widget_t){W_JOY, CTL_JOY_X, CTL_JOY_Y, 505, 172, 50, 0, "JOYSTICK", "ARROWS"});
-    add((widget_t){W_BTN, CTL_JOY_SW, CTL_NONE, 465, 258, 80, 40, "PUSH", "R CTRL"});
-    add((widget_t){W_BTN, CTL_BTN_1, CTL_NONE, 430, 330, 50, 36, "B1", "ENTER"});
-    add((widget_t){W_BTN, CTL_BTN_2, CTL_NONE, 485, 330, 50, 36, "B2", "BKSP"});
-    add((widget_t){W_BTN, CTL_BTN_3, CTL_NONE, 540, 330, 50, 36, "B3", "L SHIFT"});
+    add((widget_t){W_JOY, PANEL_JOY_X, PANEL_JOY_Y, 505, 172, 50, 0, "JOYSTICK", "ARROWS"});
+    add((widget_t){W_BTN, PANEL_JOY_SW, NONE, 465, 258, 80, 40, "PUSH", "R CTRL"});
+    add((widget_t){W_BTN, PANEL_BTN_1, NONE, 430, 330, 50, 36, "B1", "ENTER"});
+    add((widget_t){W_BTN, PANEL_BTN_2, NONE, 485, 330, 50, 36, "B2", "BKSP"});
+    add((widget_t){W_BTN, PANEL_BTN_3, NONE, 540, 330, 50, 36, "B3", "L SHIFT"});
 }
 
 /* ---------------- drawing primitives ---------------- */
@@ -164,7 +166,7 @@ static void draw_button(const widget_t *w) {
     SDL_Rect r = {w->x, w->y, w->w, w->h};
     color(pressed ? 255 : 48, pressed ? 190 : 52, pressed ? 60 : 60); SDL_RenderFillRect(rend, &r);
     color(150, 156, 168); SDL_RenderDrawRect(rend, &r);
-    if (w->ctl >= CTL_KEY_FIRST && w->ctl <= CTL_KEY_LAST) {         // the key's LED (key_leds.c): a strip along the top edge
+    if (kPanelControls[w->ctl].led) {                                // the key's LED (hal_leds.h): a strip along the top edge
         const led_color_t c = leds_sim_get(w->ctl);
         SDL_Rect led = {w->x + 4, w->y + 3, w->w - 8, 5};
         if (c.r | c.g | c.b) { color(c.r, c.g, c.b); SDL_RenderFillRect(rend, &led); }
@@ -252,8 +254,8 @@ void panel_render(void) {
 void panel_open(void) {
     if (window) return;
     build_layout();
-    for (int i = 0; i < CTL_COUNT; i++) val[i] = INPUT_VALUE_MAX / 2;
-    val[CTL_JOY_X] = val[CTL_JOY_Y] = INPUT_AXIS_CENTER;
+    for (int i = 0; i < PANEL_CONTROL_COUNT; i++) val[i] = INPUT_VALUE_MAX / 2;
+    val[PANEL_JOY_X] = val[PANEL_JOY_Y] = INPUT_AXIS_CENTER;
     int x = SDL_WINDOWPOS_UNDEFINED, y = SDL_WINDOWPOS_UNDEFINED;
     SDL_Window *oled = SDL_GetWindowFromID(1);                      // the display window (borderless): the panel takes its place, the display goes to its right
     int ox = 0, oy = 0;
@@ -270,8 +272,8 @@ void panel_open(void) {
 
 int panel_owns_window(Uint32 id) { return window && SDL_GetWindowID(window) == id; }
 
-void panel_track(control_id_t ctl, input_kind_t kind, int value) {
-    if (ctl <= CTL_NONE || ctl >= CTL_COUNT) return;
+void panel_track(int ctl, input_kind_t kind, int value) {
+    if (ctl < 0 || ctl >= PANEL_CONTROL_COUNT) return;
     switch (kind) {
         case IN_PRESS:   down[ctl] = true; break;
         case IN_RELEASE: down[ctl] = false; break;

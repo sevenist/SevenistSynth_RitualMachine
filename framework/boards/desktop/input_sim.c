@@ -1,12 +1,12 @@
 #ifdef PLATFORM_SIM
 #include "hal/hal_input.h"
+#include "boards/desktop/panel_controls.h"
 #include "boards/desktop/panel_sim.h"
 #include "boards/desktop/sim_card.h"
 #include "SDL.h"
 
-// The simulator's input: the keyboard and the mouse (on the panel window, see panel_sim.c) both act as the prototype's physical
-// controls and report them as hardware events (see hal/hal_input.h). What a control DOES is decided in core/bindings.c (and, for the
-// matrix keys, by the key layout of core/keymap.h), not here.
+// The simulator's input: the keyboard and the mouse (on the panel window, see panel_sim.c) both act as the controls of the desktop
+// board (panel_controls.h) and report them as hardware events (see hal/hal_input.h). What a control DOES is the app's business.
 //
 // To change the keyboard shortcuts edit keymap[] below. Keys are named by PHYSICAL position (SDL scancodes, QWERTY names), so on an
 // AZERTY keyboard "Q" is the key labelled A, "A" the key labelled Q, "Z" is W, "W" is Z, "M" is ",", "[" is "^", "]" is "$" and
@@ -28,31 +28,31 @@ typedef enum {
     K_AXIS,         // key down = the axis `ctl` goes to `value`, key up = back to the centre
 } key_role_t;
 
-typedef struct { SDL_Scancode sc; key_role_t role; control_id_t ctl; int value; } keymap_t;
+typedef struct { SDL_Scancode sc; key_role_t role; int ctl; int value; } keymap_t;
 
 static const keymap_t keymap[] = {
-    // matrix keyboard: CTL_KEY(row, col)
-    {SDL_SCANCODE_F1, K_BUTTON, CTL_KEY(0, 0), 0}, {SDL_SCANCODE_F2, K_BUTTON, CTL_KEY(0, 1), 0}, {SDL_SCANCODE_F3, K_BUTTON, CTL_KEY(0, 2), 0}, {SDL_SCANCODE_F4, K_BUTTON, CTL_KEY(0, 3), 0},
-    {SDL_SCANCODE_F5, K_BUTTON, CTL_KEY(0, 4), 0}, {SDL_SCANCODE_F6, K_BUTTON, CTL_KEY(0, 5), 0}, {SDL_SCANCODE_F7, K_BUTTON, CTL_KEY(0, 6), 0}, {SDL_SCANCODE_F8, K_BUTTON, CTL_KEY(0, 7), 0},
-    {SDL_SCANCODE_1,  K_BUTTON, CTL_KEY(1, 0), 0}, {SDL_SCANCODE_2,  K_BUTTON, CTL_KEY(1, 1), 0}, {SDL_SCANCODE_3,  K_BUTTON, CTL_KEY(1, 2), 0}, {SDL_SCANCODE_4,  K_BUTTON, CTL_KEY(1, 3), 0},
-    {SDL_SCANCODE_5,  K_BUTTON, CTL_KEY(1, 4), 0}, {SDL_SCANCODE_6,  K_BUTTON, CTL_KEY(1, 5), 0}, {SDL_SCANCODE_7,  K_BUTTON, CTL_KEY(1, 6), 0}, {SDL_SCANCODE_8,  K_BUTTON, CTL_KEY(1, 7), 0},
-    {SDL_SCANCODE_Q,  K_BUTTON, CTL_KEY(2, 0), 0}, {SDL_SCANCODE_W,  K_BUTTON, CTL_KEY(2, 1), 0}, {SDL_SCANCODE_E,  K_BUTTON, CTL_KEY(2, 2), 0}, {SDL_SCANCODE_R,  K_BUTTON, CTL_KEY(2, 3), 0},
-    {SDL_SCANCODE_T,  K_BUTTON, CTL_KEY(2, 4), 0}, {SDL_SCANCODE_Y,  K_BUTTON, CTL_KEY(2, 5), 0}, {SDL_SCANCODE_U,  K_BUTTON, CTL_KEY(2, 6), 0}, {SDL_SCANCODE_I,  K_BUTTON, CTL_KEY(2, 7), 0},
-    {SDL_SCANCODE_A,  K_BUTTON, CTL_KEY(3, 0), 0}, {SDL_SCANCODE_S,  K_BUTTON, CTL_KEY(3, 1), 0}, {SDL_SCANCODE_D,  K_BUTTON, CTL_KEY(3, 2), 0}, {SDL_SCANCODE_F,  K_BUTTON, CTL_KEY(3, 3), 0},
-    {SDL_SCANCODE_G,  K_BUTTON, CTL_KEY(3, 4), 0}, {SDL_SCANCODE_H,  K_BUTTON, CTL_KEY(3, 5), 0}, {SDL_SCANCODE_J,  K_BUTTON, CTL_KEY(3, 6), 0}, {SDL_SCANCODE_K,  K_BUTTON, CTL_KEY(3, 7), 0},
-    {SDL_SCANCODE_Z,  K_BUTTON, CTL_KEY(4, 0), 0}, {SDL_SCANCODE_X,  K_BUTTON, CTL_KEY(4, 1), 0}, {SDL_SCANCODE_C,  K_BUTTON, CTL_KEY(4, 2), 0}, {SDL_SCANCODE_V,  K_BUTTON, CTL_KEY(4, 3), 0},
-    {SDL_SCANCODE_B,  K_BUTTON, CTL_KEY(4, 4), 0}, {SDL_SCANCODE_N,  K_BUTTON, CTL_KEY(4, 5), 0}, {SDL_SCANCODE_M,  K_BUTTON, CTL_KEY(4, 6), 0}, {SDL_SCANCODE_COMMA, K_BUTTON, CTL_KEY(4, 7), 0},
+    // matrix keyboard: PANEL_KEY(row, col)
+    {SDL_SCANCODE_F1, K_BUTTON, PANEL_KEY(0, 0), 0}, {SDL_SCANCODE_F2, K_BUTTON, PANEL_KEY(0, 1), 0}, {SDL_SCANCODE_F3, K_BUTTON, PANEL_KEY(0, 2), 0}, {SDL_SCANCODE_F4, K_BUTTON, PANEL_KEY(0, 3), 0},
+    {SDL_SCANCODE_F5, K_BUTTON, PANEL_KEY(0, 4), 0}, {SDL_SCANCODE_F6, K_BUTTON, PANEL_KEY(0, 5), 0}, {SDL_SCANCODE_F7, K_BUTTON, PANEL_KEY(0, 6), 0}, {SDL_SCANCODE_F8, K_BUTTON, PANEL_KEY(0, 7), 0},
+    {SDL_SCANCODE_1,  K_BUTTON, PANEL_KEY(1, 0), 0}, {SDL_SCANCODE_2,  K_BUTTON, PANEL_KEY(1, 1), 0}, {SDL_SCANCODE_3,  K_BUTTON, PANEL_KEY(1, 2), 0}, {SDL_SCANCODE_4,  K_BUTTON, PANEL_KEY(1, 3), 0},
+    {SDL_SCANCODE_5,  K_BUTTON, PANEL_KEY(1, 4), 0}, {SDL_SCANCODE_6,  K_BUTTON, PANEL_KEY(1, 5), 0}, {SDL_SCANCODE_7,  K_BUTTON, PANEL_KEY(1, 6), 0}, {SDL_SCANCODE_8,  K_BUTTON, PANEL_KEY(1, 7), 0},
+    {SDL_SCANCODE_Q,  K_BUTTON, PANEL_KEY(2, 0), 0}, {SDL_SCANCODE_W,  K_BUTTON, PANEL_KEY(2, 1), 0}, {SDL_SCANCODE_E,  K_BUTTON, PANEL_KEY(2, 2), 0}, {SDL_SCANCODE_R,  K_BUTTON, PANEL_KEY(2, 3), 0},
+    {SDL_SCANCODE_T,  K_BUTTON, PANEL_KEY(2, 4), 0}, {SDL_SCANCODE_Y,  K_BUTTON, PANEL_KEY(2, 5), 0}, {SDL_SCANCODE_U,  K_BUTTON, PANEL_KEY(2, 6), 0}, {SDL_SCANCODE_I,  K_BUTTON, PANEL_KEY(2, 7), 0},
+    {SDL_SCANCODE_A,  K_BUTTON, PANEL_KEY(3, 0), 0}, {SDL_SCANCODE_S,  K_BUTTON, PANEL_KEY(3, 1), 0}, {SDL_SCANCODE_D,  K_BUTTON, PANEL_KEY(3, 2), 0}, {SDL_SCANCODE_F,  K_BUTTON, PANEL_KEY(3, 3), 0},
+    {SDL_SCANCODE_G,  K_BUTTON, PANEL_KEY(3, 4), 0}, {SDL_SCANCODE_H,  K_BUTTON, PANEL_KEY(3, 5), 0}, {SDL_SCANCODE_J,  K_BUTTON, PANEL_KEY(3, 6), 0}, {SDL_SCANCODE_K,  K_BUTTON, PANEL_KEY(3, 7), 0},
+    {SDL_SCANCODE_Z,  K_BUTTON, PANEL_KEY(4, 0), 0}, {SDL_SCANCODE_X,  K_BUTTON, PANEL_KEY(4, 1), 0}, {SDL_SCANCODE_C,  K_BUTTON, PANEL_KEY(4, 2), 0}, {SDL_SCANCODE_V,  K_BUTTON, PANEL_KEY(4, 3), 0},
+    {SDL_SCANCODE_B,  K_BUTTON, PANEL_KEY(4, 4), 0}, {SDL_SCANCODE_N,  K_BUTTON, PANEL_KEY(4, 5), 0}, {SDL_SCANCODE_M,  K_BUTTON, PANEL_KEY(4, 6), 0}, {SDL_SCANCODE_COMMA, K_BUTTON, PANEL_KEY(4, 7), 0},
     // left strip
-    {SDL_SCANCODE_LEFTBRACKET,  K_TURN,   CTL_ENC_A,    -1}, {SDL_SCANCODE_RIGHTBRACKET, K_TURN, CTL_ENC_A, +1}, {SDL_SCANCODE_BACKSLASH, K_BUTTON, CTL_ENC_A_SW, 0},
-    {SDL_SCANCODE_SEMICOLON,    K_TURN,   CTL_ENC_B,    -1}, {SDL_SCANCODE_APOSTROPHE,   K_TURN, CTL_ENC_B, +1}, {SDL_SCANCODE_SLASH,     K_BUTTON, CTL_ENC_B_SW, 0},
-    {SDL_SCANCODE_SPACE,        K_BUTTON, CTL_PLAY,      0},
+    {SDL_SCANCODE_LEFTBRACKET,  K_TURN,   PANEL_ENC_A,    -1}, {SDL_SCANCODE_RIGHTBRACKET, K_TURN, PANEL_ENC_A, +1}, {SDL_SCANCODE_BACKSLASH, K_BUTTON, PANEL_ENC_A_SW, 0},
+    {SDL_SCANCODE_SEMICOLON,    K_TURN,   PANEL_ENC_B,    -1}, {SDL_SCANCODE_APOSTROPHE,   K_TURN, PANEL_ENC_B, +1}, {SDL_SCANCODE_SLASH,     K_BUTTON, PANEL_ENC_B_SW, 0},
+    {SDL_SCANCODE_SPACE,        K_BUTTON, PANEL_PLAY,      0},
     // right section
-    {SDL_SCANCODE_LEFT,  K_AXIS, CTL_JOY_X, 0}, {SDL_SCANCODE_RIGHT, K_AXIS, CTL_JOY_X, INPUT_VALUE_MAX},
-    {SDL_SCANCODE_UP,    K_AXIS, CTL_JOY_Y, 0}, {SDL_SCANCODE_DOWN,  K_AXIS, CTL_JOY_Y, INPUT_VALUE_MAX},
-    {SDL_SCANCODE_RCTRL, K_BUTTON, CTL_JOY_SW, 0},
-    {SDL_SCANCODE_RETURN, K_BUTTON, CTL_BTN_1, 0}, {SDL_SCANCODE_KP_ENTER, K_BUTTON, CTL_BTN_1, 0},
-    {SDL_SCANCODE_BACKSPACE, K_BUTTON, CTL_BTN_2, 0}, {SDL_SCANCODE_DELETE, K_BUTTON, CTL_BTN_2, 0},
-    {SDL_SCANCODE_LSHIFT, K_BUTTON, CTL_BTN_3, 0},
+    {SDL_SCANCODE_LEFT,  K_AXIS, PANEL_JOY_X, 0}, {SDL_SCANCODE_RIGHT, K_AXIS, PANEL_JOY_X, INPUT_VALUE_MAX},
+    {SDL_SCANCODE_UP,    K_AXIS, PANEL_JOY_Y, 0}, {SDL_SCANCODE_DOWN,  K_AXIS, PANEL_JOY_Y, INPUT_VALUE_MAX},
+    {SDL_SCANCODE_RCTRL, K_BUTTON, PANEL_JOY_SW, 0},
+    {SDL_SCANCODE_RETURN, K_BUTTON, PANEL_BTN_1, 0}, {SDL_SCANCODE_KP_ENTER, K_BUTTON, PANEL_BTN_1, 0},
+    {SDL_SCANCODE_BACKSPACE, K_BUTTON, PANEL_BTN_2, 0}, {SDL_SCANCODE_DELETE, K_BUTTON, PANEL_BTN_2, 0},
+    {SDL_SCANCODE_LSHIFT, K_BUTTON, PANEL_BTN_3, 0},
 };
 #define KEYMAP_COUNT ((int)(sizeof keymap / sizeof keymap[0]))
 
@@ -62,7 +62,7 @@ static const keymap_t keymap[] = {
 static input_event_t queue[QUEUE_SIZE];
 static int q_head, q_tail;
 
-static void emit(control_id_t ctl, input_kind_t kind, int value) {
+static void emit(int ctl, input_kind_t kind, int value) {
     const int next = (q_tail + 1) % QUEUE_SIZE;
     if (next == q_head) return;                        // full: drop
     queue[q_tail] = (input_event_t){ctl, kind, value, false};
@@ -73,7 +73,7 @@ static void emit(control_id_t ctl, input_kind_t kind, int value) {
 static void emit_quit(void) {
     const int next = (q_tail + 1) % QUEUE_SIZE;
     if (next == q_head) return;
-    queue[q_tail] = (input_event_t){CTL_NONE, IN_NONE, 0, true};
+    queue[q_tail] = (input_event_t){INPUT_NO_CONTROL, IN_NONE, 0, true};
     q_tail = next;
 }
 
@@ -92,9 +92,10 @@ static void key_event(const SDL_KeyboardEvent *k) {
     }
 }
 
-bool input_key_present(int row, int col) { return row >= 0 && row < KEY_ROWS && col >= 0 && col < 4; }     // future prototype: 4 columns only
-bool input_control_present(control_id_t c) { (void)c; return true; }     // the panel has every control
-bool input_boot_reset(void) { return false; }      // no keys before the window opens: F1 held in the first seconds does it (app/app_input.c)
+const input_control_t *input_controls(int *count) { if (count) *count = PANEL_CONTROL_COUNT; return kPanelControls; }
+const char *input_board_name(void) { return "panel"; }
+void input_control_mode(int ctl, input_kind_t reading, int start) { (void)ctl; (void)reading; (void)start; }    // no endless pot here
+bool input_boot_reset(void) { return false; }      // no keys before the window opens: F1 held in the first seconds does it (the Ritual Machine: app/app_input.c)
 
 bool input_pending(void) { return q_head != q_tail; }
 
@@ -119,7 +120,7 @@ input_event_t input_poll(void) {
     }
     if (q_head == q_tail) {
         SDL_Delay(1);                                  // idle: do not spin a core
-        return (input_event_t){CTL_NONE, IN_NONE, 0, false};
+        return (input_event_t){INPUT_NO_CONTROL, IN_NONE, 0, false};
     }
     const input_event_t e = queue[q_head];
     q_head = (q_head + 1) % QUEUE_SIZE;

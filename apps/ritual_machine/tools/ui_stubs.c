@@ -216,9 +216,9 @@ int audio_sample_onsets(int index, uint32_t *frames, uint16_t *strength, int max
 }
 uint32_t audio_millis(void) { static uint32_t t; return t += 10; }
 void audio_update(void) {}
-bool input_key_present(int row, int col) { return row > 0 || col < 4; }      // the first prototype: 4 function keys, 4 x 8 note keys
+bool controls_key_present(int row, int col) { return row > 0 || col < 4; }      // the first prototype: 4 function keys, 4 x 8 note keys
 // UI_DUMP_BOARD=hwv1 in the environment: the controls of the prototype (no R1..R3, no B1..B3 / Play, no encoder pushes)
-bool input_control_present(control_id_t c) {
+bool controls_present(control_id_t c) {
     const char *b = getenv("UI_DUMP_BOARD");
     if (!b || !*b) return true;
     return !((c >= CTL_KNOB_R1 && c <= CTL_KNOB_R3) || (c >= CTL_BTN_1 && c <= CTL_BTN_3) || c == CTL_PLAY || c == CTL_ENC_A_SW || c == CTL_ENC_B_SW);
@@ -309,6 +309,6 @@ void display_boot_end(void) { ui_stub_boot_ends++; }
 int ui_stub_boot_progress = -1, ui_stub_boot_progress_back;   // the last progress reported, and how often it went back
 void display_boot_progress(int percent) { if (percent < ui_stub_boot_progress) ui_stub_boot_progress_back++; ui_stub_boot_progress = percent; }
 bool input_pending(void) { return false; }
-led_color_t ui_stub_led[CTL_COUNT];                                  // the last colour each LED was given (the UI tests read it)
-void leds_set(control_id_t ctl, led_color_t color) { if (ctl > CTL_NONE && ctl < CTL_COUNT) ui_stub_led[ctl] = color; }
+led_color_t ui_stub_led[CTL_COUNT];                                  // the last colour each role's LED was given (the UI tests read it)
+void controls_led(control_id_t ctl, led_color_t color) { if (ctl > CTL_NONE && ctl < CTL_COUNT) ui_stub_led[ctl] = color; }
 void leds_show(void) {}

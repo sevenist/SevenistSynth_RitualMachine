@@ -3,7 +3,7 @@
 #include "core/dx7.h"
 #include "core/synth_config.h"
 #include "core/curves.h"
-#include "hal/hal_input.h"
+#include "core/controls.h"
 #include <ctype.h>
 #include <stdio.h>
 #include <string.h>
@@ -27,8 +27,8 @@ static const struct { control_id_t ctl; const char *name; } others[] = {
 static bool is_key(control_id_t c) { return c >= CTL_KEY_FIRST && c <= CTL_KEY_LAST; }
 
 static bool present(control_id_t c) {
-    if (is_key(c)) return input_key_present((c - CTL_KEY_FIRST) / KEY_COLS, (c - CTL_KEY_FIRST) % KEY_COLS);
-    return input_control_present(c);
+    if (is_key(c)) return controls_key_present((c - CTL_KEY_FIRST) / KEY_COLS, (c - CTL_KEY_FIRST) % KEY_COLS);
+    return controls_present(c);
 }
 
 // All candidates, present or not (the file may name a control another board has: its entry is kept).
@@ -191,7 +191,7 @@ static void set_defaults(void) {
     g_e[MODL_SHIFT][CTL_JOY_LEFT]   = act(ACT_VALUE_FINE, -1);       // fine steps of the value (user, 2026-10-07; was Pages: row 0 still changes the page)
     g_e[MODL_SHIFT][CTL_JOY_RIGHT]  = act(ACT_VALUE_FINE, 1);
     g_e[MODL_SHIFT][CTL_JOY_SW]     = act(ACT_JOY_MODE, 0);           // Shift + push: joystick XY mode (user, 2026-10-07)
-    if (!input_control_present(CTL_KNOB_R1)) {
+    if (!controls_present(CTL_KNOB_R1)) {
         g_e[MODL_SHIFT][CTL_COL_KNOB_2] = act(ACT_MACRO, 0);
         g_e[MODL_SHIFT][CTL_COL_KNOB_3] = act(ACT_MACRO, 1);
     }

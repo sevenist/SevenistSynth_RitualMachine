@@ -26,7 +26,6 @@ void setup() {
     board_power_init();                             // before anything slow: the board keeps itself powered
     Serial.begin(115200);
     Serial.setTxTimeoutMs(0);                       // never wait for a host that does not read the port
-    if (board_power_started_off()) board_card_reader();   // the button is up and the cable feeds the board: the card reader's firmware, if the board has one
     u8g2_t *const display = display_init();
     input_esp32_init();                             // the key matrix, the knobs and the joystick, scanned by the board's own task
     board_audio_enable();                           // the DAC stays muted while everything starts

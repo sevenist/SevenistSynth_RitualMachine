@@ -7,7 +7,7 @@
 #include "core/card_layout.h"
 #include "core/ui_sprites_gen.h"
 #include "hal/hal_display.h"
-#include "hal/hal_input.h"
+#include "core/controls.h"
 #include "hal/hal_leds.h"
 #include "boards/hwv1/board_esp32.h"
 #include "platform/esp32/serial_cmd_esp32.h"
@@ -55,6 +55,7 @@ void setup() {
 #endif
     leds_init();
     ram("leds_init");
+    controls_init();                           // the board's controls as the app's roles, and how its endless pots report: before the scan starts
     input_esp32_init();
     ram("input_init");
     board_audio_enable();
@@ -86,7 +87,7 @@ void loop() {
 #ifdef DEV_SERIAL_CMD
     serial_cmd_poll();                         // dev only: commands from tools/serial_test.py
 #endif
-    const input_event_t e = input_poll();
+    const input_event_t e = controls_event(input_poll());      // the board's control as the role it plays (kind IN_NONE: no role)
 #ifdef HWV1_DEBUG_UI
     const uint32_t t0 = micros();
 #endif

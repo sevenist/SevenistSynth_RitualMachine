@@ -1,25 +1,19 @@
 #pragma once
-// HAL: user input. One implementation per platform (desktop simulator, ESP32...).
+// HAL: user input. One implementation per board (the first prototype, the desktop panel...).
 //
-// The HAL knows the PHYSICAL controls of the prototype board and nothing about what they do: it reports "control X was
-// pressed / turned / moved" and the application decides the meaning in core/bindings.c (the binding table).
-//
-// Board layout (the numbers are the control ids below):
-//
-//   left strip (top -> bottom)     matrix keyboard (up to 8 columns x 5 rows)   right section
-//     CTL_VOLUME  master knob         K1    K2    K3    K4   <- column knobs       R1  R2  R3   <- 3 knobs
-//     CTL_ENC_A   encoder + switch    [k]   [k]   [k]   [k] ...  <- function row (0)  joystick (X / Y / push)
-//     CTL_ENC_B   encoder + switch    [k]   [k]   [k]   [k] ...  <- main rows 1..4    B1  B2  B3  <- 3 buttons
-//     CTL_PLAY    button              ...
-//
-// The matrix has room for 8 columns (the first prototype has 4 function keys and 4 x 8 note keys); a board reports which keys it really
-// has with input_key_present(). What every key does is chosen at run time (core/keymap.h: layouts, the KEYS tab of the menu).
+// A board has its own controls and lists them in a table: input_controls(). A control's id is its place in that table, and an event
+// says "control <id> was pressed / turned / moved". The HAL knows nothing about what a control does: an app reads the table (the
+// kind of each control, its name, its place in the key matrix) and decides, or keeps a list of roles of its own with a map per board
+// (the Ritual Machine: core/controls.h). The ids of a board have names in its own header (boards/hwv1/hwv1_controls.h,
+// boards/desktop/panel_controls.h).
 //
 // What each kind of control reports:
-//   button / key / encoder switch / joystick push : IN_PRESS and IN_RELEASE (value unused)
-//   encoder                                        : IN_DELTA, value = detents since the last event (+ clockwise)
-//   knob / joystick axis                           : IN_VALUE, value = position 0..INPUT_VALUE_MAX (axis centre = INPUT_AXIS_CENTER)
+//   key / button                   : IN_PRESS and IN_RELEASE (value unused)
+//   encoder                        : IN_DELTA, value = detents since the last event (+ clockwise)
+//   knob / joystick axis           : IN_VALUE, value = position 0..INPUT_VALUE_MAX (axis centre = INPUT_AXIS_CENTER)
+//   endless pot (no end stops)     : IN_DELTA like an encoder, or IN_VALUE like a knob: input_control_mode() says which
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -28,53 +22,51 @@ extern "C" {
 #define INPUT_VALUE_MAX   1023                      // full travel of a knob / axis (10 bit, ESP32 ADC values are scaled to it)
 #define INPUT_AXIS_CENTER 512
 
-#define KEY_COLS 8
-#define KEY_ROWS 5                                  // row 0 = the function row above the note rows
-#define KEY_COUNT (KEY_ROWS * KEY_COLS)
-#define CTL_KEY(row, col) (CTL_KEY_FIRST + (row) * KEY_COLS + (col))
-
-typedef enum {
-    CTL_NONE = 0,
-    // left strip
-    CTL_VOLUME,                                     // master volume knob
-    CTL_ENC_A, CTL_ENC_A_SW,
-    CTL_ENC_B, CTL_ENC_B_SW,
-    CTL_PLAY,
-    // matrix keyboard: CTL_KEY(row, col), row 0 = function row (top), row 4 = bottom, col 0 = left
-    CTL_KEY_FIRST,
-    CTL_KEY_LAST = CTL_KEY_FIRST + KEY_COLS * KEY_ROWS - 1,
-    CTL_COL_KNOB_0, CTL_COL_KNOB_1, CTL_COL_KNOB_2, CTL_COL_KNOB_3,     // one knob above each column
-    // right section
-    CTL_KNOB_R1, CTL_KNOB_R2, CTL_KNOB_R3,
-    CTL_JOY_X, CTL_JOY_Y, CTL_JOY_SW,
-    CTL_BTN_1, CTL_BTN_2, CTL_BTN_3,
-    CTL_HW_COUNT,
-    // Virtual controls made by the application from the joystick axes (core/bindings.c): deflection past the dead zone
-    // reports IN_PRESS / IN_RELEASE (with key repeat) so bindings can treat the stick as four buttons.
-    CTL_JOY_LEFT = CTL_HW_COUNT, CTL_JOY_RIGHT, CTL_JOY_UP, CTL_JOY_DOWN,
-    CTL_COUNT
-} control_id_t;
-
 typedef enum { IN_NONE, IN_PRESS, IN_RELEASE, IN_DELTA, IN_VALUE } input_kind_t;
 
+typedef enum {
+    CK_KEY,                 // a key of the matrix: `row`, `col` say where (row 0 = the top row, col 0 = the left column)
+    CK_BUTTON,              // any other switch: a button, an encoder's push, a joystick's push
+    CK_ENCODER,             // detents
+    CK_ENDLESS,             // a pot without end stops
+    CK_KNOB,                // a pot with end stops
+    CK_AXIS,                // a joystick axis (it rests at INPUT_AXIS_CENTER)
+} control_kind_t;
+
+#define INPUT_OFF_PANEL 255                         // `px` of a control that reports but has no part on the panel (the desktop: PC keys only)
+
+// One control of a board. The tables are constants (flash on the ESP32).
 typedef struct {
-    control_id_t ctl;       // which control
+    const char *name;       // the part's name on this board: "F1", "KEY 2.3", "POT 4", "JOY X"
+    uint8_t     kind;       // control_kind_t
+    uint8_t     row, col;   // CK_KEY: its place in the key matrix (0 for the other kinds)
+    uint8_t     px, py;     // its place on the panel, in half key pitches from the top left corner (the desktop draws a board from it)
+    uint8_t     led;        // 1: an LED sits under it (hal_leds.h)
+} input_control_t;
+
+const input_control_t *input_controls(int *count);  // the board's table; a control's id is its index
+const char *input_board_name(void);                 // "hwv1", "panel": an app picks its map for the board with it
+
+// How an endless pot (CK_ENDLESS) reports: `reading` = IN_DELTA, steps like an encoder (the default), or IN_VALUE, a position that
+// starts at `start` and stops at 0 and INPUT_VALUE_MAX (a full turn sweeps the range). The noise thresholds are the board's. Call it
+// before the board starts its scan; the other kinds ignore it.
+void input_control_mode(int ctl, input_kind_t reading, int start);
+
+#define INPUT_NO_CONTROL (-1)
+
+typedef struct {
+    int          ctl;       // which control: its id in input_controls() (INPUT_NO_CONTROL when kind is IN_NONE)
     input_kind_t kind;      // what happened
     int          value;     // IN_DELTA: signed detents; IN_VALUE: 0..INPUT_VALUE_MAX
-    bool         quit;      // window closed / platform asks to exit (ctl is CTL_NONE)
+    bool         quit;      // window closed / platform asks to exit (kind is IN_NONE)
 } input_event_t;
 
 // Non-blocking poll. Returns an event with kind == IN_NONE (and quit == false) when nothing happened.
 input_event_t input_poll(void);
 bool input_pending(void);                           // more events are queued: the app handles them before it redraws
 
-// Whether the board has the key CTL_KEY(row, col): the KEYS menu tab lists only the keys that exist.
-bool input_key_present(int row, int col);
-// Whether the board has a control that is not a matrix key (the MODIFIERS menu tab lists only those).
-bool input_control_present(control_id_t c);
-
-// The top-left function key CTL_KEY(0, 0) was held at power-on (for about 2 s, read before the key scan starts: a key that is already down
-// makes no press event). The application resets the key layout. Platforms without it return false.
+// The board's reset key was held at power-on (for about 2 s, read before the key scan starts: a key that is already down makes no
+// press event). Boards without it return false.
 bool input_boot_reset(void);
 
 #ifdef __cplusplus

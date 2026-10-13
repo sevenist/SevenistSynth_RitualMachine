@@ -4,7 +4,7 @@
 // A declarative screen (see ui_screen.h).
 #include "core/ui_screen.h"
 #include "core/keymap.h"
-#include "hal/hal_input.h"
+#include "core/controls.h"
 #include <stdio.h>
 
 // "F1".."F8" for the function row, then "A1".."D8" for the note rows from the top.
@@ -14,7 +14,7 @@ static void key_label(int key, char *out, int n) {
     else        snprintf(out, (size_t)n, "%c%d", 'A' + r - 1, c + 1);
 }
 
-static bool present(int key) { return input_key_present(key / KEY_COLS, key % KEY_COLS); }
+static bool present(int key) { return controls_key_present(key / KEY_COLS, key % KEY_COLS); }
 
 static void layout_value(const ui_ctx_t *c, char *out, int n) { (void)c; snprintf(out, (size_t)n, "%s", keymap_layout_name(keymap_layout())); }
 static bool layout_adjust(const ui_ctx_t *c, int dir) {

@@ -2,7 +2,7 @@
 // (Types and shared declarations: ui_internal.h.)
 #include "core/ui_screen.h"
 #include "core/modifiers.h"
-#include "hal/hal_input.h"
+#include "core/controls.h"
 #include <stdio.h>
 #include <string.h>
 

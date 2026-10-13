@@ -10,7 +10,7 @@
 #include "core/rack.h"
 #include "core/seq.h"
 #include "core/synth_ui.h"
-#include "hal/hal_input.h"
+#include "core/controls.h"
 #include "core/bindings.h"
 #include "ui/popup.h"
 

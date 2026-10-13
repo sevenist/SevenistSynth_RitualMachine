@@ -2,7 +2,7 @@
 #include "core/ui_screen.h"
 #include "core/synth_config.h"
 #include "core/curves.h"
-#include "hal/hal_input.h"
+#include "core/controls.h"
 #include <stdio.h>
 #include <string.h>
 

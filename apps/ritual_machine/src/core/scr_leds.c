@@ -6,7 +6,7 @@
 // A declarative screen (see ui_screen.h).
 #include "core/ui_screen.h"
 #include "core/led_roles.h"
-#include "hal/hal_input.h"
+#include "core/controls.h"
 #include <stdio.h>
 
 static int role(const ui_ctx_t *c) { return c->ui->led_role % LR_COUNT; }
@@ -56,13 +56,13 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
     int cols = 0, rows = 0;
     for (int r = 0; r < KEY_ROWS; r++)
         for (int k = 0; k < KEY_COLS; k++)
-            if (input_key_present(r, k)) { if (k + 1 > cols) cols = k + 1; if (r + 1 > rows) rows = r + 1; }
+            if (controls_key_present(r, k)) { if (k + 1 > cols) cols = k + 1; if (r + 1 > rows) rows = r + 1; }
     if (!cols || !rows) return;
     const int cw = (box.w - 4) / cols, ch = (box.h - 4) / rows < cw ? (box.h - 4) / rows : cw;   // square cells
     const int x0 = box.x + (box.w - cw * cols) / 2, y0 = box.y + (box.h - ch * rows) / 2;
     for (int r = 0; r < rows; r++)
         for (int k = 0; k < cols; k++) {
-            if (!input_key_present(r, k)) continue;
+            if (!controls_key_present(r, k)) continue;
             const int x = x0 + k * cw, y = y0 + r * ch;
             if (led_role_of(keymap_get(r * KEY_COLS + k)) == role(c)) u8g2_DrawBox(g, x + 1, y + 1, cw - 2, ch - 2);
             else u8g2_DrawFrame(g, x + 1, y + 1, cw - 2, ch - 2);

@@ -2,7 +2,7 @@
 #include "core/keymap.h"
 #include "core/led_roles.h"
 #include "core/audio.h"
-#include "hal/hal_leds.h"
+#include "core/controls.h"
 
 #define KEY_LEDS_PERIOD_MS 20                                // repaint rate without input (the Play LED follows the sequencer)
 #define MUTE_PULSE_MS      800                               // a muted pad that sounds: red <-> its playing colour, one round trip
@@ -44,39 +44,39 @@ void key_leds_update(const app_t *app, bool input_event, uint32_t now_ms) {
     const bool preview_idle = app->ui.row == 2 || app->ui.row == 3;   // scr_leds.c rows: 1 Role, 2 Idle, 3 Idle %, 4 Active, 5 Act %
     for (int r = 0; r < KEY_ROWS; r++)
         for (int c = 0; c < KEY_COLS; c++) {
-            if (!input_key_present(r, c)) continue;
+            if (!controls_key_present(r, c)) continue;
             const control_id_t ctl = (control_id_t)CTL_KEY(r, c);
             const key_fn_t f = keymap_get(r * KEY_COLS + c);
             const int role = led_role_of(f);
-            if (preview) { leds_set(ctl, role == app->ui.led_role ? led_role_rgb(role, !preview_idle) : (led_color_t){0, 0, 0}); continue; }
+            if (preview) { controls_led(ctl, role == app->ui.led_role ? led_role_rgb(role, !preview_idle) : (led_color_t){0, 0, 0}); continue; }
             if (f.act == ACT_PAD && app->ui.pad_steps && app->pbank.pat) {   // step mode: the selected pad's steps of the page shown
                 const pseq_pattern_t *pt = &app->pbank.pat[app->pbank.cur];
                 const int cursor = app->ui.pseq_step < pt->steps ? app->ui.pseq_step : pt->steps - 1;
                 const int step = cursor / SEQ_PAGE * SEQ_PAGE + (f.arg & 15);
                 const bool hit = step < pt->steps && pseq_find(pt, pads_ui_pad(&app->ui), step) >= 0;
-                if (step >= pt->steps) leds_set(ctl, (led_color_t){0, 0, 0});                      // past the pattern's end
-                else if (step == app->ui.pseq_pos) leds_set(ctl, led_role_rgb(LR_PLAY, true));     // the playhead
-                else if (hit) leds_set(ctl, led_role_rgb(LR_PAD, true));
-                else leds_set(ctl, led_role_rgb(LR_PAD, false));
+                if (step >= pt->steps) controls_led(ctl, (led_color_t){0, 0, 0});                      // past the pattern's end
+                else if (step == app->ui.pseq_pos) controls_led(ctl, led_role_rgb(LR_PLAY, true));     // the playhead
+                else if (hit) controls_led(ctl, led_role_rgb(LR_PAD, true));
+                else controls_led(ctl, led_role_rgb(LR_PAD, false));
                 continue;
             }
             if (f.act == ACT_PAD) {                          // an empty pad is dark, a muted one shows Back's idle colour (unless it sounds)
                 const pad_t *p = &app->pads.pad[app->ui.pad_bank * PADS_PER_BANK + (f.arg & 15)];
-                if (pad_empty(p)) { leds_set(ctl, (led_color_t){0, 0, 0}); continue; }
-                if (p->mute && !key_active(app, ctl, f)) { leds_set(ctl, led_role_rgb(LR_BACK, false)); continue; }
+                if (pad_empty(p)) { controls_led(ctl, (led_color_t){0, 0, 0}); continue; }
+                if (p->mute && !key_active(app, ctl, f)) { controls_led(ctl, led_role_rgb(LR_BACK, false)); continue; }
                 if (p->mute) {                               // muted but sounding (user, 2026-10-10): a smooth pulse red <-> the pad colour
                     const int ph = (int)(now_ms % MUTE_PULSE_MS) * 512 / MUTE_PULSE_MS;     // 0..511: up, then down
-                    leds_set(ctl, mix(led_role_rgb(LR_BACK, true), led_role_rgb(LR_PAD, true), ph < 256 ? ph : 511 - ph));
+                    controls_led(ctl, mix(led_role_rgb(LR_BACK, true), led_role_rgb(LR_PAD, true), ph < 256 ? ph : 511 - ph));
                     continue;
                 }
             }
             if (f.act == ACT_PAD_REC) {                      // Rec: dim, blinking while armed, lit while it records (Back's red)
                 const int st = app->ui.cap_state;
                 const bool lit = st == CAPTURE_ST_RECORDING || st == CAPTURE_ST_FINISHING || (st == CAPTURE_ST_ARMED && (now_ms / 150) % 2);
-                leds_set(ctl, led_role_rgb(LR_BACK, lit));
+                controls_led(ctl, led_role_rgb(LR_BACK, lit));
                 continue;
             }
-            leds_set(ctl, led_role_rgb(role, key_active(app, ctl, f)));
+            controls_led(ctl, led_role_rgb(role, key_active(app, ctl, f)));
         }
     leds_show();                                             // the driver sends only when something changed
 }

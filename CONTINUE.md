@@ -12,34 +12,44 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
 the top of DEVELOPING.md). The user asked that developers can start a new project easily. **Step 1** (the engine as the library,
 the Ritual Machine and a starter template as apps) is committed by the user on `main` (`ffaa378` the renames, `a07f37e` the
 contents; the first commit alone does not build: `git commit` without `git add`). **Step 2a** (the HAL, the two boards and the
-drawing kit into `framework/`) was built the same day on top of it: **in the working tree, UNCOMMITTED, NOT flashed** (the files
-were moved without `git mv`: `git add -A` before the commit, git then shows them as renames). A bare `samples_src/`, `sdcard/`,
+drawing kit into `framework/`) was built the same day and **committed by the user (`d6f929a`)**; they did not say whether they
+tried it, and nothing was flashed by me. **Step 2b** (a control table per board, the Ritual Machine's roles with a map per
+board) was built right after, at the user's "let's go for step 2b": **in the working tree, UNCOMMITTED, NOT flashed** (new
+files: `git add -A` before the commit). Not Claude's, both in the working tree: `apps/ritual_machine/.gitignore`, untracked
+(PlatformIO's, made when the app's folder was opened in VS Code; `apps/template` has one that is versioned), and one line
+gone from `apps/template/src/main_esp32.cpp` (the `board_card_reader()` call at start; the file changed at 03:00 on
+2026-10-13 while 2b was being built: the user's or another session's, left as found). A bare `samples_src/`, `sdcard/`,
 `tools/` or `platformio.ini` in older notes is inside `apps/ritual_machine/`. Two glossaries were made that day as documents for
 the user (features and GUI; framework): ask for their links, they are not in the repo.
 
-- [ ] **The split, step 2a: try it, then commit** (from: user, "finish the split"; ADR-043 "Step 2a as built"). What is there:
-  `framework/hal/` (display, input, LEDs, mem, power, storage, and the new `hal_audio_out.h`: the board calls the app's render
-  function), `framework/ui/` (`gui`, `popup`), `framework/boards/hwv1/` and `framework/boards/desktop/`. Two files were split, not
-  moved: the audio output (`audio_out_esp32.cpp` the board's, `audio_esp32.cpp` the app's) and the card task (`card_task.*`
-  the board's, `samples_esp32.cpp` the app's sample library on its hooks). The app hands over its card folders
-  (`core/card_layout.h`), its boot animation (`display_boot_config`) and its render function; `hal_audio.h` is `core/audio.h`.
-  The template has a screen and the board's keys from the library (`src/app.cpp`). Checked by me: 123 + 114 engine tests and
-  141 UI tests pass, both simulators build and ran 5 s without a window, the four firmwares build (the Ritual Machine: static
-  RAM 222084 bytes, 67.8 %, +64; every engine object the same size as before; the template 72564 bytes, 22.1 %, was 56608).
-  **To try, simulator** (`.\build.ps1`, `.\run.ps1`): it must look and sound as before; F12 pulls the card and puts it back;
-  `.\run.ps1 -App template` after `.\build.ps1 -App template`: two windows now, notes on the PC keyboard's rows 1.. / Q.. / A.. /
-  Z.., F1 / F2 octave, F3 / F4 cutoff. **To try, board (ask before flashing; `pio.exe run -d apps/ritual_machine -t upload`)**:
-  sound at all and its level, the boot animation with its bar and words, a streamed pad and the browser while it plays, a
-  setting saved and back after a power cycle, the card pulled and put back, the speaker level, then the template
-  (`-d apps/template`): its screen and keys have never run on the board. A profiling build's `[AUDIO]` lines should read as
-  before (`serial_test.py`). Left for later, on purpose: `gui_style_t` still has the Ritual Machine's page fields; with
-  `HWV1_TEST_TONE` the dev `dump` captures nothing.
-- [ ] **The split, step 2b, then 2c** (from: user; ADR-043 decisions 10, 11, 14 and "Step 2 as planned"). NOT started: after the
-  user's try and commit of 2a. 2b: a control table per board (id, kind, name, matrix place, panel place, LED), events and LEDs
-  with the board's ids, the Ritual Machine's role list in its `core/` with a map per board (`hwv1_layout.h` is that map today);
-  saved files unchanged; the template reads the table. 2c: the simulator's panel drawn from a board's table (`-Board hwv1`:
-  the prototype's 8 key columns on the desktop). Known work: about 100 lines use `CTL_` outside the HAL; `panel_sim.c` (356
-  lines) is rewritten in 2c.
+- [ ] **The split, step 2b: try it, then commit** (from: user, "let's go for step 2b"; ADR-043 "Step 2b as built", with
+  the eight choices made while building: say if one is wrong). What is there: `hal/hal_input.h` has no control list any more,
+  a board gives a table (`input_controls()`: name, kind, matrix place, panel place, LED; a control's id is its index) and
+  events and LEDs carry that id; `boards/hwv1/hwv1_controls.*` (36 keys, 7 endless pots, the joystick) and
+  `boards/desktop/panel_controls.*`; the Ritual Machine's roles are `core/controls.h` (`control_id_t`, the same values: no
+  saved file changes), bound to a board by `core/controls.c` with `core/boards/map_hwv1.h` / `map_panel.h` (the pots' rows are
+  what `hwv1_layout.h` had); `platform/controls_board.c` talks to the HAL; the template reads the table. Checked by me: 123 +
+  114 engine tests and 147 UI tests pass (6 new: `tests/ui/test_controls.c`), both simulators build and ran 5 s without a
+  window, a scratch program pushed every PC key and the panel's mouse parts through the real desktop code and each arrived as
+  its old role, the firmwares build (the Ritual Machine: static RAM 222260 bytes, 67.8 %, +176; every engine object the same
+  size as at `d6f929a`). **To try, simulator** (`.\build.ps1`, `.\run.ps1`): everything as before: the keys (F5..F8 too), both
+  encoders, the knobs with the mouse, the joystick, the key LEDs, the KEYS and MODIFIERS tabs listing the same controls;
+  `.\run.ps1 -App template` after `.\build.ps1 -App template`: notes on the rows 1.. / Q.. / A.. / Z.., F1 / F2 octave, F3 / F4
+  cutoff, and now BOTH encoders (`[` `]` and `;` `'`) move the cutoff. **To try, board (ask before flashing; 2a has not run
+  there either, as far as I know, so a fault can be either step's)**: 2a's list first (sound and its level, the boot
+  animation, a streamed pad and the browser, a setting saved and back, the card pulled and put back, the speaker), then 2b's:
+  every key and its LED, the three top pots in steps (volume, rows, value), the four around the joystick as positions (from
+  the middle, no jitter at rest), the joystick and its push; the template: every pot moves the cutoff now.
+- [ ] **The split, step 2c** (from: user; ADR-043 decision 14 and "Step 2 as planned"). NOT started: after the user's try
+  and commit of 2b. The simulator's panel drawn from a board's table (`-Board hwv1`: the prototype's 8 key columns on the
+  desktop). What 2b left ready: the tables carry a panel place per control (half key pitches; **HWV1's places are a guess,
+  to correct against the real board when it is first drawn**), the app picks its map by `input_board_name()`, so the desktop
+  only has to report another board; `hwv1_controls.c` compiles on the desktop already. Known work: `panel_sim.c` (356
+  lines) is rewritten; `input_sim.c`'s PC keys come from the control's kind and matrix place; the desktop's key columns
+  5..8 (`INPUT_OFF_PANEL` today) go when the panel board is drawn with its 4 columns.
+- [x] **The split, step 2a** (committed by the user: `d6f929a`; ADR-043 "Step 2a as built". Its board try list is in the 2b
+  item above; not known to have been flashed. Left for later, on purpose: `gui_style_t` still has the Ritual Machine's page
+  fields; with `HWV1_TEST_TONE` the dev `dump` captures nothing) (done 2026-10-13)
 - [x] **The split, step 1** (committed by the user: `ffaa378` + `a07f37e`; the template flashed and played by them before 2a:
   "it works nicely"; the root scripts ran in my baseline: tests, both simulators, both firmwares). `oled_sim.code-workspace`
   exists (the user's choice): to try once, open it in VS Code, the PlatformIO status bar must offer both apps. `new_project.ps1`

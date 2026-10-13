@@ -1,5 +1,5 @@
-// LED chain of HWV1: 36 x SK6812 on PIN_LED_DATA, driven by FastLED (RMT). The application addresses LEDs by control (hal_leds.h); this
-// file maps a control to its place in the chain. FastLED 3.10.6 (pinned in platformio.ini) gives its first RMT channel DMA on the S3:
+// LED chain of HWV1: 36 x SK6812 on PIN_LED_DATA, driven by FastLED (RMT). The application addresses LEDs by control (hal_leds.h: the
+// keys of the board's table); this file maps a key to its place in the chain. FastLED 3.10.6 (pinned in platformio.ini) gives its first RMT channel DMA on the S3:
 // without DMA the RMT refills its buffer from an interrupt, and an I2S audio interrupt in between stretches the signal into a reset of
 // the strip (flicker; SynthBox patched FastLED 3.10.3 for this). -DFASTLED_RMT_MAX_CHANNELS=1 keeps it to one RMT channel.
 // Brightness is capped at HW_LED_MAX_BRIGHTNESS: 36 LEDs at full white draw about 2 A, which browns out the board or overloads USB power.
@@ -22,7 +22,7 @@ uint32_t test_until = 0;                                 // millis() until which
 // Chain index of the LED under the key at physical position (row from the top, column from the left), -1 = none. Serpentine, read left to
 // right: function keys 32..35 on the top row, then the note rows from the top: 31..24, 16..23, 15..8, 0..7 (the user saw every row mirrored
 // with the column flip, 2026-10-06). SynthBox's table (crdToIdx, OOPSIE_LED_FLAG) is in TCA column order, which runs
-// right to left on this board; kHwv1KeyMap is already physical, so no HWV1_FLIP_COLS here (applying it mirrored every row).
+// right to left on this board; the table's rows and columns are physical already, so no HWV1_FLIP_COLS here (applying it mirrored every row).
 int led_index(int pr, int pc) {
     if (HWV1_FLIP_ROWS) pr = HW_KBD_ROWS - 1 - pr;
     switch (pr) {
@@ -35,11 +35,9 @@ int led_index(int pr, int pc) {
     return -1;
 }
 
-int led_of_control(control_id_t ctl) {
-    for (int r = 0; r < HW_KBD_ROWS; r++)
-        for (int c = 0; c < HW_KBD_COLS; c++)
-            if (kHwv1KeyMap[r][c] == ctl) return led_index(r, c);
-    return -1;
+int led_of_control(int ctl) {
+    if (ctl < 0 || ctl >= HWV1_CONTROL_COUNT || !kHwv1Controls[ctl].led) return -1;
+    return led_index(kHwv1Controls[ctl].row, kHwv1Controls[ctl].col);
 }
 
 void put(int i, led_color_t c) {
@@ -61,7 +59,7 @@ void leds_set_brightness(uint8_t level) {
     if (FastLED.getBrightness() != level) { FastLED.setBrightness(level); dirty = true; }
 }
 void leds_clear(void) { for (int i = 0; i < HW_NUM_LEDS; i++) put(i, led_color_t{0, 0, 0}); }
-void leds_set(control_id_t ctl, led_color_t color) { put(led_of_control(ctl), color); }
+void leds_set(int ctl, led_color_t color) { put(led_of_control(ctl), color); }
 void leds_set_all(led_color_t color) { for (int i = 0; i < HW_NUM_LEDS; i++) put(i, color); }
 void leds_show(void) {
     if (disabled || display_esp32_loading()) return;     // dark while the loading screen is up; the frame waits (dirty stays set)

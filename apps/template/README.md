@@ -22,10 +22,10 @@ The controls, the same on both:
 
 | Control | On the desktop | What it does |
 | --- | --- | --- |
-| The four note rows | the PC keyboard's rows `1`.., `Q`.., `A`.., `Z`.. (8 keys each, by position) | notes: bottom left = C3, +1 per key to the right, +8 per row up |
+| The note rows | the PC keyboard's rows `1`.., `Q`.., `A`.., `Z`.. (8 keys each, by position) | notes: bottom left = C3, +1 per key to the right, +8 per row up |
 | Function keys 1 / 2 | `F1` / `F2` | octave down / up |
 | Function keys 3 / 4 | `F3` / `F4` | filter cutoff down / up |
-| Encoder B | `;` / `'` (by position) | filter cutoff |
+| Anything that turns in steps: the two encoders of the panel, the seven pots of the first prototype | `[` / `]` and `;` / `'` (by position) | filter cutoff |
 
 Esc or closing a window quits the desktop program.
 
@@ -50,7 +50,7 @@ next to yours.
 | From the library | What it gives |
 | --- | --- |
 | `engine/...` | The DSP engine (`#include "engine/core/engine.h"`). |
-| `hal/hal_display.h`, `hal/hal_input.h` | The screen (a u8g2 instance) and the controls as events, the same on every board. |
+| `hal/hal_display.h`, `hal/hal_input.h` | The screen (a u8g2 instance), and the controls: each board lists its own in a table, an event names one of them. |
 | `hal/hal_audio_out.h` | The audio output: you hand it `synth_render`, the board calls it for every buffer. |
 | `hal/hal_leds.h`, `hal/hal_storage.h`, `hal/hal_power.h` | The key LEDs, small files on the card, the battery. Not used by this app. |
 | `ui/gui.h` | The drawing kit: rectangles to lay a screen out, text, fields, sprites. |
@@ -69,8 +69,11 @@ next to yours.
 - **A change of structure while it runs** (a module added, a cable moved): build a new graph and call `eng.load()` again.
   Modules that keep their node id and type keep their state.
 - **More voices**: `kVoices` in `src/synth.cpp`. Memory and CPU grow with it.
-- **What a control does**: `app_event()` in `src/app.cpp`. The controls a board can report are listed in `hal/hal_input.h`.
-- **Another board**: a folder in `framework/boards` with the HAL behind it, added to `build_src_filter` in `platformio.ini`.
+- **What a control does**: `app_event()` in `src/app.cpp`. It reads the board's table (`input_controls()`, `hal/hal_input.h`): the
+  kind of the control that spoke and, for a key, its place in the matrix, so it runs on any board. To give one particular control
+  a job, compare `e.ctl` with its id from the board's header (`boards/hwv1/hwv1_controls.h`, `boards/desktop/panel_controls.h`).
+- **Another board**: a folder in `framework/boards` with the HAL behind it and its control table, added to `build_src_filter` in
+  `platformio.ini`.
 
 ## Three rules the engine relies on
 

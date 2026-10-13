@@ -59,7 +59,7 @@ if (Test-Path $py) {
 
 # ---- the program ----
 . "$fw/tools/sim_build.ps1"
-$cSrc   = @(Get-ChildItem src/core/*.c) + @(Get-ChildItem src/app/*.c) + @(Get-ChildItem src/platform/$Platform/*.c) +
+$cSrc   = @(Get-ChildItem src/core/*.c) + @(Get-ChildItem src/app/*.c) + @(Get-ChildItem src/platform/*.c) + @(Get-ChildItem src/platform/$Platform/*.c) +
           @(Get-UiSources) + @(Get-DesktopBoardSources) +
           @(Get-ChildItem $u8g2/csrc/*.c) + @(Get-ChildItem $u8g2/sys/sdl/common/*.c)
 $cppSrc = @(Get-EngineSources) + @(Get-ChildItem src/platform/engine/*.cpp) +

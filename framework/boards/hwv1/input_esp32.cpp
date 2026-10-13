@@ -1,8 +1,8 @@
-// ESP32 input driver. Reports PHYSICAL controls only (see hal/hal_input.h); what they do is decided in core/bindings.c.
+// ESP32 input driver. Reports the board's controls only (see hal/hal_input.h); what they do is the app's business.
 //
 // HWV1 (old prototype): a scan task on core 0 reads the TCA8418 keyboard (kbd_tca8418.cpp), the 7 relative knobs through the analog
-// mux (mux_esp32.cpp) and the joystick, turns them into HAL controls with the tables in hwv1_layout.h, and pushes events into a ring
-// buffer. input_poll() pops one event per call, so a slow screen refresh in loop() never delays the scan. The task also reads the
+// mux (mux_esp32.cpp) and the joystick, turns them into the controls of the board's table (hwv1_controls.h, the wiring: hwv1_layout.h)
+// and pushes events into a ring buffer. input_poll() pops one event per call, so a slow screen refresh in loop() never delays the scan. The task also reads the
 // mux's two other channels now and then: the battery and a spare input (scan_sensors).
 //
 // Other revisions: add an #elif block with their own driver; until then input_poll() reports nothing.
@@ -27,7 +27,7 @@ input_event_t ring[kRing];
 uint8_t head = 0, tail = 0;                    // guarded by lock
 portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
 
-void push(control_id_t ctl, input_kind_t kind, int value) {
+void push(int ctl, input_kind_t kind, int value) {
     portENTER_CRITICAL(&lock);
     bool merged = false;
     if (kind == IN_VALUE || kind == IN_DELTA) {
@@ -52,11 +52,11 @@ void scan_keys() {
         int pc = ev[i].col;
         if (HWV1_FLIP_ROWS) pr = HW_KBD_ROWS - 1 - pr;
         if (HWV1_FLIP_COLS) pc = HW_KBD_COLS - 1 - pc;
-        const control_id_t ctl = kHwv1KeyMap[pr][pc];
+        const int ctl = HWV1_KEY(pr, pc);
 #ifdef HWV1_DEBUG_INPUT
         Serial.printf("[KEY] tca r%d c%d %s -> ctl %d\n", ev[i].row, ev[i].col, ev[i].pressed ? "down" : "up", (int)ctl);
 #endif
-        if (ctl != CTL_NONE) push(ctl, ev[i].pressed ? IN_PRESS : IN_RELEASE, 0);
+        if (ctl != INPUT_NO_CONTROL) push(ctl, ev[i].pressed ? IN_PRESS : IN_RELEASE, 0);
     }
 }
 
@@ -68,12 +68,13 @@ void scan_keys() {
 struct KnobState {
     float prev = 0;
     float moved = 0;                           // radians turned since the last reported step (signed, already multiplied by the knob's sign)
-    int   value = 0;                           // absolute mode: the reported value
-    int   dir = 0;                             // absolute mode: the way of the last report (+1 / -1, 0 = none yet)
+    int   value = 0;                           // position reading: the reported value (it starts where input_control_mode said)
+    int   dir = 0;                             // position reading: the way of the last report (+1 / -1, 0 = none yet)
     uint32_t last_ms = 0;                      // ... and when it was
     bool  init = false;
 };
 KnobState knob[HWV1_KNOB_COUNT];
+volatile uint8_t knob_position[HWV1_KNOB_COUNT];   // 1: the pot reports a position (IN_VALUE), 0: steps (IN_DELTA); set by the app (input_control_mode)
 constexpr float kPi = 3.14159265f;
 constexpr float kMinRadius = 80.0f;            // ADC counts from the centre; below this the pair is not a valid signal (knob not connected)
 constexpr float kEncoderQuantum = 2 * kPi * HWV1_COUNTS_PER_DETENT / HWV1_COUNTS_PER_REV;     // radians per detent
@@ -82,27 +83,26 @@ constexpr float kAbsoluteStart = 2 * kPi * HWV1_ABS_START / INPUT_VALUE_MAX;    
 
 void scan_knobs() {
     for (int i = 0; i < HWV1_KNOB_COUNT; i++) {
-        const hwv1_knob_t &cfg = kHwv1Knobs[i];
         KnobState &k = knob[i];
         const float x = (float)mux_read(HWV1_MUX_KNOB_BASE + 2 * i) - 2048.0f;
         const float y = (float)mux_read(HWV1_MUX_KNOB_BASE + 2 * i + 1) - 2048.0f;
         if (sqrtf(x * x + y * y) < kMinRadius) continue;
         const float a = atan2f(y, x);
-        if (!k.init) { k.prev = a; k.init = true; k.value = cfg.start; continue; }
+        if (!k.init) { k.prev = a; k.init = true; continue; }
         float d = a - k.prev;
         if (d > kPi) d -= 2 * kPi;
         if (d < -kPi) d += 2 * kPi;
         k.prev = a;
-        k.moved += d * (float)cfg.sign;
-        const bool enc = cfg.mode == HW_KNOB_ENCODER;
+        k.moved += d * (float)kHwv1KnobSign[i];
+        const bool enc = !knob_position[i];
         if (enc) {
             const int n = (int)(k.moved / kEncoderQuantum);    // whole quanta, truncated towards zero
             if (!n) continue;
             k.moved -= (float)n * kEncoderQuantum;
-            push(cfg.ctl, IN_DELTA, n);
+            push(HWV1_POT_0 + i, IN_DELTA, n);
             continue;
         }
-        // Absolute: fine steps while the knob keeps turning one way, a larger threshold from rest or to reverse (noise stays under it).
+        // A position: fine steps while the knob keeps turning one way, a larger threshold from rest or to reverse (noise stays under it).
         const uint32_t now = millis();
         const int way = k.moved > 0 ? 1 : -1;
         const bool moving = k.dir == way && now - k.last_ms < HWV1_ABS_IDLE_MS;
@@ -115,7 +115,7 @@ void scan_knobs() {
         if (v > INPUT_VALUE_MAX) v = INPUT_VALUE_MAX;
         if (v == k.value) { k.moved = 0; continue; }       // at an end stop: do not wind up, the way back starts at once
         k.value = v;
-        push(cfg.ctl, IN_VALUE, v);
+        push(HWV1_POT_0 + i, IN_VALUE, v);
     }
 }
 
@@ -158,7 +158,7 @@ int scale_axis(int raw, int centre, bool invert) {
 
 void scan_joystick() {
     static const int pins[2] = {PIN_JOY_X, PIN_JOY_Y};
-    static const control_id_t ctl[2] = {CTL_JOY_X, CTL_JOY_Y};
+    static const int ctl[2] = {HWV1_JOY_X, HWV1_JOY_Y};
     const bool inv[2] = {HWV1_JOY_INVERT_X != 0, HWV1_JOY_INVERT_Y != 0};
     for (int a = 0; a < 2; a++) {
         const int v = scale_axis(read_axis(pins[a]), joy_centre[a], inv[a]);
@@ -169,7 +169,7 @@ void scan_joystick() {
     static uint8_t stable = 0;
     const bool now = digitalRead(PIN_JOY_SW) == (HWV1_JOY_SW_PUSHED ? HIGH : LOW);
     if (now == sw) stable = 0;
-    else if (++stable >= 2) { sw = now; stable = 0; push(CTL_JOY_SW, sw ? IN_PRESS : IN_RELEASE, 0); }   // 2 scans of the new level
+    else if (++stable >= 2) { sw = now; stable = 0; push(HWV1_JOY_SW, sw ? IN_PRESS : IN_RELEASE, 0); }   // 2 scans of the new level
 }
 
 // ---- the mux's two other channels: the battery (board_esp32.cpp keeps its level) and a spare input, read as a button ----
@@ -184,7 +184,7 @@ void scan_sensors() {
     const bool now = (raw > 2048) == (HWV1_AUX_PUSHED != 0);
     aux_raw = raw;
     if (now == aux_pushed) stable = 0;
-    else if (++stable >= 2) { aux_pushed = now; stable = 0; }     // 2 reads of the new level (no control of the HAL yet: nothing is reported)
+    else if (++stable >= 2) { aux_pushed = now; stable = 0; }     // 2 reads of the new level (not a control of the board's table yet: nothing is reported)
 }
 
 void scan_task(void *) {
@@ -209,18 +209,21 @@ void input_esp32_init(void) {
 int input_esp32_aux_raw(void) { return aux_raw; }
 bool input_esp32_aux_pushed(void) { return aux_pushed; }
 
-extern "C" bool input_key_present(int row, int col) { return row >= 0 && row < KEY_ROWS && col >= 0 && col < KEY_COLS && HWV1_KEY_PRESENT(row, col); }
-// The 7 knobs (kHwv1Knobs) and the joystick; no encoder pushes, no Play / B1..B3 buttons, no right-hand knobs.
-extern "C" bool input_control_present(control_id_t c) {
-    for (int i = 0; i < HWV1_KNOB_COUNT; i++) if (kHwv1Knobs[i].ctl == c) return true;
-    return c == CTL_JOY_SW || c == CTL_JOY_LEFT || c == CTL_JOY_RIGHT || c == CTL_JOY_UP || c == CTL_JOY_DOWN;
+extern "C" const input_control_t *input_controls(int *count) { if (count) *count = HWV1_CONTROL_COUNT; return kHwv1Controls; }
+extern "C" const char *input_board_name(void) { return "hwv1"; }
+// Read by the scan task: a byte per pot, and the position's start goes in before the pot's first move.
+extern "C" void input_control_mode(int ctl, input_kind_t reading, int start) {
+    if (ctl < HWV1_POT_0 || ctl >= HWV1_POT_0 + HWV1_KNOB_COUNT) return;
+    const int i = ctl - HWV1_POT_0;
+    if (reading == IN_VALUE) knob[i].value = start < 0 ? 0 : start > INPUT_VALUE_MAX ? INPUT_VALUE_MAX : start;
+    knob_position[i] = reading == IN_VALUE;
 }
 extern "C" bool input_boot_reset(void) { return false; }   // the power-on key read was reverted (2026-10-07): the app's own check (F1 within 4 s of start, held 2 s) is the reset
 
 extern "C" bool input_pending(void) { return head != tail; }   // a racy read is fine: a hint for the redraw
 
 extern "C" input_event_t input_poll(void) {
-    input_event_t e{CTL_NONE, IN_NONE, 0, false};
+    input_event_t e{INPUT_NO_CONTROL, IN_NONE, 0, false};
     portENTER_CRITICAL(&lock);
     if (head != tail) { e = ring[tail]; tail = (tail + 1) % kRing; }
     portEXIT_CRITICAL(&lock);
@@ -231,10 +234,11 @@ extern "C" input_event_t input_poll(void) {
 void input_esp32_init(void) {}
 int input_esp32_aux_raw(void) { return 0; }
 bool input_esp32_aux_pushed(void) { return false; }
-extern "C" input_event_t input_poll(void) { return input_event_t{CTL_NONE, IN_NONE, 0, false}; }
+extern "C" input_event_t input_poll(void) { return input_event_t{INPUT_NO_CONTROL, IN_NONE, 0, false}; }
 extern "C" bool input_pending(void) { return false; }
-extern "C" bool input_key_present(int, int) { return false; }
-extern "C" bool input_control_present(control_id_t) { return false; }
+extern "C" const input_control_t *input_controls(int *count) { if (count) *count = 0; return nullptr; }
+extern "C" const char *input_board_name(void) { return "none"; }
+extern "C" void input_control_mode(int, input_kind_t, int) {}
 extern "C" bool input_boot_reset(void) { return false; }
 #endif // HWV1
 #endif // ARDUINO_ARCH_ESP32

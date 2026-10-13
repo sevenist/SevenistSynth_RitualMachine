@@ -1,5 +1,5 @@
 #pragma once
-// The LEDs under the keys (hal_leds.h): play feedback. Each key shows the colour of its role (core/led_roles.h: from its function in the key
+// The LEDs under the keys (core/controls.h: controls_led): play feedback. Each key shows the colour of its role (core/led_roles.h: from its function in the key
 // layout): the Idle colour, or the Active one while a note is held, Shift / Mod is held, the menu is open, the sequencer runs, the keyboard
 // is shifted that way (Octave) or a jump slot is saved. The colours are edited in the LEDS tab; while it is on screen the keys of the role
 // shown light in its Active colour. The LED driver applies the global brightness (capped on the prototype, see board_pins.h).

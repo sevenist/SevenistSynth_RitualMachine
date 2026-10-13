@@ -16,7 +16,7 @@
 //   app_preset.c    the sound's working state (saved by itself, back at power-on) and the presets
 //   key_leds.c/.h   the LEDs under the keys
 #include "app/app.h"
-#include "hal/hal_audio.h"
+#include "core/audio.h"
 
 #define LEARN_INFO_MS 2500              // how long a popup about Learn, the latch or Stop all stays
 

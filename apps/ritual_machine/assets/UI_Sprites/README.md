@@ -59,11 +59,11 @@ one bit plane (`w * h / 8` bytes per frame); with transparency a second plane (t
 ## Animation frames
 
 Numbered files of the same size, `_00` first, no gaps: `64/boot_00.png`, `64/boot_01.png` ... -> one sprite `spr64_boot` with the
-frames stacked (`gui_anim_add`, core/gui.h). A 64x64 frame is 512 bytes (1 KB with a mask).
+frames stacked (`gui_anim_add`, framework/ui/gui.h). A 64x64 frame is 512 bytes (1 KB with a mask).
 
 **The boot animation** is `64/boot_NN.png`: its frames play at power-on, centred on the screen, 50 ms each (`BOOT_FRAME_MS`,
 app/app.h). On the board a task of its own plays them from the moment the display is up, back and forth (first .. last .. first)
-until everything is loaded, then on to the nearer end, where the UI takes the screen (`platform/esp32/display_esp32.cpp`): **keep the
+until everything is loaded, then on to the nearer end, where the UI takes the screen (`framework/boards/hwv1/display_esp32.cpp`): **keep the
 first and the last frame empty**, they are where it stops. A loading bar is drawn by code under it (96 x 7 pixels, 20 pixels above
 the bottom of the screen: leave that strip free if the frames ever grow). The simulator plays them once in the application, where a key, a push
 or an encoder step ends them. Paint over the frames, add or remove some (no gaps in the numbers); without the files there is no

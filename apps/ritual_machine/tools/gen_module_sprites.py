@@ -117,7 +117,7 @@ def main():
             "// The fallback when assets/UI_Sprites/24/ has no image for a module (scr_rack.c: module_sprite).\n"
             "// %dx%d module sprites (rounded square + 2-letter code), empty slot, OUT arrow and the MIX cell.\n" % (W, H) +
             "#define MODULE_SPRITE_W %d\n#define MODULE_SPRITE_H %d\n" % (W, H) +
-            "#include \"core/gui.h\"\n\n")
+            "#include \"ui/gui.h\"\n\n")
     for name, code in MODULES:
         text += emit("mod_" + name, module_sprite(code))
     text += emit("slot_empty", empty_sprite())

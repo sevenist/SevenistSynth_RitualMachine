@@ -9,7 +9,7 @@
 // Saved as text next to the samples:   v <seq> |<name>|<parent or ->| <3 trim points on the parent> <3 on the version> <what was done>
 #include <stdbool.h>
 #include <stdint.h>
-#include "hal/hal_storage.h"
+#include "core/card_layout.h"
 
 #ifdef __cplusplus
 extern "C" {

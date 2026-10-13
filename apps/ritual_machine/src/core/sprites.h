@@ -2,7 +2,7 @@
 // 1-bit sprites for gui_draw_sprite(): 8 pixels per byte, MSB = leftmost pixel, rows of
 // ceil(w/8) bytes. Add a new one by drawing it in a byte grid and wrapping it in a
 // gui_sprite_t. Header-only (static), so include it where it is used.
-#include "core/gui.h"
+#include "ui/gui.h"
 
 static const uint8_t spr_play_data[8] = {
     0x40,   // .X......

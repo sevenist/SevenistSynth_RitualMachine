@@ -9,7 +9,7 @@
 // The file name comes last (the rest of the line). Unknown words are skipped, so a file from a later version still loads.
 #include <stdbool.h>
 #include <stdint.h>
-#include "hal/hal_storage.h"
+#include "core/card_layout.h"
 #include "core/rack.h"
 
 #ifdef __cplusplus
@@ -19,7 +19,7 @@ extern "C" {
 #define PAD_BANKS      4
 #define PADS_PER_BANK  16
 #define PAD_COUNT      (PAD_BANKS * PADS_PER_BANK)
-#define PAD_NAME_MAX   48                       // a sample's name with its 0: its path below the samples folder (hal_audio.h AUDIO_NAME_MAX)
+#define PAD_NAME_MAX   48                       // a sample's name with its 0: its path below the samples folder (core/audio.h AUDIO_NAME_MAX)
 #define PAD_CHOKES     4                        // choke groups 1..4 (0 = none)
 // The EDIT page's operations, in the order the Op row shows them; app/app_render.c (app_render_start) turns each into an engine operation (PROC_*)
 // and its amount. Amounts as the page shows them: Normalize / Gain / Drive 0.1 dB, the fades ms, Trim dBFS, Stretch and Speed percent,

@@ -1,4 +1,4 @@
-// The samples the application uses: the catalog (hal_audio.h: the files in use, each read from the card when asked for) and the sample
+// The samples the application uses: the catalog (core/audio.h: the files in use, each read from the card when asked for) and the sample
 // browser (scr_browse.c).
 #include "app/app_internal.h"
 #include <stdio.h>

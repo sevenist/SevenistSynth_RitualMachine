@@ -3,11 +3,13 @@
 #include <Arduino.h>
 #include <esp_heap_caps.h>
 #include "app/app.h"
-#include "hal/hal_audio.h"
+#include "core/audio.h"
+#include "core/card_layout.h"
+#include "core/ui_sprites_gen.h"
 #include "hal/hal_display.h"
 #include "hal/hal_input.h"
 #include "hal/hal_leds.h"
-#include "platform/esp32/board_esp32.h"
+#include "boards/hwv1/board_esp32.h"
 #include "platform/esp32/serial_cmd_esp32.h"
 
 static app_t app;
@@ -26,6 +28,15 @@ void setup() {
     Serial.begin(115200);
     Serial.setTxTimeoutMs(0);                  // never wait for a host: debug prints from the audio and input tasks must not block them when nobody reads the port
     if (board_power_started_off()) board_card_reader();   // the power button is up, the cable feeds the board: the card reader's firmware (back only when there is none)
+    card_layout_apply();                       // the card's folders, before the card task starts (audio_init)
+    {   // the board's boot animation: the image 64/boot of assets/UI_Sprites, the machine's name and version over it
+        static display_boot_t boot;
+        const gui_sprite_t *const sp = ui_sprite("64/boot");
+        if (sp) {
+            boot = {sp->data, sp->w, sp->h, sp->frames, BOOT_FRAME_MS, app_boot_draw_text};
+            display_boot_config(&boot);
+        }
+    }
     u8g2_t *const display = display_init();    // first: its boot task plays the animation while everything below starts (display_esp32.cpp)
 #ifdef BOOT_TRACE
     Serial.printf("[BOOT] display ready at %u ms\n", (unsigned)millis());

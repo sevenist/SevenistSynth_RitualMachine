@@ -325,7 +325,7 @@ LINEAR, bipolar / unipolar) travels as one `MotionBlob` with `set_blob`; target,
   slice). Pages `SMP n`, `SMP n LOOP`, `SMP n SLICE`; the graph shows the amplitude overview with slice ticks, loop bracket and start marker.
   An LFO / ENV / OC / MS can target its pitch. An SM without a usable file is not in the chain (no node). A sampler *synth type* (own
   page set, zones) is still to do; `MOD_PARAM_MAX` became 12 for this module.
-- **Library** (`hal_audio.h`): `audio_sample_count / audio_sample_info / audio_samples_rescan`, entries with name, length, rate, root, slices,
+- **Library** (`core/audio.h`): `audio_sample_count / audio_sample_info / audio_samples_rescan`, entries with name, length, rate, root, slices,
   loop and 64 amplitude peaks. The order is stable and only grows (a rescan appends), because the rack stores the index. Up to 32 files
   (the bank has 32 slots). The rack refers to the file by index, not by name: saving racks (later) must store the name.
   **Since 2026-10-11 the library is read on demand** (folders, the catalog = the 32 files in use, `audio_sample_use`, a browser
@@ -1098,7 +1098,7 @@ of 155 files; flashed and measured the same day, see "On the board" below; NOT t
   (`AUDIO_NAME_MAX` = `PAD_NAME_MAX` 48; it was 24). pads.cfg, the history and the jobs keep working by name: a version (`name~n`), a
   crop or a stretch lands in its source's folder; a recording (`recN`) in the root. A path longer than 47 characters is listed by the
   browser but cannot be taken ("cannot be read").
-- **The catalog holds the files in use** (`AUDIO_SAMPLES_MAX` 32, unchanged: it is also the number of loaded samples). `hal_audio.h`:
+- **The catalog holds the files in use** (`AUDIO_SAMPLES_MAX` 32, unchanged: it is also the number of loaded samples). `core/audio.h`:
   `audio_sample_find(name)`, `audio_sample_use(name)` (reads the header from the card when the file is not in the catalog: -1 no such
   sample, -2 the catalog is full), `audio_dir_open(dir)` / `audio_dir_read(first, out, max)` (one folder, sorted, folders first,
   versions left out; the platform keeps the list until another folder or `audio_dir_close`: on the board 34 KB of PSRAM, the names
@@ -1317,13 +1317,13 @@ against my recommendation of a Seq key; patterns as on the synth):**
   times, 72 combinations); `apps/ritual_machine/tests/ui/test_seq*.c`, `test_vel.c`, `test_pseq.c` (25: the pages, the tools, the knobs' threshold, step
   entry and live record, patterns, chain, the files, the hand-over to the engine, step mode and its LEDs).
 
-### ADR-043: The repo is a library and its apps (Accepted; user choices of 2026-10-13; step 1 built, host-tested, firmware built; the template flashed and played by the user, the Ritual Machine NOT flashed from its new folder)
+### ADR-043: The repo is a library and its apps (Accepted; user choices of 2026-10-13; step 1 committed, the template flashed and played by the user; step 2a built, host-tested, firmware built, NOT flashed: neither app has run on the board since it)
 **Why.** The user: "make sure devs can easily create a new project. Put the current firmware app under another folder, or create a
 system to have a separate library and app as example." Until then the repo was one program: `src/` held the engine and the Ritual
 Machine side by side, and both builds assumed one app.
 
 **What was there.** `src/engine` already included nothing from the rest (48k lines, the only clean boundary). Everything else is tied
-to the Ritual Machine: `hal_audio.h` and the bridge take `rack_t`, `pads_t`, `seq_t`; the UI toolkit's context carries the rack.
+to the Ritual Machine: `core/audio.h` and the bridge take `rack_t`, `pads_t`, `seq_t`; the UI toolkit's context carries the rack.
 
 **Decisions taken by the user** (two rounds of options with pros and cons; recorded, not to be re-litigated):
 1. **Staged, the engine first.** Step 1: the engine is the library, the whole Ritual Machine (core, app, HAL, bridge, platform) is
@@ -1373,7 +1373,7 @@ to the Ritual Machine: `hal_audio.h` and the bridge take `rack_t`, `pads_t`, `se
   skips the apps (they are open twice); `new_project.ps1` adds the new app to it and no longer copies the template's `.vscode`.
 
 **Step 2, what was there (2026-10-13, read before the design round).** Six HAL headers carry no app type (display, input, LEDs,
-mem, power, storage). `hal_audio.h` is four things: the audio device, the Ritual Machine's engine bridge (`rack_t`, `seq_t`,
+mem, power, storage). `core/audio.h` is four things: the audio device, the Ritual Machine's engine bridge (`rack_t`, `seq_t`,
 `pads_t`), the sample library (catalog, folder list) and the card jobs (sample edit, capture). The board's display driver and the
 card-reader firmware include `app/app.h` for the boot title and frames. On the board one task does everything that touches the
 card (mount, the sample loader, the jobs, the settings files of `hal_storage.h`). `gui` and `popup` depend on u8g2 only;
@@ -1412,14 +1412,14 @@ written around the Ritual Machine's actions. `hwv1_layout.h` already is a table 
     Bank keys there). Risk: `panel_sim.c` (356 lines) is rewritten, not moved; the tables carry positions; about half a session
     more; the drawing is generic, not a picture of the board, so the Ritual Machine's simulator changes its look.
 
-**Step 2 as planned (2026-10-13; NOT started: it waits for the user's try of step 1 and their commit).** Three stages, each ending
+**Step 2 as planned (2026-10-13).** Three stages, each ending
 with the host tests green, the simulator and the firmware built, the firmware's object sizes compared with the stage before, and
 the user's try:
 - **2a, the moves** (no behaviour change meant). `framework/hal/` (display, input, LEDs, mem, power, storage, and a new
   `hal_audio_out.h`: start with a render function and a rate, gain, mute, underrun count, the millisecond clock);
   `framework/ui/` (`gui`, `popup`); `framework/boards/hwv1/` (pins, key matrix, mux, knobs, LEDs, display, card driver, card
   task, power, I2S output) and `framework/boards/desktop/` (SDL display, audio, the card as a folder). What is left of
-  `hal_audio.h` becomes the Ritual Machine's bridge header. The app hands the boot title and frames to the display, its folder
+  `core/audio.h` becomes the Ritual Machine's bridge header. The app hands the boot title and frames to the display, its folder
   list to the storage and its card work to the card task. The template gets a screen and the board's keys from the library; its
   copy of `kbd_tca8418.*` goes.
 - **2b, the control tables.** A board's table: id, kind (key, button, encoder, endless pot, knob, axis), name, matrix place,
@@ -1432,6 +1432,46 @@ Chosen by me (say if one is wrong): the order 2a, 2b, 2c; the folder names above
 its own (it is what the simulator draws today); an endless pot's reading (steps or position) set per control by the app's map,
 the noise thresholds staying in the board's driver; the PC keys of a table-drawn panel come from the control's kind and place
 (the 5 x 8 key block as today), not from the table.
+
+**Step 2a as built (2026-10-13, on `main` after the user's commits `ffaa378` + `a07f37e`; uncommitted, NOT flashed).**
+- Moved, content unchanged apart from include paths: `core/gui.*`, `core/popup.*` -> `framework/ui/`; the six HAL headers ->
+  `framework/hal/`; the board's files (`board_pins.h`, `board_esp32.*`, `hwv1_layout.h`, `input_esp32.cpp`, `kbd_tca8418.*`,
+  `mux_esp32.*`, `leds_esp32.*`, `display_esp32.cpp`, `sd_card.*`, `sd_card_spi.cpp`, `storage_sd.*`) -> `framework/boards/hwv1/`;
+  the desktop's (`display_sim.c`, `input_sim.c`, `panel_sim.*`, `leds_sim.*`, `power_sim.c`, `storage_sim.c`, `sim_card.h`) ->
+  `framework/boards/desktop/`. `hal_audio.h` is now the app's `core/audio.h` (same functions; no call site changed).
+- Split, not moved (the two files that held both sides):
+  - **The audio output**: `hal/hal_audio_out.h` (`audio_out_start(render, rate)`, `audio_out_stop`, `audio_out_set_report`).
+    `boards/hwv1/audio_out_esp32.cpp` has the I2S channel, the audio task (same stack, priority, core, 64 frames), the dev gain,
+    the speaker channel's ramp (`board_speaker_level`), the start-up gate, the test tone, the measuring; the app's
+    `audio_esp32.cpp` keeps the heap sizing, `engine_synth_init`, the render function (with the dev `dump` capture) and prints
+    the same `[AUDIO]` / `[PROF]` / `[SEC]` / `[HEAP]` / `[OSC]` / `[MI]` lines from the output's report. One call through a
+    function pointer per 64 frames is the only new cost on the audio path. `boards/desktop/audio_out_sim.c` is the SDL side.
+  - **The card task**: `boards/hwv1/card_task.*` has the task and its loop, the card's poll, the events, the small files, the
+    folders; the app's `samples_esp32.cpp` keeps the sample library (header reads, the folder list, the catalog) and gives the
+    task eight hooks (`card_hooks_t`: card_seen, card_ready, card_gone, calm_pending / calm_run, always, idle, pump, report). The
+    loop's order, its priorities and the calm priority are the ones measured on 2026-10-11: each app call sits where the direct
+    call was. `SdStorage` takes its folder from the app (`set_dir`), and is made at its first use, so an app without card work
+    does not carry its 5.7 KB.
+- Handed over by the app, where the board used to reach into it: the card's folders and the moves from an older layout
+  (`storage_set_folders`, `storage_set_moves`; the Ritual Machine: `core/card_layout.h`, `card_layout_apply()` first thing in
+  `main`); the boot animation's frames, rhythm and words (`display_boot_config`, before `display_init`).
+- The template: `src/app.cpp` (the controls and a small screen drawn with `ui/gui.h`), `main_sim.cpp` and `main_esp32.cpp` on
+  the library's boards; its own I2S code, its SDL window and its copies of `board_pins.h` and `kbd_tca8418.*` are gone.
+- Checked: the host tests (123 + 114 engine tests in the default configuration, 141 UI tests) pass; both simulators build and
+  ran 5 s without a window; `ui_dump` builds. Firmware, scratch build directories, against the same day's baseline: every engine
+  object has the same text / data / bss size; the Ritual Machine 222020 -> 222084 bytes of static RAM (67.8 %) and 1402179 ->
+  1403151 of flash; `release` 221828 / 1389651 and `card_reader` 73716 / 572315 build (no baseline taken for those two). The
+  template 56608 -> 72564 bytes of static RAM (22.1 %) and 479392 -> 593543 of flash: it now has the display (four 2 KB
+  frame buffers), the input scan and the board's power code.
+- **Not done / not checked**: nothing flashed, nothing heard, neither simulator used by hand. On the board the things to look
+  at first: sound at all and its level (the output's gain and gate moved), the boot animation with its bar and words (its
+  frames are handed over now), a streamed pad and the browser while it plays (the card task's hooks), a settings file written
+  and read back, the card pulled and put back, the speaker level, the `[AUDIO]` lines of a profiling build
+  (`serial_test.py` reads them), the card reader's firmware. The `-Matrix` run was not repeated (no engine source changed).
+- Left as it is, on purpose: `gui_style_t` still carries the Ritual Machine's page fields (piano roll, rack pitch); `hal_input.h`
+  is still the one shared control list (2b); `panel_sim.c` still draws the new panel with 4 key columns (2c); the engine's
+  fast heap policy is each app's (decision 9). With `HWV1_TEST_TONE` the dev `dump` command now captures nothing (the tone is
+  the board's, the capture the app's).
 
 ## Known limits and ideas for later
 

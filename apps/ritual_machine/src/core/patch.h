@@ -33,7 +33,7 @@
 #include "core/seq.h"
 #include "core/synth_params.h"
 #include "core/synth_ui.h"
-#include "hal/hal_storage.h"
+#include "core/card_layout.h"
 
 #ifdef __cplusplus
 extern "C" {

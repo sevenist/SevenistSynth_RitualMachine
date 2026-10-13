@@ -12,7 +12,7 @@
 #endif
 #include "engine/sampler/capture.h"
 #include "engine/sampler/smp_format.h"
-#include "hal/hal_storage.h"
+#include "core/card_layout.h"
 #include "platform/engine/engine_synth.h"
 
 using namespace sc;

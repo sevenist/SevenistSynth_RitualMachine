@@ -1,7 +1,7 @@
 // The pictures that fill the graph box: each one only needs the display, a rectangle and the values to show.
 #include "core/ui_internal.h"
 #include "core/dx7_algos.h"
-#include "hal/hal_audio.h"
+#include "core/audio.h"
 #include <math.h>
 #include <stdio.h>
 

@@ -1,7 +1,7 @@
 // Dev check of the simulator's sample library (sample_sim.cpp) without the window: lists the library's root folder and its first
 // sub-folder, takes samples into the catalog until it is full, converts a pending .wav / .mp3, then takes an entry out and checks
 // that the next file gets its place. Run from apps/ritual_machine (the card is the folder sdcard/):
-//   gcc -c -O1 -DPLATFORM_SIM -Isrc src/platform/sim/storage_sim.c -o build/storage_sim_check.o
+//   gcc -c -O1 -DPLATFORM_SIM -Isrc framework/boards/desktop/storage_sim.c -o build/storage_sim_check.o
 //   g++ -std=c++17 -O1 -DPLATFORM_SIM -Isrc -I../../framework -I../../lib/minimp3 tools/sample_sim_check.cpp src/platform/sim/sample_sim.cpp build/storage_sim_check.o \
 //       ../../framework/engine/*/*.cpp ../../framework/engine/mi/*/*.cpp ../../framework/engine/mi/*/*/*/*.cpp src/platform/engine/*.cpp build/tobj/*.o -pthread -o build/sample_sim_check.exe
 //   (build/tobj: the C core objects tools/build_engine_tests.ps1 makes)

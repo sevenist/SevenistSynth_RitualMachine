@@ -3,8 +3,8 @@
 #include <Arduino.h>
 #include <stdlib.h>
 #include <string.h>
-#include "hal/hal_audio.h"
-#include "hal/hal_storage.h"
+#include "core/audio.h"
+#include "core/card_layout.h"
 #include "platform/engine/engine_synth.h"
 #include "engine/modules/mi_osc.h"
 #include "engine/dsp/fft.h"
@@ -13,12 +13,12 @@
 #include "core/ui_settings.h"
 #include "core/pads.h"
 #include "platform/esp32/serial_cmd_esp32.h"
-#include "platform/esp32/sd_card.h"
-#include "platform/esp32/board_esp32.h"
+#include "boards/hwv1/sd_card.h"
+#include "boards/hwv1/board_esp32.h"
 #include "hal/hal_power.h"
 #include "engine/offline/process.h"
 #ifdef HWV1
-#include "platform/esp32/leds_esp32.h"
+#include "boards/hwv1/leds_esp32.h"
 #endif
 
 extern "C" void audio_dev_dump(int n);
@@ -255,7 +255,7 @@ void run(char *line) {
         Serial.printf("[CMD] voices %d\n", g_app->rack.cfg.voices);
         return;
     }
-    if (!strcmp(line, "popup") && g_app) {                // popup info | error | ask: raises a test popup (core/popup.h); the answer is printed
+    if (!strcmp(line, "popup") && g_app) {                // popup info | error | ask: raises a test popup (ui/popup.h); the answer is printed
         const char *k = arg ? arg : "";
         auto answer = [](void *, bool yes) { Serial.printf("[CMD] popup answer %s\n", yes ? "yes" : "no"); };
         if (!strcmp(k, "error")) popup_error(&g_app->popup, nullptr, "The card could not be read. Check that it is inserted.", answer, nullptr);

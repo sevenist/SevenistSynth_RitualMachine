@@ -10,12 +10,12 @@
 #include <stdint.h>
 #include "u8g2.h"
 #include "core/synth_ui.h"
-#include "core/gui.h"
+#include "ui/gui.h"
 #include "core/rack.h"
 #include "core/seq.h"
 #include "core/dx7.h"
 #include "core/synth_params.h"
-#include "hal/hal_audio.h"
+#include "core/audio.h"
 #include "hal/hal_display.h"
 
 #define PI_F 3.14159265f

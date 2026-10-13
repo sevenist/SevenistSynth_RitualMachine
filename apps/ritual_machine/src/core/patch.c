@@ -1,7 +1,7 @@
 // A patch as text (patch.h): the working state synth.cfg and the presets.
 #include "core/patch.h"
 #include "core/modifiers.h"
-#include "hal/hal_audio.h"
+#include "core/audio.h"
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>

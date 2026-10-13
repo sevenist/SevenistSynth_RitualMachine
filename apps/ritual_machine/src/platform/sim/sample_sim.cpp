@@ -20,8 +20,8 @@
 #include <string>
 #include <thread>
 #include <vector>
-#include "hal/hal_storage.h"
-#include "platform/sim/sim_card.h"
+#include "core/card_layout.h"
+#include "boards/desktop/sim_card.h"
 #include "host/sim_storage.h"
 #include "host/sample_convert.h"
 #include "platform/engine/engine_synth.h"
@@ -137,7 +137,7 @@ int dir_open(const char *dir) {
     g_list.clear();
     if (g_dir.empty() && !find_dir()) return -1;
     std::error_code ec;
-    const bool presets = dir && dir[0] == ':';                                     // (hal_audio.h: a folder of the presets, next to system/)
+    const bool presets = dir && dir[0] == ':';                                     // (core/audio.h: a folder of the presets, next to system/)
     if (presets) dir++;
     const fs::path root = presets ? fs::path(g_dir).parent_path().parent_path() / "presets" : fs::path(g_dir);
     const fs::path p = dir && dir[0] ? root / fs::path(dir) : root;
@@ -176,6 +176,7 @@ int sim_samples_init(void) {
     if (rl && (root[rl - 1] == '/' || root[rl - 1] == 92)) root[rl - 1] = 0;
     engine_synth_set_card_root(root);                                      // the processing jobs write next to the library
     find_dir();
+    sim_card_on_folders([] { if (g_dir.empty()) find_dir(); });                                    // the card's folders were made: look for the library again
     g_io = std::thread([] {
         while (!g_stop) {
             { std::lock_guard<std::mutex> lk(g_io_mx); engine_synth_io_pump(); }

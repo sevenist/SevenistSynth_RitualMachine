@@ -1,13 +1,12 @@
-// ESP32-S3 audio: the engine renders blocks on a dedicated task pinned to core 1 and streams them to an I2S DAC.
-// Memory: modules and plans in internal RAM (fast), delay lines and the reverb pre-delay in PSRAM (bulk).
-// SKELETON: written for ESP-IDF 5 / arduino-esp32 3 (driver/i2s_std.h), NOT compiled or tested on hardware yet.
-// Pins are in board_pins.h. The UI runs in loop() on core 0 and talks to the engine only through its command queue.
+// The Ritual Machine's engine on the first prototype: its memory (modules and plans in internal RAM, delay lines and the reverb
+// pre-delay in PSRAM), the function the board's audio output calls for sound (hal/hal_audio_out.h; the output itself, the I2S task on
+// core 1, is the library's boards/hwv1/audio_out_esp32.cpp), and core/audio.h forwarded to the bridge (platform/engine/engine_synth.h).
+// The UI runs in loop() on core 0 and talks to the engine only through its command queue.
 #if defined(ARDUINO_ARCH_ESP32)
 #include <Arduino.h>
-#include <driver/i2s_std.h>
 #include <esp_heap_caps.h>
-#include <math.h>
-#include "hal/hal_audio.h"
+#include "core/audio.h"
+#include "hal/hal_audio_out.h"
 #include "hal/hal_mem.h"
 #include "platform/engine/engine_synth.h"
 #include "engine/modules/fx_modules.h"
@@ -16,8 +15,7 @@
 #include "engine/dsp/config.h"
 #include "platform/esp32/bench_esp32.h"
 #include "platform/esp32/samples_esp32.h"
-#include "board_pins.h"
-#include "platform/esp32/board_esp32.h"
+#include "boards/hwv1/board_esp32.h"
 #include <atomic>
 
 namespace {
@@ -30,40 +28,9 @@ constexpr size_t kFastMinBytes = 64 * 1024;        // below this the internal bl
 constexpr size_t kFastSpiramBytes = 400 * 1024;    // the fast heap when it has to live in PSRAM
 constexpr size_t kBulkHeadroomBytes = 128 * 1024;  // PSRAM left for the rest of the firmware (sample cache, SD buffers, display)
 constexpr size_t kBulkMaxBytes = 1600 * 1024;      // PSRAM: delay lines, the pre-delay, the spill of the fast heap
-// Dev output attenuation, in percent of full scale (build flag DEV_OUTPUT_GAIN_PCT, 0..100): the first prototype's output stage has a very low
-// impedance and is loud on headphones. It is the last step before the DAC, so it applies to the engine and to the test tone alike.
-#ifndef DEV_OUTPUT_GAIN_PCT
-#define DEV_OUTPUT_GAIN_PCT 100
-#endif
-static_assert(DEV_OUTPUT_GAIN_PCT >= 0 && DEV_OUTPUT_GAIN_PCT <= 100, "DEV_OUTPUT_GAIN_PCT is a percentage, 0..100");
-constexpr int32_t kOutGainQ15 = DEV_OUTPUT_GAIN_PCT * 32768 / 100;
-constexpr int kFrames = 64;                        // frames per I2S write (the engine renders its own block size inside)
-#ifdef HWV1_DEBUG_AUDIO
-volatile uint32_t g_dma_underruns = 0;              // I2S "send queue overflow" events: the DMA re-sent a buffer the task had not refilled
-bool IRAM_ATTR dma_underrun_cb(i2s_chan_handle_t, i2s_event_data_t *, void *) { g_dma_underruns = g_dma_underruns + 1; return false; }
-#endif
 
-i2s_chan_handle_t tx;
-TaskHandle_t audio_task;
-// The built-in loudspeaker (GENERAL "Spk"): the MAX98357A plays one DAC channel, the left one, so its level scales that channel. Off is gain 0,
-// plus an attempt to shut the amplifier down through SD_MODE (board_speaker_on).
-constexpr int kSpeakerCh = 0;                      // 0 = left, 1 = right
-std::atomic<int32_t> g_spk_gain{32768};            // Q15, written by the UI, read by the audio task
-int g_spk_pct = -1;                                // UI side: the last level applied
-// The output is closed while the machine starts (user, 2026-10-11: no sound before the loading screen has ended): the engine runs,
-// zeros go to the DAC and the amplifier. audio_esp32_open lets it through, faded in over one buffer.
-std::atomic<bool> g_out_open{false};
-
-void apply_speaker(const rack_t *r) {
-    const int pct = synth_config_speaker_pct(&r->cfg);
-    if (pct == g_spk_pct) return;
-    if ((pct == 0) != (g_spk_pct == 0) || g_spk_pct < 0) board_speaker_on(pct > 0);
-    // Off is a zero gain on the speaker channel: pulling SD_MODE low alone did not silence the speaker on the prototype (2026-10-05), so the pin
-    // is not proven to reach the amplifier. The headphones did not follow the speaker level in the same test.
-    g_spk_gain.store(pct * 32768 / 100, std::memory_order_relaxed);
-    Serial.printf("[SPK] %d %%, SD pin (GPIO %d) reads %d\n", pct, PIN_SPK_SD, digitalRead(PIN_SPK_SD));
-    g_spk_pct = pct;
-}
+// The built-in loudspeaker's level (GENERAL "Spk"): the board applies it to the speaker's channel (board_speaker_level).
+void apply_speaker(const rack_t *r) { board_speaker_level(synth_config_speaker_pct(&r->cfg)); }
 
 #ifdef DEV_SERIAL_CMD
 // Dev capture (serial "dump N"): the next N left-channel samples of the engine output, before the dev gain, for offline analysis on the PC.
@@ -79,67 +46,22 @@ void capture(const int16_t *stereo, int frames) {
 }
 #endif
 
-void audio_task_main(void *) {
-    static int16_t buf[kFrames * 2];
-#ifdef HWV1_DEBUG_AUDIO
-    uint32_t t_report = millis(), blocks = 0, worst = 0, total = 0, late = 0;
-    const uint32_t budget_us = (uint32_t)(1000000ull * kFrames / engine_synth_sample_rate());
-#endif
-    for (;;) {
-#ifdef HWV1_DEBUG_AUDIO
-        const uint32_t t0 = micros();
-#endif
-#ifdef HWV1_TEST_TONE
-        for (int i = 0; i < kFrames; i++) {                  // 440 Hz sine, bypasses the engine: tests the I2S / DAC / amplifier path alone
-            static float ph = 0;
-            const int16_t v = (int16_t)(sinf(ph) * 8000);
-            ph += 6.2831853f * 440.0f / (float)engine_synth_sample_rate();
-            if (ph > 6.2831853f) ph -= 6.2831853f;
-            buf[2 * i] = buf[2 * i + 1] = v;
-        }
-#else
-        engine_synth_render(buf, kFrames);
-#endif
+// What the board's audio task calls for every buffer.
+void render(int16_t *buf, int frames) {
+    engine_synth_render(buf, frames);
 #ifdef DEV_SERIAL_CMD
-        capture(buf, kFrames);
+    capture(buf, frames);
 #endif
+}
+
 #ifdef HWV1_DEBUG_AUDIO
-        const uint32_t dt = micros() - t0;
-        total += dt; blocks++;
-        if (dt > worst) worst = dt;
-        if (dt > budget_us) late++;
-#endif
-        if (kOutGainQ15 != 32768)
-            for (int i = 0; i < kFrames * 2; i++) buf[i] = (int16_t)(((int32_t)buf[i] * kOutGainQ15) >> 15);
-        {   // the speaker channel: ramped over the buffer from the previous gain, so a 5 % step does not click
-            static int32_t g_prev = 32768;
-            const int32_t g_new = g_spk_gain.load(std::memory_order_relaxed);
-            if (g_new != 32768 || g_prev != 32768)
-                for (int i = 0; i < kFrames; i++) {
-                    const int32_t g = g_prev + (g_new - g_prev) * (i + 1) / kFrames;
-                    buf[2 * i + kSpeakerCh] = (int16_t)(((int32_t)buf[2 * i + kSpeakerCh] * g) >> 15);
-                }
-            g_prev = g_new;
-        }
-        {   // closed until the start is over
-            static int32_t m_prev = 0;
-            const int32_t m_new = g_out_open.load(std::memory_order_relaxed) ? 32768 : 0;
-            if (m_new != 32768 || m_prev != 32768)
-                for (int i = 0; i < kFrames; i++) {
-                    const int32_t g = m_prev + (m_new - m_prev) * (i + 1) / kFrames;
-                    buf[2 * i] = (int16_t)(((int32_t)buf[2 * i] * g) >> 15);
-                    buf[2 * i + 1] = (int16_t)(((int32_t)buf[2 * i + 1] * g) >> 15);
-                }
-            m_prev = m_new;
-        }
-        size_t written = 0;
-        i2s_channel_write(tx, buf, sizeof buf, &written, portMAX_DELAY);     // blocks until the DMA ring has room: this paces the task
-#ifdef HWV1_DEBUG_AUDIO
-        if (millis() - t_report >= 1000 && Serial.availableForWrite() > 160) {      // skip the report rather than block when the port is not being read
-            Serial.printf("[AUDIO] render avg %u us, worst %u us, budget %u us per %d frames, %u blocks over budget of %u, graph builds %u (last: %s)\n", (unsigned)(total / blocks),
-                          (unsigned)worst, (unsigned)budget_us, kFrames, (unsigned)late, (unsigned)blocks, engine_synth_build_count(), engine_synth_build_reason());
-            Serial.printf("[AUDIO] DMA underruns %u in the last second\n", (unsigned)g_dma_underruns);
-            g_dma_underruns = 0;
+// Once a second, from the audio task (hal_audio_out.h audio_out_set_report): the output's numbers, then the engine's.
+void report(const audio_out_stats_t *s) {
+    {
+        {
+            Serial.printf("[AUDIO] render avg %u us, worst %u us, budget %u us per %d frames, %u blocks over budget of %u, graph builds %u (last: %s)\n", (unsigned)s->avg_us,
+                          (unsigned)s->worst_us, (unsigned)s->budget_us, (int)s->frames, (unsigned)s->late, (unsigned)s->blocks, engine_synth_build_count(), engine_synth_build_reason());
+            Serial.printf("[AUDIO] DMA underruns %u in the last second\n", (unsigned)s->underruns);
 #ifdef ENGINE_PROFILE
             {   // CPU cycles per rendered block, per module type; the block budget is cpu_hz * block / sample_rate
                 struct Row { const char *name; uint32_t cyc, calls; };
@@ -189,14 +111,11 @@ void audio_task_main(void *) {
                 }
             }
 #endif
-            t_report = millis(); blocks = worst = total = late = 0;
         }
-#endif
     }
 }
+#endif
 }  // namespace
-
-void audio_esp32_open(void) { g_out_open.store(true, std::memory_order_relaxed); }
 
 extern "C" void audio_init(void) {
 #ifdef HWV1_BENCH
@@ -225,30 +144,10 @@ extern "C" void audio_init(void) {
     Serial.printf("[AUDIO] fast heap %u bytes (%s), bulk heap %u bytes (PSRAM)\n", (unsigned)fast_bytes, fast_internal ? "internal RAM" : "PSRAM", (unsigned)bulk_bytes);
     if (!fast || !bulk) { Serial.printf("[AUDIO] allocation failed: fast %p, bulk %p\n", fast, bulk); return; }
     if (engine_synth_init(fast, fast_bytes, bulk, bulk_bytes) != 0) { Serial.println("[AUDIO] engine_synth_init failed"); return; }
-
-    i2s_chan_config_t chan = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_0, I2S_ROLE_MASTER);
-    chan.dma_desc_num = 6;
-    chan.dma_frame_num = kFrames;
-    if (i2s_new_channel(&chan, &tx, nullptr) != ESP_OK) { Serial.println("[AUDIO] i2s_new_channel failed"); return; }
 #ifdef HWV1_DEBUG_AUDIO
-    {   // count the real underruns: the DMA ring ran empty and re-sent old data (a render over its budget alone is not one: the ring absorbs it)
-        i2s_event_callbacks_t cbs = {};
-        cbs.on_send_q_ovf = dma_underrun_cb;
-        i2s_channel_register_event_callback(tx, &cbs, nullptr);
-    }
+    audio_out_set_report(report);
 #endif
-    i2s_std_config_t cfg = {
-        .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(static_cast<uint32_t>(engine_synth_sample_rate())),
-        .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),
-        .gpio_cfg = {.mclk = PIN_I2S_MCLK >= 0 ? static_cast<gpio_num_t>(PIN_I2S_MCLK) : I2S_GPIO_UNUSED, .bclk = static_cast<gpio_num_t>(PIN_I2S_BCLK),
-                     .ws = static_cast<gpio_num_t>(PIN_I2S_LRC), .dout = static_cast<gpio_num_t>(PIN_I2S_DOUT), .din = I2S_GPIO_UNUSED,
-                     .invert_flags = {false, false, false}},
-    };
-    i2s_channel_init_std_mode(tx, &cfg);
-    i2s_channel_enable(tx);
-    Serial.printf("[AUDIO] running; internal free %u (largest block %u)\n", (unsigned)heap_caps_get_free_size(MALLOC_CAP_INTERNAL),
-                  (unsigned)heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL));
-    xTaskCreatePinnedToCore(audio_task_main, "audio", 8192, nullptr, configMAX_PRIORITIES - 2, &audio_task, 1);
+    if (!audio_out_start(render, engine_synth_sample_rate())) { Serial.println("[AUDIO] the output did not start"); return; }
     samples_esp32_start();                              // TF card library + the sample loader (its own task on core 0)
 }
 
@@ -277,8 +176,7 @@ extern "C" void audio_dev_dump(int n) {
 #endif
 
 extern "C" void audio_shutdown(void) {
-    if (audio_task) vTaskDelete(audio_task);
-    if (tx) { i2s_channel_disable(tx); i2s_del_channel(tx); }
+    audio_out_stop();
     engine_synth_shutdown();
 }
 
@@ -321,11 +219,6 @@ extern "C" int  audio_pseq_pos(void)                                       { ret
 extern "C" bool audio_pseq_where(int *step, int *frac, uint32_t *count)    { return engine_synth_pseq_where(step, frac, count) != 0; }
 extern "C" bool audio_pseq_queue(const pseq_pattern_t *p, int id)          { return engine_synth_pseq_queue(p, id) != 0; }
 extern "C" int  audio_pseq_taken(void)                                     { return engine_synth_pseq_taken(); }
-// Large application data (hal_mem.h): PSRAM when it has room left (the engine's bulk heap took most of it), else the internal heap.
-extern "C" void *mem_bulk_alloc(size_t bytes) {
-    void *p = heap_caps_calloc(1, bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    return p ? p : calloc(1, bytes);
-}
 extern "C" void audio_set_clock(int bpm, int running)                      { engine_synth_set_clock(bpm, running); }
 extern "C" void audio_set_metronome(bool on)                                { engine_synth_set_metronome(on); }
 extern "C" bool audio_transport(int *bar, int *beat, int *frac)             { return engine_synth_transport(bar, beat, frac) != 0; }

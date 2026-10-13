@@ -1,8 +1,8 @@
 // The step sequencer's model and pages (core/seq.h, the SEQUENCER and SEQ SETUP pages): step values, chords, long patterns, what the
-// application hands to the engine's sequencer (hal_audio.h audio_seq_set; ADR-042), and the pattern in the working state's file.
+// application hands to the engine's sequencer (core/audio.h audio_seq_set; ADR-042), and the pattern in the working state's file.
 #include "ui_test.h"
 #include "core/patch.h"
-#include "hal/hal_storage.h"
+#include "core/card_layout.h"
 
 extern seq_t ui_stub_seq;                    // tools/ui_stubs.c: the pattern the app handed over last, the step the "engine" plays
 extern int ui_stub_seq_pos, ui_stub_clock_run, ui_stub_clock_bpm;

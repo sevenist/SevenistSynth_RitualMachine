@@ -5,7 +5,7 @@
 #include "app/app_internal.h"
 #include "core/led_roles.h"
 #include "hal/hal_leds.h"
-#include "hal/hal_storage.h"
+#include "core/card_layout.h"
 
 extern pseq_pattern_t ui_stub_pseq, ui_stub_pseq_next;      // tools/ui_stubs.c: what the app handed to the "engine"
 extern int ui_stub_pseq_run, ui_stub_pseq_pos, ui_stub_pseq_frac, ui_stub_pseq_queued, ui_stub_pad_pushes, ui_stub_cap_state, ui_stub_clock_run;

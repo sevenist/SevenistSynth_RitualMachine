@@ -20,7 +20,7 @@
 #include <string.h>
 
 #include "hal/hal_mem.h"
-#include "hal/hal_storage.h"
+#include "core/card_layout.h"
 
 static seq_pattern_t *s_patterns;               // the stored patterns: bulk memory, taken once
 

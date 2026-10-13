@@ -4,7 +4,7 @@
 // 24x24 module sprites (rounded square + 2-letter code), empty slot, OUT arrow and the MIX cell.
 #define MODULE_SPRITE_W 24
 #define MODULE_SPRITE_H 24
-#include "core/gui.h"
+#include "ui/gui.h"
 
 static const uint8_t spr_mod_osc_data[24 * 3] = {
     0x7F, 0xFF, 0xFE,   // .XXXXXXXXXXXXXXXXXXXXXX.

@@ -1,6 +1,6 @@
 #pragma once
 // The synth's step sequencer: the pattern and its settings, as the UI edits them. Pure data and its rules: no HAL / engine / u8g2
-// dependency, and no timing. It PLAYS in the engine, on the machine clock (hal_audio.h audio_seq_set; engine/core/sequencer.h,
+// dependency, and no timing. It PLAYS in the engine, on the machine clock (core/audio.h audio_seq_set; engine/core/sequencer.h,
 // ENGINE_DESIGN.md ADR-042): the application hands this model over at every step and reads back the step that plays.
 //
 // A step: up to SEQ_CHORD notes (a chord), a gate length in steps, a velocity, a probability and a ratchet (hits inside the step).

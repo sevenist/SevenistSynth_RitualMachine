@@ -12,7 +12,7 @@
 #include "core/synth_ui.h"
 #include "hal/hal_input.h"
 #include "core/bindings.h"
-#include "core/popup.h"
+#include "ui/popup.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -109,7 +109,7 @@ typedef struct {
     pad_render_t   render;
     pad_capture_t  capture;
     uint8_t        section;     // section_t
-    // The pads' files and the catalog (hal_audio.h: it holds the files in use, each read when asked for): lib_dirty = a pad's file may
+    // The pads' files and the catalog (core/audio.h: it holds the files in use, each read when asked for): lib_dirty = a pad's file may
     // not be in it yet (app_pads_resolve takes one per step), lib_missing = bit k: pad k's file is not on the card (not asked again),
     // lib_tries = steps spent waiting for an unused sample to be unloaded.
     bool           lib_dirty;
@@ -131,7 +131,7 @@ typedef struct {
     input_state_t  in;
     bool           dirty;       // the screen needs a redraw after this step
     bool           redraw_owed; // a redraw was put off because more input was queued (app_step draws it when the queue is empty)
-    uint32_t       sd_gen;      // the TF card generation the app has seen (hal_audio.h)
+    uint32_t       sd_gen;      // the TF card generation the app has seen (core/audio.h)
     bool           keys_notice; // the "keys reset" screen is up until a key is pressed or released, or a few seconds passed
     uint32_t       keys_notice_ms;
     bool           menu_open;   // the menu was open at the previous step (closing it saves the key layout)
@@ -153,7 +153,7 @@ typedef struct {
     uint32_t       state_ms, state_look_ms;   // ... since then; the last look
     uint8_t        batt_warned; // the battery warning given so far: 0 none, 1 low, 2 almost empty (hal_power.h)
     uint32_t       batt_ms;     // when the battery was last looked at
-    popup_t        popup;       // popup messages over the screen (core/popup.h); a modal one takes the input
+    popup_t        popup;       // popup messages over the screen (ui/popup.h); a modal one takes the input
     char           status[48];  // last control -> action, for the simulator panel / debugging ("ENC A > Row +1")
 } app_t;
 
@@ -164,7 +164,7 @@ void app_init(app_t *app, u8g2_t *display);
 // under it: the synth plays from the first step. It ends by itself, or at the first key, push or encoder step, which acts as usual.
 // Nothing happens without the image, or while the "keys reset" notice is up. The simulator calls it right after app_init. The board
 // does not: there the display driver plays the same frames from its own task, started before the application exists (user,
-// 2026-10-11: a high-priority task, deleted at its end; platform/esp32/display_esp32.cpp), and BOOT_FRAME_MS is its rhythm too
+// 2026-10-11: a high-priority task, deleted at its end; boards/hwv1/display_esp32.cpp), and BOOT_FRAME_MS is its rhythm too
 // (50 ms = 20 frames a second: the user's choice). That task loops back and forth until the application's start is over, which
 // app_step reports once (display_boot_end): the card was read and the pads' files are in the catalog, or no card showed up within
 // START_CARD_WAIT_MS of app_init; after START_MAX_MS whatever is still going on.

@@ -1,7 +1,7 @@
 #include "app/key_leds.h"
 #include "core/keymap.h"
 #include "core/led_roles.h"
-#include "hal/hal_audio.h"
+#include "core/audio.h"
 #include "hal/hal_leds.h"
 
 #define KEY_LEDS_PERIOD_MS 20                                // repaint rate without input (the Play LED follows the sequencer)

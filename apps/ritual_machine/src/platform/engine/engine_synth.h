@@ -9,7 +9,7 @@
 #include "core/rack.h"
 #include "core/seq.h"
 #include "core/synth_params.h"
-#include "hal/hal_audio.h"
+#include "core/audio.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -77,10 +77,10 @@ int64_t engine_synth_sample_zero(int index, uint32_t frame, int dir);
 // [AUDIO THREAD] renders `frames` stereo frames of interleaved signed 16-bit samples (any frame count).
 void engine_synth_render(int16_t *stereo, int frames);
 
-// Sample library (see hal_audio.h). The platform attaches a storage device and the catalog (sample_catalog.h).
+// Sample library (see core/audio.h). The platform attaches a storage device and the catalog (sample_catalog.h).
 int  engine_synth_sample_count(void);
 bool engine_synth_sample_info(int index, audio_sample_info_t *out);
-int  engine_synth_osc_preview(int model, float timbre, float morph, float harm, int period, int16_t *out, int n);   // hal_audio.h audio_osc_preview
+int  engine_synth_osc_preview(int model, float timbre, float morph, float harm, int period, int16_t *out, int n);   // core/audio.h audio_osc_preview
 // [I/O THREAD or test loop] runs the sample loader; call it every millisecond or so (the desktop starts a thread for it).
 // Returns true while reads are still in flight (call again at once); false when the streams are filled (sleep a tick).
 bool engine_synth_io_pump(void);

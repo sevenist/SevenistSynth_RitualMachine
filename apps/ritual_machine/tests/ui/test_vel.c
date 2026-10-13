@@ -2,7 +2,7 @@
 // with a DEST page (Tgt / Prm / Dpth), saved with the sound.
 #include "ui_test.h"
 #include "core/patch.h"
-#include "hal/hal_storage.h"
+#include "core/card_layout.h"
 
 static char txt[STORAGE_FILE_MAX];
 

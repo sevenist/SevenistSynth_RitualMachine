@@ -4,12 +4,12 @@
 #include <stdlib.h>
 #include <string.h>
 #include "app/app.h"
-#include "hal/hal_audio.h"
+#include "core/audio.h"
 #include "hal/hal_display.h"
 #include "hal/hal_leds.h"
 #include "hal/hal_mem.h"
 #include "hal/hal_power.h"
-#include "hal/hal_storage.h"
+#include "core/card_layout.h"
 
 // no audio in this tool
 void audio_init(void) {}
@@ -301,6 +301,8 @@ bool storage_poll_event(storage_event_t *e) {
     return true;
 }
 void storage_make_folders(void) { printf("(storage_make_folders)\n"); }
+void storage_set_folders(const char *const *folders, int count) { (void)folders; (void)count; }
+void storage_set_moves(const storage_move_t *moves, int count) { (void)moves; (void)count; }
 void display_send(u8g2_t *g) { (void)g; }
 int ui_stub_boot_ends;                       // the application said its start is over (hal_display.h)
 void display_boot_end(void) { ui_stub_boot_ends++; }

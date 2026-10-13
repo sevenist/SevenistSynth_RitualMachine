@@ -2,7 +2,7 @@
 // this folder (app_internal.h lists them).
 #include "app/app_internal.h"
 #include "app/key_leds.h"
-#include "core/gui.h"
+#include "ui/gui.h"
 #include "core/keymap.h"
 #include "core/modifiers.h"
 #include "core/curves.h"

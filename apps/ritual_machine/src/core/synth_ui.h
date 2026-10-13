@@ -10,7 +10,7 @@
 #include "core/rack.h"
 #include "core/seq.h"
 #include "core/synth_params.h"
-#include "hal/hal_audio.h"
+#include "core/audio.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -185,7 +185,7 @@ typedef struct {
     bool    pseq_rec_req;          // ... its Rec field was turned: the app arms / disarms the live record
     bool    pseq_run, pseq_rec;
     int8_t  pseq_pos;
-    uint8_t cap_state;         // capture (the app sets them): hal_audio.h CAPTURE_ST_*, and the seconds recorded
+    uint8_t cap_state;         // capture (the app sets them): core/audio.h CAPTURE_ST_*, and the seconds recorded
     uint16_t cap_secs;
     uint8_t pad_fx;
     uint8_t fx_edit_id;

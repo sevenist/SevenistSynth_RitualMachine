@@ -1,7 +1,7 @@
 # Starter app
 
-The smallest complete project on the SevenSynthCore engine: a four-voice synth (saw oscillator, low-pass filter, one envelope)
-that runs on the desktop and on the first prototype. Copy it to start your own:
+The smallest complete project on the SevenSynthCore library: a four-voice synth (saw oscillator, low-pass filter, one envelope)
+with a screen and the board's keys, on the desktop and on the first prototype. Copy it to start your own:
 
 ```powershell
 .\tools\new_project.ps1 my_synth        # from the repo root: makes apps/my_synth
@@ -12,30 +12,49 @@ that runs on the desktop and on the first prototype. Copy it to start your own:
 From the repo root:
 
 ```powershell
-.\build.ps1 -App template               # desktop program (needs MSYS2 UCRT64 with gcc, g++ and SDL2: DEVELOPING.md, "Requirements")
-.\run.ps1 -App template                 # A W S E D F T G Y H U J K = notes, Z X = octave, arrows = cutoff, Esc = quit
+.\build.ps1 -App template               # desktop program (needs MSYS2 UCRT64 with gcc, g++ and SDL2, and lib/u8g2: DEVELOPING.md, "Requirements")
+.\run.ps1 -App template                 # two windows: the screen, and the panel (its controls work with the mouse)
 C:\.platformio\penv\Scripts\pio.exe run -d apps/template               # firmware for the first prototype (HWV1)
 C:\.platformio\penv\Scripts\pio.exe run -d apps/template -t upload     # flash it
 ```
 
-The firmware has run on the first prototype (2026-10-13). Its I2S, DAC, power and key code follow the Ritual Machine's
-drivers. The output level is set to 25 % in `src/main_esp32.cpp` (`kOutGainPct`): the prototype is loud on
-headphones.
+The controls, the same on both:
+
+| Control | On the desktop | What it does |
+| --- | --- | --- |
+| The four note rows | the PC keyboard's rows `1`.., `Q`.., `A`.., `Z`.. (8 keys each, by position) | notes: bottom left = C3, +1 per key to the right, +8 per row up |
+| Function keys 1 / 2 | `F1` / `F2` | octave down / up |
+| Function keys 3 / 4 | `F3` / `F4` | filter cutoff down / up |
+| Encoder B | `;` / `'` (by position) | filter cutoff |
+
+Esc or closing a window quits the desktop program.
+
+The firmware builds, but has not run on the board in this form: its display, keys, power and audio output are now the library's
+board code (`framework/boards/hwv1`), which runs there under the Ritual Machine. The output level is 25 % (`DEV_OUTPUT_GAIN_PCT`
+in `platformio.ini`): the prototype is loud on headphones.
 
 ## What is here
 
 | File | What it is |
 | --- | --- |
 | `src/synth.h`, `src/synth.cpp` | Your synth, portable: which engine modules it uses, how they are cabled, the values a control can move. Start here. |
-| `src/main_sim.cpp` | The desktop side: an SDL window for the keyboard, SDL audio. |
-| `src/main_esp32.cpp` | The firmware side: the audio task on core 1, the key matrix, the power button. |
-| `src/board_pins.h` | The pins the firmware uses, per hardware revision. |
-| `src/kbd_tca8418.*` | The prototype's key matrix driver (a copy of the Ritual Machine's). |
+| `src/app.h`, `src/app.cpp` | What the controls do and what the screen shows, portable too. |
+| `src/main_sim.cpp` | The desktop side: the synth's memory and the loop. |
+| `src/main_esp32.cpp` | The firmware side: the same, with the board's start-up. |
 | `build.ps1` | The desktop build. The compile and link steps are shared: `framework/tools/sim_build.ps1`. |
 | `platformio.ini` | The firmware build: board, flags, libraries. |
 
-The engine itself is `framework/engine`, shared by every app. Nothing in this folder is copied from it: you include its headers
-(`#include "engine/core/engine.h"`) and both builds compile its sources next to yours.
+Nothing in this folder is copied from the library (`framework/`): you include its headers and both builds compile its sources
+next to yours.
+
+| From the library | What it gives |
+| --- | --- |
+| `engine/...` | The DSP engine (`#include "engine/core/engine.h"`). |
+| `hal/hal_display.h`, `hal/hal_input.h` | The screen (a u8g2 instance) and the controls as events, the same on every board. |
+| `hal/hal_audio_out.h` | The audio output: you hand it `synth_render`, the board calls it for every buffer. |
+| `hal/hal_leds.h`, `hal/hal_storage.h`, `hal/hal_power.h` | The key LEDs, small files on the card, the battery. Not used by this app. |
+| `ui/gui.h` | The drawing kit: rectangles to lay a screen out, text, fields, sprites. |
+| `boards/hwv1`, `boards/desktop` | The two boards behind those headers. |
 
 ## Where to change things
 
@@ -46,11 +65,12 @@ The engine itself is `framework/engine`, shared by every app. Nothing in this fo
 - **A module family you do not see yet**: register it in `synth_init()` next to `register_synth_modules` (for example
   `register_fx_modules(eng.registry())` with `#include "engine/modules/fx_modules.h"`).
 - **A value a control moves**: add a function like `synth_set_cutoff()`. `eng.set_param(node, index, value)` is a live write:
-  no reload, no click.
+  no reload, no click. Then give it a control in `app_event()` and a row in `app_draw()` (`src/app.cpp`).
 - **A change of structure while it runs** (a module added, a cable moved): build a new graph and call `eng.load()` again.
   Modules that keep their node id and type keep their state.
 - **More voices**: `kVoices` in `src/synth.cpp`. Memory and CPU grow with it.
-- **Another board**: a new block in `src/board_pins.h`, and what differs in `src/main_esp32.cpp`.
+- **What a control does**: `app_event()` in `src/app.cpp`. The controls a board can report are listed in `hal/hal_input.h`.
+- **Another board**: a folder in `framework/boards` with the HAL behind it, added to `build_src_filter` in `platformio.ini`.
 
 ## Three rules the engine relies on
 

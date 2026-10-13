@@ -1,14 +1,15 @@
 #ifdef PLATFORM_SIM
-// Desktop audio: the engine renders on SDL's audio thread (blocks of ENGINE_BLOCK frames); everything else in the
+// The Ritual Machine's engine on the desktop: its memory, the function the desktop's audio output calls for sound (hal/hal_audio_out.h:
+// SDL's audio thread; blocks of ENGINE_BLOCK frames inside), and core/audio.h forwarded to the bridge. Everything else in the
 // application runs on the main thread and talks to the engine through its command queue (see engine_synth.h).
 #include <SDL.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include "hal/hal_audio.h"
-#include "hal/hal_mem.h"
+#include "core/audio.h"
+#include "hal/hal_audio_out.h"
 #include "platform/engine/engine_synth.h"
 
-#include "platform/sim/sim_card.h"
+#include "boards/desktop/sim_card.h"
 int sim_samples_init(void);        // sample_sim.cpp
 void sim_samples_shutdown(void);
 int sim_samples_rescan(void);
@@ -17,22 +18,10 @@ int sim_samples_prepare(int index);
 #define FAST_BYTES (6u << 20)
 #define BULK_BYTES (6u << 20)
 
-static SDL_AudioDeviceID dev;
+static bool dev;                    // the output runs
 static void *fast_mem, *bulk_mem;
 
-#if defined(__SSE__) || defined(__x86_64__)
-#include <xmmintrin.h>
-#endif
-
-static void audio_callback(void *userdata, Uint8 *stream, int len) {
-    (void)userdata;
-#if defined(__SSE__) || defined(__x86_64__)
-    // Flush denormal floats to zero on the audio thread: a decaying float state (filters, the Plaits drums' pulses) reaches denormals in a few
-    // ms, and each operation on one costs ~100 cycles on x86 (the Plaits analog bass drum ran 8x slower). Inaudible (below -700 dB).
-    _mm_setcsr(_mm_getcsr() | 0x8040);
-#endif
-    engine_synth_render((int16_t *)stream, len / 4);       // 2 channels x 16 bit
-}
+static void render(int16_t *out, int frames) { engine_synth_render(out, frames); }
 
 void audio_init(void) {
     fast_mem = malloc(FAST_BYTES);
@@ -42,21 +31,12 @@ void audio_init(void) {
         return;
     }
     sim_samples_init();                                      // the samples/ folder: library, import of .wav / .mp3, loader thread
-    if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0) { fprintf(stderr, "audio: %s\n", SDL_GetError()); return; }
-    SDL_AudioSpec want, have;
-    SDL_zero(want);
-    want.freq = engine_synth_sample_rate();
-    want.format = AUDIO_S16SYS;
-    want.channels = 2;
-    want.samples = 256;                                      // about 5 ms per callback
-    want.callback = audio_callback;
-    dev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);     // SDL converts if the device cannot do exactly this
-    if (!dev) { fprintf(stderr, "audio: %s\n", SDL_GetError()); return; }
-    SDL_PauseAudioDevice(dev, 0);
+    dev = audio_out_start(render, engine_synth_sample_rate());
 }
 
 void audio_shutdown(void) {
-    if (dev) { SDL_CloseAudioDevice(dev); dev = 0; }          // stops the callback before the engine goes away
+    audio_out_stop();                                        // stops the callback before the engine goes away
+    dev = false;
     sim_samples_shutdown();
     engine_synth_shutdown();
     free(fast_mem); free(bulk_mem);
@@ -93,7 +73,6 @@ int  audio_pseq_pos(void)                                       { return engine_
 bool audio_pseq_where(int *step, int *frac, uint32_t *count)    { return engine_synth_pseq_where(step, frac, count) != 0; }
 bool audio_pseq_queue(const pseq_pattern_t *p, int id)          { return engine_synth_pseq_queue(p, id) != 0; }
 int  audio_pseq_taken(void)                                     { return engine_synth_pseq_taken(); }
-void *mem_bulk_alloc(size_t bytes)                              { return calloc(1, bytes); }
 void audio_set_clock(int bpm, int running)                      { engine_synth_set_clock(bpm, running); }
 void audio_set_metronome(bool on)                                { engine_synth_set_metronome(on); }
 bool audio_transport(int *bar, int *beat, int *frac)             { return engine_synth_transport(bar, beat, frac) != 0; }

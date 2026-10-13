@@ -2,7 +2,7 @@
 // queued to the engine while it runs and taken when the engine went on to it; the chain; the files on the card.
 #include "ui_test.h"
 #include "app/app_internal.h"
-#include "hal/hal_storage.h"
+#include "core/card_layout.h"
 
 extern seq_t ui_stub_seq;                    // tools/ui_stubs.c: what the app handed to the "engine" ...
 extern seq_pattern_t ui_stub_seq_next;       // ... the queued pattern, its id (-1: none), how often something was queued

@@ -11,7 +11,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 #include "core/bindings.h"
-#include "hal/hal_storage.h"
+#include "core/card_layout.h"
 
 #ifdef __cplusplus
 extern "C" {

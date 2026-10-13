@@ -11,6 +11,15 @@ function Get-EngineSources {
     return @(Get-ChildItem (Join-Path $PSScriptRoot "../engine") -Recurse -Filter *.cpp)
 }
 
+# The library's drawing kit (framework/ui) and its desktop board (framework/boards/desktop: the display and panel windows, the
+# keyboard and mouse as controls, SDL audio, the card as a folder), for an app's -CSources. Both need u8g2 on the include path.
+function Get-UiSources {
+    return @(Get-ChildItem (Join-Path $PSScriptRoot "../ui") -Filter *.c)
+}
+function Get-DesktopBoardSources {
+    return @(Get-ChildItem (Join-Path $PSScriptRoot "../boards/desktop") -Filter *.c)
+}
+
 # Does this object need building? (missing, source newer, or any header listed in its .d file newer)
 function Test-NeedsBuild($src, $obj, $dep) {
     if (-not (Test-Path $obj)) { return $true }

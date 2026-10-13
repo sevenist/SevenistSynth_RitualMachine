@@ -1,11 +1,9 @@
-// Sample library of the ESP32 build: the .smp files below SD_SAMPLE_DIR of the TF card, in folders of any depth (cook them on the PC with
-// tools/wav2smp.py; there is no .wav / .mp3 import on the board). One task on core 0 at low priority does everything that touches the
-// card: mount, the loader (engine_synth_io_pump, ADR-022), so the audio task never waits for it, and the jobs the UI posts: a sample's
-// header when a file is asked for by name (nothing is scanned at start: the engine's catalog holds the files in use), a folder's list for
-// the browser, and the settings files of hal_storage.h (keys.cfg ...). The card driver has no locks, so nothing else may touch the card.
-// The task also watches the card: inserted, too slow (then it is left alone and the synth runs as if there were none), removed or
-// swapped, and queues those as card events for the UI (hal_storage.h) with the result of its two checks: the read speed and the folders
-// of STORAGE_FOLDERS (made on request, storage_make_folders).
+// The Ritual Machine's sample library on the first prototype: the .smp files below SD_SAMPLE_DIR of the TF card, in folders of any depth
+// (cook them on the PC with tools/wav2smp.py; there is no .wav / .mp3 import on the board). Everything that touches the card runs on
+// the library's card task (boards/hwv1/card_task.h), which mounts and watches the card and serves the small files of hal_storage.h;
+// this file is the app's own card work, run there through the task's hooks: a sample's header when a file is asked for by name
+// (nothing is scanned at start: the engine's catalog holds the files in use), a folder's list for the browser, the loader of the
+// streams (engine_synth_io_pump, ADR-022), a recording's and a sample job's chunks. The audio task never waits for the card.
 #if defined(ARDUINO_ARCH_ESP32)
 #include <Arduino.h>
 #include <ctype.h>
@@ -19,45 +17,21 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include "engine/sampler/smp_format.h"
-#include "hal/hal_storage.h"
+#include "core/card_layout.h"
 #include "platform/engine/engine_synth.h"
 #include "platform/engine/sample_catalog.h"
-#include "platform/esp32/sd_card.h"
-#include "platform/esp32/storage_sd.h"
+#include "boards/hwv1/card_task.h"
+#include "boards/hwv1/sd_card.h"
+#include "boards/hwv1/storage_sd.h"
 #include "platform/esp32/samples_esp32.h"
+
+#define SD_SAMPLE_DIR SD_MOUNT_POINT "/" STORAGE_DIR_SAMPLES     // the *.smp files of the sample library
 
 namespace {
 using namespace sc;
 
-constexpr int kStackBytes = 8192;                 // long file names (FATFS LFN on the stack) and the directory walk
-// Task priorities (FreeRTOS, higher = more urgent): audio 23 (core 1) > input scan 8 > this loader > the Arduino loop that draws the UI (1), both on core 0.
-// The loader has deadlines (a stream that runs dry is audible), a frame of the UI has none, so it ranks above the UI. It does not hog the core:
-// the card transfers wait on DMA, and after kBurst reads in a row it sleeps a tick.
-#ifndef HWV1_SD_IO_PRIO
-#define HWV1_SD_IO_PRIO 5
-#endif
-constexpr UBaseType_t kPriority = HWV1_SD_IO_PRIO;
-constexpr int kBurst = 8;
-// Card work that has no deadline (a sample's header for the list, a folder's list, the load of a sample's heads) runs at the UI's
-// priority, sharing the core with it tick by tick: the card driver busy-waits, so at kPriority a walk through a long folder or a whole
-// pad sample (0.2 .. 0.4 s each) held the UI's core for that long (the browser: the list stood still, measured 2026-10-11). Not 0:
-// there the work starves (a folder's list took 3 x longer, a header did not arrive in 1.5 s). The streams' ring blocks keep kPriority.
-#ifndef HWV1_SD_CALM_PRIO
-#define HWV1_SD_CALM_PRIO 1
-#endif
-constexpr UBaseType_t kCalmPriority = HWV1_SD_CALM_PRIO;
-#ifdef HWV1
-extern "C" bool display_boot_playing(void);       // display_esp32.cpp: the boot animation still covers the UI
-#else
-bool display_boot_playing(void) { return false; }
-#endif
-struct Calm {                                     // (not during the boot animation: nobody watches the UI, the start should be short)
-    Calm() { if (!display_boot_playing()) vTaskPrioritySet(nullptr, kCalmPriority); }
-    ~Calm() { vTaskPrioritySet(nullptr, kPriority); }
-};
-SdStorage g_storage;
+SdStorage &g_storage = card_task_storage();      // the streaming device on the card (the library's; this app's samples go through it)
 bool g_attached = false;
-TaskHandle_t g_task = nullptr;
 uint8_t g_blk[kSmpBlockBytes];                    // one card block: the header, then a block per bucket of the amplitude overview
 
 uint32_t g_scan_reads = 0, g_scan_worst_us = 0;     // card reads of the scan (timed: a slow card shows up in the boot log)
@@ -116,7 +90,7 @@ bool read_info(const char *name, audio_sample_info_t &in) {
     return ok;
 }
 
-// ---- the library jobs (hal_audio.h audio_sample_use, audio_dir_open): posted by the UI task, run here, like the settings files ----
+// ---- the library jobs (core/audio.h audio_sample_use, audio_dir_open): posted by the UI task, run here, like the settings files ----
 // state: 0 = free, 1 = posted (this task owns the job), 2 = done (the poster owns it); see FileJob below.
 struct LibJob {
     char name[AUDIO_NAME_MAX];                    // the sample, or the folder to list ("" = SD_SAMPLE_DIR itself)
@@ -155,7 +129,7 @@ int list_folder(const char *dir) {
         g_dir_ofs = reinterpret_cast<uint16_t *>(g_dir + kDirPool);
     }
     char path[sizeof SD_SAMPLE_DIR + AUDIO_NAME_MAX + 2];
-    const bool presets = dir[0] == ':';                                     // (hal_audio.h: a folder of the presets, its *.preset files)
+    const bool presets = dir[0] == ':';                                     // (core/audio.h: a folder of the presets, its *.preset files)
     const char *const sub = presets ? dir + 1 : dir, *const root = presets ? SD_MOUNT_POINT "/presets" : SD_SAMPLE_DIR;
     const char *const ext = presets ? ".preset" : ".smp";
     const size_t ext_len = strlen(ext);
@@ -227,126 +201,35 @@ void file_bench() {
 }
 #endif
 
-// ---- the card's life: inserted, too slow, removed ----
-// HWV1 has no card-detect pin, so the card is polled: a mount attempt once a second while there is none, a status command once a second while there is one.
-constexpr uint32_t kSlowReadUs = 15000;           // a single sector read above this: the card cannot stream samples (healthy cards: 300-2000 us)
-constexpr uint32_t kPollMs = 1000, kPollSlowMs = 2000;
-volatile sd_state_t g_state = SD_NONE;
-volatile uint32_t g_slow_us = 0, g_gen = 0;
+// ---- the card task's hooks (card_task.h) ----
 uint32_t g_catalog_card = 0;                      // serial number of the card the catalog was read from (0 = none)
 
-// ---- card events (hal_storage.h): written by this task, read by the UI loop. One writer, one reader: the indexes are enough. ----
-constexpr uint32_t kEvents = 8;
-storage_event_t g_ev[kEvents];
-volatile uint32_t g_ev_w = 0, g_ev_r = 0;
-volatile bool g_mkdirs = false;                   // storage_make_folders() asked for the folders
-
-void push_event(const storage_event_t &e) {
-    if (g_ev_w - g_ev_r >= kEvents) return;       // the UI has not looked for a while: drop the newest
-    g_ev[g_ev_w % kEvents] = e;
-    __sync_synchronize();
-    g_ev_w = g_ev_w + 1;
-}
-
-bool is_dir(const char *path) { struct stat st; return stat(path, &st) == 0 && S_ISDIR(st.st_mode); }
-bool is_file(const char *path) { struct stat st; return stat(path, &st) == 0 && S_ISREG(st.st_mode); }
-
-// Bit i set = folder i of STORAGE_FOLDERS is not on the card.
-uint8_t missing_folders() {
-    static const char *const dirs[STORAGE_FOLDER_COUNT] = STORAGE_FOLDERS;
-    uint8_t m = 0;
-    char p[64];
-    for (int i = 0; i < STORAGE_FOLDER_COUNT; i++) {
-        snprintf(p, sizeof p, SD_MOUNT_POINT "/%s", dirs[i]);
-        if (!is_dir(p)) m |= static_cast<uint8_t>(1u << i);
-    }
-    return m;
-}
-
-// The folders the user agreed to (an ASK popup): the old layout's /samples folder and /keys.cfg move into /system first (a rename moves a
-// whole folder at once on FAT), then the missing folders are made. A card without them stays usable for reading what it has.
-void make_folders() {
-    g_mkdirs = false;
-    storage_event_t e = {};
-    e.kind = STORAGE_EV_FOLDERS_DONE;
-    if (!sd_card_mounted()) { push_event(e); return; }
-    ::mkdir(SD_MOUNT_POINT "/system", 0777);
-    if (is_dir(SD_MOUNT_POINT "/samples") && !is_dir(SD_SAMPLE_DIR)) e.moved = ::rename(SD_MOUNT_POINT "/samples", SD_SAMPLE_DIR) == 0 || e.moved;
-    ::mkdir(SD_MOUNT_POINT "/" STORAGE_DIR_CONFIG, 0777);
-    if (is_file(SD_MOUNT_POINT "/keys.cfg") && !is_file(SD_MOUNT_POINT "/" STORAGE_DIR_CONFIG "/keys.cfg"))
-        e.moved = ::rename(SD_MOUNT_POINT "/keys.cfg", SD_MOUNT_POINT "/" STORAGE_DIR_CONFIG "/keys.cfg") == 0 || e.moved;
-    static const char *const dirs[STORAGE_FOLDER_COUNT] = STORAGE_FOLDERS;
-    char p[64];
-    for (int i = 0; i < STORAGE_FOLDER_COUNT; i++) {
-        snprintf(p, sizeof p, SD_MOUNT_POINT "/%s", dirs[i]);
-        if (!is_dir(p) && ::mkdir(p, 0777) != 0) Serial.printf("[SD] could not make %s (errno %d)\n", p, errno);
-    }
-    e.ok = missing_folders() == 0;
-    Serial.printf("[SD] folders %s%s\n", e.ok ? "ready" : "NOT all made", e.moved ? ", old layout moved into /system" : "");
-    push_event(e);
-    g_gen = g_gen + 1;                            // the application reads keys.cfg again and looks its samples up
-}
-
-void card_gone() {
-    g_storage.close_all();
-    sd_card_unmount();
-    g_dir_valid = false;
-    g_dir_n = 0;
-    g_state = SD_NONE;
-    g_gen = g_gen + 1;
-    Serial.println("[SD] card removed");
-    storage_event_t e = {};
-    e.kind = STORAGE_EV_REMOVED;
-    push_event(e);
-}
-
-void card_in() {
+void card_seen(uint32_t id) {
 #ifdef HWV1_SD_BENCH
-    sd_card_bench();
     file_bench();
 #endif
-    const uint32_t id = sd_card_id();
-    const uint32_t us = sd_card_probe_us();
-    if (us == 0) {                                // it mounted but cannot be read: treat it as no card, try again at the next poll
-        Serial.println("[SD] the card does not read: ignored");
-        sd_card_unmount();
-        return;
-    }
     if (id != g_catalog_card && engine_synth_sample_count() > 0) {   // another card: its files are not the ones the catalog lists
         engine_synth_catalog_reset();
         g_catalog_card = 0;
     }
     g_dir_valid = false;                          // (the browser reads its folder again)
     g_dir_n = 0;
-    storage_event_t e = {};                       // the two checks of a new card: its read speed and its folders
-    e.kind = STORAGE_EV_INSERTED;
-    e.read_us = us;
-    e.read_limit_us = kSlowReadUs;
-    e.slow = us > kSlowReadUs;
-    e.missing = missing_folders();
-    if (e.missing) Serial.printf("[SD] folders missing (mask 0x%02x)\n", (unsigned)e.missing);
-    push_event(e);
-    if (us > kSlowReadUs) {
-        g_slow_us = us;
-        g_state = SD_SLOW;                        // stays mounted so its removal is seen, but nothing reads it: the synth runs as if there were no card
-        g_gen = g_gen + 1;
-        Serial.printf("[SD] card too slow: a sector read takes %u us (limit %u): not used\n", (unsigned)us, (unsigned)kSlowReadUs);
-        return;
-    }
-    g_catalog_card = id;
-    if (!g_attached) g_attached = engine_synth_attach_storage(&g_storage);
-    g_state = SD_OK;
-    Serial.printf("[SD] card ready: a sector read takes %u us\n", (unsigned)us);
-    g_gen = g_gen + 1;                            // the application looks the samples of its pads and its rack up again
 }
 
-void poll_card() {
-    if (!sd_card_mounted()) {
-        if (sd_card_mount()) { Serial.println("[SD] card inserted"); card_in(); }
-    } else if (!sd_card_alive()) {
-        card_gone();
-    }
+void card_ready(uint32_t id) {
+    g_catalog_card = id;
+    if (!g_attached) g_attached = engine_synth_attach_storage(&g_storage);
 }
+
+void card_gone() {
+    g_dir_valid = false;
+    g_dir_n = 0;
+}
+
+bool calm_pending() { return g_lib.state == 1; }   // a sample's header or a folder's list, asked by the UI
+void always() { engine_synth_capture_step(); }     // a recording: its chunk first, every time
+void idle() { engine_synth_render_step(); }        // a processing job: one chunk, only while the loader has nothing waiting
+bool pump() { return engine_synth_io_pump(); }     // the loader of the streams
 
 #ifdef HWV1_DEBUG_AUDIO
 // Every 2 s, when anything happened: what the card delivered and whether a playhead ran dry ("underruns" is what you hear as a dropout).
@@ -375,114 +258,28 @@ void report() {
 }
 #endif
 
-// ---- settings files (hal_storage.h): one job at a time, posted by the UI task, run here ----
-// state: 0 = free, 1 = posted (the card task owns the job), 2 = done (the poster owns it). A poster that gave up waiting leaves it at 1 or 2;
-// the next post waits for / takes it over, so the card task never writes into a job that is being refilled.
-struct FileJob {
-    char name[80];                                 // (the longest: presets/<a 47-character name>.preset)
-    char data[STORAGE_FILE_MAX];
-    int  len;                                      // write: bytes in data; read: capacity in, bytes read out (-1 = failed)
-    bool write;
-    bool remove;                                   // delete the file (storage_remove)
-    volatile int state;
-};
-FileJob g_job;
 constexpr uint32_t kJobWaitMs = 1500;
 
-bool write_file(const char *path, const char *tmp, const char *data, int len) {
-    const int fd = ::open(tmp, O_WRONLY | O_CREAT | O_TRUNC);
-    if (fd < 0) return false;
-    const bool ok = ::write(fd, data, len) == len && fsync(fd) == 0;
-    ::close(fd);
-    if (!ok) { ::unlink(tmp); return false; }
-    ::unlink(path);                                // FATFS cannot rename over a file; the old one stays until the new one is complete
-    return ::rename(tmp, path) == 0;
-}
-
-void run_file_job() {
-    FileJob &j = g_job;
-    char path[96], tmp[100];
-    snprintf(path, sizeof path, SD_MOUNT_POINT "/%s", j.name);
-    snprintf(tmp, sizeof tmp, "%s.tmp", path);
-    if (j.remove || j.write) g_storage.take_spare("");   // (the header read's descriptor: the file it holds open may be the one that goes)
-    if (!sd_card_mounted()) {
-        j.len = -1;
-    } else if (j.remove) {
-        j.len = ::unlink(path) == 0 ? 0 : -1;
-        Serial.printf("[SD] %s %s\n", j.len == 0 ? "removed" : "could not remove", path);
-    } else if (j.write) {
-        const bool ok = write_file(path, tmp, j.data, j.len);
-        Serial.printf("[SD] %s %s (%d bytes)\n", ok ? "wrote" : "could not write", path, j.len);
-        j.len = ok ? j.len : -1;
-    } else {
-        const int fd = ::open(path, O_RDONLY);
-        int n = -1;
-        if (fd >= 0) { n = static_cast<int>(::read(fd, j.data, sizeof j.data - 1)); ::close(fd); }
-        j.len = n;
-    }
-    j.state = 2;
-}
-
-// Posts the job and waits for it. false: no card task, or the card task did not get to it in time.
-bool post_job() {
-    if (!g_task) return false;
-    g_job.state = 1;
-    for (uint32_t t0 = millis(); g_job.state != 2;) {
-        if (millis() - t0 > kJobWaitMs) return false;
-        vTaskDelay(1);
-    }
-    return true;
-}
-
-// The previous job is still running after its poster gave up: let it finish first.
-bool job_free() {
-    for (uint32_t t0 = millis(); g_job.state == 1;) {
-        if (millis() - t0 > kJobWaitMs) return false;
-        vTaskDelay(1);
-    }
-    return true;
-}
-
-void io_task(void *) {
-    uint32_t t_poll = 0;
-    bool first = true;
-    int burst = 0;
-    bool reading = false;                           // the loader still had reads in flight after its last pump
-    for (;;) {
-        const uint32_t now = millis();
-        if (first || now - t_poll >= (g_state == SD_SLOW ? kPollSlowMs : kPollMs)) { first = false; t_poll = now; poll_card(); }
-        if (g_lib.state == 1) { Calm calm; run_lib_job(); }   // a sample's header or a folder's list, asked by the UI
-        if (g_job.state == 1) run_file_job();      // a settings file (keys.cfg ...), also on a card too slow for samples
-        if (g_mkdirs) make_folders();
-        // A processing job: one chunk, and only while the loader has nothing waiting. The streams come first: a chunk holds the card
-        // for ~50 ms (4 KB read, 4 KB written), and measured with two chunks before every pump, 4 streamed pads lost 13..48 blocks per job.
-        if (g_state == SD_OK) engine_synth_capture_step();          // a recording: its chunk first, every time (what waits in its ring is lost when it fills)
-        if (g_state == SD_OK && !reading) engine_synth_render_step();
-        if (g_state == SD_OK) {
-            if (g_storage.pinned_next()) { Calm calm; g_storage.service(); }   // a sample's header or heads: read outside the engine's lock, below the UI
-            const bool more = engine_synth_io_pump();   // reads still in flight: go on at once, a stream may be about to run dry
-            reading = more;
-            if (more && ++burst < kBurst) continue;
-            if (more) reading = false;                  // a long run of reads: the job still gets its chunk (it has to end)
-            burst = 0;
-        }
+const card_hooks_t kHooks = {
+    card_seen, card_ready, card_gone, calm_pending, run_lib_job, always, idle, pump,
 #ifdef HWV1_DEBUG_AUDIO
-        report();
+    report,
+#else
+    nullptr,
 #endif
-        vTaskDelay(g_state == SD_OK ? 2 : pdMS_TO_TICKS(50));   // at least one whole tick: the card driver busy-waits, and the idle task of this core must get time (task watchdog)
-    }
-}
+};
 }  // namespace
 
 void samples_esp32_start() {
     engine_synth_set_card_root(SD_MOUNT_POINT);                // the processing jobs write next to the library
-    if (!g_task) xTaskCreatePinnedToCore(io_task, "sd_io", kStackBytes, nullptr, kPriority, &g_task, 0);
+    g_storage.set_dir(SD_SAMPLE_DIR);
+    card_task_start(&kHooks);
 }
 
 // Posts the library job and waits for it (as post_job / job_free do for the settings files). A folder's list may take seconds (a
 // folder of a thousand files on a slow card), a header a few milliseconds.
 static bool lib_post(uint32_t wait_ms) {
-    if (!g_task) return false;
+    if (!card_task_running()) return false;
     g_lib.state = 1;
     for (uint32_t t0 = millis(); g_lib.state != 2;) {
         if (millis() - t0 > wait_ms) return false;
@@ -504,7 +301,7 @@ int samples_esp32_use(const char *name) {
     if (!name || !name[0] || strlen(name) >= AUDIO_NAME_MAX) return -1;
     const int have = engine_synth_catalog_find(name);
     if (have >= 0) return have;
-    if (g_state != SD_OK || !lib_free()) return -1;
+    if (card_task_state() != CARD_OK || !lib_free()) return -1;
     snprintf(g_lib.name, sizeof g_lib.name, "%s", name);
     g_lib.list = false;
     g_lib.asked = false;
@@ -521,7 +318,7 @@ int samples_esp32_request(const char *name) {
     if (!name || !name[0] || strlen(name) >= AUDIO_NAME_MAX) return -1;
     const int have = engine_synth_catalog_find(name);
     if (have >= 0) return have;
-    if (g_state != SD_OK || !g_task) return -1;
+    if (card_task_state() != CARD_OK || !card_task_running()) return -1;
     if (g_lib.state == 1) return -3;                                        // the card task is on a job (this one, or one it finishes first)
     if (g_lib.state == 2 && g_lib.asked && !g_lib.list && !strcmp(g_lib.name, name)) {
         if (g_lib.result != 1) { g_lib.state = 0; return -1; }
@@ -539,7 +336,7 @@ int samples_esp32_request(const char *name) {
 
 int samples_esp32_dir_open(const char *dir) {
     if (!dir) dir = "";
-    if (g_state != SD_OK || strlen(dir) >= AUDIO_NAME_MAX || !lib_free()) return -1;
+    if (card_task_state() != CARD_OK || strlen(dir) >= AUDIO_NAME_MAX || !lib_free()) return -1;
     if (g_dir_valid && g_dir && !strcmp(g_dir_path, dir)) return g_dir_n;   // the list is still held: no card read
     snprintf(g_lib.name, sizeof g_lib.name, "%s", dir);
     g_lib.list = true;
@@ -570,60 +367,13 @@ void samples_esp32_dir_close() {
     g_dir_ofs = nullptr;
 }
 
-extern "C" int storage_read(const char *name, char *buf, int cap) {
-    if (g_state == SD_NONE || !job_free()) return -1;
-    snprintf(g_job.name, sizeof g_job.name, "%s", name);
-    g_job.write = false;
-    g_job.remove = false;
-    if (!post_job() || g_job.len < 0) return -1;
-    const int n = g_job.len < cap - 1 ? g_job.len : cap - 1;
-    memcpy(buf, g_job.data, n);
-    buf[n] = 0;
-    g_job.state = 0;
-    return n;
-}
-
-extern "C" bool storage_write(const char *name, const char *data, int len) {
-    if (g_state == SD_NONE || len < 0 || len > STORAGE_FILE_MAX || !job_free()) return false;
-    snprintf(g_job.name, sizeof g_job.name, "%s", name);
-    memcpy(g_job.data, data, len);
-    g_job.len = len;
-    g_job.write = true;
-    g_job.remove = false;
-    if (!post_job()) return false;
-    const bool ok = g_job.len >= 0;
-    g_job.state = 0;
-    return ok;
-}
-
-extern "C" bool storage_remove(const char *name) {
-    if (g_state == SD_NONE || !job_free()) return false;
-    snprintf(g_job.name, sizeof g_job.name, "%s", name);
-    g_job.write = false;
-    g_job.remove = true;
-    if (!post_job()) return false;
-    const bool ok = g_job.len == 0;
-    g_job.state = 0;
-    return ok;
-}
-
 void samples_esp32_hide(int index) { engine_synth_catalog_remove(index); }
-
-extern "C" bool storage_poll_event(storage_event_t *e) {
-    if (g_ev_r == g_ev_w) return false;
-    *e = g_ev[g_ev_r % kEvents];
-    __sync_synchronize();
-    g_ev_r = g_ev_r + 1;
-    return true;
-}
-
-extern "C" void storage_make_folders(void) { g_mkdirs = true; }
 
 bool samples_esp32_ready(int index) {
     audio_sample_info_t in;
     return engine_synth_sample_info(index, &in) && in.name[0] && !in.pending;
 }
-sd_state_t samples_esp32_sd_state() { return g_state; }
-uint32_t samples_esp32_sd_read_us() { return g_slow_us; }
-uint32_t samples_esp32_sd_generation() { return g_gen; }
+sd_state_t samples_esp32_sd_state() { return static_cast<sd_state_t>(card_task_state()); }   // (the same three values, in the same order)
+uint32_t samples_esp32_sd_read_us() { return card_task_read_us(); }
+uint32_t samples_esp32_sd_generation() { return card_task_generation(); }
 #endif  // ARDUINO_ARCH_ESP32

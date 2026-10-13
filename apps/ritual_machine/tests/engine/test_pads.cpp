@@ -716,7 +716,7 @@ TEST(capture_on_the_clock_starts_on_a_bar_and_lasts_its_bars) {
     engine_synth_set_clock(120, 0);
 }
 
-// The catalog holds the files in use (hal_audio.h audio_sample_use): an entry nothing uses any more is taken out, its sample stays in
+// The catalog holds the files in use (core/audio.h audio_sample_use): an entry nothing uses any more is taken out, its sample stays in
 // memory while a voice still plays it and is unloaded afterwards (engine_synth_housekeeping), and then the next file takes its index.
 TEST(pads_catalog_entry_leaves_and_its_sample_is_unloaded_once_nothing_plays_it) {
     PadsApp a;

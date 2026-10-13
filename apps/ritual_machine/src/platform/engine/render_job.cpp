@@ -11,7 +11,7 @@
 #include <esp_heap_caps.h>
 #endif
 #include "engine/offline/process.h"
-#include "hal/hal_storage.h"
+#include "core/card_layout.h"
 #include "platform/engine/engine_synth.h"
 
 using namespace sc;

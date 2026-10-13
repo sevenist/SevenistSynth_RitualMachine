@@ -32,11 +32,11 @@
 #include "hal/hal_power.h"
 #include "app/app.h"                          // BOOT_TITLE, BOOT_VERSION
 #include "core/ui_sprites_gen.h"
-#include "platform/esp32/board_esp32.h"
-#include "platform/esp32/board_pins.h"
-#include "platform/esp32/hwv1_layout.h"
-#include "platform/esp32/mux_esp32.h"
-#include "platform/esp32/sd_card.h"
+#include "boards/hwv1/board_esp32.h"
+#include "boards/hwv1/board_pins.h"
+#include "boards/hwv1/hwv1_layout.h"
+#include "boards/hwv1/mux_esp32.h"
+#include "boards/hwv1/sd_card.h"
 
 namespace {
 constexpr uint32_t kSector = 512;

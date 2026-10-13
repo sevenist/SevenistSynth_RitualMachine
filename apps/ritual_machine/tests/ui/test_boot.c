@@ -1,6 +1,6 @@
 // The boot animation (app_boot_animation): the frames of assets/UI_Sprites/64/boot_NN.png, once, over the UI.
 #include "ui_test.h"
-#include "core/gui.h"
+#include "ui/gui.h"
 #include "core/ui_sprites_gen.h"
 
 TEST(boot_animation_plays_once_then_the_ui_shows) {

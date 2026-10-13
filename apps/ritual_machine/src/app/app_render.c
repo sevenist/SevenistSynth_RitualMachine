@@ -1,7 +1,7 @@
 // Processing a pad's sample into a new version (ADR-041 decisions 36-38, 43): the EDIT page's Apply, and the padding a Grid chop needs.
-// The card thread writes the new file (hal_audio.h: audio_render_*); the pad then takes it and the history records it (core/history.h).
+// The card thread writes the new file (core/audio.h: audio_render_*); the pad then takes it and the history records it (core/history.h).
 #include "app/app_internal.h"
-#include "hal/hal_storage.h"
+#include "core/card_layout.h"
 #include <stdio.h>
 #include <string.h>
 

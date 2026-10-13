@@ -4,7 +4,7 @@
 #include "core/keymap.h"
 #include "core/curves.h"
 #include "core/ui_settings.h"
-#include "hal/hal_storage.h"
+#include "core/card_layout.h"
 #include <stdio.h>
 #include <string.h>
 

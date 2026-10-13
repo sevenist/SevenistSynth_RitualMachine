@@ -1,7 +1,7 @@
 // Renders the application's screens to ASCII from the u8g2 buffer, without SDL and without audio: drives app_step()
 // with input events and prints the 128x64 frame. Useful to check layouts and to catch drawing crashes.
 //
-//   gcc -O1 -w -Isrc -I../../lib/u8g2/csrc tools/ui_dump.c src/core/*.c src/app/*.c ../../lib/u8g2/csrc/*.c -lm -o build/ui_dump.exe      (in apps/ritual_machine)
+//   gcc -O1 -w -Isrc -I../../framework -I../../lib/u8g2/csrc tools/ui_dump.c src/core/*.c src/app/*.c ../../framework/ui/*.c ../../lib/u8g2/csrc/*.c -lm -o build/ui_dump.exe      (in apps/ritual_machine)
 //   build/ui_dump.exe "menu right right"        (events: see ev() below)
 //   several arguments print one frame per argument (a script each, continuing the same session)
 //
@@ -12,10 +12,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include "app/app.h"
-#include "hal/hal_audio.h"
+#include "core/audio.h"
 #include "hal/hal_display.h"
 #include "hal/hal_leds.h"
-#include "hal/hal_storage.h"
+#include "core/card_layout.h"
 
 #include "ui_stubs.c"            // the platform stand-ins (no audio, no card), shared with the UI tests
 
@@ -36,7 +36,7 @@ static void dump(const char *title) {
 // Event names: the hardware controls, by the role they have in the default binding table.
 //   up down left right (joystick directions)  latch (joystick push)  menu (BTN 1)  back (BTN 2)  play  shift / unshift (BTN 3 down / up)
 //   encA:+1  encB:-2 (encoder turns)  encAsw encBsw (encoder pushes)  knob:<ctl number>:<0..1023>  key:<row>.<col>  keyup:<row>.<col>
-//   popup:info popup:error popup:ask (raise a test popup, core/popup.h)
+//   popup:info popup:error popup:ask (raise a test popup, ui/popup.h)
 static input_event_t ev(const char *name) {
     input_event_t e = {CTL_NONE, IN_NONE, 0, false};
     int a = 0, b = 0, c = 0;

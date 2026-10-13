@@ -9,48 +9,44 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
 ## Session todo (updated 2026-10-13)
 
 **Where things stand (2026-10-13): the repo is a library and its apps** (ENGINE_DESIGN.md ADR-043; the layout and the commands:
-the top of DEVELOPING.md). The user asked that developers can start a new project easily; their choices (two rounds of options):
-the engine first as the library, one repo with folders, a starter template with a script, a `platformio.ini` per app and a
-template that also targets the first prototype (the last two against my recommendation: recorded in ADR-043). The user committed
-the sequencer work first (`72b2334`); **the split itself is in the working tree, UNCOMMITTED** (git renames + the new files
-`apps/template/`, `tools/new_project.ps1`, `build.ps1` / `run.ps1` / `test.ps1` at the root, `framework/tools/sim_build.ps1` and
-`build_engine_tests.ps1`). Paths in this file below this entry were rewritten by a script; a bare `samples_src/`, `sdcard/`,
-`tools/` or `platformio.ini` in older notes is inside `apps/ritual_machine/`. Two glossaries were made the same day as documents
-for the user (features and GUI; framework): ask for their links, they are not in the repo.
+the top of DEVELOPING.md). The user asked that developers can start a new project easily. **Step 1** (the engine as the library,
+the Ritual Machine and a starter template as apps) is committed by the user on `main` (`ffaa378` the renames, `a07f37e` the
+contents; the first commit alone does not build: `git commit` without `git add`). **Step 2a** (the HAL, the two boards and the
+drawing kit into `framework/`) was built the same day on top of it: **in the working tree, UNCOMMITTED, NOT flashed** (the files
+were moved without `git mv`: `git add -A` before the commit, git then shows them as renames). A bare `samples_src/`, `sdcard/`,
+`tools/` or `platformio.ini` in older notes is inside `apps/ritual_machine/`. Two glossaries were made that day as documents for
+the user (features and GUI; framework): ask for their links, they are not in the repo.
 
-- [ ] **The split, step 1: try the root scripts, then commit** (from: user; their first priority, session start of 2026-10-13:
-  "finish the split"). Done = the user ran `.\build.ps1` + `.\run.ps1`, `.\test.ps1` and `.\tools\new_project.ps1` (a guide was
-  given in the chat that day: for each script when it is used, how, what it must print; they had tried none of the three yet) and
-  committed the working tree themselves. **Tried so far by the user (2026-10-13): the template synth ON THE BOARD, "it works
-  nicely"** (so its firmware has run on the prototype; `apps/template/README.md` still says it has not: correct that line), and
-  the firmware command `pio.exe run -d apps/ritual_machine` ("the command works"). VS Code's extension could not flash from the repo root (no
-  `platformio.ini` there): the user was shown File > Add Folder to Workspace / Open Folder on `apps/ritual_machine`; a committed
-  `oled_sim.code-workspace` and a single root `platformio.ini` were offered as ways to make a fresh clone open in one step, and
-  the user set the question aside ("forget what I said earlier"), then chose the workspace file at the session start of
-  2026-10-13: **`oled_sim.code-workspace` exists now** (the repo + each app as a folder; `new_project.ps1` adds a new app to it,
-  checked once with a scratch app, and no longer copies the template's `.vscode`, that last change NOT run). To try: open it in
-  VS Code, the PlatformIO status bar must offer both apps. Still to try: `.\build.ps1` then `.\run.ps1` (the simulator runs from `apps/ritual_machine`:
-  its card is `sdcard/` there, moved with `samples/`); `.\test.ps1`; `.\tools\new_project.ps1 my_synth`, `.\build.ps1 -App my_synth`,
-  `.\run.ps1 -App my_synth` (keys A W S E D F T G Y H U J K, Z / X octave, arrows cutoff). The firmware:
-  `C:\.platformio\penv\Scripts\pio.exe run -d apps/ritual_machine` (the first build there is a full one: its `.pio/build` is new;
-  the old root `.pio/build` and `build/` are stale and can be deleted; `.pio/libdeps` at the root is still used). **Claude
-  flashed nothing**: the Ritual Machine from its new folder should behave exactly as before (every project object has the same
-  size as before the move, ADR-043 "Checked") and has not run on the board from there; the template's firmware was flashed and
-  played by the user (ask before flashing either).
-  To know: Aseprite was open during the move, the sprites are in `apps/ritual_machine/assets/UI_Sprites` now (a save to the old
-  path recreates `assets/` at the root); VS Code's PlatformIO extension needs `apps/ritual_machine` as its project folder (the
-  root has no `platformio.ini`); `stash@{0}` is still there (the user can `git stash drop` it).
-- [ ] **The split, step 2** (from: user's choice "staged"): the generic HAL (display, input, LEDs, card, power, mem), the board's
-  drivers, the simulator's shell and the UI toolkit leave the Ritual Machine for `framework/`, so a new project gets a screen and
-  controls without copying. NOT started: it waits for the user's try of step 1 and their commit. **The design round is done**
-  (2026-10-13, two rounds of options; ADR-043 decisions 8-14 and "Step 2 as planned"): scope = the board and the drawing kit
-  (`gui`, `popup`; the declarative screens, bindings and layers stay the app's); audio = a render callback, the rack / seq /
-  pads calls become the app's bridge header; **a control table per board** with **the app's own map per board** (roles, saved
-  files unchanged); the sample library stays the app's, the card task goes to the library with a hook; **each app lists its own
-  card folders**; **the simulator's panel drawn from a board's table** (the prototype's 8 key columns on the desktop). Three
-  stages, each tried and committed by the user: 2a the moves, 2b the control tables, 2c the table-drawn panel. Before starting
-  2a: ask where it goes (`main` or a branch) and note the firmware's object sizes. Known work: `hal_audio.h` takes `rack_t` / `pads_t`
-  / `seq_t` (app types: it must be split), `ui_ctx_t` carries the rack, the template's copy of `kbd_tca8418.*` goes away.
+- [ ] **The split, step 2a: try it, then commit** (from: user, "finish the split"; ADR-043 "Step 2a as built"). What is there:
+  `framework/hal/` (display, input, LEDs, mem, power, storage, and the new `hal_audio_out.h`: the board calls the app's render
+  function), `framework/ui/` (`gui`, `popup`), `framework/boards/hwv1/` and `framework/boards/desktop/`. Two files were split, not
+  moved: the audio output (`audio_out_esp32.cpp` the board's, `audio_esp32.cpp` the app's) and the card task (`card_task.*`
+  the board's, `samples_esp32.cpp` the app's sample library on its hooks). The app hands over its card folders
+  (`core/card_layout.h`), its boot animation (`display_boot_config`) and its render function; `hal_audio.h` is `core/audio.h`.
+  The template has a screen and the board's keys from the library (`src/app.cpp`). Checked by me: 123 + 114 engine tests and
+  141 UI tests pass, both simulators build and ran 5 s without a window, the four firmwares build (the Ritual Machine: static
+  RAM 222084 bytes, 67.8 %, +64; every engine object the same size as before; the template 72564 bytes, 22.1 %, was 56608).
+  **To try, simulator** (`.\build.ps1`, `.\run.ps1`): it must look and sound as before; F12 pulls the card and puts it back;
+  `.\run.ps1 -App template` after `.\build.ps1 -App template`: two windows now, notes on the PC keyboard's rows 1.. / Q.. / A.. /
+  Z.., F1 / F2 octave, F3 / F4 cutoff. **To try, board (ask before flashing; `pio.exe run -d apps/ritual_machine -t upload`)**:
+  sound at all and its level, the boot animation with its bar and words, a streamed pad and the browser while it plays, a
+  setting saved and back after a power cycle, the card pulled and put back, the speaker level, then the template
+  (`-d apps/template`): its screen and keys have never run on the board. A profiling build's `[AUDIO]` lines should read as
+  before (`serial_test.py`). Left for later, on purpose: `gui_style_t` still has the Ritual Machine's page fields; with
+  `HWV1_TEST_TONE` the dev `dump` captures nothing.
+- [ ] **The split, step 2b, then 2c** (from: user; ADR-043 decisions 10, 11, 14 and "Step 2 as planned"). NOT started: after the
+  user's try and commit of 2a. 2b: a control table per board (id, kind, name, matrix place, panel place, LED), events and LEDs
+  with the board's ids, the Ritual Machine's role list in its `core/` with a map per board (`hwv1_layout.h` is that map today);
+  saved files unchanged; the template reads the table. 2c: the simulator's panel drawn from a board's table (`-Board hwv1`:
+  the prototype's 8 key columns on the desktop). Known work: about 100 lines use `CTL_` outside the HAL; `panel_sim.c` (356
+  lines) is rewritten in 2c.
+- [x] **The split, step 1** (committed by the user: `ffaa378` + `a07f37e`; the template flashed and played by them before 2a:
+  "it works nicely"; the root scripts ran in my baseline: tests, both simulators, both firmwares). `oled_sim.code-workspace`
+  exists (the user's choice): to try once, open it in VS Code, the PlatformIO status bar must offer both apps. `new_project.ps1`
+  adds a new app to it (checked once with a scratch app); it no longer copies the template's `.vscode` (that line NOT run).
+  The old root `.pio/build` and `build/` are stale and can be deleted (`.pio/libdeps` at the root is still used); `stash@{0}`
+  is still there (the user can `git stash drop` it); Aseprite: the sprites are in `apps/ritual_machine/assets/UI_Sprites` (a
+  save to the old path recreates `assets/` at the root) (done 2026-10-13)
 
 **Where things stood before it (end of 2026-10-12):** the session of 2026-10-11 / 12 built **the sequencers** (ENGINE_DESIGN.md ADR-042, three
 stages, three rounds of options with the user): the synth's step sequencer now plays in the engine on the machine clock, with

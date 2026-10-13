@@ -11,7 +11,7 @@
 // it was held for; it is written once the playhead is on that step, so the sequencer does not play it again under the finger.
 #include "app/app_internal.h"
 #include "hal/hal_mem.h"
-#include "hal/hal_storage.h"
+#include "core/card_layout.h"
 #include <stdio.h>
 #include <string.h>
 

@@ -1,6 +1,6 @@
 #pragma once
 // The Pads section's sequencer (ENGINE_DESIGN.md ADR-042, stage 3; user, 2026-10-12): the pattern and the bank of patterns, as the UI
-// edits them. Pure data and its rules: no HAL / engine dependency, no timing. It PLAYS in the engine, on the machine clock (hal_audio.h
+// edits them. Pure data and its rules: no HAL / engine dependency, no timing. It PLAYS in the engine, on the machine clock (core/audio.h
 // audio_pseq_set), like the synth's sequencer (core/seq.h).
 //
 // A pattern covers all 64 pads. It is kept as a list of HITS (a pad on a step), not as a 64 x 64 grid: a hit is one 32-bit bit-field

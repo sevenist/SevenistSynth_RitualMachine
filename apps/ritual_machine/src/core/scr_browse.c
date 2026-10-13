@@ -15,7 +15,7 @@ static int br_rows(void) { return clampi((DISPLAY_HEIGHT - GUI_BAR_H - BR_WAVE_H
 
 static bool br_presets(const synth_ui_t *ui) { return ui->br_open == BROWSE_PRESET; }
 
-// The folder `dir` of what the browser is open on: the sample library, or the presets (hal_audio.h: a ':' in front).
+// The folder `dir` of what the browser is open on: the sample library, or the presets (core/audio.h: a ':' in front).
 static int br_dir_open(const synth_ui_t *ui, const char *dir) {
     char path[PAD_NAME_MAX + 2];
     if (!br_presets(ui)) return audio_dir_open(dir);

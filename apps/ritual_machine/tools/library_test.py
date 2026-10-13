@@ -1,4 +1,4 @@
-"""Measures the sample library on the prototype over its serial port (the `dir`, `use` and `pad` dev commands, human_docs/SERIAL_COMMANDS.md).
+"""Measures the sample library on the prototype over its serial port (the `dir`, `use` and `pad` dev commands, docs/guides/SERIAL_COMMANDS.md).
 
 1. reads the library's root folder twice (the card, then the list that is kept) and the heaps;
 2. takes samples spread over the folder into the catalog, timing each (the header read, and the card's walk through the folder to the file);

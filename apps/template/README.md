@@ -55,7 +55,7 @@ next to yours.
 | `hal/hal_display.h`, `hal/hal_input.h` | The screen (a u8g2 instance), and the controls: each board lists its own in a table, an event names one of them. |
 | `hal/hal_audio_out.h` | The audio output: you hand it `synth_render`, the board calls it for every buffer. |
 | `hal/hal_leds.h`, `hal/hal_storage.h`, `hal/hal_power.h` | The key LEDs, small files on the card, the battery. Not used by this app. |
-| `ui/gui.h` | The drawing kit: rectangles to lay a screen out, text, fields, sprites. |
+| `ui/gui.h`, `ui/popup.h` | The drawing kit: rectangles to lay a screen out, text, fields, sprites, popups. Its guide: `docs/guides/DRAWING_KIT.md` at the repo root. |
 | `boards/hwv1`, `boards/desktop` | The two boards behind those headers. |
 
 ## Where to change things

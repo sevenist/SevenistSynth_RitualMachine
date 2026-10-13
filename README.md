@@ -61,6 +61,8 @@ Original hardware, designed and built from scratch.
 | Power | 2S/3S Li-ion battery · IP2326 charger |
 | Open hardware | Schematics + 3D files, coming soon |
 
+<img src="docs/images/MCU.png" alt="The microcontroller: an ESP32-S3-Pico module" width="360">
+
 <!-- ![v1 prototype](docs/images/prototype_v1.jpg) -->
 <!-- ![3D-printed enclosure](docs/images/enclosure.jpg) -->
 

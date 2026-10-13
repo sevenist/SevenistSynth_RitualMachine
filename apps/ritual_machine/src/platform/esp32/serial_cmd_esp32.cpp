@@ -1,4 +1,4 @@
-// Dev serial commands (DEV_SERIAL_CMD). Every command, its options and examples: human_docs/SERIAL_COMMANDS.md (keep it in step when adding one).
+// Dev serial commands (DEV_SERIAL_CMD). Every command, its options and examples: docs/guides/SERIAL_COMMANDS.md (keep it in step when adding one).
 #if defined(ARDUINO_ARCH_ESP32) && defined(DEV_SERIAL_CMD)
 #include <Arduino.h>
 #include <stdlib.h>

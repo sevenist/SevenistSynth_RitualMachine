@@ -29,6 +29,9 @@ oled_sim/
 │  │                        build.ps1, platformio.ini, and the simulator's card (sdcard/, samples/, samples_src/)
 │  └─ template/             the starter app: a four-voice synth with a screen and the board's keys, desktop + first prototype (its README.md)
 ├─ tools/new_project.ps1    .\tools\new_project.ps1 my_synth  ->  apps/my_synth, a copy of the template under its own name
+├─ docs/guides/             task guides (README.md lists them): DRAWING_KIT.md (the library's ui/, for any app),
+│                           RITUAL_MACHINE_UI.md (how this app's screens are built), SERIAL_COMMANDS.md (the dev commands on the board)
+├─ docs/images/             the pictures of the repo's README.md
 ├─ build.ps1, run.ps1       build / run an app's desktop program from here (-App name; default: ritual_machine)
 ├─ test.ps1                 every host test: the library's, then the Ritual Machine's engine and UI tests
 └─ lib/                     third-party code for the desktop builds (u8g2, minimp3, amy; not versioned)
@@ -202,7 +205,7 @@ apps/ritual_machine/
    │  ├─ ui_graphs.c        the small pictures of the graph box (waveform, envelope, filter, effects...)
    │  ├─ ui_draw.c          the screens: header, lists, hand-drawn screens, synth_ui_draw()
    │  ├─ ui_internal.h      what those four share (private to the UI)
-   │  ├─ ui_screen.c/.h     declarative screens: element tables, focus navigation, latch, drawing (see human_docs/UI_GUIDE.md section 8)
+   │  ├─ ui_screen.c/.h     declarative screens: element tables, focus navigation, latch, drawing (see docs/guides/RITUAL_MACHINE_UI.md section 6)
    │  ├─ scr_*.c            the menu tabs as declarative screens: rack, preset (PRESETS: Load / Save / Save as / Init), general, samples, fx, fm (ALGORITHM: the operator tree), keys, mods (MODIFIERS)
    │  ├─ rack.c/.h          modular synth model: slots, audio chain rules, module parameters, modulator targets
    │  ├─ synth_config.c/.h  general settings (synth type, voices, volume, the FM patch copy); the effects are row M of the rack (ADR-041)
@@ -378,6 +381,8 @@ To add a per-step value: `seq_step_t` + `SeqStep` (engine) + the conversion `seq
 `seq_pattern_to_text / _from_text` + a row. Tests: `apps/ritual_machine/tests/engine/test_seq.cpp`, `apps/ritual_machine/tests/ui/test_seq*.c`, `apps/ritual_machine/tests/ui/test_vel.c`.
 
 ### GUI helpers (`framework/ui/gui.h`)
+
+The full guide, written for any app: [docs/guides/DRAWING_KIT.md](docs/guides/DRAWING_KIT.md). In short:
 
 `gui_style_t` (font, margin, padding, gap, list column / graph box geometry, piano-roll and rack metrics; default in
 `gui_default_style`, `framework/ui/gui.c`) feeds the helpers: rect layout (`gui_inset`, `gui_center`, `gui_below/above/right_of/left_of`,
@@ -578,7 +583,7 @@ demo samples (never the user's `samples/`), a readme (`tools/release/README-simu
 | `DEV_OUTPUT_GAIN_PCT=N` | output level in percent of full scale (the first prototype's output stage is harsh on headphones) | remove or 100 |
 | `DEV_SPEAKER_DEFAULT=N` | the built-in speaker's starting level (0 = off, 20 = 100 %; GENERAL "Spk" still changes it) | remove (full) |
 | `DEV_BOOT_DELAY_MS=3000` | wait after `Serial.begin` so a monitor catches the boot log | remove |
-| `DEV_SERIAL_CMD` | serial commands, full guide with examples in [human_docs/SERIAL_COMMANDS.md](human_docs/SERIAL_COMMANDS.md) (`ping`, `on N`, `off N`, `chord K` (up to 48 notes), `eng a b c d`, `release`, `status`, `samples`, `dir [PATH]`, `use NAME`, `patch startup`, `patch sampler F L`, `patch strings`, `patch para N V` (N Strng oscillators into one filter, Mod Para, V voices), `mode mono|poly [glide] [legato]`, `mode para [env 0-2]`, `voices N`, `str wave|osc|det|mix|lvl|lp|ftype|fx V` (Strings settings; `str fx 0` = every FX slot None), `flt T` (type of every FL module: 0 Off 1 LP 2 BP 3 HP 4 LP24 5 Notch 6 LP6 7 Ladr 8 ChLP), `leds N|all|on|off`, `dump N` (the next N engine output samples as `[DUMP] @index v ...` lines, before the dev gain: offline spectrum checks); the patch ones rebuild the synth like leaving the menu) | remove |
+| `DEV_SERIAL_CMD` | serial commands, full guide with examples in [docs/guides/SERIAL_COMMANDS.md](docs/guides/SERIAL_COMMANDS.md) (`ping`, `on N`, `off N`, `chord K` (up to 48 notes), `eng a b c d`, `release`, `status`, `samples`, `dir [PATH]`, `use NAME`, `patch startup`, `patch sampler F L`, `patch strings`, `patch para N V` (N Strng oscillators into one filter, Mod Para, V voices), `mode mono|poly [glide] [legato]`, `mode para [env 0-2]`, `voices N`, `str wave|osc|det|mix|lvl|lp|ftype|fx V` (Strings settings; `str fx 0` = every FX slot None), `flt T` (type of every FL module: 0 Off 1 LP 2 BP 3 HP 4 LP24 5 Notch 6 LP6 7 Ladr 8 ChLP 9 AP), `mi M [timbre morph harm]` (every oscillator plays that Mutable Instruments model; `mi list`), `fx CODE [values]` / `fx clear` (row M), `pad ...` (the Pads section), `browse N [REST] [FIRST]`, `power`, `storage`, `popup` (info, error or ask), `pieconv`, `leds N|all|on|off`, `dump N` (the next N engine output samples as `[DUMP] @index v ...` lines, before the dev gain: offline spectrum checks); the patch ones rebuild the synth like leaving the menu) | remove |
 | `HWV1_DEBUG_UI` | once a second while the controls are used: input events, the slowest app step, the slowest `audio_set_params` (`[UI]` lines) | remove |
 | `HWV1_SD_BENCH` | boot-time card benchmark (`[SD] bench ...` lines: raw reads of 1 / 8 / 16 sectors, file reads of 512 B / 4 KB) | remove |
 | `HWV1_SD_FREQ_KHZ=N` | SPI clock of the card once initialised (default 20000) | keep / tune |

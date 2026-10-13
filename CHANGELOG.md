@@ -20,6 +20,21 @@ on the hardware.
   and the next panel (4 columns, encoders).
 - **For developers:** the repo is now a library and the apps built on it. The next section is the guide to it.
 
+## 2026-10-13: the guides moved to `docs/guides/`
+
+The folder `human_docs/` is now `docs/guides/`, and its content follows the split into a library and its apps.
+
+| Guide | What it is |
+| --- | --- |
+| `docs/guides/DRAWING_KIT.md` | New. Putting something on the screen from any app, with the library's `ui/gui.h` and `ui/popup.h` |
+| `docs/guides/RITUAL_MACHINE_UI.md` | Replaces `UI_GUIDE.md`. How the Ritual Machine's screens are built: every menu tab, the Pads section, the browser |
+| `docs/guides/SERIAL_COMMANDS.md` | Moved and brought up to date: working links, the `mi` command, how to make a measuring build |
+| `docs/guides/README.md` | The list of guides |
+
+- `human_docs/ui_positioning_map.html` is gone. The weak point it described (the joystick's navigation and the layout are
+  not tied together) is item 2 of "What is still open" in `docs/guides/RITUAL_MACHINE_UI.md`.
+- A link or a note that says `human_docs/...` or `UI_GUIDE.md` is stale: the files in this repo were updated.
+
 ## 2026-10-13: the repo is a library and its apps
 
 Commits `ffaa378` to `0ab1696` ("app separation", phase 1 to step 2c).
@@ -130,5 +145,5 @@ board the library knows:
 - The simulated pots without end stops report clean steps or positions; the real board's noise thresholds are not
   simulated.
 
-More: `DEVELOPING.md` (how to work in the code), `apps/template/README.md` (the starter app), `ENGINE_DESIGN.md`
-ADR-043 (the decisions behind the split).
+More: `DEVELOPING.md` (how to work in the code), `apps/template/README.md` (the starter app), `docs/guides/` (the drawing
+kit, the Ritual Machine's screens, the serial commands), `ENGINE_DESIGN.md` ADR-043 (the decisions behind the split).

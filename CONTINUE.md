@@ -24,8 +24,16 @@ request an update log for developers was written after the commit: `CHANGELOG.md
 `tools/` or `platformio.ini` in older notes is inside `apps/ritual_machine/`. Two glossaries were made that day as documents for
 the user (features and GUI; framework): ask for their links, they are not in the repo.
 
-- [ ] **beta 1.1: flash the release image, then publish** (from: user, 2026-10-13, "let's commit and release a version
-  beta v1.1"). Their answers: the zip holds **both simulator programs** (`ritual-machine-sim-hwv1.exe`, `-panel.exe`); **they
+- [x] **beta 1.1 is published** (2026-10-13, https://github.com/sevenist/SevenistSynth_RitualMachine/releases/tag/beta-1.1,
+  a pre-release; done 2026-10-13). The user: "beta 1.1 working, flashed and tested"; asked what they tried on the board
+  with that image, they ticked all four: **the synth and the Pads section, the synth's step sequencer, the Pads
+  sequencer, USB storage mode** (no fault reported; which points of the try lists below were gone through was not said).
+  Asked "publish now?": yes. Done by Claude: the notes' "Pre-release" paragraph now says that; `main` pushed up to
+  `cb6e406` (it was 4 commits ahead); the annotated tag `beta-1.1` on `cb6e406`, pushed; the draft published with
+  `--prerelease`. Checked: the two local files of `apps/ritual_machine/build/release` have the SHA-256 of the two
+  published ones; the tag points at `cb6e406`. The simulator's two panel windows are still "not yet tried by hand" in
+  the notes (nothing was said about them). What follows is the item as it stood before
+  (from: user, 2026-10-13, "let's commit and release a version beta v1.1"). Their answers: the zip holds **both simulator programs** (`ritual-machine-sim-hwv1.exe`, `-panel.exe`); **they
   flash the release image before anything is published**; on the board since beta 1.0 they tried the synth and the pads as
   before and **the Pads sequencer** (not the synth's step sequencer, not the template). Done by Claude: `BOOT_VERSION`
   "beta 1.1", `make_release.ps1` packs both programs, the simulator's readme rewritten for both boards, `CHANGELOG.md`
@@ -35,6 +43,25 @@ the user (features and GUI; framework): ask for their links, they are not in the
   and reports; the notes' "tested" paragraph is set to what they saw; the tag `beta-1.1` goes on the commit the image was
   built from and the draft is published (`gh release edit beta-1.1 --draft=false`). A fix after the flash = a new commit, the
   image and the zip built again, the draft's files replaced.
+- [x] **The guides: `human_docs/` is now `docs/guides/`, rewritten for the split** (from: user, `/session-start` of 2026-10-13:
+  "update the human docs, rename it to just documentation/guides"; asked with options, their answers: the folder is
+  **`guides/`** (then, the same day, **they moved it themselves to `docs/guides/`**, next to `docs/images/`: every
+  reference and the guides' own links follow); the scope is **a rewrite for the split** (against my recommendation, bringing the two guides up to date in
+  place: a full session, and it overlaps DEVELOPING.md), the UI guide in two, the library's drawing kit for any app and the
+  Ritual Machine's screens; **`ui_positioning_map.html` deleted**, its weak point kept as item 2 of the UI guide's open
+  items). What is there: `docs/guides/README.md` (the list), `DRAWING_KIT.md` (new: `framework/ui` for any app),
+  `RITUAL_MACHINE_UI.md` (replaces `UI_GUIDE.md`; the file names are my choice: say if another is wanted),
+  `SERIAL_COMMANDS.md` (moved; links, `mi`, `flt 9`, the measuring build through `PLATFORMIO_BUILD_FLAGS`, the line length
+  111, a serial patch is saved like any edit; the `[KBD] key ... held at power-on` line is gone: no code prints it). Every
+  reference follows (DEVELOPING.md, this file, the skill `board-session`, five Python tools, `serial_cmd_esp32.cpp`: a
+  comment), `CHANGELOG.md` has a section, `apps/template/README.md` points at the drawing kit's guide. Written from the
+  code, each claim read back against it; **nothing was built or run** (documentation and one comment; the code blocks of
+  DRAWING_KIT.md are not compiled, the first is the template's `app_draw` shortened). **Uncommitted, and it is after the
+  beta 1.1 commit `cb6e406`**: files moved with plain moves, so `git add -A` before the commit (git then shows the
+  renames; the user staged once before their move to `docs/`, so the index still names `guides/`: `git add -A` again).
+  `README.md`: the microcontroller's photo `docs/images/MCU.png` added to its Hardware section at the user's request
+  (360 px wide; the picture is 3472 x 4624 with the board in its middle fifth: a crop was offered); still no link to
+  `docs/guides/` there (done 2026-10-13)
 - [ ] **The split, step 2c: try it** (committed by the user: `0ab1696`; from: user, "go for step 2c", 2026-10-13; ADR-043 decisions 15-17 and
   "Step 2c as built", with the six choices made while building: say if one is wrong). The user's answers at the start:
   the board is picked **at build time** (against my recommendation), the **panel stays the default**, the panel's
@@ -113,7 +140,9 @@ sample name with `[ ]` stopped the build).
 Order: what is built and waits for the user's try, this session's choices, then the Pads section (user, 2026-10-09), the rest as chosen by Claude earlier (user: "I let you choose the order"). The user has made no sound design yet: **no saved patch or data to keep, old
 patches can be deleted, no migration code** (user, 2026-10-09). The rest of the workflow plan: "Next: the production workflow" below.
 
-- [ ] **Sequencer stages 1 + 2 (ADR-042): try it, by ear** (user, 2026-10-11: "add more features to the step sequencer and let's have
+- [ ] **Sequencer stages 1 + 2 (ADR-042): try it, by ear** (**2026-10-13: tried by the user on the board with the beta 1.1
+  image, "working"; no detail given, so the "to try" list and the "chosen by me" points below are not confirmed one by
+  one: ask what to change rather than whether it was tried**) (user, 2026-10-11: "add more features to the step sequencer and let's have
   a sequencer for the sample pad section"; two rounds of options, their choices in ADR-042). BUILT 2026-10-11 / 12, host-tested
   (with stage 3: 237 engine tests x 6, 141 UI tests), simulator + firmware built (static RAM 67.7 %, 221996 bytes; 66.2 % before
   this work, 68.4 % before the stored patterns moved to PSRAM), **NOT flashed, NOT listened to**
@@ -146,7 +175,9 @@ patches can be deleted, no migration code** (user, 2026-10-09). The rest of the 
   (ADR-042 "Cost"; the stored patterns are in PSRAM), not measured on the board; the start now reads up to
   9 more small files from the card; no LED shows Rec; the Pads layout is untouched. A stale `synth.cfg` with `seq` / `notes` lines
   is read without them (from: user)
-- [ ] **Sequencer stage 3, the Pads section's sequencer (ADR-042 decisions 16-20): try it, by ear** (from: user). Their answers of
+- [ ] **Sequencer stage 3, the Pads section's sequencer (ADR-042 decisions 16-20): try it, by ear** (**2026-10-13: tried by
+  the user on the board, before beta 1.1 and again with its image, "working"; no detail given, the lists below are not
+  confirmed one by one**) (from: user). Their answers of
   2026-10-12 (options offered): a step grid with live record; **one pattern covers all 64 pads**; a step carries **level,
   probability, ratchet and a length for gate pads**, and "you can compact ram/rom usage with bit-field struct"; step mode by
   **Select + Play** (against my recommendation, a Seq key on the free row); **patterns as on the synth**. BUILT 2026-10-12,
@@ -792,7 +823,7 @@ From the session todo (long-term; moved here 2026-10-11):
 - **UI sprites**: pipeline built; the user paints the placeholder PNGs (from: user)
 - **MI follow-ups**: loudness per model, denormals (Plaits drums), IRAM, Harm placement, tier 3; cycles per model (`[MI]`) not recorded
   here yet (from: notes)
-- Quick macro UI button; declarative main view (UI_GUIDE.md section 8); "audio backend" interface findings (from: user + debt)
+- Quick macro UI button; declarative main view (docs/guides/RITUAL_MACHINE_UI.md sections 6 and 14); "audio backend" interface findings (from: user + debt)
 
 - ui.cfg is written into one `STORAGE_FILE_MAX` (4 KB) buffer: 64 macro destinations (~2.2 KB) plus many Shift / Mod key entries can pass it, and the end is
   cut silently (the cut lines are lost at the next load). Fix if it bites: split macros into their own file, or write in chunks. Min / Max step by 5 %.
@@ -815,7 +846,7 @@ From the session todo (long-term; moved here 2026-10-11):
 - The user iterates with short requests, tests on the board or in the SDL window, and wants concise answers that say what was verified vs not. Windows 11, PowerShell, MSYS2 UCRT64; AZERTY keyboard; English with some French.
   For design work they want options with pros and cons at each stage; they often pick against my recommendation. **By default they flash the board themselves** (COM8). On 2026-10-10 / 11 they allowed Claude to flash and measure (asked each time: "flash and measure?"): ask again in a new session before the first flash. They sometimes say "flashed" about an older build: check (see the skill).
 - A profiling build goes through the environment, not platformio.ini: `$env:PLATFORMIO_BUILD_FLAGS = "-DHWV1_DEBUG_AUDIO -DENGINE_PROFILE"` then `pio.exe run -d apps/ritual_machine -t upload`; **flash the normal build again afterwards** (the profiling one prints every second and costs RAM).
-- Board tools for the Pads work (all over serial, `DEV_SERIAL_CMD`; see human_docs/SERIAL_COMMANDS.md, `pad ...`, `dir`, `use`): `apps/ritual_machine/tools/library_test.py` (the folder list, header reads by place in the folder, samples cycled on a pad, a stream while a folder is read), the serial command `browse N REST FIRST` (the browser driven as by hand: how long each UI step took, stream underruns; `serial_test.py --cmd "pad on" --cmd "browse 6 1500 1750" --raw --seconds 12 --log run.txt`, then read the log: `--raw` does not print the replies), `apps/ritual_machine/tools/pads_test.py` (pad voices), `padsfx_test.py` (FX chains, per-module costs), `edit_test.py` (sample jobs: time, memory), `capture_test.py` (recording).
+- Board tools for the Pads work (all over serial, `DEV_SERIAL_CMD`; see docs/guides/SERIAL_COMMANDS.md, `pad ...`, `dir`, `use`): `apps/ritual_machine/tools/library_test.py` (the folder list, header reads by place in the folder, samples cycled on a pad, a stream while a folder is read), the serial command `browse N REST FIRST` (the browser driven as by hand: how long each UI step took, stream underruns; `serial_test.py --cmd "pad on" --cmd "browse 6 1500 1750" --raw --seconds 12 --log run.txt`, then read the log: `--raw` does not print the replies), `apps/ritual_machine/tools/pads_test.py` (pad voices), `padsfx_test.py` (FX chains, per-module costs), `edit_test.py` (sample jobs: time, memory), `capture_test.py` (recording).
 - UI tests address some rows by number (the RACK page's menu rows in `apps/ritual_machine/tests/ui/test_rows.c`, the EDIT page's rows in `apps/ritual_machine/tests/ui/test_pads.c`): inserting a row in those screens shifts them.
 - The user often keeps the simulator open: `build.ps1` then builds `oled_sim_new.exe`. A stale exe has caused a false "bug" before. Since 2026-10-13 each simulated board is its own exe (`oled_sim.exe`, `oled_sim_hwv1.exe`): a change built for one board is not in the other (`run.ps1` prints a note when the one it starts is the older).
 - PlatformIO: use `C:\.platformio\penv\Scripts\pio.exe`, **never a bare `pio`** (PATH points at Python 3.13's pio, which recreates and destroys the penv). It happened twice; the second time (2026-10-05) Claude did it, and the user had to restore the penv by hand. Repair steps: DEVELOPING.md, "ESP32 firmware" warning. One link failure with no error text happened twice; the immediate rerun succeeded.

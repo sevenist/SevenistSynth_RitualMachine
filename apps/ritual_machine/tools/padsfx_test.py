@@ -1,4 +1,4 @@
-"""Measures the Pads section's FX chains on the prototype over its serial port (`pad fx`, human_docs/SERIAL_COMMANDS.md): 8 looping pads
+"""Measures the Pads section's FX chains on the prototype over its serial port (`pad fx`, docs/guides/SERIAL_COMMANDS.md): 8 looping pads
 (a short sample, kept in memory) sent into chain A, with nothing in the chains, then light, usual and full chains, and prints the
 cycles per engine block, the per-module table and the dropouts of each case.
 Needs the firmware built with -DDEV_SERIAL_CMD -DHWV1_DEBUG_AUDIO -DENGINE_PROFILE. The chains set here are not saved; a reset brings

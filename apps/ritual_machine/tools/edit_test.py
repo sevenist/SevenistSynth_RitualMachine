@@ -1,5 +1,5 @@
 """Times the pads' sample processing (the EDIT page's card jobs) on the prototype over its serial port (`pad edit`, see
-human_docs/SERIAL_COMMANDS.md): one job per kind of operation on a short sample of the card, with the time it takes, the PSRAM it
+docs/guides/SERIAL_COMMANDS.md): one job per kind of operation on a short sample of the card, with the time it takes, the PSRAM it
 borrows and whether it fits; then a heavy job while streamed pads play, to see if the card keeps up with both.
 Needs the firmware built with -DDEV_SERIAL_CMD. Each job writes a scratch file `zzedit.smp` on the card and deletes it.
 

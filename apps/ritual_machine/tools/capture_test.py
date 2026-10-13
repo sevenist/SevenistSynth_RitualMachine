@@ -1,5 +1,5 @@
 """Checks the capture (recording what the Pads section plays onto the card) on the prototype over its serial port (`pad rec`, see
-human_docs/SERIAL_COMMANDS.md): records a few seconds while pads kept in memory play, with effects, and while pads stream from the
+docs/guides/SERIAL_COMMANDS.md): records a few seconds while pads kept in memory play, with effects, and while pads stream from the
 card, and prints the frames the card could not take in time and the blocks the streams missed.
 Needs the firmware built with -DDEV_SERIAL_CMD. Each run writes a scratch file `zzrec.smp` on the card and deletes it.
 

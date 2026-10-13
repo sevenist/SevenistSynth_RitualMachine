@@ -1,23 +1,34 @@
 # Serial commands (prototype, dev builds)
 
 Text commands over the board's USB serial port to play notes, load test patches, change settings and measure the engine, without touching the keys.
-Code: [apps/ritual_machine/src/platform/esp32/serial_cmd_esp32.cpp](../src/platform/esp32/serial_cmd_esp32.cpp). Measurement tool: [apps/ritual_machine/tools/serial_test.py](../tools/serial_test.py).
-Paths and commands below are from the `oled_sim` folder (the project root), not from `human_docs/`.
+They belong to the Ritual Machine's firmware (`apps/ritual_machine`); the starter app has none.
+Code: [apps/ritual_machine/src/platform/esp32/serial_cmd_esp32.cpp](../../apps/ritual_machine/src/platform/esp32/serial_cmd_esp32.cpp). Measurement tool: [apps/ritual_machine/tools/serial_test.py](../../apps/ritual_machine/tools/serial_test.py).
+Paths and commands below are from the repo root (the `oled_sim` folder), not from `docs/guides/`.
 
 ## Before you start
 
-- Firmware built with `-DDEV_SERIAL_CMD` (commands). For the measurement lines also `-DHWV1_DEBUG_AUDIO -DENGINE_PROFILE` (and `-DHWV1_DEBUG_UI` for `[UI]`).
-  The default `platformio.ini` has them; all are dev only (remove before a release, see [DEVELOPING.md](../DEVELOPING.md) "Build flags").
+- **The commands** need a firmware built with `-DDEV_SERIAL_CMD`. The development build has it (`apps/ritual_machine/platformio.ini`, the default environment); the release build (`[env:release]`) does not.
+- **The measurement lines** (`[AUDIO]`, `[PROF]` ...) need `-DHWV1_DEBUG_AUDIO -DENGINE_PROFILE` as well (and `-DHWV1_DEBUG_UI` for `[UI]`). They are commented out in `platformio.ini`: pass them through the
+  environment for one build, then flash the normal build again (the measuring one prints every second and costs RAM):
+
+  ```powershell
+  $env:PLATFORMIO_BUILD_FLAGS = "-DHWV1_DEBUG_AUDIO -DENGINE_PROFILE"
+  C:\.platformio\penv\Scripts\pio.exe run -d apps/ritual_machine -t upload
+  Remove-Item Env:PLATFORMIO_BUILD_FLAGS
+  ```
+
+  Every flag is described in [DEVELOPING.md](../../DEVELOPING.md), "Build flags".
 - Port COM8, 115200 baud. **One program per port**: close the serial monitor before running `serial_test.py`, and the other way round.
-- One command per line (end with Enter / `\n`), at most 47 characters. Every command answers with a `[CMD] ...` line; an unknown one with `[CMD] unknown '...'`.
+- One command per line (end with Enter / `\n`), at most 111 characters. Every command answers with a `[CMD] ...` line; an unknown one with `[CMD] unknown '...'`.
 - Notes are MIDI numbers: 60 = C4 (middle C), 69 = A4 (440 Hz).
 - Commands that load a patch or change the voice mode **rebuild the synth** (like leaving the menu): held notes are released, the screen goes back to the first page,
-  and the audio stalls once for about 100-170 ms. The patch lives in RAM until the next reset.
+  and the audio stalls once for about 100-170 ms. **A patch set over serial is the working sound: it is saved 2 s later and comes back at the next start**
+  (the last example below says how to get back).
 
 Two ways to send commands:
 
 ```
-C:\.platformio\penv\Scripts\pio.exe device monitor        # type commands by hand (never a bare "pio": see ../DEVELOPING.md)
+C:\.platformio\penv\Scripts\pio.exe device monitor -d apps/ritual_machine     # type commands by hand (never a bare "pio": see ../../DEVELOPING.md)
 C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py --cmd "chord 3" --raw --seconds 5
 ```
 
@@ -51,8 +62,9 @@ C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py 
 
 | Command | Does |
 | --- | --- |
-| `flt T` | type of every FL module in the rack: 0 Off, 1 LP, 2 BP, 3 HP, 4 LP24, 5 Notch, 6 LP6, 7 Ladr, 8 ChLP |
+| `flt T` | type of every FL module in the rack: 0 Off, 1 LP, 2 BP, 3 HP, 4 LP24, 5 Notch, 6 LP6, 7 Ladr, 8 ChLP, 9 AP |
 | `eng a b c d` | engines of the first 1..4 oscillators that already use an engine (Wav set to an engine): 0 Karplus, 1 Modal, 2 FM2, 3 Fold, 4 Supersaw, 5 Vowel, 6 Additive, 7 Dust, 8 Strng. Plain-wave oscillators are skipped |
+| `mi M [T] [MO] [H]` | every oscillator of the rack plays Mutable Instruments model M (rebuilds): a number, a name as `mi list` prints it (any case), `next` or `prev`. Optional values, 0..1 each: T = timbre (kept within 0.05..0.95), MO = morph, H = harmonics; a value left out stays as it is. Answers with the model and the number of oscillators changed. `mi list` prints every model with its number and changes nothing |
 | `str F V` | Strings settings (rebuilds): `wave` 0 Saw / 1 Pulse / 2 Tri, `osc` 0 Naive / 1 Mip, `det` cents, `mix` 0..1, `lvl` 0..1, `lp` 0 / 1 (voice low-pass), `ftype` 0..8 (shared filter, same numbers as `flt`), `fx 0` = row M emptied (no effects) |
 | `fx C [v0 .. v7]` | appends module C to row M (ADR-041: the effects are rack modules) with its values in the module's own units, as its page shows them (missing ones = defaults; rebuilds). C = the RACK tab's code: SA, FL, TR, EQ, RG (Ring / Shift), PH, FG (Flanger), CP, DL, RV, CH, SP (Spectral), CB (Cab), ES (Ensemble). Spectral values: Mode (0 Thru, 1 Freeze, 2 Gate, 3 Robot, 4 Whisper, 5 Pitch), Shft (semitones), Amt (0..1), Mix (0..1), Hold (0 / 1), Lo, Hi (Hz). Example: `fx SP 5 7` = a Spectral module pitching up a fifth. `fx clear` empties row M |
 
@@ -101,7 +113,7 @@ heaps before and after the section switch.
 
 | Command | Does |
 | --- | --- |
-| `power` | prints the power button (`down` = on, `up` = off), whether a computer is on the USB cable, the battery (the mux's raw count, the millivolts on the pin, the battery voltage computed from them and the percentage; `0 mV -1 %` = no battery seen) and the mux's spare input (channel 0: raw count, `pushed` / `idle`). To check the battery scale against a meter (`HW_BATT_FULL_SCALE_MV` in `board_pins.h`) and to find out what the spare input is |
+| `power` | prints the power button (`down` = on, `up` = off), whether a computer is on the USB cable, the battery (the mux's raw count, the millivolts on the pin, the battery voltage computed from them and the percentage; `0 mV -1 %` = no battery seen) and the mux's spare input (channel 0: raw count, `pushed` / `idle`). To check the battery scale against a meter (`HW_BATT_FULL_SCALE_MV` in `framework/boards/hwv1/board_pins.h`) and to find out what the spare input is |
 | `storage` | saves what waits to be saved, then restarts the board into the USB card reader (its own firmware, `pio run -d apps/ritual_machine -e card_reader -t upload` once) whatever the power button says: the serial port goes away and the TF card shows up on the computer as a drive. Back to the synth: hold the joystick pushed for 2 s, or switch the power button off and on. Answers `no card reader firmware` when that firmware was never flashed |
 
 ### Popups (UI test)
@@ -121,10 +133,14 @@ heaps before and after the section switch.
 | `[SEC] spectral: stft + frame work, analysis, resynthesis` | every second with `ENGINE_PROFILE`, while a Spectral FX slot runs | cycles per block inside SpectralFx (stereo / FX rack) |
 | `[PROF] cycles per block (budget ...), total ...: Module=cycles(xinstances) ...` | every second (`ENGINE_PROFILE`) | cost per module type, summed over voices |
 | `[OSC]` / `[SEC]` | every second | oscillator engines / reverb and delay stages, in cycles |
+| `[MI] cycles per block, summed over voices: Name=cycles ...` | every second (`ENGINE_PROFILE`), while a Mutable Instruments model plays | cost per model |
 | `[HEAP] fast heap ... spilled ...` | every second | engine memory; "spilled" = module data that fell into the slower PSRAM |
 | `[UI] events ..., slowest step ..., set_params ...` | every second while controls are used (`HWV1_DEBUG_UI`) | UI responsiveness |
 | `[SD] ...`, `[SMP] ...` | card events, while streaming | card speed, reads, sampler underruns |
-| `[KBD] key r4 c7 held at power-on` | boot | the keys-reset gesture was seen |
+| `[RAM] <step> internal free ..., largest block ...` | boot (`HWV1_DEBUG_AUDIO`) | free internal RAM and its largest block before each start-up step |
+| `[BOOT] ...` | boot (`-DBOOT_TRACE`) | when the display, the audio, the application and the loop were ready, and what the start waited for |
+| `[SPK] N %, SD pin (GPIO 5) reads ...` | when the speaker level changes | the level set and what the amplifier's enable pin reads |
+| `[KBD] TCA8418 not found` | boot | the key matrix controller did not answer on its bus |
 
 ## serial_test.py
 
@@ -141,7 +157,7 @@ C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py 
 | `--settle S` | 2 | seconds skipped after each change (so note-on costs are **not** in the numbers) |
 | `--engines "0,1,4,6;2,3,5,7"` | | measures each engine set: the first four oscillators are switched live, cost per engine and voice is printed |
 | `--raw --seconds S` | 10 | just prints what the board sends for S seconds (after the `--cmd`s) |
-| `--log file.txt` | | also writes every received line to a file (delete it afterwards, keep the numbers in [CONTINUE.md](../CONTINUE.md)) |
+| `--log file.txt` | | also writes every received line to a file (delete it afterwards, keep the numbers in [CONTINUE.md](../../CONTINUE.md)) |
 | `--port COM8 --baud 115200` | | |
 
 The report ends with a table: notes held, cycles per block, % of the budget, render average / worst, blocks over budget.

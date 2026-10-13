@@ -98,7 +98,7 @@ C:\.platformio\penv\Scripts\python.exe apps\ritual_machine\tools\serial_test.py 
 
 - The port opens with DTR / RTS low: opening it does not reset the board. Default port COM8, 115200.
 - `--raw` prints only lines newer than the `--cmd` pauses; to see the replies to `--cmd`, use the normal mode or read the `--log` file.
-- The command list and examples: `human_docs/SERIAL_COMMANDS.md`. Patches set over serial live in RAM until the next reset.
+- The command list and examples: `docs/guides/SERIAL_COMMANDS.md`. A patch set over serial is the working sound: it is saved 2 s later and comes back at the next start (`patch startup` puts the start sound back).
 - Report CPU (`cycles per engine block`, `blocks over budget`; any > 0 is an audible dropout) and, for the sampler, the card counters, before / now in a small table.
 - Delete `run*.txt` logs when done; numbers that matter go into CONTINUE.md.
 - For optimization work follow the skill `esp32-optimize` (its loop in section 2b), with the paths of section 2 above.
@@ -107,7 +107,7 @@ C:\.platformio\penv\Scripts\python.exe apps\ritual_machine\tools\serial_test.py 
 
 - File: `apps/ritual_machine/src/platform/esp32/serial_cmd_esp32.cpp` (everything inside `DEV_SERIAL_CMD`). Follow its pattern: `if (!strcmp(line, "name") ...) { ...; Serial.printf("[CMD] ...\n", ...); return; }`, a one-line comment with the syntax, and always a `[CMD]` reply so the tool can see it worked.
 - Commands run on the UI core: a change to the synth goes through the same path as the UI (rebuild like leaving the menu, or a live engine command). Never change the graph shape from a frequently sent command (100-170 ms audio stall).
-- When a command is added or changed, update in the same session: `human_docs/SERIAL_COMMANDS.md` (syntax + example), the `DEV_SERIAL_CMD` row of the flag table in `DEVELOPING.md`, and `apps/ritual_machine/tools/serial_test.py` if the tool should use it.
+- When a command is added or changed, update in the same session: `docs/guides/SERIAL_COMMANDS.md` (syntax + example), the `DEV_SERIAL_CMD` row of the flag table in `DEVELOPING.md`, and `apps/ritual_machine/tools/serial_test.py` if the tool should use it.
 - Edit traps: lines with `\n` inside C strings go through the Edit tool (scripted edits through this harness lose one backslash level; a heredoc turns `\n` into a real newline). Many files are CRLF: keep the line endings (never `sed -i` in Git Bash on them). After a scripted printf edit, grep that the format string is on one line.
 
 ## 6. Pause for the user

@@ -1,4 +1,4 @@
-"""Measures the Pads section on the prototype over its serial port (the `pad` dev command, human_docs/SERIAL_COMMANDS.md).
+"""Measures the Pads section on the prototype over its serial port (the `pad` dev command, docs/guides/SERIAL_COMMANDS.md).
 
 Switches to the Pads section, then for a short sample (kept whole in memory) and a long one (streamed from the card) plays 1, 4 and 8
 pads looping (Trim loop), then the same 8 with a loop crossfade, and prints the render time, the cycles per engine block, the per-module

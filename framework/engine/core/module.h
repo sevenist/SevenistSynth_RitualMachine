@@ -62,6 +62,10 @@ struct SeqPos {
     bool running = false;
     uint8_t steps = 16;         // the pattern's length
     uint32_t pos_q16 = 0;
+    // A pass to record (StepSeq::record_pass) starts at this block's first sample, where its first step sounds (rec_start = 1 in that
+    // block only), and lasts rec_frames: its steps at the tempo it starts at. The recording tap (CaptureTap::arm_seq) begins on it.
+    uint8_t rec_start = 0;
+    uint32_t rec_frames = 0;
 };
 
 // Per-voice state owned by the engine, visible to voice-scope modules.

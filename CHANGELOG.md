@@ -20,6 +20,29 @@ on the hardware.
   and the next panel (4 columns, encoders).
 - **For developers:** the repo is now a library and the apps built on it. The next section is the guide to it.
 
+## 2026-10-14: simulator fixes, the sequencer's roll and erase, the repo in a folder with a space
+
+- **The default key layout skips no note on the panel.** *Keys 8x4* counted 8 notes a row on every board, so the panel's
+  4 columns played 0..3, 8..11, 16..19, 24..27. A row now goes on where the row under it ends: 16 notes in a row on the
+  panel, the same 32 as before on the first prototype. A saved `keys.cfg` with `layout keys8x4` follows by itself.
+- **The simulator's panel shows an LED change at once.** The panel window was only drawn again when a control moved, so a
+  playhead or a blinking LED stood still until the next key press. As on a board, what `leds_set` sets now shows at the
+  next `leds_show()`.
+- **The synth sequencer's roll follows the playhead.** While it runs, the SEQUENCER page shows the 16 steps the playhead is
+  on and the octaves of what plays there. Moving the cursor or editing its step brings the roll back to the cursor for
+  4 seconds. When the playhead is on another page, a mark at that end of its strip says on which side.
+- **Record the synth's pattern as a sample.** Shift + Play in the synth section now opens a list: Notes (the note recording
+  as before), or the pattern's sound from its first step to its last: once (then the sequencer stops or plays on), once with
+  its tail (the recording goes on until the sound has died away), or as a loop (the pattern plays twice and the second pass
+  is kept, so the first pass's reverb tail is under its start). Afterwards a second list asks where it goes: the selected pad,
+  the next empty pad or the library only. For developers: the drawing kit has a list popup, `popup_choose`; the engine's
+  sequencer can mark a pass to record and stop at its end (`record_pass`), and the recording tap can start on it
+  (`CaptureTap::arm_seq`).
+- **Back held while recording erases.** With Rec armed and the sequencer running, every step the playhead passes while Back
+  is held becomes a rest. The Undo tool brings back everything one hold erased.
+- **The build and test scripts work in a folder whose name has a space** (`framework/tools/sim_build.ps1`, the three
+  test scripts): the paths given to the compiler are quoted, and a header's change is still seen there.
+
 ## 2026-10-13: the guides moved to `docs/guides/`
 
 The folder `human_docs/` is now `docs/guides/`, and its content follows the split into a library and its apps.

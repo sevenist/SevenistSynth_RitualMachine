@@ -41,6 +41,7 @@ bool Engine::init(Memory mem, int nvoices) {
     seq_step_.store(-1, std::memory_order_relaxed);
     seq_where_.store(0, std::memory_order_relaxed);
     seq_taken_.store(0, std::memory_order_relaxed);
+    seq_halts_.store(0, std::memory_order_relaxed);
     pseq_.clear();
     pseq_node_ = -1;
     pseq_step_.store(-1, std::memory_order_relaxed);
@@ -306,6 +307,14 @@ bool Engine::seq_setup(const SeqSetup &s) {
     return cmd_.push(c);
 }
 
+bool Engine::seq_record(int skip, bool stop) {
+    Command c;
+    c.type = Cmd::SeqRecord;
+    c.value = skip < 0 ? -1 : skip;
+    c.idx = stop ? 1 : 0;
+    return cmd_.push(c);
+}
+
 bool Engine::seq_steps(int first, int count, const SeqStep *steps, bool queue) {
     if (first < 0 || count < 1 || count > kSeqChunk || first + count > kSeqSteps) return false;
     SeqChunk k;
@@ -373,6 +382,7 @@ void Engine::apply(const Command &c) {
         break;
     case Cmd::SeqSetup: { SeqSetup s; std::memcpy(&s, c.blob, sizeof s); seq_.setup(s); break; }
     case Cmd::SeqSteps: { SeqChunk k; std::memcpy(&k, c.blob, sizeof k); seq_.chunk(k); break; }
+    case Cmd::SeqRecord: seq_.record_pass(c.value, c.idx != 0); break;
     case Cmd::PadSeqSetup: { SeqSetup s; std::memcpy(&s, c.blob, sizeof s); pseq_.setup(s); pseq_node_ = c.node; break; }
     case Cmd::PadSeqHits: { PadHitChunk k; std::memcpy(&k, c.blob, sizeof k); pseq_.chunk(k); break; }
     case Cmd::NoteOn: do_note_on(c.note, c.value); break;
@@ -493,6 +503,7 @@ void Engine::render(q15 *l, q15 *r) {
         for (int i = 0; i < n; i++) { if (ev[i].on) do_note_on(ev[i].note, ev[i].vel); else do_note_off(ev[i].note); }
         seq_step_.store(seq_.step(), std::memory_order_relaxed);
         seq_taken_.store(seq_.taken(), std::memory_order_relaxed);
+        seq_halts_.store(seq_.halts(), std::memory_order_relaxed);
         seq_where_.store(seq_.step() < 0 ? 0 : (1ull << 63) | (static_cast<uint64_t>(seq_.count()) << 16) |
                          (static_cast<uint64_t>(seq_.step()) << 8) | (seq_.frac() >> 8), std::memory_order_relaxed);
     }

@@ -88,6 +88,10 @@ typedef struct {
     seq_bank_t *bank;              // the sequencer's patterns and chain (the app's), for the PATTERNS page
     uint8_t seq_chain_cur;         // ... the chain entry its Slot row shows
     bool    seq_rec;               // Rec is armed (the app's: notes played go into the pattern); the page's Run field says so
+    bool    seq_audio;             // ... the pattern's sound is being recorded (the app's; the field reads Audio)
+    bool    seq_erase;             // ... and Back is held while it records live: the playhead erases (the app's; the field reads Erase)
+    bool    seq_follow;            // the roll shows the page and the pitch of the step that plays, not the cursor's (the app's: it runs and nothing was edited by hand lately)
+    uint8_t seq_touch;             // counts the cursor's moves and the step edits made by hand: the app holds the roll on the cursor after one
     uint8_t seq_tool, seq_scope;   // SEQUENCER page: the quick edit tool and its scope (core/seq.h seq_tool_t / seq_scope_t)
     char    seq_msg[28];           // ... what a tool just did, for the app to show (a popup); "" = nothing
     // ... its column knobs (SEQ_KNOB_HYST): the step + voice + 1 they were referenced on (0 = none: every knob must move first),

@@ -16,9 +16,12 @@
 // semitones high, bar width = note length. A step's chord: a bar per note. A step that may not play (Prob) is dotted, a ratchet cuts
 // its first column into its hits. A note outside the window: a dot on the edge it is beyond. Below it: playhead strip, then the
 // editable fields. All coordinates come from the gui_* layout helpers and the style sheet.
-#define SEQ_ROLL_NOTES 24
+//
+// The roll scrolls (user, 2026-10-14): sideways by pages of SEQ_PAGE steps, up and down by octaves. It shows the cursor's page and
+// the edited note; while it runs and nothing was edited by hand lately (ui->seq_follow, the app's), the page of the step that plays
+// and that step's highest note. The playhead on another page than the one shown: a mark at that end of its strip.
 
-// The lowest note the roll shows: the octave of the lowest note of the page, moved up when the edited note would be above the window.
+// The lowest note the roll shows: the octave of the lowest note of the page, moved up when the note in focus would be above the window.
 static int seq_roll_low(const seq_t *q, int first, int shown, int focus) {
     int low = 0;
     for (int s = first; s < first + shown; s++)
@@ -32,11 +35,26 @@ static int seq_roll_low(const seq_t *q, int first, int shown, int focus) {
     return low;
 }
 
+void synth_ui_seq_view(const synth_ui_t *ui, const seq_t *q, int *first, int *low) {
+    const int cursor = ui->cursor < q->steps ? ui->cursor : q->steps - 1;
+    const bool follow = ui->seq_follow && q->running && q->pos >= 0 && q->pos < q->steps;
+    const int at = follow ? q->pos : cursor;
+    int focus = q->step[cursor].note[ui->seq_voice % SEQ_CHORD];
+    if (follow) {                                                    // the step that plays: its highest note
+        focus = 0;
+        for (int k = 0; k < SEQ_CHORD; k++) if (q->step[at].note[k] > focus) focus = q->step[at].note[k];
+    }
+    const int cols = q->steps < SEQ_PAGE ? q->steps : SEQ_PAGE;
+    *first = at / SEQ_PAGE * SEQ_PAGE;
+    *low = seq_roll_low(q, *first, q->steps - *first < cols ? q->steps - *first : cols, focus);
+}
+
 static void draw_seq(u8g2_t *g, const gui_style_t *st, gui_rect_t area, const synth_ui_t *ui, const seq_t *q) {
     const bool tall = area.h >= 96;                                  // room for two pixels per semitone and every field
     const int pitch = st->roll_pitch_px * (tall ? 2 : 1);
     const int cursor = ui->cursor < q->steps ? ui->cursor : q->steps - 1;
-    const int first = cursor / SEQ_PAGE * SEQ_PAGE;                  // the page shown: the cursor's
+    int first, low;                                                  // the page and the pitches shown: the cursor's, or the playhead's
+    synth_ui_seq_view(ui, q, &first, &low);
     const int cols = q->steps < SEQ_PAGE ? q->steps : SEQ_PAGE;
     const int shown = q->steps - first < cols ? q->steps - first : cols;
     const int voice = ui->seq_voice % SEQ_CHORD;
@@ -47,7 +65,6 @@ static void draw_seq(u8g2_t *g, const gui_style_t *st, gui_rect_t area, const sy
     roll.y = area.y;
     u8g2_DrawFrame(g, roll.x, roll.y, roll.w, roll.h);
     gui_rect_t inner = gui_inset(roll, 1);
-    const int low = seq_roll_low(q, first, shown, cs->note[voice]);
 
     for (int i = 0; i < shown; i++) {
         const seq_step_t *sp = &q->step[first + i];
@@ -77,11 +94,13 @@ static void draw_seq(u8g2_t *g, const gui_style_t *st, gui_rect_t area, const sy
     // playhead strip right under the roll, same column geometry
     gui_rect_t strip = gui_below(roll, st->gap, st->strip_h);
     if (q->running && q->pos >= first && q->pos < first + shown) u8g2_DrawBox(g, inner.x + (q->pos - first) * cell + 1, strip.y, cell - 2, strip.h);
+    else if (q->running && q->pos >= 0) u8g2_DrawBox(g, q->pos < first ? inner.x : gui_right(inner) - 2, strip.y, 2, strip.h);   // on another page: that side
 
-    // cursor: frame while the Step row is selected, dotted line otherwise
+    // cursor (when its page is the one shown): frame while the Step row is selected, dotted line otherwise
+    const bool cursor_shown = cursor >= first && cursor < first + shown;
     int cx = inner.x + (cursor - first) * cell;
-    if (ui->row == SEQ_ROW_STEP) u8g2_DrawFrame(g, cx, roll.y, cell + 1, roll.h);
-    else                         for (int y = roll.y; y < gui_bottom(roll); y += 2) u8g2_DrawPixel(g, cx + cell / 2, y);
+    if (cursor_shown && ui->row == SEQ_ROW_STEP) u8g2_DrawFrame(g, cx, roll.y, cell + 1, roll.h);
+    else if (cursor_shown)                       for (int y = roll.y; y < gui_bottom(roll); y += 2) u8g2_DrawPixel(g, cx + cell / 2, y);
 
     // editable fields: two columns below the strip, all of them on a tall screen, else the four around the selected one
     const int rows = tall ? SEQ_ROWS / 2 : 2, first_field = tall || ui->row < 1 ? 0 : (ui->row - 1) / 4 * 4;
@@ -95,7 +114,7 @@ static void draw_seq(u8g2_t *g, const gui_style_t *st, gui_rect_t area, const sy
     snprintf(prob, sizeof prob, "%d%%", cs->prob);
     snprintf(rat, sizeof rat, "x%d", cs->ratchet);
     snprintf(vc, sizeof vc, "%d/%d", voice + 1, SEQ_CHORD);
-    const char *label[SEQ_ROWS] = {"Step", "Note", "Len", "Vel", "Prob", "Rtch", "Voice", ui->seq_rec ? "Rec" : "Run", "Tool", "On"};
+    const char *label[SEQ_ROWS] = {"Step", "Note", "Len", "Vel", "Prob", "Rtch", "Voice", ui->seq_erase ? "Erase" : ui->seq_audio ? "Audio" : ui->seq_rec ? "Rec" : "Run", "Tool", "On"};
     const char *value[SEQ_ROWS] = {step, name, len, vel, prob, rat, vc, NULL, seq_tool_name(ui->seq_tool), seq_scope_name(ui->seq_scope)};
     for (int i = 0; i < 2 * rows && first_field + i < SEQ_ROWS; i++) {
         const int fi = first_field + i;

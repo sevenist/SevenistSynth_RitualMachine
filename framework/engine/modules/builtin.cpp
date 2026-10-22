@@ -95,7 +95,7 @@ public:
         const q15 *l = p.in[0], *r = p.in[1];
         first_ = false;
         const int n = ctx.frames;
-        tap_.feed(l, r, n, ctx.transport);                                    // a recording takes what comes in, before the volume
+        tap_.feed(l, r, n, ctx.transport, ctx.seq);                                    // a recording takes what comes in, before the volume
         const int32_t step = (target_ - gain_) / n;                           // the last sample lands exactly on the target
         int32_t g = gain_;
         for (int i = 0; i < n; i++) {

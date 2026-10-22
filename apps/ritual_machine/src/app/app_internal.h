@@ -83,6 +83,8 @@ void app_render_poll(app_t *app, uint32_t now);
 /* ---------------- app_capture.c ---------------- */
 
 void app_capture_key(app_t *app);                                   // the Rec key
+void app_capture_synth_key(app_t *app);                             // Shift + Play / Rec in the synth: what to record (notes, the pattern's sound), or stop
+void app_capture_synth_poll(app_t *app, uint32_t now);              // every step, any section: the pattern's recording goes on
 void app_capture_poll(app_t *app, uint32_t now);
 
 /* ---------------- app_seq.c ---------------- */
@@ -97,6 +99,9 @@ void app_seq_rec_set(app_t *app, bool on);                          // Rec armed
 void app_seq_note_down(app_t *app, control_id_t ctl, int note);     // a key started a note / let it go: into the pattern while Rec is armed
 void app_seq_note_up(app_t *app, control_id_t ctl);
 void app_seq_poll(app_t *app);                                      // every step: the live notes whose step has come are written
+bool app_seq_erase_down(app_t *app, control_id_t ctl);              // Back went down: true when it erases under the playhead (a live recording runs)
+void app_seq_erase_up(app_t *app, control_id_t ctl);                // a control was let go: the erasing ends with the one that held it
+void app_seq_view(app_t *app, uint32_t now);                        // every step: does the roll follow the playhead, or stay on the cursor
 
 /* ---------------- app_pseq.c ---------------- */
 

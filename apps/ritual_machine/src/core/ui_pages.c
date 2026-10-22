@@ -229,7 +229,7 @@ void get_page(const synth_ui_t *ui, const rack_t *rack, int idx, page_t *out) {
 }
 
 void synth_ui_init(synth_ui_t *ui, const rack_t *rack) {
-    ui->page = 0; ui->row = 0; ui->cursor = 0; ui->seq_voice = 0; ui->seq_tool = 0; ui->seq_scope = 0; ui->seq_msg[0] = 0; ui->seq_knob_key = 0; ui->seq_rec = false; ui->seq_chain_cur = 0; ui->bank = NULL;
+    ui->page = 0; ui->row = 0; ui->cursor = 0; ui->seq_voice = 0; ui->seq_tool = 0; ui->seq_scope = 0; ui->seq_msg[0] = 0; ui->seq_knob_key = 0; ui->seq_rec = false; ui->seq_erase = false; ui->seq_audio = false; ui->seq_follow = false; ui->seq_touch = 0; ui->seq_chain_cur = 0; ui->bank = NULL;
     ui->rack_cur = 0; ui->rack_scroll = 0; ui->rack_type = MOD_OSC;
     ui->rack_row = synth_type_is_rack(rack->cfg.type) ? 0 : ROW_M; ui->rack_menu = false;
     for (int l = 0; l < RACK_ROWS; l++) ui->rack_col[l] = 0;

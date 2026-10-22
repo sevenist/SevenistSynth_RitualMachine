@@ -1,4 +1,5 @@
 #include "core/keymap.h"
+#include "core/controls.h"
 #include "core/seq.h"
 #include "core/card_layout.h"
 #include <stdio.h>
@@ -120,13 +121,23 @@ static const uint8_t nav_block[4][4] = {
     {F_PAGE_DN, F_NONE, F_PAGE_UP, F_ROW_UP},
 };
 
+// How many columns the board's note rows have (the prototype 8, the panel 4; all of them when the board lists no note key).
+static int note_cols(void) {
+    int cols = 0;
+    for (int r = 1; r < KEY_ROWS; r++)
+        for (int c = cols; c < KEY_COLS; c++) if (controls_key_present(r, c)) cols = c + 1;
+    return cols ? cols : KEY_COLS;
+}
+
 // Every layout: the function row is Shift, Menu, Back, Play (then Octave and Page on a board with 8 function keys). Notes go up to the right
 // and up the rows; the bottom-left note key is the base note.
-//   Keys 8x4   one keyboard of 32 notes: +1 per key to the right, +8 per row up
+//   Keys 8x4   one keyboard over all the note keys: +1 per key to the right, a row up starts where the row under it ends (+8 on the
+//              prototype's 8 columns, 32 notes; +4 on the panel's 4 columns, 16 notes: no note is skipped on either)
 //   Two 4x4    the left block 0..15 (+4 per row, as on the 4 x 4 block of the panel), the right block continues with 16..31
 //   Notes+Nav  the left block 0..15, the right block navigates the menus (nav_block)
 static void preset(int p, key_fn_t out[KEY_COUNT]) {
     static const uint8_t fn_row[KEY_COLS] = {F_SHIFT, F_MENU, F_BACK, F_PLAY, F_OCT_DN, F_OCT_UP, F_PAGE_DN, F_PAGE_UP};
+    const int cols = note_cols();
     for (int c = 0; c < KEY_COLS; c++) out[c] = FN(fn_row[c]);
     for (int r = 1; r < KEY_ROWS; r++) {
         const int up = KEY_ROWS - 1 - r;                          // note rows counted from the bottom
@@ -136,7 +147,7 @@ static void preset(int p, key_fn_t out[KEY_COUNT]) {
             switch (p) {
                 case 1:  *k = NOTE((left ? 0 : 16) + up * 4 + (c & 3)); break;
                 case 2:  *k = left ? NOTE(up * 4 + c) : FN(nav_block[r - 1][c - 4]); break;
-                default: *k = NOTE(up * 8 + c); break;
+                default: *k = NOTE(up * cols + c); break;
             }
         }
     }

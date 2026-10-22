@@ -42,10 +42,16 @@ function Test-NeedsBuild($src, $obj, $dep) {
     $t = (Get-Item $obj).LastWriteTime
     if ((Get-Item $src).LastWriteTime -gt $t) { return $true }
     if (-not (Test-Path $dep)) { return $true }
-    $text = (Get-Content $dep -Raw) -replace '\\\r?\n', ' '
-    $files = ($text -split '\s+') | Where-Object { $_ -and $_ -notmatch ':$' } | Select-Object -Skip 0
+    $text = (Get-Content $dep -Raw) -replace '\\\r?\n', ' ' -replace '\\ ', '|'     # (a space inside a path is written "\ ": kept through the split)
+    $files = ($text -split '\s+') | Where-Object { $_ -and $_ -notmatch ':$' } | ForEach-Object { $_ -replace '\|', ' ' }
     foreach ($f in $files) { if ((Test-Path $f) -and (Get-Item $f).LastWriteTime -gt $t) { return $true } }
     return $false
+}
+
+# Start-Process joins its arguments with spaces and quotes none: an argument with a space in it (the repo in a folder like
+# "Sevenist Core") is put in quotes here.
+function Format-ToolArgs([object[]]$List) {
+    return @($List | ForEach-Object { if ("$_" -match '\s') { '"' + "$_" + '"' } else { "$_" } })
 }
 
 # Returns $true when the program was built. -Flags go to both compilers (include paths, defines; -MMD is added here), -CFlags / -CppFlags
@@ -92,7 +98,7 @@ function Invoke-SimBuild {
                 $j = $queue.Dequeue()
                 $log = Join-Path $env:TEMP ("oled_cc_" + [IO.Path]::GetFileName($j.obj) + ".log")
                 $ccArgs = $j.flags + @("-MF", $j.dep, "-c", $j.src, "-o", $j.obj)
-                $p = Start-Process $j.tool -ArgumentList $ccArgs -NoNewWindow -PassThru -RedirectStandardError $log -RedirectStandardOutput "$log.out"
+                $p = Start-Process $j.tool -ArgumentList (Format-ToolArgs $ccArgs) -NoNewWindow -PassThru -RedirectStandardError $log -RedirectStandardOutput "$log.out"
                 $null = $p.Handle
                 $running += [pscustomobject]@{proc = $p; job = $j; log = $log}
             }
@@ -125,7 +131,7 @@ function Invoke-SimBuild {
 
     $objs = Get-ChildItem $ObjDir -Filter *.o | ForEach-Object { $_.FullName }
     $linkLog = Join-Path $env:TEMP "oled_link.log"
-    $p = Start-Process g++ -ArgumentList (@($objs) + $Libs + @("-o", $Out)) -NoNewWindow -PassThru -Wait -RedirectStandardError $linkLog -RedirectStandardOutput "$linkLog.out"
+    $p = Start-Process g++ -ArgumentList (Format-ToolArgs (@($objs) + $Libs + @("-o", $Out))) -NoNewWindow -PassThru -Wait -RedirectStandardError $linkLog -RedirectStandardOutput "$linkLog.out"
     Get-Content $linkLog, "$linkLog.out" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }
     if ($p.ExitCode -eq 0) { Write-Host ("Built {0} in {1:N1}s" -f $Out, $sw.Elapsed.TotalSeconds) -ForegroundColor Green; return $true }
     Write-Host "Link FAILED (exit $($p.ExitCode))" -ForegroundColor Red

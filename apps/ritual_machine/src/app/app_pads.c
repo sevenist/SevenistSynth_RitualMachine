@@ -99,7 +99,7 @@ void app_set_section(app_t *app, bool pads) {
     }
     app->in.pad_select = app->in.pad_mute = false;
     if (app->seq.running) seq_set_running(&app->seq, false);
-    if (app->rec.armed) { memset(&app->rec, 0, sizeof app->rec); app->ui.seq_rec = false; }   // (the sequencer's Rec goes off with its section)
+    if (app->rec.armed) { memset(&app->rec, 0, sizeof app->rec); app->ui.seq_rec = app->ui.seq_erase = false; }   // (the sequencer's Rec goes off with its section)
     app->pads_run = false;                                  // the clock stops with the section's music
     app->ui.pad_steps = false;                              // (step mode and the pattern's live record end with it)
     if (app->prec.armed) { memset(&app->prec, 0, sizeof app->prec); app->ui.pseq_rec = false; }

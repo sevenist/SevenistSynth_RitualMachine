@@ -49,12 +49,18 @@ typedef struct {
 // A recording of what plays (capture / resampling, ADR-041): armed and recorded by the engine onto the card, then found in the
 // library and put on a pad.
 typedef struct {
-    uint8_t  stage;                     // 0 none, 1 armed / recording / being finished, 2 waiting for the library to list the file
+    uint8_t  stage;                     // 0 none, 1 armed / recording / being finished, 2 waiting for the library to list the file,
+                                        // 3 (the synth's pattern) waiting for the answer: where it goes
     uint8_t  bars;                      // the length setting: 0 = until Rec is pushed again, else that many bars at the tempo
     bool     loop;                      // this one has a length in bars: the pad loops it, on the bar
     int      pad;                       // where it goes
     char     name[PAD_NAME_MAX];
     uint32_t frames, dropped, since;
+    // The synth's pattern recorded as a sample (app_capture.c, REC_*; 0: a recording of the Pads section): how, the file being opened
+    // or the pass asked for, the sequencer's halt count then and whether it halted, the grid a looping pad gets
+    uint8_t  seq_mode, seq_phase, grid;
+    bool     halted;
+    uint32_t halts;
 } pad_capture_t;
 
 // Recording into the step sequencer from the keys (app_seq.c): armed, the chord being entered step by step, and the notes of a live
@@ -69,6 +75,8 @@ typedef struct {
 typedef struct {
     bool     armed;
     uint8_t  entry_held, entry_n;       // step entry: keys down, notes of the chord so far
+    uint8_t  erase_ctl;                 // live: the control that holds Back down, the playhead erases (CTL_NONE: none) ...
+    bool     erase_kept;                // ... and what that hold erased is what Undo brings back
     seq_rec_note_t note[SEQ_REC_NOTES];
 } seq_rec_t;
 
@@ -94,6 +102,10 @@ typedef struct {
     uint32_t       pat_saved[SEQ_PATTERNS], seq_cfg_saved;
     uint32_t       seq_seen, seq_ms, seq_look_ms;
     bool           seq_pending;
+    // The SEQUENCER page's roll follows the playhead (app_seq_view): the UI's count of edits by hand as last seen, and when it moved
+    uint8_t        seq_touch_seen;
+    bool           seq_touched;
+    uint32_t       seq_touch_ms;
     // The Pads section's sequencer (app_pseq.c; padseq.cfg and padpat1.cfg .. on the card): its patterns (bulk memory) and chain, the
     // same hand-over and autosave state as the synth sequencer's, and its live recording
     pseq_bank_t    pbank;
@@ -113,6 +125,7 @@ typedef struct {
     // not be in it yet (app_pads_resolve takes one per step), lib_missing = bit k: pad k's file is not on the card (not asked again),
     // lib_tries = steps spent waiting for an unused sample to be unloaded.
     bool           lib_dirty;
+    uint8_t        rec_choice;       // the synth's Rec list: the option chosen last (the list opens on it)
     uint16_t       rec_next;         // the number of the next recording's name (recN); 0 = not known yet: the library's root is listed once
     uint64_t       lib_missing;
     uint8_t        lib_tries;

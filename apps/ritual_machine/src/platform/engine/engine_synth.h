@@ -41,6 +41,11 @@ int  engine_synth_seq_pos(void);
 int  engine_synth_seq_queue(const seq_pattern_t *p, int id);
 int  engine_synth_seq_taken(void);
 int  engine_synth_seq_where(int *step, int *frac, uint32_t *count);
+// A pass of the pattern to record (engine/core/sequencer.h record_pass): after `skip` whole passes, the next one; with `stop` the
+// sequencer stops where it ends and seq_halts (a count) moves: the application then sets seq->running off. skip < 0: none. 0: the
+// command queue was full (call again).
+int  engine_synth_seq_record(int skip, int stop);
+uint32_t engine_synth_seq_halts(void);
 // The Pads section's sequencer (core/pad_seq.h), the same five: pseq_set hands over the pattern that plays and whether it runs (it is
 // sent whole when it changed), its hits push the pads of the loaded pads player.
 void engine_synth_pseq_set(const pseq_pattern_t *p, int run);
@@ -112,6 +117,11 @@ const char *engine_synth_card_root(void);
 // capture_done. Not while a processing job runs (they share the card and the spare memory).
 typedef enum { CAPTURE_IDLE, CAPTURE_ARMED, CAPTURE_RECORDING, CAPTURE_FINISHING, CAPTURE_DONE, CAPTURE_FAILED, CAPTURE_EMPTY } capture_state_t;
 bool engine_synth_capture_start(const char *name, int threshold, int at_bar, uint32_t limit_frames);
+// The same for the step sequencer's pass (engine_synth_seq_record): it begins with the pass's first step and lasts its steps, then
+// (tail) goes on until the sound has died away (under -60 dB for 0.25 s; 30 s at most). listening: the file is open and the tap
+// waits, so the pass may be asked for now (asked before, its start could pass unrecorded).
+bool engine_synth_capture_start_seq(const char *name, int tail);
+int  engine_synth_capture_listening(void);
 void engine_synth_capture_stop(void);
 capture_state_t engine_synth_capture_poll(uint32_t *frames, uint32_t *dropped);
 void engine_synth_capture_done(void);

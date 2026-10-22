@@ -5,10 +5,12 @@
 //          screen behind it. A new INFO replaces the one on screen.
 //   ERROR  a message under an "ERROR" title (or the given one) with an OK button. Modal: stays until confirmed.
 //   ASK    a question with Yes / No buttons; the answer goes to a callback. Modal.
+//   CHOOSE a short list of options under a title, one focused; the chosen one's index goes to a callback (-1: closed with Back). Modal.
 //
 // Modal popups wait in a short queue and are shown one at a time, oldest first; one on screen hides the INFO. While a modal popup is up the
 // app hands it the ACTIONS of the binding table and of the key layout (not the raw controls), so the user's key layout works as everywhere
-// else: Nav left / right, Value and Row change the focused button, Latch / Select press it, Back answers No (closes an error).
+// else: Nav left / right (a list: up / down too), Value and Row change the focused button, Latch / Select press it, Back answers No
+// (closes an error, closes a list without a choice).
 // Notes, Shift and the master volume keep working; everything else is ignored, so nothing edits the screen behind the popup.
 //
 //   popup_ask(&app->popup, "SD CARD", "The card is not formatted. Format it?", false, on_format, app);
@@ -22,14 +24,16 @@
 extern "C" {
 #endif
 
-typedef enum { POPUP_NONE, POPUP_INFO, POPUP_ERROR, POPUP_ASK } popup_kind_t;
+typedef enum { POPUP_NONE, POPUP_INFO, POPUP_ERROR, POPUP_ASK, POPUP_CHOOSE } popup_kind_t;
 
 typedef void (*popup_answer_fn)(void *ctx, bool yes);
+typedef void (*popup_choice_fn)(void *ctx, int choice);       // the option's index, -1 = closed with Back
 
 #define POPUP_TITLE_LEN 20
 #define POPUP_TEXT_LEN  72
 #define POPUP_QUEUE     4          // modal popups waiting (a full queue drops the new one)
 #define POPUP_INFO_MS   1200       // default lifetime of an INFO
+#define POPUP_CHOICES   6          // options of a CHOOSE at most
 
 typedef struct {
     uint8_t         kind;          // popup_kind_t
@@ -39,6 +43,10 @@ typedef struct {
     bool            yes;           // ASK: the focused button
     popup_answer_fn answer;        // ASK / ERROR: called once when it closes (NULL: none); an ERROR always answers yes
     void           *ctx;
+    const char *const *options;    // CHOOSE: the caller's strings (they must live until it closes) ...
+    uint8_t         n_options;     // ... how many
+    uint8_t         focus;         // ... the focused one
+    popup_choice_fn choose;        // ... called once when it closes
 } popup_msg_t;
 
 typedef struct {
@@ -54,13 +62,15 @@ void popup_init(popup_t *p);
 void popup_info(popup_t *p, const char *title, const char *text, int arrow, uint32_t now_ms, uint32_t ms);
 bool popup_error(popup_t *p, const char *title, const char *text, popup_answer_fn answer, void *ctx);
 bool popup_ask(popup_t *p, const char *title, const char *text, bool default_yes, popup_answer_fn answer, void *ctx);
+// A list of `count` options (at most POPUP_CHOICES, each a short line), `focus` focused. The strings are not copied.
+bool popup_choose(popup_t *p, const char *title, const char *const *options, int count, int focus, popup_choice_fn choose, void *ctx);
 
 bool popup_modal(const popup_t *p);                // a modal popup is up: give it the input
 bool popup_tick(popup_t *p, uint32_t now_ms);      // true when an INFO just went (redraw)
 bool popup_info_showing(const popup_t *p);         // an INFO is up (it may be hidden behind a modal one)
 
 // Input for the modal popup on screen.
-void popup_move(popup_t *p, int dir);              // dir < 0: towards Yes (left), > 0: towards No (right)
+void popup_move(popup_t *p, int dir);              // dir < 0: towards Yes (left) / the option above, > 0: towards No (right) / below
 void popup_confirm(popup_t *p);                    // press the focused button
 void popup_cancel(popup_t *p);                     // Back: No / close the error
 

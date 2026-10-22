@@ -68,6 +68,8 @@ int  audio_seq_pos(void)                                        { return engine_
 bool audio_seq_where(int *step, int *frac, uint32_t *count)     { return engine_synth_seq_where(step, frac, count) != 0; }
 bool audio_seq_queue(const seq_pattern_t *p, int id)            { return engine_synth_seq_queue(p, id) != 0; }
 int  audio_seq_taken(void)                                      { return engine_synth_seq_taken(); }
+bool audio_seq_record(int skip, bool stop)                      { return engine_synth_seq_record(skip, stop) != 0; }
+uint32_t audio_seq_halts(void)                                  { return engine_synth_seq_halts(); }
 void audio_pseq_set(const pseq_pattern_t *p, bool run)          { engine_synth_pseq_set(p, run); }
 int  audio_pseq_pos(void)                                       { return engine_synth_pseq_pos(); }
 bool audio_pseq_where(int *step, int *frac, uint32_t *count)    { return engine_synth_pseq_where(step, frac, count) != 0; }
@@ -85,6 +87,8 @@ bool audio_capture_start(const char *n, int th, int bar, uint32_t lim) { return 
 void audio_capture_stop(void)                                    { engine_synth_capture_stop(); }
 int  audio_capture_poll(uint32_t *f, uint32_t *d)                { return (int)engine_synth_capture_poll(f, d); }
 void audio_capture_done(void)                                    { engine_synth_capture_done(); }
+bool audio_capture_start_seq(const char *n, int tail)            { return engine_synth_capture_start_seq(n, tail); }
+bool audio_capture_listening(void)                               { return engine_synth_capture_listening() != 0; }
 int  audio_rate(void)                                            { return engine_synth_sample_rate(); }
 void audio_pad_push(int pad)                                     { engine_synth_pad_push(pad); }
 void audio_pad_release(int pad)                                  { engine_synth_pad_release(pad); }

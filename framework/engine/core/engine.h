@@ -57,6 +57,10 @@ public:
     bool seq_setup(const SeqSetup &s);
     bool seq_steps(int first, int count, const SeqStep *steps, bool queue = false);
     uint32_t seq_taken() const { return seq_taken_.load(std::memory_order_relaxed); }      // [any thread]
+    // [CONTROL] a pass of the pattern to record (StepSeq::record_pass: after `skip` passes, marked in the position the modules see; with
+    // `stop` the run ends with it and seq_halts() counts it: the application then stops the sequencer). skip < 0: none.
+    bool seq_record(int skip, bool stop);
+    uint32_t seq_halts() const { return seq_halts_.load(std::memory_order_relaxed); }      // [any thread]
     // [CONTROL] the pads' sequencer, the same way: its hits push the pads of the Pads module `node` (set_blob with a PadSeqEvent: a
     // push at a level, or the pad let go). pseq_hits sends hits first .. first + count - 1 of a pattern of `total` hits.
     bool pseq_setup(const SeqSetup &s, int node);
@@ -137,6 +141,7 @@ private:
     Sequencer seq_;                                     // audio thread
     std::atomic<int> seq_step_{-1};
     std::atomic<uint32_t> seq_taken_{0};
+    std::atomic<uint32_t> seq_halts_{0};
     PadSequencer pseq_;                                 // audio thread
     int pseq_node_ = -1;                                // the Pads module its events go to
     std::atomic<int> pseq_step_{-1};

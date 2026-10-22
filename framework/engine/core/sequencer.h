@@ -19,6 +19,11 @@
 // released before it starts again. At most kSeqHeld notes are held; the one that ends first gives way.
 // A pad pattern is a list of hits (a pad on a step, with a level, a probability, a ratchet and a length after which the pad is let
 // go: the Pads module stops a Gate or Toggle pad then, a one-shot pad plays on).
+//
+// A pass to record (resampling the pattern, record_pass): a pass is the pattern's steps once, from the first step played in it. After
+// `skip` whole passes the next one is marked in pos() in the block it starts (rec_start, rec_frames), so a recording begins with its
+// first step and lasts exactly its steps. With `stop`, the run ends where that pass ends: its next step does not play, everything held
+// is let go, halts() counts it, and it does not start again by itself: a setup with run = 0 (the application saw it stop) clears that.
 #include <cstdint>
 #include "engine/core/command_queue.h"
 #include "engine/core/module.h"
@@ -96,6 +101,8 @@ public:
     virtual ~StepSeq() = default;
     void setup(const SeqSetup &s);                      // [AUDIO]
     void rewind() { rewind_ = true; }                   // [AUDIO] the clock was started again: the next block starts a new run
+    void record_pass(int skip, bool stop);              // [AUDIO] the pass to record (see above); skip < 0: none (a pass being recorded is forgotten)
+    uint32_t halts() const { return halts_; }           // how many runs a recorded pass stopped
     const SeqPos &pos() const { return pos_; }
     int step() const { return pos_.running ? cur_ : -1; }   // the step that plays, -1 when none does
     uint32_t taken() const { return taken_; }               // (how many queued patterns were taken) << 8 | the last one's id
@@ -122,8 +129,16 @@ protected:
 
 private:
     void step_due(uint64_t t);
+    void pass_start(uint64_t t);
 
     SeqSetup next_set_;                 // the queued pattern's settings ...
+    int rec_skip_ = -1;                 // the pass to record: whole passes to let go before it (-1: none asked) ...
+    bool rec_stop_ = false;             // ... the run ends with it
+    bool rec_on_ = false;               // it is being played
+    bool rec_begun_ = false;            // it began in this block, from rec_from_ to rec_to_ (beats Q32)
+    uint64_t rec_from_ = 0, rec_to_ = 0;
+    bool halt_ = false;                 // a recorded pass stopped the run: no new run until a setup with run = 0
+    uint32_t halts_ = 0;
     bool queued_ = false;               // ... it is complete and waits for the playing one's end
     int played_ = 0;                    // steps of the playing pattern played in this pass
     uint32_t taken_ = 0;

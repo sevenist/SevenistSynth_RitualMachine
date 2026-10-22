@@ -1,12 +1,16 @@
 // The step sequencer (engine/core/sequencer.h, ADR-042): step times on the machine clock (rates, swing, no drift), gates, chords,
 // velocity, transpose, probability, ratchets, directions, how a run starts and stops, and the whole path core/seq.h -> engine -> sound.
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 #include <vector>
 #include "rig.h"
 #include "engine/core/sequencer.h"
+#include "engine/sampler/smp_format.h"
 #include "platform/engine/engine_synth.h"
 
 extern "C" {
+#include "core/card_layout.h"
 #include "core/rack.h"
 #include "core/seq.h"
 #include "core/synth_params.h"
@@ -556,4 +560,175 @@ TEST(velocity_module_makes_a_loud_step_louder_than_a_soft_one) {
         if (with) CHECK(loud > 2.0 * soft);                                  // level 0.2 + 0.8 x velocity: about 1.0 against 0.33
         else CHECK_NEAR(loud / soft, 1.0, 0.05);                             // nothing listens to the velocity
     }
+}
+
+// ---- a pass to record (resampling the pattern, user 2026-10-14): marked where it starts, the run stopped where it ends ----
+
+namespace {
+// Blocks until the sequencer marks a recorded pass (or `beats` have gone): the beat of that block and the frames it gives.
+bool run_to_mark(SeqBench &b, double beats, double *at, uint32_t *frames) {
+    const uint64_t until = b.tr.beat_q32 + static_cast<uint64_t>(beats * 4294967296.0);
+    while (b.tr.beat_q32 < until) {
+        const double beat = static_cast<double>(b.tr.beat_q32) / 4294967296.0;
+        b.block();
+        if (b.seq.pos().rec_start) { *at = beat; *frames = b.seq.pos().rec_frames; return true; }
+    }
+    return false;
+}
+}  // namespace
+
+TEST(seq_pass_to_record_is_marked_where_it_starts_and_may_stop_the_run_where_it_ends) {
+    SeqBench b(120);
+    b.set.steps = 4;                                                         // 4 steps of 1/16: a pass is one beat (0.5 s)
+    for (int k = 0; k < 4; k++) b.step(k, 60 + k, 2);                        // each note held over the next step
+    const uint32_t beat_frames = static_cast<uint32_t>(kSampleRate / 2);
+    b.start();
+    b.run_beats(0.3);                                                        // in the first pass
+    b.seq.record_pass(0, true);
+    double at = -1;
+    uint32_t frames = 0;
+    CHECK(run_to_mark(b, 2.0, &at, &frames));                                // the next pass: beat 1
+    CHECK_NEAR(at, 1.0, 0.51 * b.block_beats());
+    CHECK(frames >= beat_frames - 1 && frames <= beat_frames + 1);           // its 4 steps, in frames
+    CHECK(b.seq.pos().running);
+    b.ev.clear();
+    b.run_beats(1.5);                                                        // past its end (beat 2)
+    CHECK_EQ(b.seq.halts(), 1u);
+    CHECK_EQ(b.seq.step(), -1);
+    CHECK(!b.seq.pos().running);
+    int ons_after = 0, offs_at_end = 0;
+    for (const Ev &e : b.ev) {
+        if (e.on && e.beat > 2.0 - 0.51 * b.block_beats()) ons_after++;
+        if (!e.on && std::fabs(e.beat - 2.0) < 0.51 * b.block_beats()) offs_at_end++;
+    }
+    CHECK_EQ(ons_after, 0);                                                  // its next step did not play ...
+    CHECK(offs_at_end >= 1);                                                 // ... and the note held over the end was let go there
+    b.ev.clear();
+    b.run_beats(6.0);
+    CHECK_EQ(b.ons().size(), 0u);                                            // it does not start again by itself
+    b.set.run = 0; b.seq.setup(b.set);                                       // the application saw it stop; Play again: on the next bar
+    b.set.run = 1; b.seq.setup(b.set);
+    b.run_beats(4.0);
+    CHECK(b.ons().size() >= 1);
+    // two passes: the one after the next is marked, and it plays on
+    b.seq.record_pass(1, false);
+    const double now = static_cast<double>(b.tr.beat_q32) / 4294967296.0;
+    CHECK(run_to_mark(b, 4.0, &at, &frames));
+    CHECK_NEAR(at - std::floor(now) , 2.0, 0.51 * b.block_beats() + 1e-9);   // (a pass is a beat, from whole beats)
+    b.ev.clear();
+    b.run_beats(2.0);
+    CHECK(b.ons().size() >= 4);
+    CHECK_EQ(b.seq.halts(), 1u);
+    // asked, then forgotten: nothing is marked
+    b.seq.record_pass(0, true);
+    b.seq.record_pass(-1, false);
+    CHECK(!run_to_mark(b, 3.0, &at, &frames));
+    CHECK_EQ(b.seq.halts(), 1u);
+}
+
+namespace {
+struct SeqCard {                                                             // a folder that plays the card for the capture job
+    std::filesystem::path root;
+    SeqCard() : root(std::filesystem::temp_directory_path() / "sc_seq_capture_test") {
+        std::filesystem::remove_all(root);
+        std::filesystem::create_directories(root / STORAGE_DIR_SAMPLES);
+        engine_synth_set_card_root(root.string().c_str());
+    }
+    ~SeqCard() { std::filesystem::remove_all(root); }
+    std::vector<double> read(const char *name) const {
+        std::ifstream in(root / STORAGE_DIR_SAMPLES / (std::string(name) + ".smp"), std::ios::binary);
+        std::vector<uint8_t> raw((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+        std::vector<double> x;
+        SmpHeader h;
+        if (raw.size() < kSmpBlockBytes || !smp_parse_header(raw.data(), static_cast<uint32_t>(raw.size()), h)) return x;
+        for (uint32_t i = 0; i < h.frames; i++) x.push_back(static_cast<int16_t>(get16(&raw[kSmpBlockBytes + 2 * i])));
+        return x;
+    }
+};
+// The audio runs and the card thread writes, in turns.
+void play_rec(SeqApp &a, double seconds) {
+    for (int k = 0; k < static_cast<int>(seconds / 0.02 + 0.5); k++) { a.run(0.02); while (engine_synth_capture_step()) {} }
+}
+// As the application does it: the capture listens, then the pass is asked for, then the sequencer starts with the clock.
+void rec_pass(seq_t &q, const char *name, bool tail, int skip, bool stop) {
+    CHECK(engine_synth_capture_start_seq(name, tail ? 1 : 0));
+    while (engine_synth_capture_step()) {}
+    CHECK(engine_synth_capture_listening());
+    CHECK(engine_synth_seq_record(skip, stop ? 1 : 0));
+    if (!q.running) {
+        seq_set_running(&q, true);
+        engine_synth_seq_set(&q);
+        engine_synth_set_clock(q.bpm, 1);
+    }
+}
+double rms_part(const std::vector<double> &x, size_t from, size_t to) {
+    if (to > x.size()) to = x.size();
+    std::vector<double> y(x.begin() + static_cast<std::ptrdiff_t>(std::min(from, to)), x.begin() + static_cast<std::ptrdiff_t>(to));
+    return rms(y);
+}
+}  // namespace
+
+TEST(seq_pattern_recorded_from_its_first_step_for_its_steps_with_a_tail_or_twice) {
+    SeqCard card;
+    SeqApp a;
+    rack_t rack;
+    synth_params_t params;
+    synth_params_default(&params);
+    params.amp_env.attack_ms = 1; params.amp_env.release_ms = 300;          // a tail
+    rack_clear(&rack);
+    rack_insert(&rack, 0, MOD_OSC);
+    rack.slot[0].v[MP_OC_WAVE] = 3;
+    engine_synth_build(&rack, &params);
+    seq_t q;
+    seq_init(&q);                                                            // the demo pattern: 16 steps of 1/16, a note on step 0
+    q.bpm = 120;                                                             // a pass = a bar = 2 s
+    engine_synth_seq_set(&q);
+    engine_synth_set_clock(q.bpm, 0);
+    const uint32_t bar = static_cast<uint32_t>(2 * kSampleRate);
+    uint32_t frames = 0, lost = 0;
+    // Audio, stop: from the first step, exactly the pass, and the sequencer stops there
+    rec_pass(q, "pass1", false, 0, true);
+    play_rec(a, 2.6);
+    CHECK_EQ(engine_synth_seq_halts(), 1u);
+    CHECK_EQ(engine_synth_seq_pos(), -1);
+    CHECK_EQ(engine_synth_capture_poll(&frames, &lost), CAPTURE_DONE);
+    std::vector<double> x = card.read("pass1");
+    std::printf("    one pass: %u frames (a bar is %u), lost %u; first 5 ms %.0f rms\n", frames, bar, lost, rms_part(x, 0, 240));
+    CHECK(frames >= bar - 1 && frames <= bar + 1);
+    CHECK_EQ(lost, 0u);
+    CHECK(rms_part(x, 0, static_cast<size_t>(kSampleRate / 200)) > 300.0);  // the first step sounds from its start
+    engine_synth_capture_done();
+    seq_set_running(&q, false);                                              // (the application saw it stop)
+    engine_synth_seq_set(&q);
+    engine_synth_set_clock(q.bpm, 0);
+    a.run(0.5);
+    // Audio + tail: the pass, then on until the release has died away
+    rec_pass(q, "pass2", true, 0, true);
+    play_rec(a, 3.4);
+    CHECK_EQ(engine_synth_capture_poll(&frames, &lost), CAPTURE_DONE);
+    x = card.read("pass2");
+    const double tail_s = (static_cast<double>(frames) - bar) / kSampleRate;
+    std::printf("    with its tail: %u frames, %.2f s after the pass; its last 50 ms %.1f rms\n", frames, tail_s, rms_part(x, x.size() - 2400, x.size()));
+    CHECK(tail_s > 0.25 && tail_s < 1.5);                                    // the release (0.3 s to silence), then 0.25 s quiet
+    CHECK(rms_part(x, x.size() - static_cast<size_t>(kSampleRate / 20), x.size()) < 40.0);
+    engine_synth_capture_done();
+    seq_set_running(&q, false);
+    engine_synth_seq_set(&q);
+    engine_synth_set_clock(q.bpm, 0);
+    a.run(0.5);
+    // Loop, play on: the second pass, a pass long, and the sequencer goes on
+    rec_pass(q, "loop1", false, 1, false);
+    play_rec(a, 1.5);
+    CHECK_EQ(engine_synth_capture_poll(&frames, &lost), CAPTURE_ARMED);      // the first pass is not recorded
+    play_rec(a, 3.0);
+    CHECK_EQ(engine_synth_capture_poll(&frames, &lost), CAPTURE_DONE);
+    CHECK(frames >= bar - 1 && frames <= bar + 1);
+    CHECK(engine_synth_seq_pos() >= 0);                                      // it plays on
+    CHECK_EQ(engine_synth_seq_halts(), 2u);
+    x = card.read("loop1");
+    CHECK(rms_part(x, 0, static_cast<size_t>(kSampleRate / 200)) > 300.0);
+    engine_synth_capture_done();
+    seq_set_running(&q, false);
+    engine_synth_seq_set(&q);
+    engine_synth_set_clock(q.bpm, 0);
 }

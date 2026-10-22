@@ -1,4 +1,5 @@
-// Capture / resampling (ADR-041 decision 50): what the Pads section plays, recorded onto a pad.
+// Capture / resampling (ADR-041 decision 50): what the Pads section plays, recorded onto a pad. And the synth's pattern recorded as a
+// sample (ENGINE_DESIGN.md ADR-042 decision 24), at the end of this file.
 #include "app/app_internal.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -79,6 +80,7 @@ void app_capture_key(app_t *app) {
 
 void app_capture_poll(app_t *app, uint32_t now) {
     pad_capture_t *c = &app->capture;
+    if (c->seq_mode) return;                                // (the synth's pattern: app_capture_synth_poll)
     if (c->stage == 1) {
         uint32_t frames = 0, dropped = 0;
         const int st = audio_capture_poll(&frames, &dropped);
@@ -119,6 +121,193 @@ void app_capture_poll(app_t *app, uint32_t now) {
             app->ui.cap_state = CAPTURE_ST_IDLE;
             popup_error(&app->popup, "REC", "The recording did not show up in the library.", NULL, NULL);
             app->dirty = true;
+        }
+    }
+}
+
+/* ---------------- the synth's pattern recorded as a sample (user, 2026-10-14) ---------------- */
+
+// Shift + Play (or the key function Rec) in the synth section asks, in a list, what to record: the notes (the step sequencer's Rec,
+// app_seq.c), or the sound of one pass of the pattern, from its first step to its last (the capture, engine_synth.h capture_start_seq):
+//   Audio, stop / play on   one pass; then the sequencer stops, or plays on
+//   Audio + tail            one pass, the sequencer stops, the recording goes on until the sound has died away
+//   Loop, stop / play on    the pattern plays twice and the second pass is kept: the first one's tail is under its start, it loops
+// The capture opens its file first; once it listens the sequencer is asked for the pass (audio_seq_record) and started if it was
+// stopped. When the file is in the library a second list asks where it goes: the selected pad, the next empty one, or the library only.
+enum { REC_NOTES, REC_AUDIO_STOP, REC_AUDIO_ON, REC_AUDIO_TAIL, REC_LOOP_STOP, REC_LOOP_ON, REC_CHOICES };
+enum { REC_PH_OPENING = 1, REC_PH_PASS };
+static const char *const rec_options[REC_CHOICES] = {"Notes", "Audio, stop", "Audio, play on", "Audio + tail", "Loop, stop", "Loop, play on"};
+
+static bool rec_loop(int mode) { return mode == REC_LOOP_STOP || mode == REC_LOOP_ON; }
+static bool rec_stops(int mode) { return mode == REC_AUDIO_STOP || mode == REC_AUDIO_TAIL || mode == REC_LOOP_STOP; }
+
+static void rec_info(app_t *app, const char *text) { popup_info(&app->popup, "REC", text, 0, audio_millis(), POPUP_INFO_MS); app->dirty = true; }
+
+static void synth_rec_end(app_t *app) {
+    pad_capture_t *c = &app->capture;
+    c->stage = 0; c->seq_mode = 0; c->seq_phase = 0;
+    app->ui.seq_audio = false;
+    app->dirty = true;
+}
+
+// The grid a looping pad of this pattern gets: a pass of whole bars plays on the bar, of whole beats on the beat, else free.
+static uint8_t pattern_grid(const seq_t *q) {
+    static const uint8_t per_beat[SQR_COUNT] = {2, 3, 4, 6, 8};             // steps per beat at each rate (core/seq.h seq_rate_t)
+    const int spb = per_beat[q->rate >= 0 && q->rate < SQR_COUNT ? q->rate : SQR_16];
+    if (q->steps % (4 * spb) == 0) return PAD_GRID_BAR;
+    return q->steps % spb == 0 ? PAD_GRID_BEAT : PAD_GRID_OFF;
+}
+
+static void synth_rec_start(app_t *app, int mode) {
+    pad_capture_t *c = &app->capture;
+    if (c->stage || app->render.stage) { rec_info(app, "Busy"); return; }
+    if (audio_sd_state() != SD_OK) { rec_info(app, "No card"); return; }
+    bool any = false;
+    for (int s = 0; s < app->seq.steps && !any; s++) any = !seq_step_is_rest(&app->seq.step[s]);
+    if (!any) { rec_info(app, "The pattern is empty"); return; }
+    if (!app->rec_next) {                                   // (the same names as the Pads section's recordings)
+        lib_new_name("rec", c->name, sizeof c->name);
+        app->rec_next = (uint16_t)atoi(c->name + 3);
+    }
+    snprintf(c->name, sizeof c->name, "rec%d", app->rec_next);
+    audio_dir_close();
+    if (!audio_capture_start_seq(c->name, mode == REC_AUDIO_TAIL)) { rec_info(app, "Busy, no card or no memory"); return; }
+    app->rec_next++;
+    c->stage = 1; c->seq_mode = (uint8_t)mode; c->seq_phase = REC_PH_OPENING;
+    c->halted = false;
+    c->loop = rec_loop(mode);
+    c->grid = pattern_grid(&app->seq);
+    app->ui.seq_audio = true;
+    rec_info(app, rec_loop(mode) ? "Two passes, the second kept" : app->seq.running ? "From the next step 1" : "From step 1");
+}
+
+static void on_rec_choice(void *ctx, int choice) {
+    app_t *app = (app_t *)ctx;
+    if (choice < 0 || choice >= REC_CHOICES) return;
+    app->rec_choice = (uint8_t)choice;
+    if (choice == REC_NOTES) app_seq_rec_set(app, true);
+    else synth_rec_start(app, choice);
+    app->dirty = true;
+}
+
+void app_capture_synth_key(app_t *app) {
+    pad_capture_t *c = &app->capture;
+    if (in_pads(app)) return;
+    if (app->rec.armed) { app_seq_rec_set(app, false); return; }            // the notes' Rec off
+    if (c->seq_mode && c->stage == 1) {                                     // the pattern's recording: stopped, what it has is kept
+        audio_capture_stop();
+        audio_seq_record(-1, false);
+        rec_info(app, "Stopped");
+        return;
+    }
+    popup_choose(&app->popup, "REC", rec_options, REC_CHOICES, app->rec_choice, on_rec_choice, app);
+    app->dirty = true;
+}
+
+// Where the recording goes: the second list's options (built when it opens; the popup keeps pointers to them).
+enum { DEST_SELECTED, DEST_EMPTY, DEST_LIBRARY };
+static char dest_text[3][24];
+static const char *dest_ptr[3];
+static uint8_t dest_what[3];
+static int dest_empty_pad;
+
+static void place_on_pad(app_t *app, int pad) {
+    pad_capture_t *c = &app->capture;
+    pad_t *p = &app->pads.pad[pad];
+    pad_default(p);
+    snprintf(p->file, PAD_NAME_MAX, "%s", c->name);
+    p->level = 100;
+    if (c->loop) { p->loop = PAD_LOOP_TRIM; p->grid = c->grid; p->mode = PAD_TOGGLE; }
+    app->ui.pad_bank = (uint8_t)(pad / PADS_PER_BANK);
+    app->ui.pad_cur = (uint8_t)(pad % PADS_PER_BANK);
+    app_pad_changed(app, pad);
+}
+
+static void on_dest_choice(void *ctx, int choice) {
+    app_t *app = (app_t *)ctx;
+    pad_capture_t *c = &app->capture;
+    const int what = choice >= 0 && choice < 3 && dest_ptr[choice] ? dest_what[choice] : DEST_LIBRARY;   // Back: the library only
+    char t[40], l[8];
+    const uint32_t rate = (uint32_t)(audio_rate() > 0 ? audio_rate() : 48000), ds = c->frames * 10u / rate;
+    if (what == DEST_LIBRARY) snprintf(t, sizeof t, "%s in the library", c->name);
+    else {
+        const int pad = what == DEST_SELECTED ? pads_ui_pad(&app->ui) : dest_empty_pad;
+        place_on_pad(app, pad);
+        pad_label(pad, l, sizeof l);
+        snprintf(t, sizeof t, "%u.%u s -> %s%s", (unsigned)(ds / 10), (unsigned)(ds % 10), l, c->dropped ? ", with gaps" : "");
+    }
+    synth_rec_end(app);
+    rec_info(app, t);
+}
+
+static void ask_destination(app_t *app) {
+    pad_capture_t *c = &app->capture;
+    const int sel = pads_ui_pad(&app->ui);
+    char l[8];
+    int n = 0;
+    pad_label(sel, l, sizeof l);
+    snprintf(dest_text[n], sizeof dest_text[n], pad_empty(&app->pads.pad[sel]) ? "Pad %s" : "Pad %s (replace)", l);
+    dest_what[n++] = DEST_SELECTED;
+    dest_empty_pad = -1;
+    for (int k = 1; k < PAD_COUNT && dest_empty_pad < 0; k++) {
+        const int i = (sel + k) % PAD_COUNT;
+        if (pad_empty(&app->pads.pad[i])) dest_empty_pad = i;
+    }
+    if (dest_empty_pad >= 0 && !pad_empty(&app->pads.pad[sel])) {          // (the selected pad empty: it is the first empty one already)
+        pad_label(dest_empty_pad, l, sizeof l);
+        snprintf(dest_text[n], sizeof dest_text[n], "Next empty: %s", l);
+        dest_what[n++] = DEST_EMPTY;
+    }
+    snprintf(dest_text[n], sizeof dest_text[n], "Library only");
+    dest_what[n++] = DEST_LIBRARY;
+    for (int i = 0; i < 3; i++) dest_ptr[i] = i < n ? dest_text[i] : NULL;
+    const uint32_t rate = (uint32_t)(audio_rate() > 0 ? audio_rate() : 48000), ds = c->frames * 10u / rate;
+    char title[20];
+    snprintf(title, sizeof title, "%s %u.%u s", c->name, (unsigned)(ds / 10), (unsigned)(ds % 10));
+    c->stage = 3;
+    if (!popup_choose(&app->popup, title, dest_ptr, n, 0, on_dest_choice, app)) on_dest_choice(app, -1);   // (no room for a popup: the library)
+}
+
+void app_capture_synth_poll(app_t *app, uint32_t now) {
+    pad_capture_t *c = &app->capture;
+    if (!c->seq_mode) return;
+    if (c->stage == 1) {
+        if (c->seq_phase == REC_PH_OPENING && audio_capture_listening()) {   // the file is open, the tap waits: the pass now
+            if (!audio_seq_record(rec_loop(c->seq_mode) ? 1 : 0, rec_stops(c->seq_mode))) return;
+            c->halts = audio_seq_halts();
+            c->seq_phase = REC_PH_PASS;
+            if (!app->seq.running) { seq_set_running(&app->seq, true); app->dirty = true; }
+        } else if (c->seq_phase == REC_PH_PASS) {
+            const uint32_t h = audio_seq_halts();
+            if (h != c->halts) {                                            // the engine stopped the run where the pass ended
+                c->halts = h;
+                c->halted = true;
+                if (app->seq.running) { seq_set_running(&app->seq, false); app->dirty = true; }
+            } else if (!app->seq.running && !c->halted) {                    // stopped by hand (or the section left): it ends there
+                audio_capture_stop();
+                audio_seq_record(-1, false);
+                c->halted = true;
+            }
+        }
+        uint32_t frames = 0, dropped = 0;
+        const int st = audio_capture_poll(&frames, &dropped);
+        if (st == CAPTURE_ST_DONE) { c->frames = frames; c->dropped = dropped; c->stage = 2; c->since = now; app->ui.seq_audio = false; app->dirty = true; }
+        else if (st == CAPTURE_ST_EMPTY || st == CAPTURE_ST_FAILED || st == CAPTURE_ST_IDLE) {
+            audio_capture_done();
+            audio_seq_record(-1, false);
+            synth_rec_end(app);
+            if (st == CAPTURE_ST_FAILED) popup_error(&app->popup, "REC", "The recording could not be written to the card.", NULL, NULL);
+            else rec_info(app, "Nothing recorded");
+        }
+    }
+    if (c->stage == 2) {
+        if (app_sample_use(app, c->name, true) >= 0) {                      // in the catalog: where does it go?
+            audio_capture_done();
+            ask_destination(app);
+        } else if (now - c->since > 15000) {
+            audio_capture_done();
+            synth_rec_end(app);
+            popup_error(&app->popup, "REC", "The recording did not show up in the library.", NULL, NULL);
         }
     }
 }

@@ -37,6 +37,10 @@ int  audio_seq_taken(void);
 // The same for recording into it: true while a step plays, with how far into the step it is (0..255) and how many steps played
 // before it since the run started (the count starts again when the rate changes).
 bool audio_seq_where(int *step, int *frac, uint32_t *count);
+// A pass of the pattern to record (the audio capture of the synth's pattern): after `skip` whole passes, the next one; with `stop`
+// the sequencer stops where it ends and audio_seq_halts (a count) moves: then set seq->running off. skip < 0: none. false: call again.
+bool audio_seq_record(int skip, bool stop);
+uint32_t audio_seq_halts(void);
 // The machine clock (ADR-041 decision 24) runs at `bpm` while `running`: a start is bar 1, beat 1. The metronome click,
 // and where the clock is (true while it runs; bar from 1, beat 1..4, frac 0..255 of the beat).
 void audio_set_clock(int bpm, int running);
@@ -89,6 +93,10 @@ void audio_render_done(void);
 // the frames recorded and those lost to a slow card; after done / failed / empty call audio_capture_done (done: rescan the library first).
 enum { CAPTURE_ST_IDLE, CAPTURE_ST_ARMED, CAPTURE_ST_RECORDING, CAPTURE_ST_FINISHING, CAPTURE_ST_DONE, CAPTURE_ST_FAILED, CAPTURE_ST_EMPTY };
 bool audio_capture_start(const char *name, int threshold, int at_bar, uint32_t limit_frames);
+// ... or of the synth's step sequencer: one pass of the pattern from its first step (audio_seq_record), then with `tail` until the
+// sound has died away. listening: it waits for that pass (ask for the pass only then).
+bool audio_capture_start_seq(const char *name, int tail);
+bool audio_capture_listening(void);
 void audio_capture_stop(void);
 int  audio_capture_poll(uint32_t *frames, uint32_t *dropped);
 void audio_capture_done(void);

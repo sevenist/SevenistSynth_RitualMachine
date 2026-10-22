@@ -121,6 +121,7 @@ const char *seq_scope_name(int scope);
 // Runs a tool at step `cursor`. `msg` (n characters) says what was done, or why nothing was. True when the pattern changed.
 bool seq_tool_apply(seq_t *s, int tool, int scope, int cursor, char *msg, int n);
 void seq_tools_reset(void);                          // an empty clipboard, nothing to undo, the random numbers from their start
+void seq_undo_keep(const seq_t *s);                  // the pattern as it is now is what Undo brings back (before a change no tool makes)
 
 // Global settings, same shape as param_adjust()/param_label()/param_format().
 bool        seq_param_adjust(seq_t *s, seq_param_id_t id, int dir);

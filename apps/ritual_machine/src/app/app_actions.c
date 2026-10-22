@@ -75,6 +75,7 @@ static bool popup_action(app_t *app, const binding_t *b, input_event_t e) {
             return false;
         case ACT_NAV:
             if (b->arg == NAV_LEFT || b->arg == NAV_RIGHT) popup_move(&app->popup, b->arg == NAV_LEFT ? -1 : 1);
+            else if (app->popup.queue[0].kind == POPUP_CHOOSE) popup_move(&app->popup, b->arg == NAV_UP ? -1 : 1);   // a list: up / down
             break;
         case ACT_VALUE_ADJUST: case ACT_VALUE_FINE: case ACT_ROW_MOVE: case ACT_PAGE_MOVE:
             popup_move(&app->popup, amount);
@@ -168,6 +169,8 @@ void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
                 snprintf(app->status, sizeof app->status, "Released %d", release_latched(app));
                 popup_info(&app->popup, "LATCH", app->status, 0, audio_millis(), LEARN_INFO_MS);
                 app->dirty = true;
+            } else if (app_seq_erase_down(app, b->ctl)) {   // held while a live recording runs: the playhead erases (app_seq.c)
+                snprintf(app->status, sizeof app->status, "%s > Erase", control_name(b->ctl));
             } else app_ui_event(app, UI_BACK);
             break;
         case ACT_PLAY:                                      // Pads: the clock (a start is bar 1); the synth: the sequencer, the clock with it
@@ -175,7 +178,7 @@ void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             // (and the simulator) has in place of Select, as for Shift + pad
             if (in_pads(app) && (app->in.pad_select || (app->in.shift && !app->in.mod))) app_pseq_steps_set(app, !app->ui.pad_steps);
             else if (in_pads(app)) { app->pads_run = !app->pads_run; app->dirty = true; }
-            else if (app->in.shift && !app->in.mod) app_seq_rec_set(app, !app->rec.armed);   // Shift + Play (its Shift entry Default): Rec
+            else if (app->in.shift && !app->in.mod) app_capture_synth_key(app);   // Shift + Play (its Shift entry Default): Rec (a list: notes or sound)
             else app_ui_event(app, UI_PLAY);
             break;
         case ACT_TEMPO:        set_tempo(app, app->seq.bpm + n, "TEMPO"); break;
@@ -188,7 +191,7 @@ void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
         case ACT_PAD_REC:                                   // Rec: the Pads section's capture; the synth: the sequencer's recording
             if (in_pads(app) && app->in.pad_select) app_pseq_rec_set(app, !app->prec.armed);       // Select + Rec: the pattern's live record
             else if (in_pads(app)) app_capture_key(app);
-            else app_seq_rec_set(app, !app->rec.armed);
+            else app_capture_synth_key(app);
             break;
         case ACT_METRONOME:
             app->metronome = !app->metronome;

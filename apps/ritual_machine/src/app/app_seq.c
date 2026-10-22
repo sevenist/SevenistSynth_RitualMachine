@@ -181,6 +181,7 @@ void app_seq_rec_set(app_t *app, bool on) {
     memset(&app->rec, 0, sizeof app->rec);
     app->rec.armed = on;
     app->ui.seq_rec = on;
+    app->ui.seq_erase = false;
     popup_info(&app->popup, "SEQUENCER", on ? "Rec on: play the notes" : "Rec off", 0, audio_millis(), POPUP_INFO_MS);
     app->dirty = true;
 }
@@ -257,10 +258,67 @@ void app_seq_note_up(app_t *app, control_id_t ctl) {
     r->state = SEQ_REC_WAIT;
 }
 
+/* ---------------- erasing while it records (user, 2026-10-14) ---------------- */
+
+// Back held while the live recording runs: every step the playhead is on while it is held becomes a rest with the default values
+// (the pages only: in the menu Back keeps its own work). One Undo (the Tool row) brings back all that a hold erased.
+static void erase_here(app_t *app) {
+    seq_rec_t *rc = &app->rec;
+    seq_t *q = &app->seq;
+    int step = 0, frac = 0;
+    uint32_t count = 0;
+    if (!q->running || !audio_seq_where(&step, &frac, &count) || step < 0 || step >= q->steps) return;
+    seq_step_t rest;
+    seq_step_clear(&rest);
+    if (!memcmp(&q->step[step], &rest, sizeof rest)) return;
+    if (!rc->erase_kept) { seq_undo_keep(q); rc->erase_kept = true; }
+    q->step[step] = rest;
+    for (int i = 0; i < SEQ_REC_NOTES; i++)                                 // a note played into that step and not written yet goes too
+        if (rc->note[i].state == SEQ_REC_WAIT && rc->note[i].step == step) rc->note[i].state = SEQ_REC_FREE;
+    app->dirty = true;
+}
+
+bool app_seq_erase_down(app_t *app, control_id_t ctl) {
+    seq_rec_t *rc = &app->rec;
+    if (!rc->armed || !app->seq.running || in_pads(app) || app->ui.in_rack || app->ui.br_open) return false;
+    rc->erase_ctl = (uint8_t)ctl;
+    rc->erase_kept = false;
+    app->ui.seq_erase = true;
+    app->dirty = true;
+    erase_here(app);
+    return true;
+}
+
+static void erase_end(app_t *app) {
+    app->rec.erase_ctl = CTL_NONE;
+    app->ui.seq_erase = false;
+    app->dirty = true;
+}
+
+void app_seq_erase_up(app_t *app, control_id_t ctl) {
+    if (app->rec.erase_ctl != CTL_NONE && app->rec.erase_ctl == (uint8_t)ctl) erase_end(app);
+}
+
+/* ---------------- what the roll shows ---------------- */
+
+#define SEQ_FOLLOW_HOLD_MS 4000
+
+// The SEQUENCER page's roll follows the playhead while it runs (user, 2026-10-14): its page, its pitch. A move of the cursor or an
+// edit of its step by hand (the UI counts them) holds the roll on the cursor for SEQ_FOLLOW_HOLD_MS, so a step can be edited on
+// another page than the one that plays.
+void app_seq_view(app_t *app, uint32_t now) {
+    if (app->ui.seq_touch != app->seq_touch_seen) { app->seq_touch_seen = app->ui.seq_touch; app->seq_touched = true; app->seq_touch_ms = now; }
+    if (app->seq_touched && now - app->seq_touch_ms >= SEQ_FOLLOW_HOLD_MS) app->seq_touched = false;
+    const bool follow = app->seq.running && !app->seq_touched;
+    if (follow != app->ui.seq_follow) { app->ui.seq_follow = follow; app->dirty = true; }
+}
+
 // Every step: the live notes whose step the playhead has reached are written (at once when the sequencer has stopped).
 void app_seq_poll(app_t *app) {
     seq_rec_t *rc = &app->rec;
+    if (rc->erase_ctl != CTL_NONE && (!rc->armed || !app->seq.running)) erase_end(app);     // (Rec went off, or it stopped, under the finger)
     if (!rc->armed) return;
+    if (rc->erase_ctl != CTL_NONE) erase_here(app);
     int step = 0, frac = 0;
     uint32_t count = 0;
     const bool playing = app->seq.running && audio_seq_where(&step, &frac, &count);

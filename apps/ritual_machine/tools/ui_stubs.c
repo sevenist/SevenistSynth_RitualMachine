@@ -113,6 +113,10 @@ int audio_render_poll(int *percent) { if (percent) *percent = stub_render_state 
 void audio_render_done(void) { stub_render_state = 0; }
 void audio_sample_hide(int index) { if (index >= 3 && index < 3 + stub_listed) stub_extra[index - 3][0] = 0; }
 // Capture: armed by the app, the test says how much sound came (ui_stub_capture_sound); a stop or the length's end makes the file.
+// The synth's pattern (audio_capture_start_seq): the test says when the file is open (ui_stub_cap_listening); the pass asked for
+// (audio_seq_record: its skip, -2 = never asked, and stop) and the sequencer's halts (ui_stub_seq_halts) are the test's too.
+int ui_stub_cap_seq, ui_stub_cap_tail, ui_stub_cap_listening = 1, ui_stub_seq_rec_skip = -2, ui_stub_seq_rec_stop;
+uint32_t ui_stub_seq_halts;
 int ui_stub_cap_state, ui_stub_cap_bar;
 uint32_t ui_stub_cap_limit, ui_stub_cap_frames;
 char ui_stub_cap_name[AUDIO_NAME_MAX];
@@ -130,6 +134,14 @@ bool audio_capture_start(const char *name, int threshold, int at_bar, uint32_t l
     ui_stub_cap_state = CAPTURE_ST_ARMED;
     return true;
 }
+bool audio_capture_start_seq(const char *name, int tail) {
+    if (!audio_capture_start(name, 0, 0, 0)) return false;
+    ui_stub_cap_seq = 1; ui_stub_cap_tail = tail;
+    return true;
+}
+bool audio_capture_listening(void) { return ui_stub_cap_state == CAPTURE_ST_ARMED && ui_stub_cap_listening; }
+bool audio_seq_record(int skip, bool stop) { ui_stub_seq_rec_skip = skip; ui_stub_seq_rec_stop = stop; return true; }
+uint32_t audio_seq_halts(void) { return ui_stub_seq_halts; }
 void ui_stub_capture_sound(uint32_t frames) {
     if (ui_stub_cap_state != CAPTURE_ST_ARMED && ui_stub_cap_state != CAPTURE_ST_RECORDING) return;
     ui_stub_cap_state = CAPTURE_ST_RECORDING;
@@ -138,9 +150,9 @@ void ui_stub_capture_sound(uint32_t frames) {
 }
 void audio_capture_stop(void) { if (ui_stub_cap_state == CAPTURE_ST_ARMED || ui_stub_cap_state == CAPTURE_ST_RECORDING) stub_cap_finish(); }
 int  audio_capture_poll(uint32_t *frames, uint32_t *dropped) { if (frames) *frames = ui_stub_cap_frames; if (dropped) *dropped = 0; return ui_stub_cap_state; }
-void audio_capture_done(void) { ui_stub_cap_state = CAPTURE_ST_IDLE; }
+void audio_capture_done(void) { ui_stub_cap_state = CAPTURE_ST_IDLE; ui_stub_cap_seq = 0; }
 int  audio_rate(void) { return 48000; }
-void ui_stub_library_reset(void) { stub_n_extra = stub_listed = 0; stub_render_state = 0; ui_stub_cap_state = CAPTURE_ST_IDLE; stub_asked[0] = 0; ui_stub_request_steps = 0; }
+void ui_stub_library_reset(void) { stub_n_extra = stub_listed = 0; stub_render_state = 0; ui_stub_cap_state = CAPTURE_ST_IDLE; ui_stub_cap_seq = 0; ui_stub_cap_listening = 1; ui_stub_seq_rec_skip = -2; ui_stub_seq_halts = 0; stub_asked[0] = 0; ui_stub_request_steps = 0; }
 sd_state_t audio_sd_state(void) { return getenv("UI_DUMP_SD_SLOW") ? SD_SLOW : SD_OK; }
 uint32_t audio_sd_read_us(void) { return 81000; }
 uint32_t audio_sd_generation(void) { static int calls; return getenv("UI_DUMP_SD_SLOW") && calls++ > 0 ? 1 : 0; }   // slow card: the first call (app_init) sees 0, the card "arrives" afterwards
@@ -216,7 +228,8 @@ int audio_sample_onsets(int index, uint32_t *frames, uint16_t *strength, int max
 }
 uint32_t audio_millis(void) { static uint32_t t; return t += 10; }
 void audio_update(void) {}
-bool controls_key_present(int row, int col) { return row > 0 || col < 4; }      // the first prototype: 4 function keys, 4 x 8 note keys
+int ui_stub_key_cols = KEY_COLS;                                      // the board's key columns the tests set (4: the panel)
+bool controls_key_present(int row, int col) { return col < ui_stub_key_cols && (row > 0 || col < 4); }   // the first prototype: 4 function keys, 4 x 8 note keys
 // UI_DUMP_BOARD=hwv1 in the environment: the controls of the prototype (no R1..R3, no B1..B3 / Play, no encoder pushes)
 bool controls_present(control_id_t c) {
     const char *b = getenv("UI_DUMP_BOARD");

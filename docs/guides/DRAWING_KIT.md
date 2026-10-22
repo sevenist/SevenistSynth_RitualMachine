@@ -251,10 +251,12 @@ A popup is a small box in the middle of the display, over whatever screen is up.
 | INFO | `popup_info(&p, title, text, arrow, now_ms, ms)` | goes by itself after `ms` (`POPUP_INFO_MS` = 1200 is the usual value); not modal: input still goes to the screen behind; a new one replaces the one on screen. `arrow` -1 / +1 adds an arrow left / right after the text, 0 none |
 | ERROR | `popup_error(&p, title, text, answer, ctx)` | an OK button; modal. `title` `NULL` = "ERROR" |
 | ASK | `popup_ask(&p, title, text, default_yes, answer, ctx)` | Yes / No buttons; modal |
+| CHOOSE | `popup_choose(&p, title, options, count, focus, choose, ctx)` | a list of up to 6 options (`POPUP_CHOICES`), one row each, `focus` focused; modal. The strings are not copied: they must live until it closes. As many rows as the screen holds are shown around the focus, small arrows say there are more |
 
-Modal popups wait in a queue of 4 (`POPUP_QUEUE`) and show one at a time, oldest first; `popup_error` and `popup_ask` return
-false when the queue is full. The answer comes through a callback, `void answer(void *ctx, bool yes)`, called once after the
-popup closed (an ERROR always answers yes); it may raise another popup. A title holds 19 characters, a text 71; the text is
+Modal popups wait in a queue of 4 (`POPUP_QUEUE`) and show one at a time, oldest first; `popup_error`, `popup_ask` and
+`popup_choose` return false when the queue is full. The answer comes through a callback, `void answer(void *ctx, bool yes)`,
+called once after the popup closed (an ERROR always answers yes); a list answers `void choose(void *ctx, int choice)` with the
+option's index, -1 when it was closed with Back. Either may raise another popup. A title holds 19 characters, a text 71; the text is
 wrapped to the box and `\n` starts a new line.
 
 The kit draws the popup and keeps its queue. Your app does four things:
@@ -266,8 +268,8 @@ popup_init(&popup);                                        // once
 if (popup_tick(&popup, now_ms)) dirty = true;              // every loop: true when an INFO just went
 
 if (popup_modal(&popup)) {                                 // input: while a modal popup is up it takes the controls
-    if (left)  popup_move(&popup, -1);                     //   towards Yes
-    if (right) popup_move(&popup, +1);                     //   towards No
+    if (left)  popup_move(&popup, -1);                     //   towards Yes (a list: the option above)
+    if (right) popup_move(&popup, +1);                     //   towards No (a list: the option below)
     if (push)  popup_confirm(&popup);                      //   press the focused button
     if (back)  popup_cancel(&popup);                       //   No, or close an error
 } else { /* the screen's own handling */ }

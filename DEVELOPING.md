@@ -113,7 +113,7 @@ guess** (`boards/hwv1/hwv1_controls.c`): correct `px`, `py` there against the bo
 | Button 2 | delete the selected module (RACK tab) | Backspace / Delete |
 | Button 3 (hold) | **Shift** | Left Shift |
 | Play | start / stop the sequencer. **Shift + Play = Rec**: notes played go into the pattern (stopped: step by step; running: live). In the Pads section: Play = the clock and its sequencer, **Select + Play or Shift + Play = step mode** (the pad keys are steps) | Space |
-| Matrix keys | **the key layout** (`core/keymap.c`, KEYS tab of the menu): function row F1..F4 = Shift, Menu, Back, Play (the layouts also give the function row's columns 5..8 Octave - / +, Page - / +: no board has those four keys, the simulator's PC-only columns 5..8 went on 2026-10-13); note rows by layout: *Keys 8x4* (default: bottom-left = C4 (60) + octave, +1 per key to the right, +8 per row up), *Two 4x4* (left block 0..15 with +4 per row, right block 16..31), *Notes+Nav* (left block 0..15, right block = octave, cursor cross with Latch, Select, Value, Row, Page), *User* | the panel's 4 columns: `F1`-`F4` / `1`-`4` / `Q`-`R` / `A`-`F` / `Z`-`V` (top to bottom); `-Board hwv1`: `F1`-`F4`, then 8 columns, `1`-`8` / `Q`-`I` / `A`-`K` / `Z`-`,` |
+| Matrix keys | **the key layout** (`core/keymap.c`, KEYS tab of the menu): function row F1..F4 = Shift, Menu, Back, Play (the layouts also give the function row's columns 5..8 Octave - / +, Page - / +: no board has those four keys, the simulator's PC-only columns 5..8 went on 2026-10-13); note rows by layout: *Keys 8x4* (default: bottom-left = C4 (60) + octave, +1 per key to the right, a row up goes on where the row under it ends: +8 per row on the prototype's 8 columns, +4 on the panel's 4, so no note is skipped on either), *Two 4x4* (left block 0..15 with +4 per row, right block 16..31), *Notes+Nav* (left block 0..15, right block = octave, cursor cross with Latch, Select, Value, Row, Page), *User* | the panel's 4 columns: `F1`-`F4` / `1`-`4` / `Q`-`R` / `A`-`F` / `Z`-`V` (top to bottom); `-Board hwv1`: `F1`-`F4`, then 8 columns, `1`-`8` / `Q`-`I` / `A`-`K` / `Z`-`,` |
 | Octave | -5..+4: every MIDI note 0..127 is reachable | Shift + joystick up / down |
 | Column knobs 1..4 | the value of row 1..4 of the current page. **Catch mode (default, GENERAL tab "Knob")**: a knob is ignored until it crosses the current value (or lands on it), so no jump; a small arrow at the right edge of the row says which way to turn (right = turn right). It is re-evaluated after every manual change (page, row, encoder / joystick edit, macro, Shift) but never after a knob move. *Direct* mode: the value follows the knob at once, no arrows. **With Shift / Mod**: what the MODIFIERS tab gives it (default Shift + knob 1 = speaker level, Shift + knob 2 = master volume): a parameter, with the same catch, or a step action | mouse |
 | Right knobs R1..R3 | macros 1..3 of 8 (MACROS tab): a macro drives up to 8 parameters, each through its own Min / Max / curve; they start on the first filter's cutoff / resonance and the first LFO's rate; **Shift + knob** adds the parameter under the cursor as a destination (Shift layer entries "Learn M1..3"). Not on the prototype: there any knob can play a macro through a Shift / Mod entry "Macro 1..8" (default on a board without R knobs: Shift + K3 / K4 = Macro 1 / 2, with the catch) | mouse |
@@ -352,15 +352,22 @@ machine clock in the audio thread: every step `app_seq_step()` calls `audio_seq_
 A note longer than a step rings over the following ones (16 held at most; the same pitch is retriggered); stopping releases everything.
 
 - **Page `SEQUENCER`** (`draw_seq` / `handle_seq`, rows `SEQ_ROW_*`): Step, Note, Len, Vel, Prob, Rtch, Voice (which note of the chord
-  the Note row edits), Run, Tool, On. The roll shows the 16 steps around the cursor and two octaves (it follows the page's lowest note
-  and the edited one); a step with Prob < 100 is dotted, a ratchet cuts its first column. The motion pages keep 16 steps
-  (`seq_motion_steps`).
+  the Note row edits), Run, Tool, On. The roll shows a page of 16 steps and two octaves (`synth_ui_seq_view`): the cursor's page, the
+  page's lowest note and the edited one; **while it runs, the page and the pitch of the step that plays** (`ui->seq_follow`, set by
+  `app_seq_view`: not for 4 s after the cursor moved or its step was edited by hand, which the UI counts in `ui->seq_touch`; the
+  playhead on another page is a mark at that end of its strip). A step with Prob < 100 is dotted, a ratchet cuts its first column.
+  The motion pages keep 16 steps (`seq_motion_steps`).
 - **Tools** (`seq_tool_apply`, core/seq.c): the Tool row picks one, On its scope (Step / Page / All), a push runs it; the UI leaves
   what it did in `ui->seq_msg` and the app shows it as a popup. One clipboard, one level of undo.
 - **Knobs**: on that page the column knobs set Note, Len, Vel, Prob of the cursor's step (`seq_knob`, `seq_set_norm`), each only
   after it moved `SEQ_KNOB_HYST` from where it stood when the cursor came to the step.
-- **Recording** (`app_seq.c`): Shift + Play or the key function Rec arms it; stopped = step entry at the cursor, running = live to
-  the nearest step (`audio_seq_where`: step, fraction, count), written once the playhead is there.
+- **Recording** (`app_seq.c`): Shift + Play or the key function Rec opens a list (`app_capture_synth_key`, app_capture.c): Notes
+  arms the note recording; the other options record the pattern's SOUND as a sample (one pass from its first step, with a tail,
+  or twice keeping the second: `audio_capture_start_seq` + `audio_seq_record`, the engine's `StepSeq::record_pass` and
+  `CaptureTap::arm_seq`; ENGINE_DESIGN.md ADR-042 decision 24), then a second list asks where it goes. Notes: stopped = step entry at the cursor, running = live to
+  the nearest step (`audio_seq_where`: step, fraction, count), written once the playhead is there. **Back held while it records
+  live** erases the steps the playhead passes (`app_seq_erase_down / _up`, on the pages only; the Run field reads Erase); the Undo
+  tool brings back what one hold erased (`seq_undo_keep`).
 - **Patterns and chain**: `seq_bank_t` (8 `seq_pattern_t`, the chain) is the app's; `seq_bank_select` stores `seq_t` and takes
   another. Page `PATTERNS` (`handle_seq_pat`, rows `PAT_ROW_*`). While it runs the next pattern is handed to the engine ahead
   (`audio_seq_queue`), which goes on to it at the pattern's end and says so (`audio_seq_taken`, called before `audio_seq_set`).

@@ -19,6 +19,7 @@ function Run-One($sr, $block) {
     $log = Join-Path $env:TEMP "fw_engine_build.log"
     $ccArgs = @("-std=c++17", "-O2", "-pthread", "-Wall", "-Wextra", "-Wconversion", "-Wno-sign-conversion", "-Wno-unused-parameter", "-fno-exceptions", "-fno-rtti",
                 "-DPLATFORM_SIM", "-DENGINE_SR=$sr", "-DENGINE_BLOCK=$block", "-I$fw", "-I$fw/tests") + @($Defs -split " " | Where-Object { $_ }) + $cpp + @("-o", $out)
+    $ccArgs = @($ccArgs | ForEach-Object { if ("$_" -match '\s') { '"' + "$_" + '"' } else { "$_" } })     # (Start-Process quotes nothing: the repo in a folder with a space)
     $p = Start-Process g++ -ArgumentList $ccArgs -NoNewWindow -PassThru -Wait -RedirectStandardError $log -RedirectStandardOutput "$log.out"
     if ($p.ExitCode -ne 0 -or -not (Test-Path $out)) {
         Get-Content $log | Select-Object -First 30 | ForEach-Object { Write-Host $_ }

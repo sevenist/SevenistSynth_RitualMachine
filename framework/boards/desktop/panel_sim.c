@@ -209,6 +209,8 @@ void panel_render(void) {
     place_oled();
     const Uint32 now = SDL_GetTicks();
     if (getenv("OLED_SIM_PANEL_SHOT") && !shot_done && now > 700) dirty = true;
+    static unsigned leds_rev;                                       // an LED changed with no control moving (a playhead, a blink)
+    if (leds_sim_rev() != leds_rev) { leds_rev = leds_sim_rev(); dirty = true; }
     if (!window || !dirty || now - last_draw < 15) return;
     dirty = false; last_draw = now;
     color(22, 24, 30); SDL_RenderClear(rend);

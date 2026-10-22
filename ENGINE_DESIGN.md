@@ -1297,6 +1297,68 @@ against my recommendation of a Seq key; patterns as on the synth):**
 20. **Live record = Select + Rec** while it runs: a pad pushed goes to the nearest step, a Gate / Toggle pad with the length it was
    held for, written once the playhead is on that step (as decision 11). Rec alone is still the audio capture.
 
+**2026-10-14, after the user's try on the board (their words: "pressing back/delete key while recording, erase the sequencer under
+the playhead, the undo should revert the deletions, also the sequencer doesn't scroll"; asked: Back erases "while it's held"; the
+roll follows the playhead, goes sideways past step 16 and up and down by pitch: "all of them"). Built and host-tested, not tried
+by the user:**
+
+21. **Back held while a live recording runs erases under the playhead** (`app/app_seq.c`, `app_seq_erase_down / _up`): the step that
+   plays when Back goes down, then every step the playhead reaches while it is held, becomes a rest with the default values (my
+   choice: Len, Vel, Prob and Rtch go with the notes, so a note recorded there afterwards does not inherit them). Only with Rec
+   armed and the sequencer running, on the pages (in the menu and the browser Back keeps its work; with Shift it still releases
+   the latched notes). Either Back works: the button, or a key the layout gives Back; the hold ends with the control that began it.
+   A note played into an erased step and not written yet is dropped. The page's Run field reads Erase meanwhile. Stopped (step
+   entry), Back is Back: not asked.
+22. **One Undo brings back all that a hold erased** (`seq_undo_keep`, the tools' one level of undo): the pattern is kept at the
+   first step a hold really changes, so a hold over rests leaves the Undo as it was. The undo is still one level: an erase
+   replaces a tool's undo. Notes recorded live are not undone by it (not asked).
+23. **The roll follows the playhead** (`synth_ui_seq_view`, core/ui_draw.c; `app_seq_view`): while it runs the roll shows the page
+   of 16 steps the playhead is on and the octaves of that page, moved up to the playing step's highest note when it is above the
+   window. A move of the cursor or an edit of its step by hand (the Step .. Voice rows, a column knob that writes) holds the roll
+   on the cursor for 4 s (`SEQ_FOLLOW_HOLD_MS`), so a step of another page can still be edited while it plays; a tool, the Run
+   row and a live recording do not hold it. The playhead on another page than the one shown: a mark at that end of its strip.
+   The cursor is drawn only on its own page; the fields under the roll are always the cursor's step. Stopped: the cursor's page,
+   as before. Chosen by me (say if one is wrong): pages, not a roll that slides step by step (a stable picture, and the tools'
+   Page scope is the same 16 steps); octaves, not semitones; the 4 s; the cursor does not follow the playhead (decision of stage 2,
+   kept: the knobs and the rows write to the cursor's step). The UI core has no clock: it counts the edits by hand
+   (`ui->seq_touch`), the app times them and sets `ui->seq_follow`.
+
+24. **The synth's pattern recorded as a sample, "from start to finish"** (user, 2026-10-14: "add option to record from start to
+   finish"; "user selectable, also make the option to record in loops (keep a tail, or record 2 time the sequence (so the reverb
+   tail of the 1st phrase is in the second too"; then, asked with options: it records **audio into a sample**, **a popup when
+   arming**, and where the result goes is **asked each time**). Built and host-tested, not tried by the user:
+   - **Shift + Play (or the key function Rec) in the synth section opens a list** (the drawing kit's new `popup_choose`): Notes
+     (the note recording of decision 11), Audio, stop / Audio, play on (one pass; then the sequencer stops, or plays on), Audio +
+     tail (one pass, the sequencer stops, the recording goes on until the sound has died away), Loop, stop / Loop, play on (the
+     pattern plays twice, the second pass is kept: the first one's tail is under its start, so it loops without a cut). The list
+     opens on the option chosen last. With Rec armed, or a recording running, Shift + Play ends it at once (no list).
+   - **The engine marks the pass** (`StepSeq::record_pass(skip, stop)`, command `SeqRecord`): a pass = the pattern's steps once,
+     from the first step played in it. After `skip` passes (Loop: 1) the next one is marked in `SeqPos` in the block it starts
+     (`rec_start`, `rec_frames` = its steps at the tempo, from the slot times, swing included), and the recording tap
+     (`CaptureTap::arm_seq`) begins at that block's first sample, where the first step sounds (events are block-accurate: the
+     step sounds in that block), for exactly those frames. With `stop` the run ends where the pass ends, before a queued pattern
+     would be taken: its next step does not play, the notes held over the end are let go there, `Engine::seq_halts()` counts it
+     and the run does not start again until a setup with run = 0 (the app sets `seq.running` off when it sees the count move).
+   - **The tail**: after the pass the tap goes on until the sound has stayed under -60 dB (q15 33) for 0.25 s, 30 s after the pass
+     at most (`capture_job.cpp` kTail*). Tail always stops the sequencer (my choice: the next pass would play into the tail).
+   - **The order** (app_capture.c): the capture opens its file (the card thread), and only once it listens
+     (`engine_synth_capture_listening`) is the pass asked for and the sequencer started if it was stopped; asked earlier, a pass
+     that starts at once could go unrecorded. Running already: from its next pass start. Stopped by hand (or the section left)
+     while it records: the recording ends there and is kept, the pass asked for is forgotten. An empty pattern is refused.
+   - **Where it goes**: once the file is in the library a second list, titled with its name and length: "Pad A1" (the selected
+     pad; "(replace)" when it holds a sample), "Next empty: A5" (when the selected one is taken), "Library only" (also what Back
+     gives). A Loop recording becomes a looping Toggle pad (Trim loop) on the bar when the pass is whole bars, on the beat when
+     whole beats, else free; the others a one-shot at full level. Names: `rec<n>`, as the Pads section's recordings.
+   - Measured on the host (`test_seq.cpp`): one pass at 120 BPM = 96001 frames for a bar of 96000, sound from the first sample;
+     with a 0.3 s release the tail ended 0.53 s after the pass, its last 50 ms silent. Not run on the board (the card's speed
+     against a long tail; the cost is nothing per block when not recording).
+   - Chosen by me (say if one is wrong): the six labels and their order; Tail always stops; the tail's -60 dB / 0.25 s / 30 s;
+     the destination list's options; Back on it = the library only; Shift + Play during a recording stops it and keeps it;
+     the Run field reads Audio while it records.
+
+Also theirs and for the design round: notes picked with the joystick, the per-step values in a menu, a taller roll, notes 3 px
+high (unfilled, the picked one 5 px by its length + 2).
+
 - Cost (static internal RAM, where the board is short; CONTINUE.md "Internal RAM"): the `Engine`'s two sequencers 3.4 KB (the notes'
   pattern and the queued one 1.0 KB, the pads' two hit lists 1.3 KB, held notes, pads and ratchets 1.0 KB), `s_synth` 0.5 KB, the
   application's pattern that plays 0.55 KB, the tools' clipboard and undo 1.0 KB, state 0.4 KB: **about 6 KB**; the stored patterns

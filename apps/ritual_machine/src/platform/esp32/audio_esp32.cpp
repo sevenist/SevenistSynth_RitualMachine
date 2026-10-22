@@ -214,6 +214,8 @@ extern "C" int  audio_seq_pos(void)                                        { ret
 extern "C" bool audio_seq_where(int *step, int *frac, uint32_t *count)     { return engine_synth_seq_where(step, frac, count) != 0; }
 extern "C" bool audio_seq_queue(const seq_pattern_t *p, int id)            { return engine_synth_seq_queue(p, id) != 0; }
 extern "C" int  audio_seq_taken(void)                                      { return engine_synth_seq_taken(); }
+extern "C" bool audio_seq_record(int skip, bool stop)                      { return engine_synth_seq_record(skip, stop) != 0; }
+extern "C" uint32_t audio_seq_halts(void)                                  { return engine_synth_seq_halts(); }
 extern "C" void audio_pseq_set(const pseq_pattern_t *p, bool run)          { engine_synth_pseq_set(p, run); }
 extern "C" int  audio_pseq_pos(void)                                       { return engine_synth_pseq_pos(); }
 extern "C" bool audio_pseq_where(int *step, int *frac, uint32_t *count)    { return engine_synth_pseq_where(step, frac, count) != 0; }
@@ -231,6 +233,8 @@ extern "C" bool audio_capture_start(const char *n, int th, int bar, uint32_t lim
 extern "C" void audio_capture_stop(void)                                    { engine_synth_capture_stop(); }
 extern "C" int  audio_capture_poll(uint32_t *f, uint32_t *d)                { return (int)engine_synth_capture_poll(f, d); }
 extern "C" void audio_capture_done(void)                                    { engine_synth_capture_done(); }
+extern "C" bool audio_capture_start_seq(const char *n, int tail)            { return engine_synth_capture_start_seq(n, tail); }
+extern "C" bool audio_capture_listening(void)                               { return engine_synth_capture_listening() != 0; }
 extern "C" int  audio_rate(void)                                            { return engine_synth_sample_rate(); }
 extern "C" void audio_pad_push(int pad)                                     { engine_synth_pad_push(pad); }
 extern "C" void audio_pad_release(int pad)                                  { engine_synth_pad_release(pad); }

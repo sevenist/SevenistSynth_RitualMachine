@@ -9,6 +9,7 @@
 // Sequencer rows (SEQ_ROW_*): Step (the cursor), then that step's Note (of the chord's voice shown by Voice), Len, Vel, Prob, Rtch; Run.
 static void handle_seq(synth_ui_t *ui, seq_t *seq, int row, int dir) {
     if (ui->cursor >= seq->steps) ui->cursor = seq->steps - 1;
+    if (row >= SEQ_ROW_STEP && row <= SEQ_ROW_VOICE) ui->seq_touch++;       // the cursor or its step, by hand: the roll stays on it for a moment
     switch (row) {
         case SEQ_ROW_STEP:    ui->cursor = (ui->cursor + dir + seq->steps) % seq->steps; break;
         case SEQ_ROW_NOTE:    seq_adjust_note(seq, ui->cursor, ui->seq_voice % SEQ_CHORD, dir); break;
@@ -94,7 +95,9 @@ static bool seq_knob(synth_ui_t *ui, seq_t *seq, int k, int value) {
         if (moved > -SEQ_KNOB_HYST && moved < SEQ_KNOB_HYST) return false;
         ui->seq_knob_live |= (uint8_t)(1 << k);
     }
-    return seq_set_norm(seq, ui->cursor, ui->seq_voice % SEQ_CHORD, (seq_knob_t)k, (float)value / INPUT_VALUE_MAX);
+    if (!seq_set_norm(seq, ui->cursor, ui->seq_voice % SEQ_CHORD, (seq_knob_t)k, (float)value / INPUT_VALUE_MAX)) return false;
+    ui->seq_touch++;                                                        // the step, by hand: the roll stays on it for a moment
+    return true;
 }
 
 // Motion sequencer rows. Page 1 (MOTION): 1 Lane, 2 Step, 3 Val, 4 On.  Page 2 (LANE): 1 Lane, 2 Tgt, 3 Mode, 4 Pol, 5 Dpth.

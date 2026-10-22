@@ -55,6 +55,10 @@ const char *seq_pat_row_text(const synth_ui_t *ui, const seq_t *seq, int row, ch
 // The page's column knobs set Note, Len, Vel, Prob of the cursor's step. A knob writes only once it has moved this far (of
 // INPUT_VALUE_MAX) since the cursor came to the step, so its noise never changes a step that was just selected (user, 2026-10-11).
 #define SEQ_KNOB_HYST 24
+// What the SEQUENCER page's roll shows (ui_draw.c): the first step of its page of SEQ_PAGE and the lowest of its SEQ_ROLL_NOTES
+// semitones. The cursor's page and note; while ui->seq_follow, those of the step that plays.
+#define SEQ_ROLL_NOTES 24
+void synth_ui_seq_view(const synth_ui_t *ui, const seq_t *q, int *first, int *low);
 
 // Pseudo parameter indexes on a modulator's DEST page: the target module and its parameter live in the slot, not in slot.v[].
 #define PRM_TGT  100

@@ -30,6 +30,8 @@ struct Cap {
     q15 arm_threshold = 0;                                                // how the tap is armed once the file is open
     bool arm_bar = false;
     uint32_t arm_limit = 0;
+    bool arm_seq = false;                                                 // ... or for the step sequencer's marked pass, with its tail
+    uint32_t arm_tail = 0;
     // the overview while the length is unknown: the peak of every `win` frames; when the 64 are used, pairs merge and win doubles
     uint8_t pk[kSmpPeaks] = {};
     uint32_t pk_n = 0, pk_win = 512, pk_fill = 0, pk_cur = 0;
@@ -88,7 +90,11 @@ void finish(Cap &c, bool ok) {
 
 extern "C" {
 
-bool engine_synth_capture_start(const char *name, int threshold, int at_bar, uint32_t limit_frames) {
+namespace {
+constexpr q15 kTailThreshold = 33;                                        // a tail ends under -60 dB ...
+constexpr double kTailQuietS = 0.25, kTailMaxS = 30.0;                    // ... for a quarter of a second, 30 s after the pass at most
+
+bool start(const char *name, int threshold, int at_bar, uint32_t limit_frames, bool at_seq, bool tail) {
     if (g_state.load() != CAPTURE_IDLE || !name || !name[0] || engine_synth_render_poll(nullptr) == RENDER_RUNNING) return false;
     if (!g_cap) { void *m = mem_new(sizeof(Cap)); g_cap = m ? new (m) Cap : nullptr; }
     if (!g_cap) return false;
@@ -104,10 +110,23 @@ bool engine_synth_capture_start(const char *name, int threshold, int at_bar, uin
     c.arm_threshold = static_cast<q15>(threshold < 0 ? 0 : threshold > 32767 ? 32767 : threshold);
     c.arm_bar = at_bar != 0;
     c.arm_limit = limit_frames;
+    c.arm_seq = at_seq;
+    c.arm_tail = tail ? static_cast<uint32_t>(kTailMaxS * engine_synth_sample_rate()) : 0;
     g_stop.store(false);
     g_state.store(CAPTURE_ARMED);
     g_posted.store(true);                                                  // the card thread opens the file, then arms the tap
     return true;
+}
+}  // namespace
+
+bool engine_synth_capture_start(const char *name, int threshold, int at_bar, uint32_t limit_frames) {
+    return start(name, threshold, at_bar, limit_frames, false, false);
+}
+
+bool engine_synth_capture_start_seq(const char *name, int tail) { return start(name, 0, 0, 0, true, tail != 0); }
+
+int engine_synth_capture_listening(void) {
+    return g_cap && g_state.load() == CAPTURE_ARMED && !g_posted.load() && capture_tap().state() != CaptureTap::Idle;
 }
 
 void engine_synth_capture_stop(void) { g_stop.store(true); capture_tap().stop(); }
@@ -138,7 +157,8 @@ bool engine_synth_capture_step(void) {
         c.f = std::fopen(c.tmp, "wb");
         std::memset(c.chunk, 0, kSmpBlockBytes);                           // the header is written last: a zero block holds its place
         if (!c.f || std::fwrite(c.chunk, 1, kSmpBlockBytes, c.f) != kSmpBlockBytes) { finish(c, false); return false; }
-        tap.arm(c.arm_threshold, c.arm_bar, c.arm_limit);
+        if (c.arm_seq) tap.arm_seq(kTailThreshold, static_cast<uint32_t>(kTailQuietS * engine_synth_sample_rate()), c.arm_tail);
+        else tap.arm(c.arm_threshold, c.arm_bar, c.arm_limit);
         if (g_stop.load()) tap.stop();
         return true;
     }

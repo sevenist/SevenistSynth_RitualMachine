@@ -261,6 +261,8 @@ static void keep_undo(const seq_t *s) {
     g_tools.undo_steps = (uint8_t)s->steps;
 }
 
+void seq_undo_keep(const seq_t *s) { keep_undo(s); }
+
 bool seq_tool_apply(seq_t *s, int tool, int scope, int cursor, char *msg, int n) {
     if (cursor >= s->steps) cursor = s->steps - 1;
     if (cursor < 0) cursor = 0;

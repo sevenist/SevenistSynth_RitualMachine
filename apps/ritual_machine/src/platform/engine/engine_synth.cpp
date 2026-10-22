@@ -442,6 +442,9 @@ void engine_synth_seq_set(const seq_t *q) {
     if (all) s.seq_sent = true;
 }
 
+int engine_synth_seq_record(int skip, int stop) { return s_ready && s_synth.eng.seq_record(skip, stop != 0) ? 1 : 0; }
+uint32_t engine_synth_seq_halts(void) { return s_ready ? s_synth.eng.seq_halts() : 0; }
+
 int engine_synth_seq_queue(const seq_pattern_t *p, int id) {
     if (!s_ready) return 0;
     Synth &s = s_synth;

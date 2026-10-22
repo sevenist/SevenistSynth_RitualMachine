@@ -8,7 +8,7 @@
 
 namespace sc {
 
-enum class Cmd : uint8_t { None, NoteOn, NoteOff, AllNotesOff, SetParam, SetBlob, SetDepth, VoiceMode, Transport, SeqSetup, SeqSteps, PadSeqSetup, PadSeqHits };   // VoiceMode: node = mode, idx = legato, value = glide coefficient (q15, 0 = none); Transport: node = running, idx = click, value = bpm; SeqSetup / SeqSteps: blob = SeqSetup / SeqChunk (sequencer.h); PadSeqSetup / PadSeqHits: blob = SeqSetup / PadHitChunk, node = the Pads module's node id
+enum class Cmd : uint8_t { None, NoteOn, NoteOff, AllNotesOff, SetParam, SetBlob, SetDepth, VoiceMode, Transport, SeqSetup, SeqSteps, PadSeqSetup, PadSeqHits, SeqRecord };   // VoiceMode: node = mode, idx = legato, value = glide coefficient (q15, 0 = none); Transport: node = running, idx = click, value = bpm; SeqSetup / SeqSteps: blob = SeqSetup / SeqChunk (sequencer.h); PadSeqSetup / PadSeqHits: blob = SeqSetup / PadHitChunk, node = the Pads module's node id; SeqRecord: value = passes to skip (-1: none), idx = stop at its end
 
 constexpr int kCmdBlobMax = 256;
 

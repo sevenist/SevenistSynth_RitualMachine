@@ -226,3 +226,62 @@ TEST(seq_pattern_text_round_trip_and_limits) {
     CHECK(patch_to_text(&ui_app.rack, &ui_app.params, &ui_app.ui, true, "", false, text, sizeof text) > 0);
     CHECK(strstr(text, "step ") == NULL && strstr(text, "seq ") == NULL);
 }
+
+// The roll scrolls (user, 2026-10-14): while it runs it shows the page and the pitch of the step that plays; a move of the cursor or
+// an edit by hand holds it on the cursor for a moment; stopped, it is the cursor's.
+TEST(seq_roll_follows_the_playhead_and_stays_on_the_cursor_after_an_edit) {
+    ui_fresh();
+    CHECK(open_page("SEQUENCER"));
+    seq_t *q = &ui_app.seq;
+    int first = -1, low = -1;
+    q->steps = 40;
+    for (int k = 16; k < 40; k++) seq_step_clear(&q->step[k]);
+    q->step[20].note[0] = 96;                                            // C7, alone on the second page
+    q->step[36].note[0] = 30; q->step[36].note[1] = 84;                  // the third page: F#1, and a chord up to C6
+    synth_ui_seq_view(&ui_app.ui, q, &first, &low);
+    CHECK_EQ(first, 0);                                                  // stopped: the cursor's page
+    ev_tap(CTL_PLAY);
+    ui_stub_seq_pos = 3; ev_idle(1);
+    CHECK(ui_app.ui.seq_follow);
+    synth_ui_seq_view(&ui_app.ui, q, &first, &low);
+    CHECK_EQ(first, 0);
+    ui_stub_seq_pos = 17; ev_idle(1);                                    // the playhead on the second page: the roll goes there
+    synth_ui_seq_view(&ui_app.ui, q, &first, &low);
+    CHECK_EQ(first, 16);
+    CHECK_EQ(low, 96);                                                   // ... and to the octave of what that page holds
+    ui_stub_seq_pos = 35; ev_idle(1);
+    synth_ui_seq_view(&ui_app.ui, q, &first, &low);
+    CHECK_EQ(first, 32);
+    CHECK_EQ(low, 24);
+    ui_stub_seq_pos = 36; ev_idle(1);                                    // a step whose top note is above the window: up to it
+    synth_ui_seq_view(&ui_app.ui, q, &first, &low);
+    CHECK_EQ(low, 72);
+    CHECK(84 >= low && 84 < low + SEQ_ROLL_NOTES);
+    // the cursor moved by hand: the roll shows it, whatever plays
+    row_turn(SEQ_ROW_STEP, 2);
+    CHECK_EQ(ui_app.ui.cursor, 2);
+    CHECK(!ui_app.ui.seq_follow);
+    ui_stub_seq_pos = 37; ev_idle(1);
+    synth_ui_seq_view(&ui_app.ui, q, &first, &low);
+    CHECK_EQ(first, 0);
+    ev_idle(420);                                                        // left alone (4 s): it follows again
+    CHECK(ui_app.ui.seq_follow);
+    synth_ui_seq_view(&ui_app.ui, q, &first, &low);
+    CHECK_EQ(first, 32);
+    // a column knob that writes a step value holds it as well; one that only rests does not
+    ev_knob(CTL_COL_KNOB_1, 100);
+    ev_idle(1);
+    CHECK(ui_app.ui.seq_follow);
+    ev_knob(CTL_COL_KNOB_1, 600);
+    CHECK(!ui_app.ui.seq_follow);
+    // a tool, the Run row, a live recording are not edits at the cursor
+    ev_idle(420);
+    ui_app.ui.row = SEQ_ROW_TOOL; ev_turn(CTL_ENC_B, 1);
+    ev_idle(1);
+    CHECK(ui_app.ui.seq_follow);
+    ev_tap(CTL_PLAY);                                                    // stopped: the cursor's page again
+    CHECK(!ui_app.ui.seq_follow);
+    synth_ui_seq_view(&ui_app.ui, q, &first, &low);
+    CHECK_EQ(first, 0);
+    ui_stub_seq_pos = -1;
+}

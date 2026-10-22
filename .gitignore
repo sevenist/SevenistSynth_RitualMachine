@@ -12,6 +12,7 @@ compile_commands.json
 !.claude/skills/**
 *.local.json
 *.local.md
+aseprite
 
 # --- build output (build.ps1, the engine tests, ui_dump) ---
 build/

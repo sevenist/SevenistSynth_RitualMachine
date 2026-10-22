@@ -238,6 +238,7 @@ bool app_step(app_t *app, input_event_t e) {
 
     // The sequencer plays in the engine, on the machine clock (ADR-042): it gets the pattern as it is now, then the clock, in this
     // order, so that a Play starts both on the same beat. What comes back is the step that plays, for the screen.
+    app_capture_synth_poll(app, now);   // (before the sequencer's step: a pass to record may start it)
     app_pseq_step(app);
     app_seq_step(app, clock_running(app));
     app_seq_poll(app);
@@ -245,6 +246,7 @@ bool app_step(app_t *app, input_event_t e) {
     const int pos = app->seq.running ? audio_seq_pos() : -1;
     const bool stepped = pos != app->seq.pos;
     app->seq.pos = pos;
+    app_seq_view(app, now);
 
     // Redraw only when something visible changed. Notes and the modifier do not change the screen. While more input is queued the redraw
     // is owed, not done: every pending note and knob turn is handled first and the screen is drawn once after them.

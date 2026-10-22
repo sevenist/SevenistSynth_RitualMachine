@@ -166,6 +166,62 @@ TEST(controls_a_row_overrides_a_key_place) {
     CHECK_EQ(controls_role(PANEL_PLAY), CTL_NONE);                                      // one control per role: the panel's own Play has none here
 }
 
+/* ---------------- the built-in key layouts on each board ---------------- */
+
+extern int ui_stub_key_cols;                                                    // tools/ui_stubs.c: the key columns controls_key_present reports
+
+static int key_cols_bound(void) {
+    int cols = 0;
+    for (int r = 1; r < KEY_ROWS; r++)
+        for (int c = 0; c < KEY_COLS; c++) if (controls_listed((control_id_t)CTL_KEY(r, c)) && c + 1 > cols) cols = c + 1;
+    return cols;
+}
+
+// The notes of a board's note keys in a layout: every note from the base up to the highest, each once.
+static void check_notes_have_no_gap(int layout, int cols, int expect) {
+    bool seen[KEYMAP_NOTE_MAX + 1] = {false};
+    int notes = 0, top = -1;
+    keymap_init();
+    keymap_select(layout);
+    for (int r = 1; r < KEY_ROWS; r++)
+        for (int c = 0; c < cols; c++) {
+            const key_fn_t f = keymap_get(r * KEY_COLS + c);
+            if (f.act != ACT_NOTE) continue;
+            CHECK(!seen[f.arg]);
+            seen[f.arg] = true;
+            notes++;
+            if (f.arg > top) top = f.arg;
+        }
+    CHECK_EQ(notes, expect);
+    CHECK_EQ(top, expect - 1);
+}
+
+// Found by the user in the simulator (2026-10-14): "Keys 8x4" counted 8 notes a row on the panel's 4 columns, which played
+// 0..3, 8..11, 16..19, 24..27. A row now starts where the row under it ends, on any board.
+TEST(keymap_layouts_skip_no_note_on_either_board) {
+    bind_panel();
+    ui_stub_key_cols = key_cols_bound();
+    CHECK_EQ(ui_stub_key_cols, 4);
+    check_notes_have_no_gap(0, 4, 16);
+    CHECK_EQ(keymap_get(4 * KEY_COLS + 0).arg, 0);                              // bottom left = the base note
+    CHECK_EQ(keymap_get(4 * KEY_COLS + 3).arg, 3);
+    CHECK_EQ(keymap_get(3 * KEY_COLS + 0).arg, 4);                              // the row above goes on
+    CHECK_EQ(keymap_get(1 * KEY_COLS + 3).arg, 15);
+    check_notes_have_no_gap(1, 4, 16);
+    check_notes_have_no_gap(2, 4, 16);
+
+    bind_hwv1();
+    ui_stub_key_cols = key_cols_bound();
+    CHECK_EQ(ui_stub_key_cols, 8);
+    check_notes_have_no_gap(0, 8, 32);
+    CHECK_EQ(keymap_get(4 * KEY_COLS + 7).arg, 7);                              // the prototype: as before, 8 a row
+    CHECK_EQ(keymap_get(3 * KEY_COLS + 0).arg, 8);
+    CHECK_EQ(keymap_get(1 * KEY_COLS + 7).arg, 31);
+    check_notes_have_no_gap(1, 8, 32);
+    check_notes_have_no_gap(2, 8, 16);
+    keymap_init();
+}
+
 /* ---------------- the simulator's panel, drawn from a board's table ---------------- */
 
 static int parts_of(const sim_panel_t *panel, int kind) {

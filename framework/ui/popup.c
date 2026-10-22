@@ -39,6 +39,18 @@ bool popup_ask(popup_t *p, const char *title, const char *text, bool default_yes
     return true;
 }
 
+bool popup_choose(popup_t *p, const char *title, const char *const *options, int count, int focus, popup_choice_fn choose, void *ctx) {
+    if (!options || count < 1) return false;
+    popup_msg_t *m = queue_add(p);
+    if (!m) return false;
+    msg_set(m, POPUP_CHOOSE, title, NULL);
+    m->options = options;
+    m->n_options = (uint8_t)(count > POPUP_CHOICES ? POPUP_CHOICES : count);
+    m->focus = (uint8_t)(focus < 0 ? 0 : focus >= m->n_options ? m->n_options - 1 : focus);
+    m->choose = choose; m->ctx = ctx;
+    return true;
+}
+
 bool popup_modal(const popup_t *p) { return p->count > 0; }
 
 bool popup_tick(popup_t *p, uint32_t now_ms) {
@@ -48,19 +60,26 @@ bool popup_tick(popup_t *p, uint32_t now_ms) {
 }
 
 void popup_move(popup_t *p, int dir) {
-    if (p->count && p->queue[0].kind == POPUP_ASK && dir) p->queue[0].yes = dir < 0;
+    if (!p->count || !dir) return;
+    popup_msg_t *m = &p->queue[0];
+    if (m->kind == POPUP_ASK) m->yes = dir < 0;
+    if (m->kind == POPUP_CHOOSE) {                          // around the list, one option per step whatever the turn
+        const int n = m->n_options;
+        m->focus = (uint8_t)((m->focus + (dir < 0 ? n - 1 : 1)) % n);
+    }
 }
 
-// Closes the popup on screen, then answers: the callback may raise the next popup.
+// Closes the popup on screen, then answers: the callback may raise the next popup. A list answers its focused option, or -1.
 static void close_top(popup_t *p, bool yes) {
     if (!p->count) return;
     const popup_msg_t m = p->queue[0];
     memmove(&p->queue[0], &p->queue[1], (size_t)(p->count - 1) * sizeof p->queue[0]);
     p->count--;
+    if (m.kind == POPUP_CHOOSE) { if (m.choose) m.choose(m.ctx, yes ? m.focus : -1); return; }
     if (m.answer) m.answer(m.ctx, yes);
 }
 
-void popup_confirm(popup_t *p) { if (p->count) close_top(p, p->queue[0].kind == POPUP_ERROR || p->queue[0].yes); }
+void popup_confirm(popup_t *p) { if (p->count) close_top(p, p->queue[0].kind == POPUP_ERROR || p->queue[0].kind == POPUP_CHOOSE || p->queue[0].yes); }
 void popup_cancel(popup_t *p)  { if (p->count) close_top(p, p->queue[0].kind == POPUP_ERROR); }
 
 /* ---------------- drawing ---------------- */
@@ -97,10 +116,49 @@ static int wrap(u8g2_t *g, const char *text, int w, char lines[][POPUP_TEXT_LEN]
     return n;
 }
 
+// A list: the title bar, then one row per option, the focused one inverted; as many rows as the screen holds, around the focus.
+static void draw_choose(const popup_msg_t *m, u8g2_t *g, const gui_style_t *st) {
+    const gui_rect_t scr = gui_screen(g);
+    const int row_h = gui_row_h(g, st);
+    const bool titled = m->title[0] != 0;
+    const int w = scr.w > 96 ? scr.w - 16 : scr.w - 4;
+    const int fixed = 2 + (titled ? row_h + 1 : 1) + 2;
+    int rows = (scr.h - 4 - fixed) / row_h;
+    if (rows > m->n_options) rows = m->n_options;
+    if (rows < 1) rows = 1;
+    int first = m->focus - rows / 2;                        // the window of rows shown keeps the focus in it
+    if (first > m->n_options - rows) first = m->n_options - rows;
+    if (first < 0) first = 0;
+    const gui_rect_t box = gui_center_box(scr, w, fixed + rows * row_h);
+    u8g2_SetDrawColor(g, 0);
+    u8g2_DrawBox(g, box.x - 1, box.y - 1, box.w + 2, box.h + 2);
+    u8g2_SetDrawColor(g, 1);
+    u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
+    int y = box.y + 1;
+    if (titled) {
+        const gui_rect_t bar = gui_rect(box.x, box.y, box.w, row_h + 1);
+        u8g2_DrawBox(g, bar.x, bar.y, bar.w, bar.h);
+        u8g2_SetDrawColor(g, 0);
+        gui_draw_text_centered(g, bar, m->title);
+        u8g2_SetDrawColor(g, 1);
+        y = gui_bottom(bar);
+    }
+    y += 2;
+    for (int i = first; i < first + rows; i++, y += row_h) {
+        const gui_rect_t r = gui_rect(box.x + 2, y, box.w - 4, row_h);
+        if (i == m->focus) { u8g2_DrawBox(g, r.x, r.y, r.w, r.h); u8g2_SetDrawColor(g, 0); }
+        u8g2_DrawStr(g, r.x + st->padding + 2, r.y + (r.h - gui_text_h(g)) / 2 + u8g2_GetAscent(g), m->options[i] ? m->options[i] : "");
+        u8g2_SetDrawColor(g, 1);
+    }
+    if (first > 0) gui_draw_arrow(g, gui_right(box) - 5, box.y + fixed - 1, 'u', 2);                    // more above / below
+    if (first + rows < m->n_options) gui_draw_arrow(g, gui_right(box) - 5, gui_bottom(box) - 4, 'd', 2);
+}
+
 void popup_draw(const popup_t *p, u8g2_t *g, const gui_style_t *st) {
     const popup_msg_t *m = p->count ? &p->queue[0] : p->info.kind != POPUP_NONE ? &p->info : NULL;
     if (!m) return;
     gui_begin(g, st);
+    if (m->kind == POPUP_CHOOSE) { draw_choose(m, g, st); return; }
     const gui_rect_t scr = gui_screen(g);
     const int row_h = gui_row_h(g, st);
     const int line_h = gui_text_h(g) + 1;

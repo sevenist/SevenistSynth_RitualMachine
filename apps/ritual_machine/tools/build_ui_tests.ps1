@@ -18,6 +18,7 @@ $out = "build/ui_tests.exe"
 if (Test-Path $out) { Remove-Item $out }
 $log = Join-Path $env:TEMP "ui_tests_build.log"
 $args = @("-std=gnu11", "-O1", "-Wall", "-Wno-unused-function", "-Isrc", "-I$fw", "-I$u8g2/csrc") + $src + @("-lm", "-o", $out)
+$args = @($args | ForEach-Object { if ("$_" -match '\s') { '"' + "$_" + '"' } else { "$_" } })     # (Start-Process quotes nothing: the repo in a folder with a space)
 $p = Start-Process gcc -ArgumentList $args -NoNewWindow -PassThru -Wait -RedirectStandardError $log -RedirectStandardOutput "$log.out"
 if ($p.ExitCode -ne 0 -or -not (Test-Path $out)) {
     Get-Content $log | Select-Object -First 40 | ForEach-Object { Write-Host $_ }

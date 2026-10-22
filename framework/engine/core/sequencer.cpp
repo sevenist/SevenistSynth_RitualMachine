@@ -25,11 +25,31 @@ void StepSeq::reset() {
     rng_ = 0x2545F491u;
     pos_ = SeqPos{};
     frac_ = 0;
+    rec_skip_ = -1; rec_stop_ = rec_on_ = rec_begun_ = false; rec_from_ = rec_to_ = 0;
+    halt_ = false; halts_ = 0;
+}
+
+void StepSeq::record_pass(int skip, bool stop) {
+    rec_skip_ = skip < 0 ? -1 : skip;
+    rec_stop_ = stop;
+    rec_on_ = rec_begun_ = false;
+}
+
+// A pass starts at t, at slot slot_: the recorded one has ended, the one asked for begins.
+void StepSeq::pass_start(uint64_t t) {
+    rec_on_ = false;
+    if (rec_skip_ > 0) { rec_skip_--; return; }
+    if (rec_skip_ < 0) return;
+    rec_skip_ = -1;
+    rec_on_ = rec_begun_ = true;
+    rec_from_ = t;
+    rec_to_ = slot_time(slot_ + static_cast<uint32_t>(steps()));
 }
 
 void StepSeq::setup(const SeqSetup &s) {
     if (s.queue == SEQ_UNQUEUE) { queued_ = false; return; }
     if (s.queue == SEQ_QUEUE) { next_set_ = s; queued_ = true; return; }
+    if (!s.run) halt_ = false;                          // (the application saw the run end)
     if (playing_ && !first_ && s.rate != set_.rate) {   // another rate while it plays: the next step keeps its time, the new rate counts from it
         base_ = next_at_;
         slot_ = 0;
@@ -40,6 +60,14 @@ void StepSeq::setup(const SeqSetup &s) {
 // The next step is due at t: which one it is (the direction; the queued pattern when the playing one has played its steps), then it plays.
 void StepSeq::step_due(uint64_t t) {
     if (!first_ && played_ >= steps()) {                // the pattern has played all its steps: again, or on to the queued one
+        if (rec_on_ && rec_stop_) {                     // ... or the recorded pass ends the run (before a queued pattern is taken)
+            rec_on_ = false;
+            stop_all();
+            playing_ = false;
+            halt_ = true;
+            halts_++;
+            return;
+        }
         played_ = 0;
         if (queued_) {
             const uint8_t run = set_.run;
@@ -54,6 +82,7 @@ void StepSeq::step_due(uint64_t t) {
             slot_ = 0;
         }
     }
+    if (played_ == 0) pass_start(t);
     played_++;
     const int n = steps();
     if (first_) {
@@ -82,6 +111,8 @@ void StepSeq::step_due(uint64_t t) {
 void StepSeq::run(const Transport &tr, int frames) {
     if (rewind_ && playing_) { stop_all(); playing_ = false; }
     rewind_ = false;
+    pos_.rec_start = 0;
+    if (halt_) { pos_.running = false; return; }
     if (!tr.running || !set_.run) {
         if (playing_) { stop_all(); playing_ = false; }
         pos_.running = false;
@@ -103,6 +134,12 @@ void StepSeq::run(const Transport &tr, int frames) {
         if (pend && t_pend <= lim && t_pend <= t_step) fire();
         else if (t_step <= lim) step_due(t_step);
         else break;
+        if (halt_) { pos_.running = false; return; }
+    }
+    if (rec_begun_) {                                   // the pass to record began in this block: from its first sample, for its steps
+        rec_begun_ = false;
+        pos_.rec_start = 1;
+        pos_.rec_frames = tr.inc_q32 ? static_cast<uint32_t>((rec_to_ - rec_from_ + tr.inc_q32 / 2) / tr.inc_q32) : 0;
     }
     // where the block ends: the step and how far into it (going backwards the fraction runs down, so a lane that follows it is continuous)
     pos_.running = !first_;

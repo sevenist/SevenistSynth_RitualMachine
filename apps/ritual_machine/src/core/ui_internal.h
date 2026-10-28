@@ -43,10 +43,11 @@ typedef struct {
 
 #define GLOBAL_PAGE 255
 
-// The SEQUENCER page's rows (handle_seq, draw_seq): the step, then its values, the chord's voice the Note row edits, Run, and the
-// quick edit tools: Tool picks one (a push runs it), On its scope (core/seq.h).
-enum { SEQ_ROW_STEP = 1, SEQ_ROW_NOTE, SEQ_ROW_LEN, SEQ_ROW_VEL, SEQ_ROW_PROB, SEQ_ROW_RATCHET, SEQ_ROW_VOICE, SEQ_ROW_RUN,
-       SEQ_ROW_TOOL, SEQ_ROW_SCOPE, SEQ_ROWS = SEQ_ROW_SCOPE };
+// The SEQUENCER page's rows (handle_seq, draw_seq; ADR-042 decisions 25-28): the values on its info lines that encoder A picks for
+// encoder B: the selected note and its step's values, then the quick edit tools: Tool picks one, On its scope (core/seq.h). The
+// joystick picks the step and the note of its chord (ui->cursor, ui->seq_voice: seq_nav), its push adds / removes that note or,
+// on Tool / On, runs the tool.
+enum { SEQ_ROW_NOTE = 1, SEQ_ROW_LEN, SEQ_ROW_VEL, SEQ_ROW_PROB, SEQ_ROW_RATCHET, SEQ_ROW_TOOL, SEQ_ROW_SCOPE, SEQ_ROWS = SEQ_ROW_SCOPE };
 // The PATTERNS page's rows (handle_seq_pat): the pattern that plays (while it runs: the one that follows it), the chain on / off, its
 // length, the entry shown and the pattern that entry plays.
 enum { PAT_ROW_PAT = 1, PAT_ROW_CHAIN, PAT_ROW_LEN, PAT_ROW_SLOT, PAT_ROW_IS, PAT_ROWS = PAT_ROW_IS };

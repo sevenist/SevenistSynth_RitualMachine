@@ -171,7 +171,9 @@ The frame is not sent here: `app_draw_frame` adds the popup, then sends.
 The main view understands only the older events, so the newer ones are **translated first**: `UI_NAV_*` become
 `UI_UP / DOWN / LEFT / RIGHT`, `UI_VALUE_INC / DEC` become `UI_RIGHT / LEFT`, `UI_LATCH` becomes `UI_SELECT`. The result:
 the joystick moves between rows and changes the value directly, encoder B changes the value, and a push acts like "right" on
-the row (it runs a sequencer tool on the Tool row, opens the cog on the cog). **There is no latch in the main view.**
+the row (it opens the cog on the cog). **There is no latch in the main view.** The SEQUENCER page takes the joystick and
+its push before that translation (`seq_nav`, then the push: the selected note added / removed, or the tool run on Tool / On):
+there the joystick moves over the notes of the roll, encoder A picks the value on the info lines and encoder B changes it.
 
 Row editing goes through `page_row_step`, which finds what the row is (a module parameter, a pseudo index, an FM value
 through `fm_page_row`, a sequencer or global parameter) and steps it by one.
@@ -182,7 +184,7 @@ Some pages are not "rows of parameters". `synth_ui_draw` (drawing) and `page_row
 
 | Page | Selected by | Drawn by (`ui_draw.c`) | Edited by (`ui_input.c`) |
 | --- | --- | --- | --- |
-| SEQUENCER (piano roll, the step's values, the tools) | `GRAPH_SEQ` | `draw_seq` | `handle_seq`; the step knobs: `seq_knob` |
+| SEQUENCER (piano roll, the info lines: the selected note's values, the tools) | `GRAPH_SEQ` | `draw_seq` (`roll_note`, `seq_info`) | `handle_seq`; the joystick: `seq_nav`; the step knobs: `seq_knob` |
 | SEQ SETUP | `GRAPH_SEQ_CFG` | generic rows + `draw_seq_cfg` | `seq_param_adjust` through `page_row_step` |
 | PATTERNS (patterns and chain) | `GRAPH_SEQ_PAT` | generic rows (`seq_pat_row_text`) + `draw_seq_pat` | `handle_seq_pat` |
 | MOTION n (steps of a lane) | `GRAPH_MS_STEPS` | `draw_ms_steps` | `handle_ms` |

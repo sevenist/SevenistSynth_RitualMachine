@@ -90,11 +90,23 @@ bool seq_step_is_rest(const seq_step_t *st);
 static inline int seq_motion_steps(const seq_t *s) { return s->steps < SEQ_PAGE ? s->steps : SEQ_PAGE; }   // the steps a motion lane plays
 
 // Per-step edits. dir = +1 / -1. Return true if the value changed.
-bool seq_adjust_note(seq_t *s, int step, int voice, int dir);   // none <-> SEQ_NOTE_MIN..MAX (raised from none: the last note entered)
+bool seq_adjust_note(seq_t *s, int step, int voice, int dir);   // none <-> SEQ_NOTE_MIN..MAX (raised from none: seq_free_pitch)
 bool seq_adjust_len(seq_t *s, int step, int dir);               // 1..SEQ_LEN_MAX steps
 bool seq_adjust_vel(seq_t *s, int step, int dir);               // 1..127, in fives
 bool seq_adjust_prob(seq_t *s, int step, int dir);              // 0..100 %, in fives
 bool seq_adjust_ratchet(seq_t *s, int step, int dir);           // 1..SEQ_RATCHET_MAX
+
+// The notes of a step the piano roll picks from (ADR-042 decisions 25, 27). A note added to a step takes the last note entered, or,
+// when the step has that pitch already, the pitch above its highest note (the nearest free one below when that is past the top).
+int  seq_free_pitch(const seq_t *s, int step);
+// What the roll's cursor moves over, from the highest pitch down: each voice that holds a note and, when the chord has room, its
+// first empty voice at seq_free_pitch (the empty slot). Returns how many (1..SEQ_CHORD); voice[] and pitch[] get them in order.
+int  seq_chord_slots(const seq_t *s, int step, uint8_t voice[SEQ_CHORD], uint8_t pitch[SEQ_CHORD]);
+// The voice the cursor is on: `voice` when it holds a note, else the step's empty slot.
+int  seq_slot_voice(const seq_t *s, int step, int voice);
+// A note becomes a rest (a step left without notes: seq_step_clear), an empty voice gets seq_free_pitch. The pattern before it is
+// what Undo brings back.
+void seq_note_toggle(seq_t *s, int step, int voice);
 
 // A step's values from a knob's travel (x = 0..1), for the SEQUENCER page's column knobs: the note (the bottom of the travel = none,
 // then SEQ_NOTE_MIN..MAX), the length 1..SEQ_PAGE steps, the velocity 1..127, the probability 0..100 % in fives. True if it changed.

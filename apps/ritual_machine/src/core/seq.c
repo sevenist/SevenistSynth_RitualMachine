@@ -185,12 +185,64 @@ bool seq_adjust_note(seq_t *s, int step, int voice, int dir) {
     uint8_t *note = &s->step[step].note[voice];
     int n = *note;
     const int old = n;
-    if (n == 0) { if (dir > 0) n = s->last_note >= SEQ_NOTE_MIN && s->last_note <= SEQ_NOTE_MAX ? s->last_note : SEQ_NOTE_MIN; }
+    if (n == 0) { if (dir > 0) n = seq_free_pitch(s, step); }
     else if (n + dir < SEQ_NOTE_MIN) n = 0;
     else if (n + dir <= SEQ_NOTE_MAX) n += dir;
     *note = (uint8_t)n;
     if (n) s->last_note = (uint8_t)n;
     return n != old;
+}
+
+static bool step_has(const seq_step_t *st, int n) {
+    for (int k = 0; k < SEQ_CHORD; k++) if (st->note[k] == n) return true;
+    return false;
+}
+
+int seq_free_pitch(const seq_t *s, int step) {
+    const seq_step_t *st = &s->step[step];
+    int n = s->last_note >= SEQ_NOTE_MIN && s->last_note <= SEQ_NOTE_MAX ? s->last_note : SEQ_NOTE_MIN;
+    if (!step_has(st, n)) return n;
+    int top = 0;
+    for (int k = 0; k < SEQ_CHORD; k++) if (st->note[k] > top) top = st->note[k];
+    if (top < SEQ_NOTE_MAX) return top + 1;
+    for (int m = n - 1; m >= SEQ_NOTE_MIN; m--) if (!step_has(st, m)) return m;
+    return n;                                                        // (a chord has 4 notes at most: never reached)
+}
+
+int seq_chord_slots(const seq_t *s, int step, uint8_t voice[SEQ_CHORD], uint8_t pitch[SEQ_CHORD]) {
+    const seq_step_t *st = &s->step[step];
+    int count = 0, empty = -1;
+    for (int k = 0; k < SEQ_CHORD; k++) {
+        if (!st->note[k]) { if (empty < 0) empty = k; continue; }
+        voice[count] = (uint8_t)k; pitch[count] = st->note[k]; count++;
+    }
+    if (empty >= 0) { voice[count] = (uint8_t)empty; pitch[count] = (uint8_t)seq_free_pitch(s, step); count++; }
+    for (int i = 1; i < count; i++)                                  // highest first (insertion sort of at most 4)
+        for (int j = i; j > 0 && pitch[j] > pitch[j - 1]; j--) {
+            const uint8_t v = voice[j]; voice[j] = voice[j - 1]; voice[j - 1] = v;
+            const uint8_t p = pitch[j]; pitch[j] = pitch[j - 1]; pitch[j - 1] = p;
+        }
+    return count;
+}
+
+int seq_slot_voice(const seq_t *s, int step, int voice) {
+    const seq_step_t *st = &s->step[step];
+    voice %= SEQ_CHORD;
+    if (st->note[voice]) return voice;
+    for (int k = 0; k < SEQ_CHORD; k++) if (!st->note[k]) return k;
+    return voice;                                                    // (never: `voice` itself is empty)
+}
+
+void seq_note_toggle(seq_t *s, int step, int voice) {
+    seq_step_t *st = &s->step[step];
+    seq_undo_keep(s);
+    if (st->note[voice]) {
+        st->note[voice] = 0;
+        if (seq_step_is_rest(st)) seq_step_clear(st);
+    } else {
+        st->note[voice] = (uint8_t)seq_free_pitch(s, step);
+        s->last_note = st->note[voice];
+    }
 }
 
 static bool set_u8(uint8_t *v, int nv, int lo, int hi) {

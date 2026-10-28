@@ -6,22 +6,66 @@
 #include <stdio.h>
 #include <string.h>
 
-// Sequencer rows (SEQ_ROW_*): Step (the cursor), then that step's Note (of the chord's voice shown by Voice), Len, Vel, Prob, Rtch; Run.
+// Sequencer rows (SEQ_ROW_*), what encoder B changes: the selected note (the chord's voice the roll's cursor is on), its step's Len,
+// Vel, Prob, Rtch; the tool and its scope.
 static void handle_seq(synth_ui_t *ui, seq_t *seq, int row, int dir) {
     if (ui->cursor >= seq->steps) ui->cursor = seq->steps - 1;
-    if (row >= SEQ_ROW_STEP && row <= SEQ_ROW_VOICE) ui->seq_touch++;       // the cursor or its step, by hand: the roll stays on it for a moment
+    ui->seq_voice = seq_slot_voice(seq, ui->cursor, ui->seq_voice);
+    if (row >= SEQ_ROW_NOTE && row <= SEQ_ROW_RATCHET) ui->seq_touch++;    // the cursor's step, by hand: the roll stays on it for a moment
     switch (row) {
-        case SEQ_ROW_STEP:    ui->cursor = (ui->cursor + dir + seq->steps) % seq->steps; break;
-        case SEQ_ROW_NOTE:    seq_adjust_note(seq, ui->cursor, ui->seq_voice % SEQ_CHORD, dir); break;
+        case SEQ_ROW_NOTE:    seq_adjust_note(seq, ui->cursor, ui->seq_voice, dir); break;
         case SEQ_ROW_LEN:     seq_adjust_len(seq, ui->cursor, dir); break;
         case SEQ_ROW_VEL:     seq_adjust_vel(seq, ui->cursor, dir); break;
         case SEQ_ROW_PROB:    seq_adjust_prob(seq, ui->cursor, dir); break;
         case SEQ_ROW_RATCHET: seq_adjust_ratchet(seq, ui->cursor, dir); break;
-        case SEQ_ROW_VOICE:   ui->seq_voice = (ui->seq_voice + dir + SEQ_CHORD) % SEQ_CHORD; break;
-        case SEQ_ROW_RUN:     seq_set_running(seq, !seq->running); break;
         case SEQ_ROW_TOOL:    ui->seq_tool = (uint8_t)((ui->seq_tool + dir + SQT_COUNT) % SQT_COUNT); break;
         case SEQ_ROW_SCOPE:   ui->seq_scope = (uint8_t)((ui->seq_scope + dir + SQS_COUNT) % SQS_COUNT); break;
     }
+}
+
+// The joystick on the SEQUENCER page (ADR-042 decision 25; e = UI_NAV_*): left / right the step, rests included, on the note of
+// the new step nearest in pitch to the one selected (a rest: its empty slot); up / down the chord's notes and its empty slot by
+// pitch (seq_chord_slots), up past the highest one to the header, down from the header back to the row encoder A had. False when
+// it is not the roll's: on the header left / right change the page as on every page.
+static bool seq_nav(synth_ui_t *ui, seq_t *seq, ui_event_t e) {
+    if (ui->cursor >= seq->steps) ui->cursor = seq->steps - 1;
+    if (ui->row == 0) {
+        if (e != UI_NAV_DOWN) return e == UI_NAV_UP;                 // (up: nowhere further)
+        ui->row = ui->seq_row_back >= SEQ_ROW_NOTE && ui->seq_row_back <= SEQ_ROWS ? ui->seq_row_back : SEQ_ROW_NOTE;
+        return true;
+    }
+    uint8_t voice[SEQ_CHORD], pitch[SEQ_CHORD];
+    int n = seq_chord_slots(seq, ui->cursor, voice, pitch);
+    const int v = seq_slot_voice(seq, ui->cursor, ui->seq_voice);
+    int at = 0;
+    while (at < n - 1 && voice[at] != v) at++;
+    switch (e) {
+        case UI_NAV_UP:
+            if (at == 0) { ui->seq_row_back = (uint8_t)ui->row; ui->row = 0; return true; }
+            ui->seq_voice = voice[at - 1];
+            break;
+        case UI_NAV_DOWN:
+            if (at < n - 1) ui->seq_voice = voice[at + 1];
+            break;
+        case UI_NAV_LEFT:
+        case UI_NAV_RIGHT: {
+            const int was = pitch[at];
+            ui->cursor = (ui->cursor + (e == UI_NAV_RIGHT ? 1 : -1) + seq->steps) % seq->steps;
+            n = seq_chord_slots(seq, ui->cursor, voice, pitch);
+            int best = -1;
+            for (int i = 0; i < n; i++) {
+                if (!seq->step[ui->cursor].note[voice[i]]) continue;    // a note, not the empty slot, when there is one
+                const int d = pitch[i] > was ? pitch[i] - was : was - pitch[i];
+                const int bd = best < 0 ? 0 : (pitch[best] > was ? pitch[best] - was : was - pitch[best]);
+                if (best < 0 || d < bd) best = i;
+            }
+            ui->seq_voice = best >= 0 ? voice[best] : seq_slot_voice(seq, ui->cursor, 0);
+            break;
+        }
+        default: return false;
+    }
+    ui->seq_touch++;                                                 // the cursor by hand: the roll stays on it for a moment
+    return true;
 }
 
 // PATTERNS page rows (PAT_ROW_*). Pat: stopped, the pattern is taken at once; running, it is picked to follow the playing one (the
@@ -83,6 +127,8 @@ const char *seq_pat_row_text(const synth_ui_t *ui, const seq_t *seq, int row, ch
 // SEQ_KNOB_HYST away before it writes: a knob at rest, or its noise, never changes the step just selected.
 static bool seq_knob(synth_ui_t *ui, seq_t *seq, int k, int value) {
     if (ui->cursor >= seq->steps) ui->cursor = seq->steps - 1;
+    if (ui->seq_knob_key != (int16_t)(ui->cursor * SEQ_CHORD + ui->seq_voice % SEQ_CHORD + 1))   // (the Note knob that just emptied its voice stays on it)
+        ui->seq_voice = seq_slot_voice(seq, ui->cursor, ui->seq_voice);
     const int16_t key = (int16_t)((ui->cursor * SEQ_CHORD + ui->seq_voice % SEQ_CHORD) + 1);
     if (ui->seq_knob_key != key) {
         ui->seq_knob_key = key;
@@ -783,6 +829,20 @@ static bool handle_event(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rac
     // Every tab of the menu is a declarative screen (ui_screen.h) and gets the events as they are. The main view (pages) is not converted yet:
     // it understands only the old events, so the joystick moves the row / changes the value, encoder B changes the value, a push of the joystick activates.
     if (!ui->in_rack) {
+        const bool seq_page = synth_ui_shows_seq(ui);
+        if (seq_page && (e == UI_NAV_UP || e == UI_NAV_DOWN || e == UI_NAV_LEFT || e == UI_NAV_RIGHT) && seq_nav(ui, seq, e)) return false;
+        if (seq_page && (e == UI_LATCH || e == UI_SELECT) && ui->row > 0) {   // the push: the tool, or the selected note added / removed
+            if (ui->cursor >= seq->steps) ui->cursor = seq->steps - 1;
+            if (ui->row == SEQ_ROW_TOOL || ui->row == SEQ_ROW_SCOPE) {
+                seq_tool_apply(seq, ui->seq_tool, ui->seq_scope, ui->cursor, ui->seq_msg, (int)sizeof ui->seq_msg);
+                if (ui->cursor >= seq->steps) ui->cursor = seq->steps - 1;
+            } else {
+                ui->seq_voice = seq_slot_voice(seq, ui->cursor, ui->seq_voice);
+                seq_note_toggle(seq, ui->cursor, ui->seq_voice);
+                ui->seq_touch++;
+            }
+            return false;
+        }
         switch (e) {
             case UI_NAV_UP: e = UI_UP; break;
             case UI_NAV_DOWN: e = UI_DOWN; break;
@@ -792,11 +852,6 @@ static bool handle_event(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rac
             case UI_VALUE_DEC: e = UI_LEFT; break;
             case UI_LATCH: e = UI_SELECT; break;
             default: break;
-        }
-        if (e == UI_SELECT && ui->row == SEQ_ROW_TOOL && synth_ui_shows_seq(ui)) {   // the SEQUENCER page's Tool row: a push runs the tool
-            seq_tool_apply(seq, ui->seq_tool, ui->seq_scope, ui->cursor, ui->seq_msg, (int)sizeof ui->seq_msg);
-            if (ui->cursor >= seq->steps) ui->cursor = seq->steps - 1;
-            return false;
         }
         if (e == UI_SELECT) { if (ui->row == 0) return false; e = UI_RIGHT; }   // push-to-activate: Insert, Delete, Run... act like Right
     }

@@ -101,26 +101,27 @@ void board_card_reader(void) {
     g_button_ignored = true;
 }
 
-// MAX98357A SD_MODE is not a plain enable: its voltage picks the channel (about 3.3 V = left only, about 1 V = (L+R)/2, low = shutdown), and
-// the board's resistors set that level. SynthBox's firmware never drives the pin ("let pull-up handle it" in GrvEP, "pull-down" in Ritual
-// Machine), so the default here is to leave it floating. HWV1_SPK_SD_MODE=1 drives it HIGH instead (left channel only).
-#ifndef HWV1_SPK_SD_MODE
-#define HWV1_SPK_SD_MODE 0
-#endif
+// The speaker's amplifier is an LM4871 (user, 2026-10-22; these comments first described a MAX98357A, which the board does not have):
+// an analog mono amplifier after the PCM5102A, fed by its left channel, its shutdown pin on GPIO 5. As the LM4871's data sheet has
+// it, a HIGH on that pin shuts it down and a LOW keeps it on (left floating, the board holds it low: the speaker plays). Driven
+// both ways since 2026-10-22 (the user's choice: Spk Off is a real shutdown, no idle current, no hiss).
+constexpr int kSpkOn = LOW, kSpkShutdown = HIGH;
+
+static void speaker_pin(int level) {
+    pinMode(PIN_SPK_SD, OUTPUT);
+    digitalWrite(PIN_SPK_SD, level);
+}
 
 // The DAC stays muted here: board_audio_open unmutes it when the loading screen has ended.
 void board_audio_enable(void) {
     pinMode(PIN_I2S_XSMT, OUTPUT);
     digitalWrite(PIN_I2S_XSMT, LOW);           // PCM5102A soft mute on
-    pinMode(PIN_SPK_SD, INPUT);                // first look at what the board sets by itself
+    pinMode(PIN_SPK_SD, INPUT);                // first look at what the board sets by itself (for the log)
     delay(5);
     const int floating = digitalRead(PIN_SPK_SD);
-#if HWV1_SPK_SD_MODE == 1
-    pinMode(PIN_SPK_SD, OUTPUT);
-    digitalWrite(PIN_SPK_SD, HIGH);
-#endif
-    Serial.printf("[BOARD] XSMT (GPIO %d) muted until the start is over; SPK_SD (GPIO %d) floating reads %d, mode %d (0 = left floating, 1 = driven HIGH)\n", PIN_I2S_XSMT,
-                  PIN_SPK_SD, floating, HWV1_SPK_SD_MODE);
+    speaker_pin(g_speaker_on ? kSpkOn : kSpkShutdown);
+    Serial.printf("[BOARD] XSMT (GPIO %d) muted until the start is over; SPK_SD (GPIO %d) floating reads %d, now driven %s\n", PIN_I2S_XSMT,
+                  PIN_SPK_SD, floating, g_speaker_on ? "LOW (on)" : "HIGH (shutdown)");
 }
 
 #ifndef HWV1_CARD_READER
@@ -137,20 +138,14 @@ void board_audio_open(void) {
 void board_audio_off(void) {
     pinMode(PIN_I2S_XSMT, OUTPUT);
     digitalWrite(PIN_I2S_XSMT, LOW);           // PCM5102A soft mute
-    pinMode(PIN_SPK_SD, OUTPUT);
-    digitalWrite(PIN_SPK_SD, LOW);             // amplifier shutdown
+    speaker_pin(kSpkShutdown);                 // amplifier shutdown
 }
 
-// Off drives SD_MODE low (amplifier shutdown: silent, no hiss, the headphones keep playing); on gives the pin back to its boot setting.
+// Off shuts the LM4871 down, on wakes it. The speaker's channel also goes to gain 0 at Off (audio_out_esp32.cpp board_speaker_level),
+// which alone silenced it before the pin was driven the right way (the user, 2026-10-22).
 void board_speaker_on(bool on) {
     g_speaker_on = on;
-    if (!on) { pinMode(PIN_SPK_SD, OUTPUT); digitalWrite(PIN_SPK_SD, LOW); return; }
-#if HWV1_SPK_SD_MODE == 1
-    pinMode(PIN_SPK_SD, OUTPUT);
-    digitalWrite(PIN_SPK_SD, HIGH);
-#else
-    pinMode(PIN_SPK_SD, INPUT);
-#endif
+    speaker_pin(on ? kSpkOn : kSpkShutdown);
 }
 
 // ---- battery (hal/hal_power.h): the divider's voltage, smoothed over about 1.6 s (a sample every HWV1_SENSOR_PERIOD_MS) ----

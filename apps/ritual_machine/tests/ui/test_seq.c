@@ -19,11 +19,16 @@ static bool open_page(const char *title) {
 
 static void row_turn(int row, int detents) { ui_app.ui.row = row; ev_turn(CTL_ENC_B, detents); }
 
+static void joy(control_id_t c, int times) {                             // the joystick on the roll (from a value row, not the header)
+    if (ui_app.ui.row == 0) ui_app.ui.row = SEQ_ROW_NOTE;
+    for (int i = 0; i < times; i++) ev_tap(c);
+}
+
 TEST(seq_page_edits_the_values_of_a_step) {
     ui_fresh();
     CHECK(open_page("SEQUENCER"));
     seq_t *q = &ui_app.seq;
-    row_turn(SEQ_ROW_STEP, 2);
+    joy(CTL_JOY_RIGHT, 2);
     CHECK_EQ(ui_app.ui.cursor, 2);
     const int n0 = q->step[2].note[0];
     CHECK(n0 > 0);                                                       // the demo pattern has a note there
@@ -58,28 +63,72 @@ TEST(seq_page_edits_the_values_of_a_step) {
     CHECK_EQ(q->step[2].note[0], SEQ_NOTE_MIN);                          // (the walk down ended on the lowest note)
 }
 
-TEST(seq_chord_notes_are_edited_by_voice) {
+// The joystick picks the note of a chord (ADR-042 decisions 25, 27): up / down its notes by pitch and the empty slot where a note
+// would go; up past the highest, the header; its push adds or removes the selected note.
+TEST(seq_chord_notes_are_picked_with_the_joystick) {
     ui_fresh();
     CHECK(open_page("SEQUENCER"));
     seq_t *q = &ui_app.seq;
+    for (int k = 0; k < SEQ_CHORD; k++) q->step[0].note[k] = 0;
     q->step[0].note[0] = 60;
     row_turn(SEQ_ROW_NOTE, 4);                                           // voice 1: 64, now the last note entered
     CHECK_EQ(q->step[0].note[0], 64);
-    row_turn(SEQ_ROW_VOICE, 1);
+    uint8_t v[SEQ_CHORD], p[SEQ_CHORD];
+    CHECK_EQ(seq_chord_slots(q, 0, v, p), 2);                            // the empty slot: the pitch above (64 is taken)
+    CHECK_EQ(p[0], 65); CHECK_EQ(v[0], 1);
+    CHECK_EQ(p[1], 64); CHECK_EQ(v[1], 0);
+    joy(CTL_JOY_UP, 1);
     CHECK_EQ(ui_app.ui.seq_voice, 1);
     CHECK_EQ(q->step[0].note[1], 0);
-    row_turn(SEQ_ROW_NOTE, 1);                                           // an empty voice starts on the last note entered ...
-    CHECK_EQ(q->step[0].note[1], 64);
+    row_turn(SEQ_ROW_NOTE, 1);                                           // an empty voice starts where its slot is ...
+    CHECK_EQ(q->step[0].note[1], 65);
     row_turn(SEQ_ROW_NOTE, 3);                                           // ... and moves from there
-    CHECK_EQ(q->step[0].note[1], 67);
+    CHECK_EQ(q->step[0].note[1], 68);
     CHECK_EQ(q->step[0].note[0], 64);                                    // the other voice stays
-    row_turn(SEQ_ROW_VOICE, 3);                                          // around: voice 1 again
+    CHECK_EQ(ui_stub_seq.step[0].note[1], 68);
+    joy(CTL_JOY_DOWN, 1);                                                // down: the lower note
     CHECK_EQ(ui_app.ui.seq_voice, 0);
-    row_turn(SEQ_ROW_VOICE, -1);
-    CHECK_EQ(ui_app.ui.seq_voice, SEQ_CHORD - 1);
-    CHECK_EQ(ui_stub_seq.step[0].note[1], 67);
-    // the highest note is the top
-    q->step[0].note[3] = SEQ_NOTE_MAX;
+    joy(CTL_JOY_DOWN, 1);                                                // (the lowest: it stays)
+    CHECK_EQ(ui_app.ui.seq_voice, 0);
+    CHECK_EQ(ui_app.ui.row, SEQ_ROW_NOTE);
+    joy(CTL_JOY_UP, 2);                                                  // 68, then the empty slot above it
+    CHECK_EQ(q->step[0].note[ui_app.ui.seq_voice], 0);
+    ui_app.ui.row = SEQ_ROW_VEL;
+    ev_tap(CTL_JOY_UP);                                                  // past the top: the header ...
+    CHECK_EQ(ui_app.ui.row, 0);
+    ev_tap(CTL_JOY_DOWN);                                                // ... and back to the row encoder A had
+    CHECK_EQ(ui_app.ui.row, SEQ_ROW_VEL);
+    // the push: the slot gets the pitch it shows, a second push removes it
+    const int slot = ui_app.ui.seq_voice;
+    ev_tap(CTL_JOY_SW);
+    CHECK_EQ(q->step[0].note[slot], 69);
+    ev_tap(CTL_JOY_SW);
+    CHECK_EQ(q->step[0].note[slot], 0);
+    CHECK_EQ(q->step[0].note[0], 64);
+    // a step whose last note goes is a rest with the default values; Undo brings it back
+    q->step[0] = (seq_step_t){{64, 0, 0, 0}, 5, SEQ_VEL_DEFAULT, 100, 1};
+    ui_app.ui.seq_voice = 0;
+    ev_tap(CTL_JOY_SW);
+    CHECK(seq_step_is_rest(&q->step[0]));
+    CHECK_EQ(q->step[0].len, 1);
+    ui_app.ui.seq_tool = SQT_UNDO; ui_app.ui.row = SEQ_ROW_TOOL;
+    ev_tap(CTL_JOY_SW);
+    CHECK_EQ(q->step[0].note[0], 64);
+    CHECK_EQ(q->step[0].len, 5);
+    // left / right: the note of the next step nearest in pitch; a rest: its empty slot
+    q->step[1] = (seq_step_t){{40, 70, 62, 0}, 1, SEQ_VEL_DEFAULT, 100, 1};
+    seq_step_clear(&q->step[2]);
+    ui_app.ui.row = SEQ_ROW_NOTE;
+    joy(CTL_JOY_RIGHT, 1);
+    CHECK_EQ(ui_app.ui.cursor, 1);
+    CHECK_EQ(q->step[1].note[ui_app.ui.seq_voice], 62);
+    joy(CTL_JOY_RIGHT, 1);
+    CHECK_EQ(q->step[2].note[ui_app.ui.seq_voice], 0);
+    // a full chord has no empty slot; the highest note is the top
+    q->step[0] = (seq_step_t){{50, 60, 70, SEQ_NOTE_MAX}, 1, SEQ_VEL_DEFAULT, 100, 1};
+    CHECK_EQ(seq_chord_slots(q, 0, v, p), SEQ_CHORD);
+    CHECK_EQ(v[0], 3);
+    ui_app.ui.cursor = 0; ui_app.ui.seq_voice = 3;
     row_turn(SEQ_ROW_NOTE, 1);
     CHECK_EQ(q->step[0].note[3], SEQ_NOTE_MAX);
 }
@@ -95,7 +144,7 @@ TEST(seq_play_runs_the_engine_sequencer_with_the_clock) {
     ui_stub_seq_pos = 5;                                                 // the engine plays step 5: the page shows it
     ev_idle(1);
     CHECK_EQ(ui_app.seq.pos, 5);
-    row_turn(SEQ_ROW_RUN, 1);                                            // the Run row stops it
+    ev_tap(CTL_PLAY);                                                    // Play stops it
     CHECK(!ui_app.seq.running && !ui_stub_seq.running && !ui_stub_clock_run);
     CHECK_EQ(ui_app.seq.pos, -1);
     ui_stub_seq_pos = -1;
@@ -110,12 +159,12 @@ TEST(seq_long_patterns_page_by_sixteen_steps) {
     CHECK_EQ(ui_app.seq.steps, SEQ_MAX_STEPS);
     CHECK_EQ(ui_stub_seq.steps, SEQ_MAX_STEPS);
     CHECK(open_page("SEQUENCER"));
-    row_turn(SEQ_ROW_STEP, -1);                                          // around to the last step: the fourth page is drawn
+    joy(CTL_JOY_LEFT, 1);                                                // around to the last step: the fourth page is drawn
     CHECK_EQ(ui_app.ui.cursor, SEQ_MAX_STEPS - 1);
     row_turn(SEQ_ROW_NOTE, 1);
     CHECK(ui_app.seq.step[SEQ_MAX_STEPS - 1].note[0] > 0);
     CHECK_EQ(ui_stub_seq.step[SEQ_MAX_STEPS - 1].note[0], ui_app.seq.step[SEQ_MAX_STEPS - 1].note[0]);
-    row_turn(SEQ_ROW_STEP, 1);
+    joy(CTL_JOY_RIGHT, 1);
     CHECK_EQ(ui_app.ui.cursor, 0);
     // the pattern gets shorter than the cursor: the cursor comes back into it
     ui_app.ui.cursor = 40;
@@ -258,7 +307,7 @@ TEST(seq_roll_follows_the_playhead_and_stays_on_the_cursor_after_an_edit) {
     CHECK_EQ(low, 72);
     CHECK(84 >= low && 84 < low + SEQ_ROLL_NOTES);
     // the cursor moved by hand: the roll shows it, whatever plays
-    row_turn(SEQ_ROW_STEP, 2);
+    joy(CTL_JOY_RIGHT, 2);
     CHECK_EQ(ui_app.ui.cursor, 2);
     CHECK(!ui_app.ui.seq_follow);
     ui_stub_seq_pos = 37; ev_idle(1);
@@ -274,7 +323,7 @@ TEST(seq_roll_follows_the_playhead_and_stays_on_the_cursor_after_an_edit) {
     CHECK(ui_app.ui.seq_follow);
     ev_knob(CTL_COL_KNOB_1, 600);
     CHECK(!ui_app.ui.seq_follow);
-    // a tool, the Run row, a live recording are not edits at the cursor
+    // a tool, a live recording are not edits at the cursor
     ev_idle(420);
     ui_app.ui.row = SEQ_ROW_TOOL; ev_turn(CTL_ENC_B, 1);
     ev_idle(1);

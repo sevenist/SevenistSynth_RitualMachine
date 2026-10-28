@@ -20,6 +20,21 @@ on the hardware.
   and the next panel (4 columns, encoders).
 - **For developers:** the repo is now a library and the apps built on it. The next section is the guide to it.
 
+## 2026-10-22: the synth sequencer's piano roll, edited with the joystick
+
+- **The joystick picks a note in the roll.** Left / right moves to the previous / next step, up / down over the notes of
+  that step's chord, and to an empty slot where a new note would go when the chord has room. Up past the highest note
+  reaches the page header. A push removes the selected note, or puts one in the empty slot (the last note entered).
+- **The values are on info lines under the roll**, no longer in rows: the selected note, Len, Vel, Prob, Rtch, then Tool and
+  On, then the step and the run state. Encoder A picks the value, encoder B changes it; a push on Tool or On runs the tool.
+  The Step, Voice and Run rows are gone (the joystick and Play do what they did). The column knobs are unchanged.
+- **A taller roll**: 3 pixels a semitone over two octaves. A note is an unfilled box whose inside line is filled to its
+  velocity; the selected note is drawn larger. To be tried: the sizes are the user's own proposal, "to put to the test".
+- **The speaker amplifier is an LM4871**, not a MAX98357A as the code's comments said. Its shutdown pin (GPIO 5) is active
+  high, so Spk Off pulled it the wrong way: the speaker was silent only through a gain of 0. Spk Off now really shuts the
+  amplifier down (no idle current, no hiss), and so does a power-off. The build flag `HWV1_SPK_SD_MODE` is gone (set to 1
+  it would have shut the speaker down). Not tried on the board yet.
+
 ## 2026-10-14: simulator fixes, the sequencer's roll and erase, the repo in a folder with a space
 
 - **The default key layout skips no note on the panel.** *Keys 8x4* counted 8 notes a row on every board, so the panel's

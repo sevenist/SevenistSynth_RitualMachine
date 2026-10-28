@@ -84,7 +84,8 @@ typedef struct {
     int page;           // index into the generated page list
     int row;     // 0 = page selector, 1..n = parameter rows
     int cursor;  // selected sequencer step
-    int seq_voice;      // ... and the note of its chord the Note row edits (0..SEQ_CHORD-1)
+    int seq_voice;      // ... and the note of its chord the roll's cursor is on (0..SEQ_CHORD-1; an empty voice: the empty slot, seq_slot_voice)
+    uint8_t seq_row_back;          // SEQUENCER page: the row the joystick left for the header, given back when it comes down
     seq_bank_t *bank;              // the sequencer's patterns and chain (the app's), for the PATTERNS page
     uint8_t seq_chain_cur;         // ... the chain entry its Slot row shows
     bool    seq_rec;               // Rec is armed (the app's: notes played go into the pattern); the page's Run field says so

@@ -30,8 +30,8 @@ i2s_chan_handle_t tx;
 TaskHandle_t audio_task;
 audio_render_fn g_render = nullptr;
 int g_rate = 0;
-// The built-in loudspeaker: the MAX98357A plays one DAC channel, the left one, so its level scales that channel. Off is gain 0,
-// plus an attempt to shut the amplifier down through SD_MODE (board_speaker_on).
+// The built-in loudspeaker: its LM4871 plays one DAC channel, the left one (user, 2026-10-22), so its level scales that channel.
+// Off is gain 0 and the amplifier shut down (board_speaker_on).
 constexpr int kSpeakerCh = 0;                      // 0 = left, 1 = right
 std::atomic<int32_t> g_spk_gain{32768};            // Q15, written by the UI, read by the audio task
 int g_spk_pct = -1;                                // UI side: the last level applied
@@ -107,9 +107,9 @@ void audio_task_main(void *) {
 
 void audio_esp32_open(void) { g_out_open.store(true, std::memory_order_relaxed); }
 
-// The loudspeaker's level, 0..100 (0 = off). Off is a zero gain on the speaker channel: pulling SD_MODE low alone did not silence the
-// speaker on the prototype (2026-10-05), so the pin is not proven to reach the amplifier. The headphones did not follow the speaker
-// level in the same test.
+// The loudspeaker's level, 0..100 (0 = off). Off is a zero gain on the speaker channel and the LM4871 shut down (its pin HIGH; until
+// 2026-10-22 the pin was pulled LOW, which is its "on": that alone did not silence the speaker on 2026-10-05). The headphones did
+// not follow the speaker level in the same test.
 void board_speaker_level(int pct) {
     if (pct == g_spk_pct) return;
     if ((pct == 0) != (g_spk_pct == 0) || g_spk_pct < 0) board_speaker_on(pct > 0);

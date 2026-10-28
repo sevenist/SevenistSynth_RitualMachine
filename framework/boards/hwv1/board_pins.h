@@ -6,13 +6,13 @@
 #if defined(HWV1)
 // HWV1 = ESP32-S3 prototype, same hardware as github.com/clement-chupin/SynthBox (include/HWConfig.h).
 
-// I2S audio out (PCM5102A DAC + MAX98357A speaker amp)
+// I2S audio out (PCM5102A DAC; the speaker: an LM4871, an analog mono amplifier fed by the DAC's left channel)
 #define PIN_I2S_MCLK  -1   // HWConfig.h lists GPIO 10 (PCM5102A SCK) but SynthBox's working firmware never drives it (mclk=9=bclk); -1 = no MCLK
 #define PIN_I2S_BCLK  9
 #define PIN_I2S_DOUT  8
 #define PIN_I2S_LRC   7    // word select / LRCK
 #define PIN_I2S_XSMT  13   // PCM5102A soft mute (HIGH = unmute)
-#define PIN_SPK_SD    5    // MAX98357A shutdown (HIGH = enabled)
+#define PIN_SPK_SD    5    // LM4871 shutdown (wired, user 2026-10-22; its data sheet: HIGH = shut down, LOW = on; board_speaker_on)
 
 // OLED (I2C)
 #define PIN_OLED_SDA  38

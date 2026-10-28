@@ -170,7 +170,9 @@ TEST(seq_knobs_set_the_step_once_they_have_moved) {
     ev_knob(KNOB(2), 512);
     const int vel = q->step[0].vel;
     // the cursor moves to another step: the knob must move again before it writes there
-    row_turn(SEQ_ROW_STEP, 3);
+    ui_app.ui.row = SEQ_ROW_NOTE;
+    for (int i = 0; i < 3; i++) ev_tap(CTL_JOY_RIGHT);
+    CHECK_EQ(ui_app.ui.cursor, 3);
     const seq_step_t s3 = q->step[3];
     ev_knob(KNOB(2), 512 + 5);                                           // where it reports from: its reference on this step
     ev_knob(KNOB(2), 512 + 5 - SEQ_KNOB_HYST + 1);
@@ -189,13 +191,17 @@ TEST(seq_knobs_set_the_step_once_they_have_moved) {
     CHECK_EQ(q->step[3].len, 1);
     ev_knob(KNOB(3), 300); ev_knob(KNOB(3), INPUT_VALUE_MAX / 2);
     CHECK_EQ(q->step[3].prob, 50);
-    // another voice of the chord: the Note knob must move again
-    row_turn(SEQ_ROW_VOICE, 1);
-    ev_knob(KNOB(0), 4);
+    // another note of the chord: the Note knob must move again
+    ev_knob(KNOB(0), 600);                                               // (still on the voice it emptied)
+    const int n0 = q->step[3].note[0];
+    CHECK(n0 > 0);
+    ev_tap(CTL_JOY_UP);                                                  // the joystick: the empty slot above it
+    CHECK_EQ(ui_app.ui.seq_voice, 1);
+    ev_knob(KNOB(0), 604);
     CHECK_EQ(q->step[3].note[1], 0);
-    ev_knob(KNOB(0), 600);
+    ev_knob(KNOB(0), 900);
     CHECK(q->step[3].note[1] > 0);
-    CHECK_EQ(q->step[3].note[0], 0);
+    CHECK_EQ(q->step[3].note[0], n0);
     // back from another page: the same step, but the knobs must move again
     const seq_step_t kept = q->step[3];
     ui_app.ui.row = 0; ev_tap(CTL_JOY_RIGHT); ev_tap(CTL_JOY_LEFT);      // SEQ SETUP and back

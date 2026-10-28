@@ -6,9 +6,25 @@ not: state, the latest measurements and what to do next, the user's working styl
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
 `apps/ritual_machine/tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
-## Session todo (updated 2026-10-14)
+## Session todo (updated 2026-10-22)
 
-**Where things stand (2026-10-14):** `main` is clean and pushed (`41075fb`; the guides, `CHANGELOG.md` and the README rewrite
+**Where things stand (2026-10-22):** nothing changed in the code since 2026-10-14 (the working tree is that session's work,
+51 files, uncommitted: **the user commits it themselves**). The board still runs the beta 1.1 release image. At
+`/session-start` the user said they have **not tried** the 2026-10-14 work yet (the erase / Undo / roll, the pattern recorded
+as a sample, the two simulator fixes: they stay open below), and picked for this session, in this order: **the design round
+"ui ux and editing tools"**, **the LM4871 correction**, **board performance** (the two items of "Next performance steps").
+Moved out of the todo that day to keep it short: "Octave / Page on F5..F8" to "Known debt", "Pads steps 4-5" to "Next: the
+production workflow"; the `[x]` items of 2026-10-13 dropped (their facts are in the paragraphs below and in git: `stash@{0}`
+is still there; the old root `.pio/build` and `build/` are stale; `oled_sim.code-workspace` has never been opened to check
+it offers both apps). Then **option A, the design round**: the user scoped it to **the synth's piano roll**; two rounds of
+options, decisions recorded as ADR-042 decisions 25-28 (one against my recommendation: an info line, not a popup menu); the
+build is the first open item below. Then, at their "let's start", **the piano roll was built** (the same day, host-tested,
+not tried by them; uncommitted, on top of the 2026-10-14 work: `core/seq.c/.h`, `ui_input.c`, `ui_draw.c`, `ui_internal.h`,
+`synth_ui.h`, `ui_pages.c`, two test files, DEVELOPING.md, `RITUAL_MACHINE_UI.md`, `CHANGELOG.md`, ADR-042). Tried by them:
+"perfect all working fine". Then **option B, the LM4871**: corrected, and Spk Off made a real shutdown at their choice
+(built, not flashed: the second open item below).
+
+**Where things stood (2026-10-14):** `main` is clean and pushed (`41075fb`; the guides, `CHANGELOG.md` and the README rewrite
 were committed by the user: `85f3ae4` .. `41075fb`); beta 1.1 is published and the board runs its release image (flashed by the
 user on 2026-10-13: **no serial commands in it**, a measurement needs the normal build flashed first: ask). Not Claude's: one
 uncommitted line in `.gitignore` (`aseprite`); `stash@{0}` is still there. At `/session-start` the user picked **sequencer
@@ -25,6 +41,47 @@ was then asked with options (audio into a sample, a popup when arming, the desti
 item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
 21-23).
 
+- [x] **The new piano roll: tried by the user, "perfect all working fine"** (done 2026-10-22; where it was tried was not said:
+  nothing was flashed by me; the sizes and the "chosen by me" points stand as built) (from: user, design round of 2026-10-22; ENGINE_DESIGN.md ADR-042 decisions
+  25-28, with the points chosen by me and the "as built" notes there: say if one is wrong). **Built 2026-10-22, host-tested,
+  NOT tried by the user, NOT flashed, uncommitted.** What is there: the joystick picks a step (left / right: the note nearest
+  in pitch on the new step) and a note of its chord (up / down by pitch, with an empty slot where a new note would go when
+  the chord has room; up past the top = the header, down = back); its push removes the selected note or fills the slot with
+  the last note entered (a step left empty gets the default values; Undo brings it back), on Tool / On it runs the tool;
+  three info lines under the roll (`C#4 L2 V100 75% x2` / `Tool Copy` `On Step` / `03/16` + Rec / Erase / Audio + play
+  picture), encoder A picks the value encoder B changes; no Step / Voice / Run rows any more (Play starts and stops); the roll
+  24 semitones x 3 px, notes as unfilled boxes with the inside line filled to the velocity, the selected note 5 px x length + 2.
+  Checked by me: 154 UI tests (one rewritten into `seq_chord_notes_are_picked_with_the_joystick`, the others moved from the
+  removed rows to the joystick), both simulators built, the firmware built (scratch build directory; static RAM 222532 bytes,
+  67.9 %, the same), the page drawn by `tools/ui_dump.c` at 128 x 128 and 128 x 64 in eight states and looked at. Seen there,
+  for them to judge: with velocity 100 a note's inside is 3/4 filled, so notes look nearly solid; a selected note or the slot
+  a semitone from another note covers 1 px of it. **To try** (simulator: `.\build.ps1`, `.\run.ps1`): SEQUENCER page,
+  encoder A down once (the Note value), joystick left / right over the steps, up / down on a chord, up to the empty slot and
+  push, push again; encoder A to Vel, encoder B; up past the top to the header, left / right = pages; Tool + push. Ask what
+  to change in the sizes ("to put to the test")
+- [ ] **Design round "ui ux and editing tools", the rest** (from: user, 2026-10-14; on 2026-10-22 they scoped the round to the
+  piano roll: these stay for a later round): the pads patterns have no edit tools (copy, clear a track, shift: "Known gaps"
+  of stage 3); no on-screen Rec control for the synth (offered 2026-10-12, never answered; with decision 26 the Rec word
+  stays on the info line); no LED for the armed record or for step mode; the Pads key layout's bottom row is free; from
+  "Known debt": the quick macro button, the main view not declarative, the list rows off the 8 x 8 grid
+- [ ] **Spk Off now shuts the LM4871 down: the user flashes and checks it** (from: user, 2026-10-22). The correction itself is
+  done (2026-10-22, picked second that day; asked first because the README said LM4871 and the code MAX98357A). Their answers:
+  **GPIO 5 is wired to the LM4871's shutdown pin**, **Spk Off is silent today**, **the amplifier is fed by the DAC's left
+  channel**. So: until now Off drove GPIO 5 LOW, which on an LM4871 (shutdown active HIGH, as I remember its data sheet) keeps
+  it ON: Off was silent through the gain 0 alone, and the build flag `HWV1_SPK_SD_MODE=1` ("HIGH = on, left channel") would
+  have shut the speaker down. Comments and docs corrected (`board_pins.h`, `board_esp32.cpp`, `audio_out_esp32.cpp`,
+  DEVELOPING.md x3). Then, asked with options, **their choice: Off is a real shutdown** (my recommendation): `board_speaker_on`
+  drives GPIO 5 HIGH at Off and LOW at on, `board_audio_off` (power-off, the card reader) HIGH, the start drives it as the
+  setting says (the `[BOARD]` line still prints what it read floating); `HWV1_SPK_SD_MODE` is gone; the gain 0 at Off stays.
+  **Built 2026-10-22 (both firmwares, scratch build directory; static RAM the same), NOT flashed.** To check after the flash:
+  the speaker plays at start; Spk Off: silent, and no hiss with the ear on the speaker; Spk back on: it plays (a click at the
+  switch is possible: say if it bothers); power off with the speaker on: no thump. If the speaker stays silent with Spk on,
+  the level is the other way: swap `kSpkOn` / `kSpkShutdown` in `board_esp32.cpp`
+- [ ] **Board performance: the Pads fixed cost, then the internal RAM** (picked third by the user on 2026-10-22; from:
+  user). The first two items of "Next performance steps" below, with their numbers and what "done" means there. Needs the
+  board: the normal build flashed first (the release image has no serial commands; ask before flashing), the skill
+  `esp32-optimize`. Done = before / after numbers recorded there and in ADR-035, the output unchanged where the change is
+  meant to be exact
 - [ ] **Synth sequencer: the user tries the erase, its Undo and the roll that follows** (from: user, 2026-10-14; ENGINE_DESIGN.md
   ADR-042 decisions 21-23, with the choices made while building: say if one is wrong). Their words: "pressing back/delete key
   while recording, erase the sequencer under the playhead, the undo should revert the deletions, also the sequencer doesn't
@@ -68,16 +125,6 @@ item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
   play the pad. Loop, play on while it runs: the take starts at the second pass; on its pad, the loop must not click at the turn
   and the reverb must be heard over the loop's start. Audio, stop with the sequencer stopped by hand halfway: the half is kept.
   Unknown until tried on the board: a long tail against the card's speed (the take is written while it records), the 30 s limit
-- [ ] **Design round: "ui ux and editing tools"** (from: user, 2026-10-14, their answer to "which new feature do you want
-  the design round on?"; nothing more said). Options with pros and cons before any code. To set with them first: which
-  screens it covers. Known candidates: **the piano roll, in their words** ("make the notes selectable with jotstck, to do this, put the per step
-  parameter inside a menu, and make the piano roll taller + make notes 3px high so the middle part can show it is selected
-  (unselected = 3px by (step_length)px unfilled box plus pixels to represent velocity, selected = 5px by (steplength+2)px, to
-  put to the test)": to ask there: what opens the step menu, what the four column knobs do then); the pads patterns have no edit tools (copy, clear
-  a track, shift: "Known gaps" of stage 3); no on-screen Rec control for the synth (offered 2026-10-12, never answered); no
-  LED for the armed record or for step mode; the Pads key layout's bottom row is free; from "Known debt": the quick macro
-  button, the main view not declarative, the list rows off the 8 x 8 grid. Done = the decisions recorded in
-  ENGINE_DESIGN.md (ADR-042 for the sequencers), then items here
 - [ ] **Simulator panels (step 2c): the user tries the two fixes; the drawing; HWV1's places** (from: user, 2026-10-14; their
   words: "default keymapping to notes is wrong (gaps , missing notes), the pannel leds isn't updating properly on pad
   sequencer play (green playhead led)"; they also ticked "the drawing" with no detail). **Both faults fixed on 2026-10-14,
@@ -153,26 +200,14 @@ item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
   field switches it off); the fields' order; live record keeps a hit's level / chance / ratchet when the step already has one.
   **Known gaps**: no edit tools for a pads pattern (copy, clear a track, shift), no LED for the armed record or for step mode, the
   Pads key layout's free bottom row is still free.
-- [ ] **The amplifier is an LM4871: correct the notes and the comments** (from: user, 2026-10-14; asked because the README
-  says LM4871 and the code MAX98357A; their answer: LM4871). To correct: DEVELOPING.md (two places),
-  `framework/boards/hwv1/board_pins.h`, `board_esp32.cpp`, `audio_out_esp32.cpp`. **Not only a rename, to check with them
-  while doing it**: the comments describe the MAX98357A's behaviour (SD_MODE's voltage picks the channel, it plays the left
-  channel, `PIN_SPK_SD` HIGH = enabled); an LM4871 is an analog amplifier after the PCM5102A and its shutdown pin is, as I
-  remember its data sheet, the other way (high = shut down): ask how SD is wired and whether the speaker goes on and off
-  as the UI says. Done = the docs and comments say what the board has; no behaviour changed without a check on the board
 - [ ] **Test round on the board** (picked again by the user on 2026-10-14, "test round / cleanup"; first their choice of 2026-10-11:
   pause features, test): everything in "Built, not tried by the
   user yet" below. The 38-item test list of the earlier session was written in the chat only: rebuild it from that section when
   asked (from: user)
-- [ ] **Octave / Page on the function row's columns 5..8 play on no board** (from: notes, a consequence of the user's
-  choice in 2c). The built-in key layouts still give F5..F8 those four functions; the octave is Shift + joystick up /
-  down. To decide when it matters: drop the four entries from the layouts, or give them other keys.
 - [ ] **Waiting on the user's answers**: the rest of test item 16 (the Play key on F4, "which is working but ..."); does a gate
   release trigger Next; is it right that the full synth stops in the Pads section (my reading of ADR-041 decision 22); "quantized
   capabilities" for the knobs and "the clock should start at the sample loop point for looped samples" (Snap and Sync were my
   reading of them); should the Grid chop unit and Fit beats follow Tune like Snap does (from: user)
-- [ ] **Pads steps 4-5**: live synth (design round; its entry into the FX chains), song mode + backtrack (design round; builds on
-  the capture); "Next: the production workflow" (from: user)
 - [x] **The split, step 2c: tried by the user** (2026-10-14; what they found is the open item "Simulator panels"
   above; done 2026-10-14) (committed by the user: `0ab1696`; from: user, "go for step 2c", 2026-10-13; ADR-043 decisions 15-17 and
   "Step 2c as built", with the six choices made while building: say if one is wrong). The user's answers at the start:
@@ -192,63 +227,6 @@ item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
   MODIFIERS tabs must list what they list on the real board. **HWV1's panel places are still my guess**
   (`boards/hwv1/hwv1_controls.c`, `px` / `py` in half key pitches): say where the pots and the joystick really sit and
   I move them. Not built: `release`, `card_reader`.
-- [x] **beta 1.1 is published** (2026-10-13, https://github.com/sevenist/SevenistSynth_RitualMachine/releases/tag/beta-1.1,
-  a pre-release; done 2026-10-13). The user: "beta 1.1 working, flashed and tested"; asked what they tried on the board
-  with that image, they ticked all four: **the synth and the Pads section, the synth's step sequencer, the Pads
-  sequencer, USB storage mode** (no fault reported; which points of the try lists below were gone through was not said).
-  Asked "publish now?": yes. Done by Claude: the notes' "Pre-release" paragraph now says that; `main` pushed up to
-  `cb6e406` (it was 4 commits ahead); the annotated tag `beta-1.1` on `cb6e406`, pushed; the draft published with
-  `--prerelease`. Checked: the two local files of `apps/ritual_machine/build/release` have the SHA-256 of the two
-  published ones; the tag points at `cb6e406`. The simulator's two panel windows are still "not yet tried by hand" in
-  the notes (nothing was said about them). What follows is the item as it stood before
-  (from: user, 2026-10-13, "let's commit and release a version beta v1.1"). Their answers: the zip holds **both simulator programs** (`ritual-machine-sim-hwv1.exe`, `-panel.exe`); **they
-  flash the release image before anything is published**; on the board since beta 1.0 they tried the synth and the pads as
-  before and **the Pads sequencer** (not the synth's step sequencer, not the template). Done by Claude: `BOOT_VERSION`
-  "beta 1.1", `make_release.ps1` packs both programs, the simulator's readme rewritten for both boards, `CHANGELOG.md`
-  (beta 1.1 + the guide to the library), the commit on `main`, the two files in `apps/ritual_machine/build/release`, a
-  **draft** pre-release on GitHub with its notes. Still to do, in this order: the user flashes
-  `C:\.platformio\penv\Scripts\python.exe -m esptool --chip esp32s3 write-flash 0x0 apps\ritual_machine\build\release\ritual-machine-beta-1.1-hwv1.bin`
-  and reports; the notes' "tested" paragraph is set to what they saw; the tag `beta-1.1` goes on the commit the image was
-  built from and the draft is published (`gh release edit beta-1.1 --draft=false`). A fix after the flash = a new commit, the
-  image and the zip built again, the draft's files replaced.
-- [x] **The guides: `human_docs/` is now `docs/guides/`, rewritten for the split** (from: user, `/session-start` of 2026-10-13:
-  "update the human docs, rename it to just documentation/guides"; asked with options, their answers: the folder is
-  **`guides/`** (then, the same day, **they moved it themselves to `docs/guides/`**, next to `docs/images/`: every
-  reference and the guides' own links follow); the scope is **a rewrite for the split** (against my recommendation, bringing the two guides up to date in
-  place: a full session, and it overlaps DEVELOPING.md), the UI guide in two, the library's drawing kit for any app and the
-  Ritual Machine's screens; **`ui_positioning_map.html` deleted**, its weak point kept as item 2 of the UI guide's open
-  items). What is there: `docs/guides/README.md` (the list), `DRAWING_KIT.md` (new: `framework/ui` for any app),
-  `RITUAL_MACHINE_UI.md` (replaces `UI_GUIDE.md`; the file names are my choice: say if another is wanted),
-  `SERIAL_COMMANDS.md` (moved; links, `mi`, `flt 9`, the measuring build through `PLATFORMIO_BUILD_FLAGS`, the line length
-  111, a serial patch is saved like any edit; the `[KBD] key ... held at power-on` line is gone: no code prints it). Every
-  reference follows (DEVELOPING.md, this file, the skill `board-session`, five Python tools, `serial_cmd_esp32.cpp`: a
-  comment), `CHANGELOG.md` has a section, `apps/template/README.md` points at the drawing kit's guide. Written from the
-  code, each claim read back against it; **nothing was built or run** (documentation and one comment; the code blocks of
-  DRAWING_KIT.md are not compiled, the first is the template's `app_draw` shortened). **Committed and pushed by the user
-  since** (`85f3ae4` the guides, `41075fb` the README; found at the session start of 2026-10-14).
-  `README.md`: the microcontroller's photo `docs/images/MCU.png` added to its Hardware section at the user's request
-  (360 px wide; the picture is 3472 x 4624 with the board in its middle fifth: a crop was offered). Then **`README.md` rewritten** at their request ("the DEVELOPING.md doc is
-  not really human readable, don't mention it in the readme, rewrite the readme to be more complete and concise"): it
-  no longer links DEVELOPING.md (nor ENGINE_DESIGN.md, my choice: the same kind of document); it points at the releases
-  page, `apps/template/README.md`, `CHANGELOG.md` and `docs/guides/`. Their hardware table, roadmap ticks, picture
-  placeholders and tone are kept. Changed on my reading of the code, to confirm with them: the "builds on Linux"
-  sentence is gone (the build scripts are PowerShell + MSYS2 paths; no Makefile); "Key matrix 8x5" became "36 keys:
-  4 function keys + 4 rows of 8"; the amplifier stays **LM4871 as they wrote it, while the code and DEVELOPING.md say
-  MAX98357A** (answered 2026-10-14: LM4871; the open item is in the todo). The repo has no licence file: the README states none (done 2026-10-13)
-- [x] **The split, step 2b** (committed by the user: `4234482`; ADR-043 "Step 2b as built", with the eight choices made
-  while building: none was called wrong. `hal/hal_input.h` has no control list any more, a board gives a table and events
-  and LEDs carry its ids; the Ritual Machine's roles are `core/controls.h` with `core/boards/map_hwv1.h` / `map_panel.h`.
-  Static RAM 222260 bytes, 67.8 %) (done 2026-10-13)
-- [x] **The split, step 2a** (committed by the user: `d6f929a`; ADR-043 "Step 2a as built". Its board try list is in the 2b
-  item above; not known to have been flashed. Left for later, on purpose: `gui_style_t` still has the Ritual Machine's page
-  fields; with `HWV1_TEST_TONE` the dev `dump` captures nothing) (done 2026-10-13)
-- [x] **The split, step 1** (committed by the user: `ffaa378` + `a07f37e`; the template flashed and played by them before 2a:
-  "it works nicely"; the root scripts ran in my baseline: tests, both simulators, both firmwares). `oled_sim.code-workspace`
-  exists (the user's choice): to try once, open it in VS Code, the PlatformIO status bar must offer both apps. `new_project.ps1`
-  adds a new app to it (checked once with a scratch app); it no longer copies the template's `.vscode` (that line NOT run).
-  The old root `.pio/build` and `build/` are stale and can be deleted (`.pio/libdeps` at the root is still used); `stash@{0}`
-  is still there (the user can `git stash drop` it); Aseprite: the sprites are in `apps/ritual_machine/assets/UI_Sprites` (a
-  save to the old path recreates `assets/` at the root) (done 2026-10-13)
 - Set aside (user, 2026-10-07): unformatted card "format?" ASK (a mount without a file system is still "no card"; needs FATFS mkfs)
 
 The notes of the sessions before, as written then (the item order they speak of is the one of their day):
@@ -477,6 +455,9 @@ Cycles per engine block (budget 174149), the Pads section alone (Pads + MasterOu
 The decisions are in ENGINE_DESIGN.md ADR-041; the user's design brief with screen sketches: https://claude.ai/artifact/HiSWqALbydqwbo8ibHp8nA.
 Take the phases in order; each ends with host tests green, docs updated and the user trying the result. Ask the "ask first" points with
 options (pros / cons) before building.
+
+- **Pads steps 4-5**: live synth (design round; its entry into the FX chains), song mode + backtrack (design round; builds on
+  the capture); "Next: the production workflow" (from: user)
 
 - **Phase 3, step sequencer for the synth.** **Started 2026-10-11: ENGINE_DESIGN.md ADR-042, stage 1 built** (in the engine on the
   machine clock; chords, velocity, probability, ratchet, 64 steps, rate, direction), **stage 2 built** (edit tools, step knobs,
@@ -899,6 +880,8 @@ The user decides and I record the reasoning and move on, without re-litigating:
   six do next to 8 pads); nothing is refused, the FX page shows the estimated load.
 - **Paulstretch with a 4096-point window** (2026-10-11, decision 44; I recommended 2048, which always fits): it fits (37 KB of PSRAM
   and 25 KB of internal RAM while the job runs), but leaves little room for anything else during a spectral job.
+- **The piano roll's values on an info line, no menu** (2026-10-22, ADR-042 decision 26; I recommended a popup list opened by
+  the joystick's push): risk = one value at a time is marked for encoder B, encoder A now picks it, a line of 25 characters is full.
 - **The synth's Rec opens a list** (2026-10-14, ADR-042 decision 24; I recommended two rows on SEQ SETUP, What and End): risk =
   one more push every time the note recording is armed (the list opens on the option chosen last, so it is one push).
 - **Where a recorded pattern goes is asked each time** (2026-10-14, ADR-042 decision 24; I recommended straight onto a pad, as the
@@ -908,6 +891,9 @@ The user decides and I record the reasoning and move on, without re-litigating:
 
 ## Known debt / small issues
 
+- **Octave / Page on the function row's columns 5..8 play on no board** (moved here from the session todo on 2026-10-22; from: notes, a consequence of the user's
+  choice in 2c). The built-in key layouts still give F5..F8 those four functions; the octave is Shift + joystick up /
+  down. To decide when it matters: drop the four entries from the layouts, or give them other keys.
 - **Sample browser, left over** (2026-10-11, from its done item; ENGINE_DESIGN.md ADR-041, "The browser held the UI"): near
   the end of the 1800-file folder an audition makes a STREAMED pad drop out (7 .. 8 underruns in 6 auditions, the same before
   the change; 0 near the top: sub-folders cure it); a whole pad sample is still one read of up to 0.4 s.

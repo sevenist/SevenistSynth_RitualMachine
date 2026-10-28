@@ -1356,8 +1356,48 @@ by the user:**
      the destination list's options; Back on it = the library only; Shift + Play during a recording stops it and keeps it;
      the Run field reads Audio while it records.
 
-Also theirs and for the design round: notes picked with the joystick, the per-step values in a menu, a taller roll, notes 3 px
-high (unfilled, the picked one 5 px by its length + 2).
+**2026-10-22, design round "ui ux and editing tools", scope the synth's piano roll only (the user's brief of 2026-10-14: "make
+the notes selectable with joystick, to do this, put the per step parameter inside a menu, and make the piano roll taller + make
+notes 3px high so the middle part can show it is selected (unselected = 3px by (step_length)px unfilled box plus pixels to
+represent velocity, selected = 5px by (steplength+2)px, to put to the test)"; two rounds of options). Built the same day,
+host-tested, tried by the user the same day ("perfect all working fine"); the points where the build differs from the first
+wording are marked "as built":**
+
+25. **The joystick picks a note in the roll** (their choice, my recommendation): left / right = the previous / next step, rests
+   included (key repeat as the joystick's virtual keys); up / down = the notes of that step's chord, ordered by pitch, then, when
+   the chord has room (fewer than 4 notes), **an empty slot drawn above its top note**; up past that goes to the page header, down
+   from the header comes back (as on every page). A rest shows only the empty slot. The selection is today's cursor + chord voice
+   (`ui->cursor`, `ui->seq_voice`; `seq_chord_slots` orders them by pitch), so the column knobs (Note, Len, Vel, Prob, decision
+   10, the same threshold), the tools, step entry and live record are unchanged. As built: the empty slot sits at the pitch a
+   note added there takes (`seq_free_pitch`), ordered with the notes by that pitch, so it is not always above them; left / right
+   lands on the note of the new step nearest in pitch to the one selected; encoder B on the slot starts at that pitch too. With joystick XY mode on, the joystick drives its
+   parameters as before, not the roll.
+26. **No menu: an info line under the roll** (their choice; **against my recommendation**, a popup list opened by the joystick's
+   push: risk = one value at a time is marked for encoder B, and the 25 characters of a line are full). Line 1: the step and the
+   selected note's values (`05/32 C#4 L2 V100 P75 x2`), line 2: Tool and On, then the Run / Rec / Erase / Audio word with the
+   play / stop picture. As built: three lines, the room was there (`C#4  L2  V100  75%  x2` in five cells; `Tool Copy` and
+   `On Page`; the step `05/32` with Rec / Erase / Audio and the play / stop picture on the right). **Encoder A picks what encoder B changes**: the header, Note, Len, Vel, Prob, Rtch, Tool, On (the
+   linear order of today's rows; the Step, Voice and Run rows go: the joystick does the first two, Play the third). The picked
+   value is drawn filled, as a row today.
+27. **The joystick's push adds or removes the selected note** (their choice, my recommendation): on a note = it becomes a rest
+   (that chord voice emptied; the step keeps Len / Vel / Prob / Rtch while a note is left in it, a step left without notes gets
+   the default values, as the erase of decision 21); on the empty slot or a rest = the last note entered goes there (one
+   semitone above the top note when that pitch is in the step already). With encoder A on
+   Tool or On, the push runs the tool (as the Tool row today). A push that removes is kept by the one level of Undo (as the erase
+   of decision 22; it replaces a tool's undo). Risk (stated to them): a stray push deletes a note.
+28. **The roll: 3 px a semitone, 2 octaves** (their choice, my recommendation): 24 semitones x 3 px + frame and padding = 76 px
+   under the 16 px header, the playhead strip, the two info lines. It still scrolls by pages of 16 steps and by octaves
+   (decision 23). **A note = an unfilled box 3 px high and its length long; the selected one 5 px high and 2 px longer** (1 px
+   over each side and over its neighbours' rows, the pixels under it cleared first). **Velocity fills the box's inside line from
+   the left, vel / 127 of its length** (their choice, my recommendation; the selected note: its three inside lines); a note with
+   Vel above 0 shows at least one pixel. A rest's empty slot: an unfilled 5 px frame, one step long.
+   Chosen by me (say if one is wrong): Prob below 100 % = the box's top and bottom lines dotted; a ratchet = a 1 px tick inside
+   the box at each hit's start (as built: a pixel of its inside inverted, so it shows on the filled part and the empty part);
+   the cursor's column frame and its dotted line go (the selected note marks the cursor); a screen lower than the tall layout
+   (the 128 x 64 one) keeps the thin filled bars, the selected one framed, and one info line (the one encoder A is on); the
+   empty slot of a rest sits at the last note entered. Where two notes are a semitone apart the selected one's 5 px cover 1 px
+   of its neighbour (3 px a semitone): expected from the sizes, to look at when tried.
+   Tests: `seq_chord_notes_are_picked_with_the_joystick` (test_seq.c), the others moved from the removed rows to the joystick.
 
 - Cost (static internal RAM, where the board is short; CONTINUE.md "Internal RAM"): the `Engine`'s two sequencers 3.4 KB (the notes'
   pattern and the queued one 1.0 KB, the pads' two hit lists 1.3 KB, held notes, pads and ratchets 1.0 KB), `s_synth` 0.5 KB, the

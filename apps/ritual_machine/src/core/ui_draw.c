@@ -13,9 +13,10 @@
 /* ---------------- sequencer ---------------- */
 
 // Piano roll: one column per step of the page the cursor is on (SEQ_PAGE steps; a shorter pattern: wider columns), SEQ_ROLL_NOTES
-// semitones high, bar width = note length. A step's chord: a bar per note. A step that may not play (Prob) is dotted, a ratchet cuts
-// its first column into its hits. A note outside the window: a dot on the edge it is beyond. Below it: playhead strip, then the
-// editable fields. All coordinates come from the gui_* layout helpers and the style sheet.
+// semitones high, a note as long as its length. A step's chord: one per note. On the 128 x 128 screen (ADR-042 decision 28) 3 px a
+// semitone and each note an unfilled box (roll_note), the selected one larger; a lower screen keeps thin filled bars (dotted when
+// it may not play, cut into its ratchet's hits). A note outside the window: a dot on the edge it is beyond. Below it: playhead
+// strip, then the info lines (seq_info). All coordinates come from the gui_* layout helpers and the style sheet.
 //
 // The roll scrolls (user, 2026-10-14): sideways by pages of SEQ_PAGE steps, up and down by octaves. It shows the cursor's page and
 // the edited note; while it runs and nothing was edited by hand lately (ui->seq_follow, the app's), the page of the step that plays
@@ -32,14 +33,23 @@ static int seq_roll_low(const seq_t *q, int first, int shown, int focus) {
     if (!low) low = 48;
     low = low / 12 * 12;
     if (focus >= low + SEQ_ROLL_NOTES) low = focus / 12 * 12 - 12;
+    else if (focus && focus < low) low = focus / 12 * 12;
     return low;
+}
+
+// The pitch the roll's cursor is on: the selected note, or where the empty slot would put one.
+static int seq_sel_pitch(const synth_ui_t *ui, const seq_t *q, int cursor, int *voice) {
+    *voice = seq_slot_voice(q, cursor, ui->seq_voice);
+    const int n = q->step[cursor].note[*voice];
+    return n ? n : seq_free_pitch(q, cursor);
 }
 
 void synth_ui_seq_view(const synth_ui_t *ui, const seq_t *q, int *first, int *low) {
     const int cursor = ui->cursor < q->steps ? ui->cursor : q->steps - 1;
     const bool follow = ui->seq_follow && q->running && q->pos >= 0 && q->pos < q->steps;
     const int at = follow ? q->pos : cursor;
-    int focus = q->step[cursor].note[ui->seq_voice % SEQ_CHORD];
+    int voice;
+    int focus = seq_sel_pitch(ui, q, cursor, &voice);
     if (follow) {                                                    // the step that plays: its highest note
         focus = 0;
         for (int k = 0; k < SEQ_CHORD; k++) if (q->step[at].note[k] > focus) focus = q->step[at].note[k];
@@ -49,16 +59,86 @@ void synth_ui_seq_view(const synth_ui_t *ui, const seq_t *q, int *first, int *lo
     *low = seq_roll_low(q, *first, q->steps - *first < cols ? q->steps - *first : cols, focus);
 }
 
+// One note of the tall roll (ADR-042 decision 28): an unfilled box, its inside filled from the left to the velocity (one pixel at
+// least); the top and bottom lines dotted when it may not play (Prob); a pixel of its inside inverted where each ratchet hit after
+// the first starts. The selected note is drawn 1 px larger on every side, over what is under it.
+static void roll_note(u8g2_t *g, int x, int y, int w, int h, const seq_step_t *sp) {
+    if (w < 3) w = 3;
+    u8g2_SetDrawColor(g, 0);
+    u8g2_DrawBox(g, x, y, w, h);
+    u8g2_SetDrawColor(g, 1);
+    u8g2_DrawVLine(g, x, y, h);
+    u8g2_DrawVLine(g, x + w - 1, y, h);
+    for (int px = x + 1; px < x + w - 1; px++)
+        if (sp->prob >= 100 || (px - x) % 2 == 0) { u8g2_DrawPixel(g, px, y); u8g2_DrawPixel(g, px, y + h - 1); }
+    const int in = w - 2;
+    int fill = (sp->vel * in + 63) / 127;
+    if (fill < 1 && sp->vel > 0) fill = 1;
+    if (fill > in) fill = in;
+    if (fill > 0) for (int r = y + 1; r < y + h - 1; r++) u8g2_DrawHLine(g, x + 1, r, fill);
+    if (sp->ratchet > 1) {
+        u8g2_SetDrawColor(g, 2);
+        for (int k = 1; k < sp->ratchet; k++) u8g2_DrawVLine(g, x + 1 + k * in / sp->ratchet, y + 1, h - 2);
+        u8g2_SetDrawColor(g, 1);
+    }
+}
+
+// The info lines under the tall roll (ADR-042 decision 26): the selected note and its step's values, the tool and its scope, then
+// the step and the run state. The value encoder A picked for encoder B is drawn filled.
+static void seq_info(u8g2_t *g, const gui_style_t *st, gui_rect_t lines, int count, int only, const synth_ui_t *ui, const seq_t *q,
+                     int cursor, int voice) {
+    const seq_step_t *cs = &q->step[cursor];
+    const int row_h = gui_row_h(g, st);
+    char v[5][8];
+    if (cs->note[voice]) seq_note_name(cs->note[voice], v[0], sizeof v[0]); else snprintf(v[0], sizeof v[0], "---");
+    snprintf(v[1], sizeof v[1], "L%d", cs->len);
+    snprintf(v[2], sizeof v[2], "V%d", cs->vel);
+    snprintf(v[3], sizeof v[3], "%d%%", cs->prob);
+    snprintf(v[4], sizeof v[4], "x%d", cs->ratchet);
+    for (int l = 0; l < count; l++) {
+        const int which = only >= 0 ? only : l;
+        const gui_rect_t line = gui_rect(lines.x, lines.y + l * (row_h + st->gap), lines.w, row_h);
+        if (which == 0) {
+            for (int i = 0; i < 5; i++) {
+                const gui_rect_t c = gui_grid_cell(line, 5, 1, i, 0);
+                const bool sel = ui->row == SEQ_ROW_NOTE + i;
+                if (sel) { u8g2_DrawBox(g, c.x, c.y, c.w, c.h); u8g2_SetDrawColor(g, 0); }
+                gui_draw_text_centered(g, c, v[i]);
+                u8g2_SetDrawColor(g, 1);
+            }
+        } else if (which == 1) {
+            char tool[20], scope[12];                                // "Tool RndProb" | "On Page": each read from its left
+            snprintf(tool, sizeof tool, "Tool %s", seq_tool_name(ui->seq_tool));
+            snprintf(scope, sizeof scope, "On %s", seq_scope_name(ui->seq_scope));
+            const int split = line.w * 9 / 16;
+            gui_draw_field(g, st, gui_rect(line.x, line.y, split - st->gap, line.h), tool, NULL, ui->row == SEQ_ROW_TOOL);
+            gui_draw_field(g, st, gui_rect(line.x + split, line.y, line.w - split, line.h), scope, NULL, ui->row == SEQ_ROW_SCOPE);
+        } else {
+            char step[24];
+            snprintf(step, sizeof step, "%02d/%02d", cursor + 1, q->steps);
+            gui_draw_field(g, st, line, step, NULL, false);
+            if (q->running && ui->run_anim != GUI_ANIM_INVALID) gui_anim_draw_right(g, st, ui->run_anim, line);
+            else gui_draw_sprite_right(g, st, q->running ? &spr_play : &spr_stop, line);
+            const char *state = ui->seq_erase ? "Erase" : ui->seq_audio ? "Audio" : ui->seq_rec ? "Rec" : NULL;
+            if (state) gui_draw_text_right(g, st, gui_rect(line.x, line.y, line.w - spr_play.w - 2, line.h), state);
+        }
+    }
+}
+
 static void draw_seq(u8g2_t *g, const gui_style_t *st, gui_rect_t area, const synth_ui_t *ui, const seq_t *q) {
-    const bool tall = area.h >= 96;                                  // room for two pixels per semitone and every field
-    const int pitch = st->roll_pitch_px * (tall ? 2 : 1);
+    const int row_h = gui_row_h(g, st);
+    const int tall_pitch = 3;                                        // decision 28: 3 px a semitone, notes as boxes
+    const int tall_h = SEQ_ROLL_NOTES * tall_pitch + 2 * (1 + st->roll_pad) + 2 * st->gap + st->strip_h + 3 * row_h + 2 * st->gap;
+    const bool tall = area.h >= tall_h;                              // (a lower screen: thin bars and one info line)
+    const int pitch = tall ? tall_pitch : st->roll_pitch_px;
+    const int bar_h = tall ? tall_pitch : st->roll_bar_h;
     const int cursor = ui->cursor < q->steps ? ui->cursor : q->steps - 1;
     int first, low;                                                  // the page and the pitches shown: the cursor's, or the playhead's
     synth_ui_seq_view(ui, q, &first, &low);
     const int cols = q->steps < SEQ_PAGE ? q->steps : SEQ_PAGE;
     const int shown = q->steps - first < cols ? q->steps - first : cols;
-    const int voice = ui->seq_voice % SEQ_CHORD;
-    const seq_step_t *cs = &q->step[cursor];
+    int voice;
+    const int sel_pitch = seq_sel_pitch(ui, q, cursor, &voice);
     int cell = area.w / cols;
     int roll_h = SEQ_ROLL_NOTES * pitch + 2 * (1 + st->roll_pad);    // frame + padding + notes
     gui_rect_t roll = gui_center_box(gui_rect(area.x, area.y, area.w, roll_h), cell * cols, roll_h);
@@ -66,6 +146,10 @@ static void draw_seq(u8g2_t *g, const gui_style_t *st, gui_rect_t area, const sy
     u8g2_DrawFrame(g, roll.x, roll.y, roll.w, roll.h);
     gui_rect_t inner = gui_inset(roll, 1);
 
+    // the notes; the selected one (or the empty slot) last, over the others
+    int sel_x = -1, sel_y = 0, sel_w = 0;
+    bool sel_empty = false;
+    const bool cursor_shown = cursor >= first && cursor < first + shown;
     for (int i = 0; i < shown; i++) {
         const seq_step_t *sp = &q->step[first + i];
         int x = inner.x + i * cell;
@@ -81,14 +165,30 @@ static void draw_seq(u8g2_t *g, const gui_style_t *st, gui_rect_t area, const sy
                 continue;
             }
             const int y = inner.y + st->roll_pad + (low + SEQ_ROLL_NOTES - 1 - n) * pitch;
-            if (sp->prob >= 100) u8g2_DrawBox(g, x + 1, y, w, st->roll_bar_h);
-            else for (int px = 0; px < w; px += 2) u8g2_DrawVLine(g, x + 1 + px, y, st->roll_bar_h);
+            if (cursor_shown && first + i == cursor && k == voice) { sel_x = x + 1; sel_y = y; sel_w = w; continue; }
+            if (tall) { roll_note(g, x + 1, y, w, bar_h, sp); continue; }
+            if (sp->prob >= 100) u8g2_DrawBox(g, x + 1, y, w, bar_h);
+            else for (int px = 0; px < w; px += 2) u8g2_DrawVLine(g, x + 1 + px, y, bar_h);
             if (sp->ratchet > 1) {
                 u8g2_SetDrawColor(g, 0);
-                for (int h = 1; h < sp->ratchet; h++) u8g2_DrawVLine(g, x + 1 + h * (cell - 2) / sp->ratchet, y, st->roll_bar_h);
+                for (int h = 1; h < sp->ratchet; h++) u8g2_DrawVLine(g, x + 1 + h * (cell - 2) / sp->ratchet, y, bar_h);
                 u8g2_SetDrawColor(g, 1);
             }
         }
+    }
+    if (cursor_shown && sel_x < 0 && sel_pitch >= low && sel_pitch < low + SEQ_ROLL_NOTES) {     // the empty slot: one step long
+        sel_x = inner.x + (cursor - first) * cell + 1;
+        sel_y = inner.y + st->roll_pad + (low + SEQ_ROLL_NOTES - 1 - sel_pitch) * pitch;
+        sel_w = cell - 2;
+        sel_empty = true;
+    }
+    if (sel_x >= 0) {
+        const int w = sel_w + 2, h = bar_h + 2, x = sel_x - 1, y = sel_y - 1;
+        if (sel_empty) {
+            u8g2_SetDrawColor(g, 0); u8g2_DrawBox(g, x, y, w, h); u8g2_SetDrawColor(g, 1);
+            u8g2_DrawFrame(g, x, y, w, h);
+        } else if (tall) roll_note(g, x, y, w, h, &q->step[cursor]);
+        else { u8g2_DrawBox(g, sel_x, sel_y, sel_w, bar_h); u8g2_DrawFrame(g, x, y, w, h); }
     }
 
     // playhead strip right under the roll, same column geometry
@@ -96,37 +196,11 @@ static void draw_seq(u8g2_t *g, const gui_style_t *st, gui_rect_t area, const sy
     if (q->running && q->pos >= first && q->pos < first + shown) u8g2_DrawBox(g, inner.x + (q->pos - first) * cell + 1, strip.y, cell - 2, strip.h);
     else if (q->running && q->pos >= 0) u8g2_DrawBox(g, q->pos < first ? inner.x : gui_right(inner) - 2, strip.y, 2, strip.h);   // on another page: that side
 
-    // cursor (when its page is the one shown): frame while the Step row is selected, dotted line otherwise
-    const bool cursor_shown = cursor >= first && cursor < first + shown;
-    int cx = inner.x + (cursor - first) * cell;
-    if (cursor_shown && ui->row == SEQ_ROW_STEP) u8g2_DrawFrame(g, cx, roll.y, cell + 1, roll.h);
-    else if (cursor_shown)                       for (int y = roll.y; y < gui_bottom(roll); y += 2) u8g2_DrawPixel(g, cx + cell / 2, y);
-
-    // editable fields: two columns below the strip, all of them on a tall screen, else the four around the selected one
-    const int rows = tall ? SEQ_ROWS / 2 : 2, first_field = tall || ui->row < 1 ? 0 : (ui->row - 1) / 4 * 4;
-    gui_rect_t fields = gui_below(strip, st->gap, rows * gui_row_h(g, st) + (rows - 1) * st->gap);
-    fields.x = area.x; fields.w = area.w;
-    char name[8], step[16], len[8], vel[8], prob[8], rat[8], vc[8];
-    seq_note_name(cs->note[voice], name, sizeof name);
-    snprintf(step, sizeof step, "%02d/%02d", cursor + 1, q->steps);
-    snprintf(len, sizeof len, "%d", cs->len);
-    snprintf(vel, sizeof vel, "%d", cs->vel);
-    snprintf(prob, sizeof prob, "%d%%", cs->prob);
-    snprintf(rat, sizeof rat, "x%d", cs->ratchet);
-    snprintf(vc, sizeof vc, "%d/%d", voice + 1, SEQ_CHORD);
-    const char *label[SEQ_ROWS] = {"Step", "Note", "Len", "Vel", "Prob", "Rtch", "Voice", ui->seq_erase ? "Erase" : ui->seq_audio ? "Audio" : ui->seq_rec ? "Rec" : "Run", "Tool", "On"};
-    const char *value[SEQ_ROWS] = {step, name, len, vel, prob, rat, vc, NULL, seq_tool_name(ui->seq_tool), seq_scope_name(ui->seq_scope)};
-    for (int i = 0; i < 2 * rows && first_field + i < SEQ_ROWS; i++) {
-        const int fi = first_field + i;
-        gui_rect_t c = gui_grid_cell(fields, 2, rows, i, st->gap);
-        gui_draw_field(g, st, c, label[fi], value[fi], ui->row == fi + 1);
-        if (fi == SEQ_ROW_RUN - 1) {
-            if (ui->row == SEQ_ROW_RUN) u8g2_SetDrawColor(g, 0);
-            if (q->running && ui->run_anim != GUI_ANIM_INVALID) gui_anim_draw_right(g, st, ui->run_anim, c);
-            else gui_draw_sprite_right(g, st, q->running ? &spr_play : &spr_stop, c);
-            u8g2_SetDrawColor(g, 1);
-        }
-    }
+    // the info lines; a lower screen: the one encoder A is on
+    const int count = tall ? 3 : 1;
+    gui_rect_t lines = gui_below(strip, st->gap, count * row_h + (count - 1) * st->gap);
+    lines.x = area.x; lines.w = area.w;
+    seq_info(g, st, lines, count, tall ? -1 : (ui->row >= SEQ_ROW_TOOL ? 1 : 0), ui, q, cursor, voice);
 }
 
 // Timing preview for SEQ SETUP: one tick per step of the first page; every second tick moves right with swing.

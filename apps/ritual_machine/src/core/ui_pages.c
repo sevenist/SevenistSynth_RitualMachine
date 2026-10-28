@@ -97,7 +97,7 @@ typedef struct { const char *title; graph_t graph; int count; int params[6]; } g
 enum { GP_AMP_ENV, GP_SEQ, GP_SEQ_CFG, GP_FM, GP_AMP_CRV, GP_STR_OSC, GP_STR_TONE, GP_STR_LP, GP_STR_FILTER, GP_SEQ_PAT };   // (saved in jump slots: append only)
 static const gpage_def_t global_pages[] = {
     [GP_AMP_ENV] = {"AMP ENV",   GRAPH_AMP_ENV, 4, {P_AMP_A, P_AMP_D, P_AMP_S, P_AMP_R}},
-    [GP_SEQ]     = {"SEQUENCER", GRAPH_SEQ,     SEQ_ROWS, {0}},   // rows: Step, Note, Len, Vel, Prob, Rtch, Voice, Run, Tool, On (see handle_seq)
+    [GP_SEQ]     = {"SEQUENCER", GRAPH_SEQ,     SEQ_ROWS, {0}},   // rows: Note, Len, Vel, Prob, Rtch, Tool, On (see handle_seq); the roll: seq_nav
     [GP_SEQ_CFG] = {"SEQ SETUP", GRAPH_SEQ_CFG, 6, {SQP_BPM, SQP_STEPS, SQP_TRANSPOSE, SQP_SWING, SQP_RATE, SQP_DIR}},
     [GP_AMP_CRV] = {"AMP CURVE", GRAPH_AMP_ENV, 4, {P_AMP_HOLD, P_AMP_ACV, P_AMP_DCV, P_AMP_RCV}},
     [GP_FM]      = {"FM SYNTH",  GRAPH_FM,      4, {0}},       // FM mode: Patch, Algo, Fb, Vol (fm_page_row), then the operator pages
@@ -229,7 +229,7 @@ void get_page(const synth_ui_t *ui, const rack_t *rack, int idx, page_t *out) {
 }
 
 void synth_ui_init(synth_ui_t *ui, const rack_t *rack) {
-    ui->page = 0; ui->row = 0; ui->cursor = 0; ui->seq_voice = 0; ui->seq_tool = 0; ui->seq_scope = 0; ui->seq_msg[0] = 0; ui->seq_knob_key = 0; ui->seq_rec = false; ui->seq_erase = false; ui->seq_audio = false; ui->seq_follow = false; ui->seq_touch = 0; ui->seq_chain_cur = 0; ui->bank = NULL;
+    ui->page = 0; ui->row = 0; ui->cursor = 0; ui->seq_voice = 0; ui->seq_row_back = SEQ_ROW_NOTE; ui->seq_tool = 0; ui->seq_scope = 0; ui->seq_msg[0] = 0; ui->seq_knob_key = 0; ui->seq_rec = false; ui->seq_erase = false; ui->seq_audio = false; ui->seq_follow = false; ui->seq_touch = 0; ui->seq_chain_cur = 0; ui->bank = NULL;
     ui->rack_cur = 0; ui->rack_scroll = 0; ui->rack_type = MOD_OSC;
     ui->rack_row = synth_type_is_rack(rack->cfg.type) ? 0 : ROW_M; ui->rack_menu = false;
     for (int l = 0; l < RACK_ROWS; l++) ui->rack_col[l] = 0;

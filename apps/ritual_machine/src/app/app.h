@@ -167,6 +167,8 @@ typedef struct {
     uint8_t        batt_warned; // the battery warning given so far: 0 none, 1 low, 2 almost empty (hal_power.h)
     uint32_t       batt_ms;     // when the battery was last looked at
     popup_t        popup;       // popup messages over the screen (ui/popup.h); a modal one takes the input
+    uint8_t        list_ent[16];// the page list on show (Shift + Menu, app_lists.c): its entries (list_entry_t) ...
+    uint8_t        list_n;      // ... how many
     char           status[48];  // last control -> action, for the simulator panel / debugging ("ENC A > Row +1")
 } app_t;
 

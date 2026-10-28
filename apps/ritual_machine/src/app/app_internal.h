@@ -118,6 +118,10 @@ void app_pseq_pad_down(app_t *app, int pad);                        // a pad was
 void app_pseq_pad_up(app_t *app, int pad);
 void app_pseq_poll(app_t *app);                                     // every step: the recorded pushes whose step has come are written
 
+/* ---------------- app_lists.c (ADR-044) ---------------- */
+
+void app_list_open(app_t *app, bool advanced);                      // Shift + Menu: the page list (advanced: its ADVANCED submenu)
+
 /* ---------------- app_card.c ---------------- */
 
 void app_check_sd(app_t *app);                                      // every step: the card changed, its settings files follow

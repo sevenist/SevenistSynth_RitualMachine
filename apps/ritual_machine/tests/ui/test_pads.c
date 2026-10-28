@@ -16,7 +16,8 @@ extern led_color_t ui_stub_led[CTL_COUNT];
 #define MUTE_KEY    CTL_KEY(2, 5)
 #define STOP_KEY    CTL_KEY(2, 7)
 
-static void shift_menu(void) { ev_press(SHIFT); ev_tap(MENU); ev_release(SHIFT); }
+// Shift + Menu: the page list (ADR-044); the other mode in it.
+static void shift_menu(void) { const bool pads = ui_app.section == SECTION_PADS; ev_press(SHIFT); ev_tap(MENU); ev_release(SHIFT); CHECK(ui_list_pick(pads ? "Synth" : "Pads")); }
 static bool same_rgb(led_color_t a, led_color_t b) { return a.r == b.r && a.g == b.g && a.b == b.b; }
 
 TEST(pads_shift_menu_switches_the_section_and_the_keys) {

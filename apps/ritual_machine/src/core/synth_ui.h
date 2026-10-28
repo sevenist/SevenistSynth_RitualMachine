@@ -332,6 +332,13 @@ bool synth_ui_on_keys_tab(const synth_ui_t *ui, const rack_t *rack);
 // Closes the menu (as MENU does) and shows the page of `slot` (a rack slot, or GLOBAL_PAGE) with page def `def`, row 1. False when
 // no such page is shown (the main view then stays on its page).
 bool synth_ui_open_page(synth_ui_t *ui, const rack_t *rack, int slot, int def);
+// The synth's screens the page list (Shift + Menu, ADR-044) goes to: the main view as it was left, a menu tab, the SEQUENCER page.
+typedef enum { SYNTH_GO_MAIN, SYNTH_GO_RACK, SYNTH_GO_PRESETS, SYNTH_GO_SOUND, SYNTH_GO_SEQ, SYNTH_GO_MACROS,
+               SYNTH_GO_KEYS, SYNTH_GO_LEDS, SYNTH_GO_MODS, SYNTH_GO_JOY, SYNTH_GO_CURVES, SYNTH_GO_COUNT } synth_go_t;
+// Shows that screen (leaving the menu as MENU does when it goes to the main view). False when this synth type has no such screen.
+bool synth_ui_go(synth_ui_t *ui, const rack_t *rack, synth_go_t where);
+// The screen on show, as one of those (SAMPLES and ALGORITHM are Sound; any page but the SEQUENCER is the main view).
+synth_go_t synth_ui_where(const synth_ui_t *ui, const rack_t *rack);
 // True while the MODIFIERS tab is on screen (a key or a control then selects itself; see scr_mods.c).
 bool synth_ui_on_mods_tab(const synth_ui_t *ui, const rack_t *rack);
 // True while the CURVES tab is on screen (the knobs CURVES_KNOB_X / _Y then move the selected point; see scr_curves.c).

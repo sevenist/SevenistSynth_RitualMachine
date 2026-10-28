@@ -53,6 +53,19 @@ void ui_page_title(char *out, int n) {
     snprintf(out, (size_t)n, "%s", pg.title);
 }
 
+// The list popup on screen: the joystick down to the option named `name`, then its push. False (nothing pushed) when it has none.
+bool ui_list_pick(const char *name) {
+    for (int k = 0; k < POPUP_CHOICES && popup_modal(&ui_app.popup); k++) {
+        const popup_msg_t *m = &ui_app.popup.queue[0];
+        char t[POPUP_LABEL_LEN];
+        if (m->label) m->label(m->ctx, m->focus, t, (int)sizeof t);
+        else snprintf(t, sizeof t, "%s", m->options[m->focus]);
+        if (!strcmp(t, name)) { ev_tap(CTL_JOY_SW); return true; }
+        ev_tap(CTL_JOY_DOWN);
+    }
+    return false;
+}
+
 int main(int argc, char **argv) {
     u8g2_Setup_sh1107_128x128_f(&disp, U8G2_R0, u8x8_byte_empty, u8x8_dummy_cb);
     u8g2_SetFont(&disp, u8g2_font_5x7_tr);

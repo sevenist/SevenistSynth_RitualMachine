@@ -44,3 +44,4 @@ void ev_idle(int steps);                    // app steps without input (popups e
 void ui_set_type(int synth_type);           // switches the synth type as the GENERAL tab would, then rebuilds the pages
 int  ui_find_page(int slot, int def);       // index of that page, -1 when it is not shown
 void ui_page_title(char *out, int n);       // title of the page on screen
+bool ui_list_pick(const char *name);      // the list popup on screen: the joystick to the option of that name, then its push

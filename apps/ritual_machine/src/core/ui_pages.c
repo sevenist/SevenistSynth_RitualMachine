@@ -343,6 +343,43 @@ bool synth_ui_open_page(synth_ui_t *ui, const rack_t *rack, int slot, int def) {
     return false;
 }
 
+// The page list's screens (ADR-044): the tab of each (TAB_COUNT: not a tab). Sound is GENERAL for now.
+#define TAB_COUNT ((tab_t)(TAB_PRESET + 1))
+static const tab_t go_tab[SYNTH_GO_COUNT] = {
+    [SYNTH_GO_MAIN] = TAB_COUNT, [SYNTH_GO_RACK] = TAB_RACK, [SYNTH_GO_PRESETS] = TAB_PRESET, [SYNTH_GO_SOUND] = TAB_GENERAL,
+    [SYNTH_GO_SEQ] = TAB_COUNT, [SYNTH_GO_MACROS] = TAB_MACROS, [SYNTH_GO_KEYS] = TAB_KEYS, [SYNTH_GO_LEDS] = TAB_LEDS,
+    [SYNTH_GO_MODS] = TAB_MODS, [SYNTH_GO_JOY] = TAB_JOY, [SYNTH_GO_CURVES] = TAB_CURVES,
+};
+
+bool synth_ui_go(synth_ui_t *ui, const rack_t *rack, synth_go_t where) {
+    if (where < 0 || where >= SYNTH_GO_COUNT) return false;
+    ui->seq_knob_key = 0;                                         // (as synth_ui_handle on a change of screen)
+    if (where == SYNTH_GO_SEQ) return synth_ui_open_page(ui, rack, GLOBAL_PAGE, GP_SEQ);
+    if (where == SYNTH_GO_MAIN) {
+        if (ui->in_rack) {                                        // the same as closing the menu with MENU
+            ui->latched = false; ui->cog_page = -1;
+            ui->in_rack = false; ui->row = 0;
+            if (ui->rack_dirty) { ui->rebuild = true; ui->rack_dirty = false; synth_ui_rebuild_pages(ui, rack); }
+        }
+        return true;
+    }
+    const int t = tab_index_of(rack, go_tab[where]);
+    if (t < 0) return false;
+    if (!ui->in_rack || ui->menu_tab != t) { ui->row = 1; ui->latched = false; }
+    ui->cog_page = -1;
+    ui->in_rack = true;
+    ui->menu_tab = t;
+    return true;
+}
+
+synth_go_t synth_ui_where(const synth_ui_t *ui, const rack_t *rack) {
+    if (!ui->in_rack) return synth_ui_shows_seq(ui) ? SYNTH_GO_SEQ : SYNTH_GO_MAIN;
+    const tab_t t = tab_kind(rack, ui->menu_tab);
+    if (t == TAB_SAMPLES || t == TAB_FM_ALGO) return SYNTH_GO_SOUND;
+    for (int w = 0; w < SYNTH_GO_COUNT; w++) if (go_tab[w] == t) return (synth_go_t)w;
+    return SYNTH_GO_MAIN;
+}
+
 bool synth_ui_on_keys_tab(const synth_ui_t *ui, const rack_t *rack) { return ui->in_rack && tab_kind(rack, ui->menu_tab) == TAB_KEYS; }
 bool synth_ui_on_mods_tab(const synth_ui_t *ui, const rack_t *rack) { return ui->in_rack && tab_kind(rack, ui->menu_tab) == TAB_MODS; }
 bool synth_ui_on_curves_tab(const synth_ui_t *ui, const rack_t *rack) { return ui->in_rack && tab_kind(rack, ui->menu_tab) == TAB_CURVES; }

@@ -1738,6 +1738,40 @@ Chosen by me while building (say if one is wrong):
   real screen, the display window's place next to a taller panel. The engine tests were not run again (no engine or app engine
   file changed). `release` and `card_reader` were not built.
 
+### ADR-044: A page list on Shift + Menu, a page jump list on a long Menu press (Accepted; user choices of 2026-10-28; being built on `main`, one commit per step)
+**Why.** The user, preparing the controls of the next prototype: "the shift menu should now show a list of pages available
+including main view (with all pages unchanged)", "a long menu press should show a list of dynamic pages in the main view",
+and "group stuff together: the advanced options in a separate submenu, the main ones together, and modes". Until now a screen
+is reached by stepping through the menu's tabs (up to 10, left / right) or the main view's pages, and Shift + Menu switches
+Synth <-> Pads.
+
+**Decisions taken by the user** (one round of options with pros and cons; recorded, not to be re-litigated):
+1. **The list** (Shift + Menu), grouped under headings:
+   `MODES`: Synth (the main view, its pages unchanged), Pads (the 404-style section: grid, editor, steps);
+   `MAIN`: Rack (Synth) / Pad FX (Pads), Presets, Sound, Sequencer (the SEQUENCER page / the Pads STEPS), **Macros** (the
+   user: "a main part of recording movement and texture change made by the user");
+   `ADVANCED >`, a submenu: Keys, LEDs, Modifiers, Joy, Curves, Storage.
+2. **A short Menu press stays as today** (the tabs, on the last one; my recommendation): the list is a way in, nothing to
+   relearn, the saved settings untouched.
+3. **The entries follow the mode** (my recommendation): Rack <-> Pad FX, Sequencer <-> Steps, Sound only in Synth.
+4. **Sound = GENERAL + SAMPLES (Modular) or ALGORITHM (FM) merged into one screen** (I offered: one screen, or separate
+   entries).
+5. **A long Menu press** lists the main view's pages (the ones built from the patch, then the global ones); the one picked
+   is shown.
+
+**The plan, one commit per step.** (1) The list popup takes more options than fit (it scrolls), headings that the focus skips,
+and labels asked from the caller (a list of 69 pages needs no copy of their names). (2) The list on Shift + Menu. (3) The long
+press. (4) Storage: the USB card reader, through the storage HAL. (5) The Sound screen. (6) Docs.
+
+Chosen by me while building (say if one is wrong):
+1. **Shift + Menu opens the list at once** (on the press); **a plain Menu press acts on its release** when it was short, so a
+   hold can become the jump list (`MENU_LONG_MS` 500): the menu opens a moment later than before, at the release.
+2. **In Pads, the synth's entries take you to the synth** (Presets, Macros, the ADVANCED tabs: they are the synth's menu
+   tabs); Sound is not listed there. The long press in Pads lists the synth's pages too, and a pick goes to the synth.
+3. **The Synth <-> Pads switch moves into MODES**; the key function Section (`ACT_SECTION`) stays as a direct switch.
+4. **The list opens on the entry of the screen on show** (Rack when the RACK tab is open, Synth on a main view page ...), the
+   jump list on the page on show.
+
 ## Known limits and ideas for later
 
 - Not hooked to the UI yet: the **Sampler** and **Granular** modules and the sample bank (stage 6 is engine-level and

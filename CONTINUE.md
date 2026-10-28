@@ -6,9 +6,15 @@ not: state, the latest measurements and what to do next, the user's working styl
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
 `apps/ritual_machine/tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
-## Session todo (updated 2026-10-28)
+## Session todo (updated 2026-10-28, second session)
 
-**Where things stand (2026-10-28):** the working tree is clean: the user committed the 2026-10-14 work as `6220041`
+**Where things stand (2026-10-28, second session):** the board runs the normal build of `perf-pads`, now **merged into
+`main`** (fast-forward to `6742923`, after the user listened: identical). At `/session-start` the user reported the sequencer erase "not working", then, after I showed them the test,
+tried again: **it works, but it is confusing** (what confuses was not said: ask in the editing-tools round). Then **a design
+round on the controls for the next prototype**: the decisions are in the first two items below (not yet in ENGINE_DESIGN.md:
+write them as an ADR when the build starts). Nothing built.
+
+**Where things stood (2026-10-28, first session):** the working tree is clean: the user committed the 2026-10-14 work as `6220041`
 ("untested changes", 2026-10-22) and the 2026-10-22 work (piano roll, LM4871) as `9643e27` ("piano roll stuff"; not pushed:
 `origin/main` is at `6220041`). The repo is now in **`D:\PRODUCT DESIGN\SevenSynthCore\Sevenist Core`** (see "Working style and
 environment traps": a longer path). At `/session-start` the user reported: **Spk Off works properly**; the board makes **a pop
@@ -58,26 +64,30 @@ was then asked with options (audio into a sample, a popup when arming, the desti
 item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
 21-23).
 
-- [x] **The new piano roll: tried by the user, "perfect all working fine"** (done 2026-10-22; where it was tried was not said:
-  nothing was flashed by me; the sizes and the "chosen by me" points stand as built) (from: user, design round of 2026-10-22; ENGINE_DESIGN.md ADR-042 decisions
-  25-28, with the points chosen by me and the "as built" notes there: say if one is wrong). **Built 2026-10-22, host-tested,
-  NOT tried by the user, NOT flashed, uncommitted.** What is there: the joystick picks a step (left / right: the note nearest
-  in pitch on the new step) and a note of its chord (up / down by pitch, with an empty slot where a new note would go when
-  the chord has room; up past the top = the header, down = back); its push removes the selected note or fills the slot with
-  the last note entered (a step left empty gets the default values; Undo brings it back), on Tool / On it runs the tool;
-  three info lines under the roll (`C#4 L2 V100 75% x2` / `Tool Copy` `On Step` / `03/16` + Rec / Erase / Audio + play
-  picture), encoder A picks the value encoder B changes; no Step / Voice / Run rows any more (Play starts and stops); the roll
-  24 semitones x 3 px, notes as unfilled boxes with the inside line filled to the velocity, the selected note 5 px x length + 2.
-  Checked by me: 154 UI tests (one rewritten into `seq_chord_notes_are_picked_with_the_joystick`, the others moved from the
-  removed rows to the joystick), both simulators built, the firmware built (scratch build directory; static RAM 222532 bytes,
-  67.9 %, the same), the page drawn by `tools/ui_dump.c` at 128 x 128 and 128 x 64 in eight states and looked at. Seen there,
-  for them to judge: with velocity 100 a note's inside is 3/4 filled, so notes look nearly solid; a selected note or the slot
-  a semitone from another note covers 1 px of it. **To try** (simulator: `.\build.ps1`, `.\run.ps1`): SEQUENCER page,
-  encoder A down once (the Note value), joystick left / right over the steps, up / down on a chord, up to the empty slot and
-  push, push again; encoder A to Vel, encoder B; up past the top to the header, left / right = pages; Tool + push. Ask what
-  to change in the sizes ("to put to the test")
+- [ ] **The page list on Shift + Menu, and the page jump list on a long Menu press** (from: user, design round 2026-10-28;
+  decided, not built; write it as an ADR before building). Their list, as agreed:
+  `MODES`: Synth (the main view, its pages unchanged), Pads (the 404-style section: grid, editor, steps);
+  `MAIN`: Rack (Synth) / Pad FX (Pads), Presets, Sound (GENERAL + SAMPLES or ALGORITHM by synth type, **merged into one
+  screen**: their choice), Sequencer (a jump to the SEQUENCER page / the Pads STEPS), **Macros** (in MAIN, their words: "a
+  main part of recording movement and texture change made by the user");
+  `ADVANCED >` a submenu: Keys, LEDs, Modifiers, Joy, Curves, Storage.
+  Their choices (my recommendations): **a short Menu press stays as today** (the tabs, on the last one), the list is a way in;
+  **the entries follow the mode** (Rack <-> Pad FX, Sequencer <-> Steps). **A long Menu press**: a list of the main view's
+  pages (the dynamic ones), a jump to the page picked. To settle while building: the long-press time (~0.5 s?), what a
+  Shift + Menu does now to the Synth <-> Pads switch (it moves into the list's MODES; the key function Section stays),
+  `GP_*` / `tab_t` saved in `ui.cfg` by the jump slots (append, never reorder)
+- [ ] **LEDs attached to controls, for the next prototype** (from: user, 2026-10-28; decided, not built). Today the LEDs are
+  mapped through key coordinates; the next prototype has **an LED under each pot and one under encoder A**. The plan: a
+  table of LEDs per board, each naming the control it sits under (key, pot, encoder); the app lights a control. The pot
+  LEDs, **configurable** (their answer, beyond my three options): the catch state as brightness, the value as colour
+  saturation, the role colour as an override; in macro mode the macro's colour; on a Shift or Mod press the colour of what
+  the pot does in that layer (a pot that becomes a macro shows it while the modifier is held). Unknown: the number of pots
+  on the next prototype, the LED chain order, what encoder A's LED shows (ask)
+- [x] **`perf-pads`: listened to by the user ("sounds identical, no bug found for now") and merged** (done 2026-10-28: `main`
+  fast-forwarded to `6742923`, the branch deleted; not pushed: `main` is 10 commits ahead of `origin/main`)
 - [ ] **Design round "ui ux and editing tools", the rest** (from: user, 2026-10-14; on 2026-10-22 they scoped the round to the
-  piano roll: these stay for a later round): the pads patterns have no edit tools (copy, clear a track, shift: "Known gaps"
+  piano roll: these stay for a later round): **the erase under the playhead works but confuses** (user, 2026-10-28: ask
+  what); the pads patterns have no edit tools (copy, clear a track, shift: "Known gaps"
   of stage 3); no on-screen Rec control for the synth (offered 2026-10-12, never answered; with decision 26 the Rec word
   stays on the info line); no LED for the armed record or for step mode; the Pads key layout's bottom row is free; from
   "Known debt": the quick macro button, the main view not declarative, the list rows off the 8 x 8 grid
@@ -103,7 +113,8 @@ item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
   streamed pads 125.7k -> 101.7k (blocks over budget 458 -> 15); synth idle 46.7k -> 42.7k. All exact (the mix fast path:
   checksum test); host tests pass. **Not listened to** (nothing should sound different: worth a quick check of the pads and
   the switch between the sections). The board was left with the normal build of the branch (see "Where things stand")
-- [ ] **Synth sequencer: the user tries the erase, its Undo and the roll that follows** (from: user, 2026-10-14; ENGINE_DESIGN.md
+- [ ] **Synth sequencer: the user tries the erase, its Undo and the roll that follows** (**2026-10-28: the erase tried on the
+  board: works, "but confusing"**; the Undo and the roll not reported) (from: user, 2026-10-14; ENGINE_DESIGN.md
   ADR-042 decisions 21-23, with the choices made while building: say if one is wrong). Their words: "pressing back/delete key
   while recording, erase the sequencer under the playhead, the undo should revert the deletions, also the sequencer doesn't
   scroll"; asked, their answers: Back erases **"while it's held"**; the scroll (follow the playhead, sideways past step 16, up

@@ -86,7 +86,7 @@ C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py 
 
 | Command | What it does |
 |---|---|
-| `pad on` / `pad off` | the Pads section / the synth (as Shift + Menu) |
+| `pad on` / `pad off` | the Pads section / the synth (as the page list's Pads / Synth) |
 | `pad fill F N` | catalog file F (see `samples`) on pads A1.. (N pads, default settings) |
 | `pad def A1 <words>` | pad A1 as a `pads.cfg` line: `pad def A1 loop 1 xfade 20 file kick` (the file name last) |
 | `pad push K` / `pad rel K` | push / release pad K (0..63), as its key |

@@ -11,8 +11,10 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
 **Where things stand (2026-10-28, second session):** the board runs the normal build of `perf-pads`, now **merged into
 `main`** (fast-forward to `6742923`, after the user listened: identical). At `/session-start` the user reported the sequencer erase "not working", then, after I showed them the test,
 tried again: **it works, but it is confusing** (what confuses was not said: ask in the editing-tools round). Then **a design
-round on the controls for the next prototype**: the decisions are in the first two items below (not yet in ENGINE_DESIGN.md:
-write them as an ADR when the build starts). Nothing built.
+round on the controls for the next prototype**: the decisions are in the first two items below. Then, at their choice
+(my recommendation C then A), `perf-pads` merged after they listened, then **option A built on `main`, one commit per step**
+(their wish: "commit per step so commit tree shows advancement"): ADR-044, `3b5bfcd` .. the docs commit. Two more questions
+asked while building (the SOUND tab replaces the three tabs; Vol / Out / Spk / Knob stay in it). Not flashed, not tried.
 
 **Where things stood (2026-10-28, first session):** the working tree is clean: the user committed the 2026-10-14 work as `6220041`
 ("untested changes", 2026-10-22) and the 2026-10-22 work (piano roll, LM4871) as `9643e27` ("piano roll stuff"; not pushed:
@@ -64,8 +66,15 @@ was then asked with options (audio into a sample, a popup when arming, the desti
 item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
 21-23).
 
-- [ ] **The page list on Shift + Menu, and the page jump list on a long Menu press** (from: user, design round 2026-10-28;
-  decided, not built; write it as an ADR before building). Their list, as agreed:
+- [ ] **The page list on Shift + Menu, and the page jump list on a long Menu press: the user tries it** (from: user, design
+  round 2026-10-28; ENGINE_DESIGN.md ADR-044, with the points chosen by me while building: say if one is wrong). **Built
+  2026-10-28 on `main` (6 commits), host-tested (162 UI tests), simulator + firmware built, NOT flashed, NOT tried.** **To try**
+  (simulator: `.uild.ps1`, `.un.ps1`; the board after a flash): Shift + Menu (it opens on the screen you are on), Rack,
+  Sound (Modular: the sample rows at the end; FM: Algo / Fb / Op), Sequencer, Macros, Advanced > Curves, Back from the
+  submenu; Pads, then Shift + Menu: Pad FX, Steps, Pads, Presets (back to the synth); Menu held 0.5 s on a page, in the menu,
+  in Pads: the pages, one picked; a short Menu still opens the menu (at the release now: say if it feels late); on the board,
+  Advanced > Storage, Yes: the card reader (back: the joystick held 2 s). The 128 x 64 drawing was not looked at by me.
+  Their list, as agreed:
   `MODES`: Synth (the main view, its pages unchanged), Pads (the 404-style section: grid, editor, steps);
   `MAIN`: Rack (Synth) / Pad FX (Pads), Presets, Sound (GENERAL + SAMPLES or ALGORITHM by synth type, **merged into one
   screen**: their choice), Sequencer (a jump to the SEQUENCER page / the Pads STEPS), **Macros** (in MAIN, their words: "a
@@ -906,13 +915,16 @@ The user decides and I record the reasoning and move on, without re-litigating:
 
 ## Known debt / small issues
 
+- **`tools/ui_dump.c` draws at 128 x 128 here whatever `UI_DUMP_SIZE` says, and a joystick move in a list popup did not show
+  in its frame** (2026-10-28; the app's focus does move: checked in a UI test on both boards). Not chased: the 128 x 64 look of
+  the page list and of the SOUND tab is unchecked.
 - **Octave / Page on the function row's columns 5..8 play on no board** (moved here from the session todo on 2026-10-22; from: notes, a consequence of the user's
   choice in 2c). The built-in key layouts still give F5..F8 those four functions; the octave is Shift + joystick up /
   down. To decide when it matters: drop the four entries from the layouts, or give them other keys.
 - **Sample browser, left over** (2026-10-11, from its done item; ENGINE_DESIGN.md ADR-041, "The browser held the UI"): near
   the end of the 1800-file folder an audition makes a STREAMED pad drop out (7 .. 8 underruns in 6 auditions, the same before
   the change; 0 near the top: sub-folders cure it); a whole pad sample is still one read of up to 0.4 s.
-- **New placeholders to paint**: `24/slot_mix`, `8/ui_para` (`24/mod_sum` deleted). Defaults of SA / CB in row M reach full scale on the
+- **New placeholders to paint**: `24/slot_mix`, `8/ui_para` (`24/mod_sum` deleted); `16/tab_sound` (the SOUND tab, ADR-044: it shows `tab_general` until then). Defaults of SA / CB in row M reach full scale on the
   loud demo patch (measured, 32767 peak): the user's call (from: notes)
 
 - **The start** (2026-10-11): 5.1 s to the UI on the user's card. Not looked at: why the first step (the settings read from the

@@ -20,7 +20,19 @@ on the hardware.
   and the next panel (4 columns, encoders).
 - **For developers:** the repo is now a library and the apps built on it. The next section is the guide to it.
 
-## 2026-10-28: faster Pads, the engine's fast memory back in internal RAM (branch `perf-pads`)
+## 2026-10-28: a page list, a jump list, the SOUND tab (ADR-044)
+
+- **Shift + Menu opens a list of the machine's screens**: MODES (Synth, Pads), MAIN (Rack, or Pad FX in Pads; Presets;
+  Sound; Sequencer, or Steps in Pads; Macros) and ADVANCED > (Keys, LEDs, Modifiers, Joy, Curves, Storage). It opens on
+  the screen you are on. Switching Synth <-> Pads is now done there (or with the key function Section).
+- **Hold Menu half a second** for a list of the main view's pages, and jump to one. A short press still opens the menu,
+  now when you let go of the key.
+- **The SOUND tab** holds what GENERAL, SAMPLES and ALGORITHM held: one screen, the menu has nine tabs for every synth type.
+- **Storage** (in ADVANCED) restarts the machine as the USB card reader, after asking.
+- **For developers:** the drawing kit's list popup scrolls past six options, has headings and asks its labels from the
+  caller (`popup_choose_labels`); the storage HAL has `storage_card_reader`.
+
+## 2026-10-28: faster Pads, the engine's fast memory back in internal RAM (`perf-pads`, merged)
 
 - **The Pads section costs less CPU.** With one pad playing the Pads player takes a fifth of what it did, and 8 streamed
   pads leave about 20 % more of the budget free. Nothing should sound different (every change is exact).

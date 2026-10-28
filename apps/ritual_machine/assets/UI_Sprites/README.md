@@ -26,7 +26,7 @@ Names are lower case letters, digits and `_`, and start with a letter. The kind 
 | `mod_`  | a rack module (24/) | `mod_osc mod_filter mod_sat mod_lfo mod_mseq mod_env mod_sampler mod_eg mod_comb` |
 | `slot_` | rack cells (24/) | `slot_empty slot_out` |
 | `osc_`  | an oscillator wave / engine (24/; the icon of an OSC module's first page, else `mod_osc`) | `osc_sine osc_pulse osc_sawdn osc_sawup osc_tri osc_noise osc_karp osc_modal osc_fm2 osc_fold osc_ssaw osc_vowel osc_add osc_dust osc_strng` |
-| `tab_`  | a menu tab's icon at the left of the top bar (16/) | `tab_rack tab_presets tab_general tab_algorithm tab_fx tab_samples tab_keys tab_modifiers tab_macros tab_curves tab_leds tab_joy` (`tab_operator tab_envelope`: tabs no longer shown) |
+| `tab_`  | a menu tab's icon at the left of the top bar (16/) | `tab_rack tab_presets tab_general tab_algorithm tab_fx tab_samples tab_keys tab_modifiers tab_macros tab_curves tab_leds tab_joy` (`tab_operator tab_envelope tab_samples tab_algorithm`: tabs no longer shown; `tab_sound`, the SOUND tab's, is not painted yet: it shows `tab_general`) |
 | `fx_`   | an effect | (to be wired) |
 | `op_`   | FM operators | (to be wired) |
 | `ui_`   | UI details | `ui_xy` (8/), `ui_cog` (8/: the cog of a module's first page; inverted while focused), `ui_sdcard` (64/: the picture of the USB card reader's screen, drawn at the top centre, lit pixels only) |

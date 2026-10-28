@@ -235,7 +235,7 @@ The three kinds, and what the controls do on them (`screen_event`):
 | Kind | Joystick | Joystick push | Encoder B | Examples |
 | --- | --- | --- | --- | --- |
 | `EL_VALUE` | moves the focus to the neighbour; with no neighbour on that side it changes the value. On a `use_latch` screen, once latched, left / right change the value | latch / release (`use_latch` screens only) | changes the value | Type, Tgt, Voices, Algo |
-| `EL_DIRECT` | left / right change it, up / down move the focus | runs `activate()` if set | changes it | the RACK tab's three rows; Op of the ALGORITHM tab |
+| `EL_DIRECT` | left / right change it, up / down move the focus | runs `activate()` if set | changes it | the RACK tab's three rows; Op of the SOUND tab (FM) |
 | `EL_BUTTON` | moves the focus | activates | its push activates | Insert, Delete, Assign, Load |
 
 - **The joystick moves spatially** (`nav`): left / right to the nearest enabled element of the same grid row, up / down to
@@ -256,22 +256,20 @@ menu, call `screen_event` and `screen_draw` yourself, as `scr_pads.c` does for t
 
 ## 7. The menu and its tabs
 
-Menu (Button 1, or the key function Menu) opens and closes it. Closing it with structural edits regenerates the pages and
-asks the app to rebuild the engine. The tabs depend on the synth type (`tab_kind`, `ui_pages.c`):
+Menu (Button 1, or the key function Menu) opens and closes it, **at its release** (held 0.5 s it opens the jump list instead:
+below). Closing it with structural edits regenerates the pages and asks the app to rebuild the engine. The tabs are the same
+for every synth type (`tab_kind`, `ui_pages.c`; ADR-044 merged GENERAL, SAMPLES and ALGORITHM into SOUND):
 
-| Synth type | Tabs, in order |
-| --- | --- |
-| Modular | RACK, PRESETS, GENERAL, SAMPLES, KEYS, LEDS, MODIFIERS, MACROS, JOY, CURVES |
-| FM | RACK, PRESETS, GENERAL, ALGORITHM, KEYS, LEDS, MODIFIERS, MACROS, JOY, CURVES |
-| Strings | RACK, PRESETS, GENERAL, KEYS, LEDS, MODIFIERS, MACROS, JOY, CURVES |
+RACK, PRESETS, SOUND, KEYS, LEDS, MODIFIERS, MACROS, JOY, CURVES
+
+`tab_t` keeps the old values (`TAB_GENERAL`, `TAB_SAMPLES`, `TAB_FM_ALGO`: the jump slots saved them) and `tab_index_of` maps
+them onto SOUND; a new tab is appended.
 
 | Tab | File | Elements | Picture / extra |
 | --- | --- | --- | --- |
 | RACK | `scr_rack.c` | the three rows (FM / Strings: row M only), and the push menu (below) | the rows, their links, a line describing the selection |
 | PRESETS | `scr_preset.c` | Load, Save, Save as, Init: each only raises `ui->preset_req`, the app does the work | the preset's name, `edited` or `saved` |
-| GENERAL | `scr_general.c` | Type, Patch (FM), Voices, Glide and Legato (Voices 1), Vol, Out, Spk, Knob | the info box (`draw_synth_info`) |
-| SAMPLES | `scr_samples.c` | File (a push opens the browser), Tgt, Assign | the file's overview, length and root note |
-| ALGORITHM | `scr_fm.c` | Algo, Fb, Op (left / right pick an operator, a push opens its OPn page) | the operator tree, the selected operator inverted |
+| SOUND | `scr_sound.c` | Type, Patch (FM), Voices, Glide and Legato (Voices 1), Vol, Out, Spk, Knob; then Modular: File (a push opens the browser), Tgt, Assign; FM: Algo, Fb, Op (left / right pick an operator, a push opens its OPn page). The rows that do not apply are hidden; the list scrolls | the part the focus is in: the info box (`draw_synth_info`), the file's overview, or the operator tree |
 | KEYS | `scr_keys.c` | Layout, Key, Func, Reset | the keys with their functions |
 | LEDS | `scr_leds.c` | Role, Idle, Idle %, Active, Act %, Reset | the keys of that role filled |
 | MODIFIERS | `scr_mods.c` | Layer, Ctrl, Func, Min, Max, Curve, Learn, Reset | the controls with their function in the layer |
@@ -282,6 +280,21 @@ asks the app to rebuild the engine. The tabs depend on the synth type (`tab_kind
 All but RACK use `ui_layout_column` (a list on the left, the picture on the right) and no latch. Edits that change the
 structure (a module inserted or deleted, a target, the type, the voices, the FM patch) set `rack_dirty` or `rebuild`; edits
 that are live (volume, an effect's value, FM operator values) return `true` so the app pushes them to the engine at once.
+
+### The page list and the jump list (`app/app_lists.c`; ENGINE_DESIGN.md ADR-044)
+
+Both are list popups of the drawing kit (`popup_choose_labels`, `ui/popup.h`: the labels are asked as they are drawn, a
+heading is skipped by the focus, a long list scrolls).
+
+- **Shift + Menu: the page list**, opened on the entry of the screen on show:
+  `MODES` Synth, Pads / `MAIN` Rack (Pads: Pad FX), Presets, Sound (synth only), Sequencer (Pads: Steps), Macros, Advanced >
+  / the submenu `ADVANCED`: Keys, LEDs, Modifiers, Joy, Curves, Storage (asks, saves, then `storage_card_reader`, the
+  storage HAL; Back from the submenu = the list on Advanced). A synth tab picked in Pads switches to the synth first. The
+  synth's side goes through `synth_ui_go` / `synth_ui_where` (`synth_go_t`, `ui_pages.c`).
+- **Menu held `MENU_LONG_MS` (500 ms): the jump list**, the main view's pages by title (`synth_ui_page_title`), on the page on
+  show; a pick shows it (`synth_ui_go_page`, row 1), from the menu or from Pads too. A rack edited in the menu is applied
+  first, so the list holds the pages it makes. Menu's short press therefore acts at its release (`app_menu_up`, called from
+  both release paths of `app_input.c`).
 
 ### The RACK tab (`scr_rack.c`)
 
@@ -314,7 +327,7 @@ the menu (a popup over the rows, only the rows that apply): Edit, Type, Insert, 
 
 ## 8. The Pads section (`core/scr_pads.c`)
 
-Shift + Menu switches Synth <-> Pads. In Pads, `pads_ui_handle` and `pads_ui_draw` take over; they pick a screen from the
+The page list's MODES (Shift + Menu) or the key function Section switch Synth <-> Pads. In Pads, `pads_ui_handle` and `pads_ui_draw` take over; they pick a screen from the
 state:
 
 | State | Screen | Written as |
@@ -349,7 +362,7 @@ section and has its own event and draw functions (`browse_ui_event`, `browse_ui_
 | Opened for (`br_open`) | By | The choice goes to |
 | --- | --- | --- |
 | `BROWSE_PAD` | a push on the pad editor's sample row | the pad, at once: its key plays the highlighted file; Back puts the pad back as it was |
-| `BROWSE_RACK` | the SAMPLES tab's File row | that tab's File |
+| `BROWSE_RACK` | the SOUND tab's File row (Modular) | that row's File |
 | `BROWSE_PRESET` | the PRESETS tab's Load | the sound: the highlighted preset plays under the keys; Back brings the sound back |
 
 A screen only sets `ui->br_req`; the app opens the browser (`app/app_library.c`, `app_browse_open`), because reading a

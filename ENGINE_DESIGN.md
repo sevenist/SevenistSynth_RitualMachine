@@ -1738,7 +1738,7 @@ Chosen by me while building (say if one is wrong):
   real screen, the display window's place next to a taller panel. The engine tests were not run again (no engine or app engine
   file changed). `release` and `card_reader` were not built.
 
-### ADR-044: A page list on Shift + Menu, a page jump list on a long Menu press (Accepted; user choices of 2026-10-28; being built on `main`, one commit per step)
+### ADR-044: A page list on Shift + Menu, a page jump list on a long Menu press (Accepted; user choices of 2026-10-28; built on `main` the same day, `e45de47` .. the docs commit, host-tested, NOT flashed, NOT tried by the user)
 **Why.** The user, preparing the controls of the next prototype: "the shift menu should now show a list of pages available
 including main view (with all pages unchanged)", "a long menu press should show a list of dynamic pages in the main view",
 and "group stuff together: the advanced options in a separate submenu, the main ones together, and modes". Until now a screen
@@ -1758,6 +1758,10 @@ Synth <-> Pads.
    entries).
 5. **A long Menu press** lists the main view's pages (the ones built from the patch, then the global ones); the one picked
    is shown.
+6. **SOUND replaces GENERAL + SAMPLES / ALGORITHM in the menu's tabs** (asked while building, my recommendation; the other
+   option: Sound only in the list, the three tabs kept): 9 tabs for every synth type.
+7. **Vol, Out, Spk and Knob stay in SOUND** (asked while building; the other option: Out / Spk / Knob to a Settings entry of
+   ADVANCED).
 
 **The plan, one commit per step.** (1) The list popup takes more options than fit (it scrolls), headings that the focus skips,
 and labels asked from the caller (a list of 69 pages needs no copy of their names). (2) The list on Shift + Menu. (3) The long
@@ -1771,6 +1775,39 @@ Chosen by me while building (say if one is wrong):
 3. **The Synth <-> Pads switch moves into MODES**; the key function Section (`ACT_SECTION`) stays as a direct switch.
 4. **The list opens on the entry of the screen on show** (Rack when the RACK tab is open, Synth on a main view page ...), the
    jump list on the page on show.
+5. **Pads, picked in the list, is the grid**: the FX chains and step mode close (the pad editor stays as it was).
+6. **The jump list opened from the menu with a rack edit applies it first** (the menu closes, the synth is rebuilt), so the
+   list holds the pages that edit makes; Back then leaves you on the main view. Without an edit the menu stays open behind it.
+7. **Storage asks first** (Yes / No, No focused), then saves everything (`app_save_now`) and calls the new storage HAL
+   function `storage_card_reader` (HWV1: `board_card_reader`; the simulator has none and says so).
+8. **The SOUND tab's picture follows the part the focus is in**; SAMPLES' length / root lines under the list and ALGORITHM's
+   patch name are gone (no room under a list that scrolls; the patch name is the Patch row). Its icon is GENERAL's until
+   `16/tab_sound` is painted.
+9. **The tab value `TAB_SOUND` is appended**, the old three kept and mapped onto SOUND by `tab_index_of`, so a jump slot saved
+   on any of them lands there.
+
+**As built (2026-10-28), one commit per step.**
+1. `framework/ui/popup.*`: `POPUP_CHOICES` 6 -> 128, `popup_choose_labels` (a label callback, `true` = a heading), the focus
+   skips headings, headings drawn centred between two lines (no memory per option: the jump list of up to 69 pages needs none).
+2. `app/app_lists.c` (new): the list and its submenu (`list_ent`, 16 bytes in `app_t`); `synth_ui_go` / `synth_ui_where`
+   (`synth_go_t`) in `ui_pages.c`. ACT_MENU with Shift opens it. The UI tests' `shift_menu()` picks the other mode in it
+   (`ui_list_pick`, `test_main.c`).
+3. The long press: ACT_MENU records the control and the time (`menu_ctl`, `menu_ms`), `app_menu_poll` (from
+   `app_input_poll`) opens the list after `MENU_LONG_MS`, `app_menu_up` (both release paths) runs the short press;
+   `synth_ui_page_title` / `synth_ui_go_page`. A trap met: the step's `now` can be older than the press time (the tests'
+   clock moves at every call), hence a signed difference.
+4. Storage: `storage_card_reader` in `hal_storage.h`, HWV1 (`card_task.cpp`), the simulator (`storage_sim.c`), the stubs.
+5. `scr_sound.c` (was `scr_general.c`; `scr_fm.c` folded in and removed, `scr_samples.c` keeps the samplers' helpers):
+   15 elements, the ones that do not apply hidden (`EF_HIDE_WHEN_DISABLED`), the list scrolls. `tab_kind`: one table of 9.
+   `tools/ui_dump.c`: "menu" is a press and a release.
+- Checked: 162 UI tests (new: `test_popup.c`, `test_lists.c`: the list in both modes, the submenu and its Back, the rack
+  edit left by the list, Storage, the jump list from the pages, the menu and Pads, the SOUND tab's rows per synth type); the
+  Ritual Machine's simulator and firmware build after every step (static RAM 154132 -> 154148 bytes), the template's
+  simulator and firmware after step 4; the SOUND tab drawn by `ui_dump` at 128 x 128 (the settings with the info box, then
+  scrolled to File with the overview) and looked at.
+- **Not done / not checked**: nothing flashed, nobody used it by hand; the 128 x 64 drawing of the list and of SOUND was not
+  looked at; the HWV1 simulator was not rebuilt; Storage on the board (the restart into the card reader) not tried from the
+  list; the engine tests were not run again (no engine file changed).
 
 ## Known limits and ideas for later
 

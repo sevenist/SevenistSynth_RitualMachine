@@ -54,7 +54,7 @@ TEST(page_list_goes_to_the_synths_screens_and_opens_on_the_one_on_show) {
     CHECK(ui_list_pick("Advanced >"));
     CHECK(popup_modal(&ui_app.popup));
     entries(all, (int)sizeof all);
-    CHECK_STR(all, "Keys|LEDs|Modifiers|Joy|Curves");
+    CHECK_STR(all, "Keys|LEDs|Modifiers|Joy|Curves|Storage");
     ev_tap(CTL_BTN_2);
     CHECK(popup_modal(&ui_app.popup));
     focused(t, (int)sizeof t);
@@ -188,4 +188,22 @@ TEST(jump_list_in_pads_goes_to_the_synths_page_and_a_short_press_is_still_the_fx
     synth_ui_page_title(&ui_app.ui, &ui_app.rack, 0, want, (int)sizeof want);
     CHECK(ui_list_pick(want));
     CHECK(ui_app.section == SECTION_SYNTH && !ui_app.ui.in_rack && ui_app.ui.page == 0);
+}
+
+extern int ui_stub_card_reader;
+
+TEST(page_list_storage_asks_then_saves_and_restarts_as_the_card_reader) {
+    ui_fresh();
+    const int calls = ui_stub_card_reader;
+    shift_menu(); CHECK(ui_list_pick("Advanced >")); CHECK(ui_list_pick("Storage"));
+    CHECK(popup_modal(&ui_app.popup) && ui_app.popup.queue[0].kind == POPUP_ASK && !ui_app.popup.queue[0].yes);   // asked, No first
+    ev_tap(CTL_JOY_SW);
+    CHECK(!popup_modal(&ui_app.popup));
+    CHECK_EQ(ui_stub_card_reader, calls);                              // No: nothing
+    shift_menu(); CHECK(ui_list_pick("Advanced >")); CHECK(ui_list_pick("Storage"));
+    ev_tap(CTL_JOY_LEFT);                                               // Yes
+    ev_tap(CTL_JOY_SW);
+    CHECK_EQ(ui_stub_card_reader, calls + 1);
+    CHECK(popup_info_showing(&ui_app.popup));                           // the tests' platform has none: it says so
+    CHECK_STR(ui_app.popup.info.text, "No card reader on this platform");
 }

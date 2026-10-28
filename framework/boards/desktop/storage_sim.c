@@ -123,6 +123,8 @@ static void make_parents(const char *name) {
 }
 
 // As on the board: the app's moves from an older layout first (storage_set_moves), then the missing folders. At once (no card task).
+bool storage_card_reader(void) { return false; }      // (the simulator's card is a folder of the PC already)
+
 void storage_make_folders(void) {
     storage_event_t e = {0};
     e.kind = STORAGE_EV_FOLDERS_DONE;

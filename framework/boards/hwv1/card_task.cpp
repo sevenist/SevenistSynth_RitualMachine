@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include "hal/hal_storage.h"
 #include "boards/hwv1/card_task.h"
+#include "boards/hwv1/board_esp32.h"
 #include "boards/hwv1/sd_card.h"
 
 extern "C" bool display_boot_playing(void);       // display_esp32.cpp: the boot animation still covers the UI
@@ -352,4 +353,9 @@ extern "C" bool storage_poll_event(storage_event_t *e) {
 }
 
 extern "C" void storage_make_folders(void) { g_mkdirs = true; }
+
+extern "C" bool storage_card_reader(void) {
+    board_card_reader();                            // (returns only when this build has no card reader's firmware)
+    return false;
+}
 #endif  // ARDUINO_ARCH_ESP32 && HWV1

@@ -55,6 +55,10 @@ bool storage_poll_event(storage_event_t *e);
 // Creates the missing folders of the app's list on the card. Runs in the background; STORAGE_EV_FOLDERS_DONE follows.
 void storage_make_folders(void);
 
+// Restarts the machine as a USB card reader (the computer sees the card as a drive): save what must be kept first. Returns only
+// when the platform has none (false); the way back to the app is the board's (HWV1: the joystick held 2 s, or the power button).
+bool storage_card_reader(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -3,6 +3,7 @@
 // the mode: Rack <-> Pad FX, Sequencer <-> Steps, Sound only in the synth; the synth's tabs picked in Pads go to the synth.
 // And the jump list (Menu held MENU_LONG_MS): the main view's pages; a short Menu press acts at its release, as it did at the press.
 #include "app/app_internal.h"
+#include "hal/hal_storage.h"
 #include <stdio.h>
 
 #define MENU_LONG_MS 500
@@ -10,7 +11,7 @@
 typedef enum {
     LE_HEAD_MODES, LE_HEAD_MAIN,                           // headings
     LE_SYNTH, LE_PADS, LE_RACK, LE_PRESETS, LE_SOUND, LE_SEQ, LE_MACROS, LE_ADVANCED,
-    LE_KEYS, LE_LEDS, LE_MODS, LE_JOY, LE_CURVES,          // the ADVANCED submenu
+    LE_KEYS, LE_LEDS, LE_MODS, LE_JOY, LE_CURVES, LE_STORAGE,   // the ADVANCED submenu
     LE_COUNT
 } list_entry_t;
 
@@ -18,7 +19,7 @@ static const char *entry_name(const app_t *app, list_entry_t e) {
     static const char *const n[LE_COUNT] = {
         [LE_HEAD_MODES] = "MODES", [LE_HEAD_MAIN] = "MAIN", [LE_SYNTH] = "Synth", [LE_PADS] = "Pads", [LE_RACK] = "Rack",
         [LE_PRESETS] = "Presets", [LE_SOUND] = "Sound", [LE_SEQ] = "Sequencer", [LE_MACROS] = "Macros", [LE_ADVANCED] = "Advanced >",
-        [LE_KEYS] = "Keys", [LE_LEDS] = "LEDs", [LE_MODS] = "Modifiers", [LE_JOY] = "Joy", [LE_CURVES] = "Curves",
+        [LE_KEYS] = "Keys", [LE_LEDS] = "LEDs", [LE_MODS] = "Modifiers", [LE_JOY] = "Joy", [LE_CURVES] = "Curves", [LE_STORAGE] = "Storage",
     };
     if (in_pads(app) && e == LE_RACK) return "Pad FX";
     if (in_pads(app) && e == LE_SEQ) return "Steps";
@@ -58,6 +59,15 @@ static void go_synth(app_t *app, synth_go_t where) {
     synth_ui_go(&app->ui, &app->rack, where);
 }
 
+// Storage: the USB card reader (hal_storage.h), once asked; everything saved first, since the machine restarts.
+static void on_storage(void *ctx, bool yes) {
+    app_t *app = ctx;
+    app->dirty = true;
+    if (!yes) return;
+    app_save_now(app);
+    if (!storage_card_reader()) popup_info(&app->popup, "STORAGE", "No card reader on this platform", 0, audio_millis(), POPUP_INFO_MS);
+}
+
 static void run_entry(app_t *app, list_entry_t e) {
     switch (e) {
         case LE_SYNTH:    go_synth(app, SYNTH_GO_MAIN); break;
@@ -83,6 +93,7 @@ static void run_entry(app_t *app, list_entry_t e) {
         case LE_MODS:     go_synth(app, SYNTH_GO_MODS); break;
         case LE_JOY:      go_synth(app, SYNTH_GO_JOY); break;
         case LE_CURVES:   go_synth(app, SYNTH_GO_CURVES); break;
+        case LE_STORAGE:  popup_ask(&app->popup, "STORAGE", "Restart as a USB card reader? Back: the joystick held 2 s", false, on_storage, app); break;
         case LE_ADVANCED: open_list(app, true, entry_on_show(app)); return;
         default: return;
     }
@@ -105,7 +116,7 @@ static void on_pick(void *ctx, int i) {
 // The list (or its submenu) on the entry `want`; a settings tab wanted in the list is its ADVANCED entry.
 static void open_list(app_t *app, bool advanced, list_entry_t want) {
     static const uint8_t main_list[] = {LE_HEAD_MODES, LE_SYNTH, LE_PADS, LE_HEAD_MAIN, LE_RACK, LE_PRESETS, LE_SOUND, LE_SEQ, LE_MACROS, LE_ADVANCED};
-    static const uint8_t adv_list[] = {LE_KEYS, LE_LEDS, LE_MODS, LE_JOY, LE_CURVES};
+    static const uint8_t adv_list[] = {LE_KEYS, LE_LEDS, LE_MODS, LE_JOY, LE_CURVES, LE_STORAGE};
     const uint8_t *src = advanced ? adv_list : main_list;
     const int n = advanced ? (int)sizeof adv_list : (int)sizeof main_list;
     if (app->ui.br_open) app_browse_close(app, false);          // (the sample browser goes first, nothing chosen)
@@ -114,7 +125,7 @@ static void open_list(app_t *app, bool advanced, list_entry_t want) {
         if (src[k] == LE_SOUND && in_pads(app)) continue;       // Sound is the synth's
         app->list_ent[app->list_n++] = src[k];
     }
-    if (!advanced && want >= LE_KEYS) want = LE_ADVANCED;
+    if (!advanced && want >= LE_KEYS) want = LE_ADVANCED;      // (the submenu's entries)
     int focus = 0;
     for (int k = 0; k < app->list_n; k++) if (app->list_ent[k] == want) focus = k;
     popup_choose_labels(&app->popup, advanced ? "ADVANCED" : "PAGES", app->list_n, focus, list_label, on_pick, app);

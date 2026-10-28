@@ -16,5 +16,79 @@
     },
     "extensions": {
         "recommendations": ["pioarduino.pioarduino-ide"]
+    },
+    // Terminal > Run Task: the firmware from the repo root (upload.ps1: the board found on USB), the simulator.
+    "tasks": {
+        "version": "2.0.0",
+        "tasks": [
+            {
+                "label": "Firmware: upload (Ritual Machine)",
+                "type": "shell",
+                "command": "powershell",
+                "args": [
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    "${workspaceFolder:oled_sim}/upload.ps1"
+                ],
+                "options": {
+                    "cwd": "${workspaceFolder:oled_sim}"
+                },
+                "problemMatcher": [],
+                "group": "build"
+            },
+            {
+                "label": "Firmware: build only (Ritual Machine)",
+                "type": "shell",
+                "command": "powershell",
+                "args": [
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    "${workspaceFolder:oled_sim}/upload.ps1",
+                    "-BuildOnly"
+                ],
+                "options": {
+                    "cwd": "${workspaceFolder:oled_sim}"
+                },
+                "problemMatcher": [],
+                "group": "build"
+            },
+            {
+                "label": "Simulator: build",
+                "type": "shell",
+                "command": "powershell",
+                "args": [
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    "${workspaceFolder:oled_sim}/build.ps1"
+                ],
+                "options": {
+                    "cwd": "${workspaceFolder:oled_sim}"
+                },
+                "problemMatcher": [],
+                "group": "build"
+            },
+            {
+                "label": "Simulator: run",
+                "type": "shell",
+                "command": "powershell",
+                "args": [
+                    "-NoProfile",
+                    "-ExecutionPolicy",
+                    "Bypass",
+                    "-File",
+                    "${workspaceFolder:oled_sim}/run.ps1"
+                ],
+                "options": {
+                    "cwd": "${workspaceFolder:oled_sim}"
+                },
+                "problemMatcher": []
+            }
+        ]
     }
 }

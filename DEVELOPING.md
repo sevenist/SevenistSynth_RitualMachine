@@ -553,7 +553,12 @@ lists its own (`hwv1_controls.h`; the wiring behind them: `hwv1_layout.h`), and 
 C:\.platformio\penv\Scripts\pio.exe run -d apps/ritual_machine                  # build (use this pio: another Python's pio recreates the penv and breaks it)
 C:\.platformio\penv\Scripts\pio.exe run -d apps/ritual_machine -t upload        # flash. THE USER flashes the board, Claude never does
 C:\.platformio\penv\Scripts\python.exe apps\ritual_machine\tools\serial_test.py   # measure on COM8 (close any serial monitor first)
+.\upload.ps1 [-Port COM8] [-App template] [-Env card_reader] [-BuildOnly]        # the same from the repo root, with the right pio and a check that the board is there
 ```
+
+In VS Code: PlatformIO's own Upload button only appears with the app's folder open (`apps/ritual_machine`, the one that holds
+`platformio.ini`; open `oled_sim.code-workspace` and pick `ritual_machine` in PlatformIO's status bar). From the repo root use
+**Terminal > Run Task > "Firmware: upload (Ritual Machine)"** (tasks in `oled_sim.code-workspace`; `upload.ps1`).
 
 > **Warning: never type a bare `pio`.** `pio` on PATH is `Python313\Scripts\pio.exe` (PlatformIO 6.2.0 installed into the user's Python 3.13). It sees that
 > `C:\.platformio\penv` was made with Python 3.11, tries to recreate it with 3.13, fails (`uv installation via pip failed with exit code 106`) and leaves the penv

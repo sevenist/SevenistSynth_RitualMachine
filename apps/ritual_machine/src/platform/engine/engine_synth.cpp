@@ -1,8 +1,10 @@
 #if defined(PLATFORM_SIM) || defined(ARDUINO_ARCH_ESP32)
 #include "platform/engine/engine_synth.h"
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <mutex>
+#include <thread>
 #include "engine/core/engine.h"
 #include "engine/modules/builtin.h"
 #include "engine/modules/dx7_voice.h"
@@ -222,6 +224,19 @@ void pads_master(const rack_t &rack) {                  // the master output of 
     s_synth.eng.set_param(RP_MASTER, 2, cfg.mono);
 }
 
+// A section switch (the synth <-> the Pads section): the new graph has no module of the old one, and the old one's modules hold the
+// fast heap while they play, so the new one would be built in the slower bulk heap (measured: the pads graph all in PSRAM). Called
+// with the new graph built in `cur`, the lock held: an empty graph replaces the old one at the audio thread's next block (waited for,
+// 20 ms at most), then gc() frees its modules. With no audio thread running (the host tests) the wait ends and the new graph is
+// loaded over the pending empty one, as before.
+void free_old_graph(Synth &s) {
+    s.last->g.n_nodes = 0;                                  // (`last` is the old graph's copy: replaced by the new one after the load)
+    s.last->g.n_edges = 0;
+    if (s.eng.load(s.last->g, 1) != Err::Ok) return;
+    for (int i = 0; i < 20 && s.eng.switching(); i++) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    if (!s.eng.switching()) s.eng.gc();
+}
+
 }  // namespace
 
 extern "C" {
@@ -335,6 +350,7 @@ void engine_synth_build(const rack_t *rack, const synth_params_t *params) {
     if (!s_ready) return;
     s_builds++;
     Synth &s = s_synth;
+    const bool from_pads = s.pads_mode;
     s.pads_mode = false;                                    // an explicit build brings the synth back (from the Pads section)
     s.pads_have_last = false;
     prepare_samples(*rack);
@@ -342,6 +358,7 @@ void engine_synth_build(const rack_t *rack, const synth_params_t *params) {
     resolve_samples(*rack);
     if (!rack_graph_build(*rack, *params, s.eng.registry(), *s.cur, s.slot_of, s.cat_n)) return;
     const int nv = synth_config_voices(&rack->cfg);
+    if (from_pads) free_old_graph(s);
     if (s.eng.load(s.cur->g, nv) != Err::Ok) return;
     s.gc_due = true;
     s.last_nv = nv;
@@ -561,6 +578,7 @@ void engine_synth_pads_build(const pads_t *pads, const rack_t *rack) {
     for (int i = 0; i < PAD_COUNT; i++) pad_prepare(pads->pad[i]);
     std::lock_guard<std::mutex> lk(s.mx);
     if (!pads_graph_build(pads->fx, rack->cfg, s.eng.registry(), *s.cur)) return;   // the player, its FX chains, the output
+    if (!s.pads_mode) free_old_graph(s);
     if (s.eng.load(s.cur->g, 1) != Err::Ok) return;
     s.gc_due = true;
     s.pads_mode = true;

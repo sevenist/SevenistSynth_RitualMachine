@@ -1,6 +1,9 @@
 // The Pads section's player (ADR-041 decisions 14-26): pads.h settings -> engine_synth_pads_build / pad_set -> the Pads module -> 8 Sampler
 // voices -> the simulated card. One-shot / gate / toggle, mono restart, choke, Stop all, trim, loop, tune, mute, pan, the filter.
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <thread>
 #include <vector>
 #include "rig.h"
 #include "host/sim_storage.h"
@@ -517,6 +520,63 @@ TEST(pads_switching_sections_frees_the_old_graph) {
     std::printf("    synth -> pads -> synth x3: fast heap %zu -> %zu, bulk %zu -> %zu bytes\n", fast0, fast1, bulk0, bulk1);
     CHECK(fast1 <= fast0 + 256);
     CHECK_EQ(bulk1, bulk_r1);                                                 // more switches: nothing more
+}
+
+// On the board the fast heap (internal RAM) holds one section's graph, not two: at a switch the old graph must leave it before the
+// new one is built, or the new one goes to the bulk heap (PSRAM: measured 2026-10-28, the whole pads graph). After a switch the fast
+// heap holds what a fresh start in the same heap holds.
+TEST(pads_a_section_switch_builds_the_new_graph_in_the_fast_heap) {
+    synth_params_t params;
+    synth_params_default(&params);
+    rack_t rack;
+    rack_init(&rack);
+    pads_t pads;
+    pads_init(&pads);
+    size_t synth_size = 0, pads_size = 0;
+    {
+        std::vector<uint8_t> fast(6u << 20), bulk(6u << 20);
+        CHECK_EQ(engine_synth_init(fast.data(), fast.size(), bulk.data(), bulk.size()), 0);
+        engine_synth_build(&rack, &params);
+        engine_synth_heap_stats(&synth_size, nullptr, nullptr, nullptr, nullptr);
+        engine_synth_shutdown();
+    }
+    const size_t room = synth_size;                                           // the synth's graph nearly fills it, as on the board
+    std::vector<uint8_t> fast(room), bulk(6u << 20);
+    size_t fresh_synth = 0, fresh_pads = 0;                                   // what a fresh start puts in this fast heap
+    CHECK_EQ(engine_synth_init(fast.data(), fast.size(), bulk.data(), bulk.size()), 0);
+    engine_synth_build(&rack, &params);
+    engine_synth_heap_stats(&fresh_synth, nullptr, nullptr, nullptr, nullptr);
+    engine_synth_shutdown();
+    CHECK_EQ(engine_synth_init(fast.data(), fast.size(), bulk.data(), bulk.size()), 0);
+    engine_synth_pads_build(&pads, &rack);
+    engine_synth_heap_stats(&fresh_pads, nullptr, nullptr, nullptr, nullptr);
+    engine_synth_shutdown();
+    pads_size = fresh_pads;
+
+    CHECK_EQ(engine_synth_init(fast.data(), fast.size(), bulk.data(), bulk.size()), 0);
+    std::atomic<bool> stop{false};
+    std::thread audio([&] {                                                   // the audio thread takes each new graph at its next block
+        int16_t buf[64 * 2];
+        while (!stop.load()) { engine_synth_render(buf, 64); std::this_thread::sleep_for(std::chrono::microseconds(200)); }
+    });
+    auto settle = [] { std::this_thread::sleep_for(std::chrono::milliseconds(20)); engine_synth_housekeeping(); };
+    size_t to_pads = 0, back = 0;
+    engine_synth_build(&rack, &params);
+    settle();
+    engine_synth_pads_build(&pads, &rack);
+    settle();
+    engine_synth_heap_stats(&to_pads, nullptr, nullptr, nullptr, nullptr);
+    engine_synth_build(&rack, &params);
+    settle();
+    engine_synth_heap_stats(&back, nullptr, nullptr, nullptr, nullptr);
+    stop.store(true);
+    audio.join();
+    engine_synth_shutdown();
+    std::printf("    fast heap %zu bytes; in it: the synth %zu fresh / %zu after the Pads section, the pads %zu fresh / %zu after the synth\n",
+                room, fresh_synth, back, fresh_pads, to_pads);
+    CHECK(room < synth_size + pads_size);                                     // both do not fit
+    CHECK(to_pads + 256 >= fresh_pads);
+    CHECK(back + 256 >= fresh_synth);
 }
 
 /* ---------------- the FX chains (ADR-041 decisions 23, 47-49): a pad's bus, the chains, the four routings ---------------- */

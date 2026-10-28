@@ -121,6 +121,9 @@ void app_pseq_poll(app_t *app);                                     // every ste
 /* ---------------- app_lists.c (ADR-044) ---------------- */
 
 void app_list_open(app_t *app, bool advanced);                      // Shift + Menu: the page list (advanced: its ADVANCED submenu)
+void app_menu_down(app_t *app, control_id_t ctl, uint32_t now);     // Menu went down (no Shift): held MENU_LONG_MS = the jump list ...
+void app_menu_up(app_t *app, control_id_t ctl);                     // ... a control was let go: Menu's short press acts here
+void app_menu_poll(app_t *app, uint32_t now);                       // every step: the long press
 
 /* ---------------- app_card.c ---------------- */
 

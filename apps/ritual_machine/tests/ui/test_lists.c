@@ -121,3 +121,71 @@ TEST(page_list_leaving_the_rack_with_edits_rebuilds_as_menu_does) {
     shift_menu(); CHECK(ui_list_pick("Sequencer"));                     // a page: the same
     CHECK(!ui_app.ui.in_rack && !ui_app.ui.rack_dirty && synth_ui_shows_seq(&ui_app.ui));
 }
+
+/* ---------------- the jump list: Menu held ---------------- */
+
+// Menu held until the jump list is up (or 200 steps); the release follows.
+static void menu_hold(void) {
+    ev_press(MENU);
+    for (int k = 0; k < 200 && !popup_modal(&ui_app.popup); k++) ev_idle(1);
+    ev_release(MENU);
+}
+
+TEST(jump_list_on_a_long_menu_press_lists_the_main_views_pages) {
+    ui_fresh();
+    char t[POPUP_LABEL_LEN], want[24];
+    ev_tap(MENU);                                                       // a short press: the menu, at the release
+    CHECK(ui_app.ui.in_rack && !popup_modal(&ui_app.popup));
+    ev_tap(MENU);
+    CHECK(!ui_app.ui.in_rack);
+    ev_press(MENU);
+    ev_idle(2);
+    CHECK(!ui_app.ui.in_rack && !popup_modal(&ui_app.popup));           // held: nothing yet
+    ev_release(MENU);
+    CHECK(ui_app.ui.in_rack);
+    ev_tap(MENU);
+    ui_app.ui.page = 2;
+    menu_hold();
+    CHECK(popup_modal(&ui_app.popup) && !ui_app.ui.in_rack);           // the release after the list did nothing
+    CHECK_STR(ui_app.popup.queue[0].title, "MAIN VIEW");
+    CHECK_EQ(ui_app.popup.queue[0].n_options, ui_app.ui.page_count);
+    CHECK_EQ(ui_app.popup.queue[0].focus, 2);                           // on the page on show
+    focused(t, (int)sizeof t);
+    synth_ui_page_title(&ui_app.ui, &ui_app.rack, 2, want, (int)sizeof want);
+    CHECK_STR(t, want);
+    int seq = -1;                                                       // the SEQUENCER page (GP_SEQ is ui_pages.c's)
+    for (int p = 0; p < ui_app.ui.page_count; p++) {
+        synth_ui_page_title(&ui_app.ui, &ui_app.rack, p, want, (int)sizeof want);
+        if (!strcmp(want, "SEQUENCER")) seq = p;
+    }
+    CHECK(seq > 2);
+    CHECK(ui_list_pick("SEQUENCER"));
+    CHECK(!popup_modal(&ui_app.popup) && ui_app.ui.page == seq && ui_app.ui.row == 1);
+    // Back: nothing changes
+    menu_hold();
+    ev_tap(CTL_BTN_2);
+    CHECK(!popup_modal(&ui_app.popup) && ui_app.ui.page == seq);
+    // from the menu: the list on the first page, a pick leaves the menu
+    ev_tap(MENU);
+    CHECK(ui_app.ui.in_rack);
+    menu_hold();
+    CHECK_EQ(ui_app.popup.queue[0].focus, 0);
+    synth_ui_page_title(&ui_app.ui, &ui_app.rack, 1, want, (int)sizeof want);
+    CHECK(ui_list_pick(want));
+    CHECK(!ui_app.ui.in_rack && ui_app.ui.page == 1);
+}
+
+TEST(jump_list_in_pads_goes_to_the_synths_page_and_a_short_press_is_still_the_fx) {
+    ui_fresh();
+    char want[24];
+    shift_menu(); CHECK(ui_list_pick("Pads"));
+    ev_tap(MENU);
+    CHECK(ui_app.ui.pad_fx);                                            // short: the FX chains, as before
+    ev_tap(MENU);
+    CHECK(!ui_app.ui.pad_fx);
+    menu_hold();
+    CHECK(popup_modal(&ui_app.popup) && !ui_app.ui.pad_fx);
+    synth_ui_page_title(&ui_app.ui, &ui_app.rack, 0, want, (int)sizeof want);
+    CHECK(ui_list_pick(want));
+    CHECK(ui_app.section == SECTION_SYNTH && !ui_app.ui.in_rack && ui_app.ui.page == 0);
+}

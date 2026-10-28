@@ -141,8 +141,7 @@ void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
         case ACT_MENU:                                      // Shift + Menu (its Shift entry Default): the page list (app_lists.c, ADR-044)
             if (app->ui.br_open) app_browse_close(app, false);  // (the sample browser goes first, nothing chosen)
             if (app->in.shift && !app->in.mod) app_list_open(app, false);
-            else if (in_pads(app)) { pads_ui_fx_open(&app->ui, !app->ui.pad_fx); app->dirty = true; }   // Pads: the FX chains
-            else app_ui_event(app, UI_MENU);
+            else app_menu_down(app, b->ctl, audio_millis());    // a short press acts at the release, a long one is the jump list
             break;
         case ACT_SECTION:      app_set_section(app, !in_pads(app)); break;
         case ACT_PAD:

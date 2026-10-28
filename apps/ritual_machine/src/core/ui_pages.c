@@ -372,6 +372,25 @@ bool synth_ui_go(synth_ui_t *ui, const rack_t *rack, synth_go_t where) {
     return true;
 }
 
+void synth_ui_page_title(const synth_ui_t *ui, const rack_t *rack, int idx, char *out, int n) {
+    if (idx < 0 || idx >= ui->page_count) { if (n > 0) out[0] = 0; return; }
+    page_t pg;
+    get_page(ui, rack, idx, &pg);
+    const size_t len = strlen(pg.title);
+    if (idx == ui->cog_page && len > 4) pg.title[len - 4] = 0;    // its cog is open: the page's own title (" SET" off; a jump closes it)
+    snprintf(out, (size_t)n, "%s", pg.title);
+}
+
+bool synth_ui_go_page(synth_ui_t *ui, const rack_t *rack, int idx) {
+    synth_ui_go(ui, rack, SYNTH_GO_MAIN);
+    if (idx < 0 || idx >= ui->page_count) return false;
+    ui->page = idx;
+    ui->row = 1;
+    ui->latched = false;
+    ui->cog_page = -1;
+    return true;
+}
+
 synth_go_t synth_ui_where(const synth_ui_t *ui, const rack_t *rack) {
     if (!ui->in_rack) return synth_ui_shows_seq(ui) ? SYNTH_GO_SEQ : SYNTH_GO_MAIN;
     const tab_t t = tab_kind(rack, ui->menu_tab);

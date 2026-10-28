@@ -339,6 +339,9 @@ typedef enum { SYNTH_GO_MAIN, SYNTH_GO_RACK, SYNTH_GO_PRESETS, SYNTH_GO_SOUND, S
 bool synth_ui_go(synth_ui_t *ui, const rack_t *rack, synth_go_t where);
 // The screen on show, as one of those (SAMPLES and ALGORITHM are Sound; any page but the SEQUENCER is the main view).
 synth_go_t synth_ui_where(const synth_ui_t *ui, const rack_t *rack);
+// The main view's page `idx` (0 .. page_count - 1): its title; shown, row 1, leaving the menu (the jump list, a long Menu press).
+void synth_ui_page_title(const synth_ui_t *ui, const rack_t *rack, int idx, char *out, int n);
+bool synth_ui_go_page(synth_ui_t *ui, const rack_t *rack, int idx);
 // True while the MODIFIERS tab is on screen (a key or a control then selects itself; see scr_mods.c).
 bool synth_ui_on_mods_tab(const synth_ui_t *ui, const rack_t *rack);
 // True while the CURVES tab is on screen (the knobs CURVES_KNOB_X / _Y then move the selected point; see scr_curves.c).

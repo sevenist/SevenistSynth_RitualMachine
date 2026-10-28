@@ -1,8 +1,11 @@
 // The page list (Shift + Menu; ENGINE_DESIGN.md ADR-044): the machine's screens grouped under headings, MODES (Synth, Pads), MAIN
 // (Rack or Pad FX, Presets, Sound, Sequencer or Steps, Macros) and ADVANCED >, a submenu of the settings tabs. The entries follow
 // the mode: Rack <-> Pad FX, Sequencer <-> Steps, Sound only in the synth; the synth's tabs picked in Pads go to the synth.
+// And the jump list (Menu held MENU_LONG_MS): the main view's pages; a short Menu press acts at its release, as it did at the press.
 #include "app/app_internal.h"
 #include <stdio.h>
+
+#define MENU_LONG_MS 500
 
 typedef enum {
     LE_HEAD_MODES, LE_HEAD_MAIN,                           // headings
@@ -119,3 +122,48 @@ static void open_list(app_t *app, bool advanced, list_entry_t want) {
 }
 
 void app_list_open(app_t *app, bool advanced) { open_list(app, advanced, entry_on_show(app)); }
+
+/* ---------------- the jump list: Menu held ---------------- */
+
+static bool page_label(void *ctx, int i, char *out, int n) {
+    const app_t *app = ctx;
+    synth_ui_page_title(&app->ui, &app->rack, i, out, n);
+    return false;
+}
+
+static void on_page(void *ctx, int i) {
+    app_t *app = ctx;
+    if (i < 0) { app->dirty = true; return; }
+    if (in_pads(app)) app_set_section(app, false);              // the synth's pages: the synth section
+    synth_ui_go_page(&app->ui, &app->rack, i);
+    app->dirty = true;
+    app_catch_stale = true;
+}
+
+static void jump_list_open(app_t *app) {
+    if (app->ui.br_open) app_browse_close(app, false);
+    if (app->ui.in_rack && app->ui.rack_dirty) synth_ui_go(&app->ui, &app->rack, SYNTH_GO_MAIN);   // the rack was edited: the pages it makes
+    const int focus = app->ui.in_rack || in_pads(app) ? 0 : app->ui.page;
+    popup_choose_labels(&app->popup, "MAIN VIEW", app->ui.page_count, focus, page_label, on_page, app);
+    app->dirty = true;
+}
+
+void app_menu_down(app_t *app, control_id_t ctl, uint32_t now) {
+    app->menu_ctl = (uint8_t)ctl;
+    app->menu_long = false;
+    app->menu_ms = now;
+}
+
+void app_menu_poll(app_t *app, uint32_t now) {
+    if (app->menu_ctl == CTL_NONE || app->menu_long || (int32_t)(now - app->menu_ms) < MENU_LONG_MS) return;   // (signed: the step's time may be older than the press)
+    app->menu_long = true;
+    if (!popup_modal(&app->popup)) jump_list_open(app);
+}
+
+void app_menu_up(app_t *app, control_id_t ctl) {
+    if (app->menu_ctl == CTL_NONE || app->menu_ctl != (uint8_t)ctl) return;
+    app->menu_ctl = CTL_NONE;
+    if (app->menu_long || popup_modal(&app->popup)) return;
+    if (in_pads(app)) { pads_ui_fx_open(&app->ui, !app->ui.pad_fx); app->dirty = true; }   // Pads: the FX chains
+    else app_ui_event(app, UI_MENU);
+}

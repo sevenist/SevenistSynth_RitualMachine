@@ -23,7 +23,7 @@ static void app_dispatch(app_t *app, input_event_t e) {
 
 // Every control but the matrix keys and the joystick axes.
 static void control_event(app_t *app, input_event_t e) {
-    if (e.kind == IN_RELEASE) { app_seq_note_up(app, e.ctl); app_seq_erase_up(app, e.ctl); app_note_off(app, e.ctl); app_dispatch(app, e); return; }   // a layer may have started a note on it
+    if (e.kind == IN_RELEASE) { app_seq_note_up(app, e.ctl); app_seq_erase_up(app, e.ctl); app_menu_up(app, e.ctl); app_note_off(app, e.ctl); app_dispatch(app, e); return; }   // a layer may have started a note on it
     if (app_curves_tab_knob(app, e) || app_mods_tab_select(app, e) || app_layer_event(app, e)) return;
     app_dispatch(app, e);
 }
@@ -35,6 +35,7 @@ static void key_event(app_t *app, input_event_t e, uint32_t now) {
     if (e.kind == IN_RELEASE) {
         app_seq_note_up(app, e.ctl);                        // (the key is up, whether its note is latched or not: Rec, app_seq.c)
         app_seq_erase_up(app, e.ctl);
+        app_menu_up(app, e.ctl);                            // (Menu's short press acts at its release: app_lists.c)
         app_note_off(app, e.ctl);
         app_pad_key_up(app, e.ctl);
         const key_fn_t rf = keymap_get(key);
@@ -154,8 +155,9 @@ void app_input_event(app_t *app, input_event_t e, uint32_t now) {
     }
 }
 
-// Every step: the held joystick direction repeats, the key that resets the layout is watched.
+// Every step: the held joystick direction repeats, the key that resets the layout is watched, Menu held long opens the jump list.
 void app_input_poll(app_t *app, uint32_t now) {
     joy_repeat(app, now);
     key_reset_check(app, now);
+    app_menu_poll(app, now);
 }

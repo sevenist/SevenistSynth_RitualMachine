@@ -523,7 +523,7 @@ public:
         pads_[b.pad] = b;
         if (b.slot < 0) { for (Voice &x : voice_) if (x.pad == b.pad) cut(x); want_[b.pad] = 0; }    // the sample was taken away
     }
-    void process(const ProcessCtx &ctx, const Ports &p) override {
+    SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         const int n = ctx.frames;
         SEC_BEGIN();
         start_due(ctx.transport, n);

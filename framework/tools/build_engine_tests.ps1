@@ -7,14 +7,16 @@
 param([int]$Sr = 48000, [int]$Block = 32, [switch]$Matrix, [string]$Filter = "", [string]$Defs = "")
 $ErrorActionPreference = "Continue"
 $env:PATH = "C:\msys64\ucrt64\bin;" + $env:PATH
-$fw = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
-$outDir = Join-Path $fw "build"
+$fw = "."                               # the library: the commands run in framework/, with relative paths (no folder name on the
+Push-Location (Join-Path $PSScriptRoot "..")    # command line, so the repo can move and the line stays short)
+try {
+$outDir = "build"
 New-Item -ItemType Directory -Force $outDir | Out-Null
 
-$cpp = @((Get-ChildItem "$fw/tests/*.cpp").FullName) + @((Get-ChildItem "$fw/engine" -Recurse -Filter *.cpp).FullName)
+$cpp = @(Get-ChildItem "$fw/tests/*.cpp" | Resolve-Path -Relative) + @(Get-ChildItem "$fw/engine" -Recurse -Filter *.cpp | Resolve-Path -Relative)
 
 function Run-One($sr, $block) {
-    $out = Join-Path $outDir "engine_tests_${sr}_${block}.exe"
+    $out = ".\$outDir\engine_tests_${sr}_${block}.exe"
     if (Test-Path $out) { Remove-Item $out }
     $log = Join-Path $env:TEMP "fw_engine_build.log"
     $ccArgs = @("-std=c++17", "-O2", "-pthread", "-Wall", "-Wextra", "-Wconversion", "-Wno-sign-conversion", "-Wno-unused-parameter", "-fno-exceptions", "-fno-rtti",
@@ -44,3 +46,4 @@ if ($Matrix) {
     exit 0
 }
 exit (Run-One $Sr $Block)
+} finally { Pop-Location }

@@ -6,9 +6,21 @@ not: state, the latest measurements and what to do next, the user's working styl
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
 `apps/ritual_machine/tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
-## Session todo (updated 2026-10-22)
+## Session todo (updated 2026-10-28)
 
-**Where things stand (2026-10-22):** nothing changed in the code since 2026-10-14 (the working tree is that session's work,
+**Where things stand (2026-10-28):** the working tree is clean: the user committed the 2026-10-14 work as `6220041`
+("untested changes", 2026-10-22) and the 2026-10-22 work (piano roll, LM4871) as `9643e27` ("piano roll stuff"; not pushed:
+`origin/main` is at `6220041`). The repo is now in **`D:\PRODUCT DESIGN\SevenSynthCore\Sevenist Core`** (see "Working style and
+environment traps": a longer path). At `/session-start` the user reported: **Spk Off works properly**; the board makes **a pop
+at start-up, a hardware fault, fixed in the next prototype** (nothing to do in the code). Not said: whether the 2026-10-14 items
+below were tried. Then, at their request, **the repo made movable** (relative paths in the desktop build and the test scripts:
+see the traps; committed on `main` by me). Then **board performance, unattended** (the user offline for a few hours; their
+answers before leaving: **flash freely** on COM8 and leave the normal build on the board at the end; commits on **a new
+branch `perf-pads`**, one per measured step, so the work can be resumed or reverted; **exact changes only**: anything that
+would change the sound is written up as an option, not done; **the Pads fixed cost, then the internal RAM**). The results
+are in "Next performance steps" and ADR-035; the branch's log is the step list.
+
+**Where things stood (2026-10-22):** nothing changed in the code since 2026-10-14 (the working tree is that session's work,
 51 files, uncommitted: **the user commits it themselves**). The board still runs the beta 1.1 release image. At
 `/session-start` the user said they have **not tried** the 2026-10-14 work yet (the erase / Undo / roll, the pattern recorded
 as a sample, the two simulator fixes: they stay open below), and picked for this session, in this order: **the design round
@@ -64,7 +76,8 @@ item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
   of stage 3); no on-screen Rec control for the synth (offered 2026-10-12, never answered; with decision 26 the Rec word
   stays on the info line); no LED for the armed record or for step mode; the Pads key layout's bottom row is free; from
   "Known debt": the quick macro button, the main view not declarative, the list rows off the 8 x 8 grid
-- [ ] **Spk Off now shuts the LM4871 down: the user flashes and checks it** (from: user, 2026-10-22). The correction itself is
+- [x] **Spk Off now shuts the LM4871 down: checked by the user, "working properly"** (done 2026-10-28; the pop at start-up is
+  the board's hardware, fixed in the next prototype) (from: user, 2026-10-22). The correction itself is
   done (2026-10-22, picked second that day; asked first because the README said LM4871 and the code MAX98357A). Their answers:
   **GPIO 5 is wired to the LM4871's shutdown pin**, **Spk Off is silent today**, **the amplifier is fed by the DAC's left
   channel**. So: until now Off drove GPIO 5 LOW, which on an LM4871 (shutdown active HIGH, as I remember its data sheet) keeps
@@ -208,25 +221,6 @@ item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
   release trigger Next; is it right that the full synth stops in the Pads section (my reading of ADR-041 decision 22); "quantized
   capabilities" for the knobs and "the clock should start at the sample loop point for looped samples" (Snap and Sync were my
   reading of them); should the Grid chop unit and Fit beats follow Tune like Snap does (from: user)
-- [x] **The split, step 2c: tried by the user** (2026-10-14; what they found is the open item "Simulator panels"
-  above; done 2026-10-14) (committed by the user: `0ab1696`; from: user, "go for step 2c", 2026-10-13; ADR-043 decisions 15-17 and
-  "Step 2c as built", with the six choices made while building: say if one is wrong). The user's answers at the start:
-  the board is picked **at build time** (against my recommendation), the **panel stays the default**, the panel's
-  PC-only **key columns 5..8 are removed**. What is there: `.\build.ps1 -Board hwv1` builds `build/oled_sim_hwv1.exe`
-  (its own objects, `build/obj_hwv1`), `.\run.ps1 -Board hwv1` runs it; the same with `-App template`. The panel window
-  is drawn from the board's table (`boards/desktop/sim_board.h` picks the board, `sim_board.c` makes the parts,
-  `panel_sim.c` draws them, `input_sim.c` gives the PC keys by kind and place); pots without end stops work on the
-  desktop in both readings. Checked by me: 150 UI tests (3 new), the four desktop programs build and ran 4 to 5 s without
-  a window, the panel pictures of both boards looked at, a scratch program pushed every PC key and the mouse on every part
-  through the real desktop code and the map for each board, both firmwares build (the Ritual Machine: static RAM 222260
-  bytes, 67.8 %, the same). (Written before the user's try of 2026-10-14.) **To try** (`.\build.ps1`, `.\run.ps1`): the
-  panel as before, minus F5..F8 and the right-hand half of the key block; the joystick's push is a right click on the
-  stick (or Right Ctrl), no "PUSH" button any more. Then `.\build.ps1 -Board hwv1`, `.\run.ps1 -Board hwv1`: 4 function
-  keys and 4 x 8 keys with their LEDs, `^ $` (AZERTY; `[ ]`) = rows, `M ù` (`; '`) = value, `) =` (`- =`) = volume, the
-  four pots around the joystick with the mouse (wheel or drag) or `9 0` / `O P` / `L .` / keypad `- +`; the KEYS and
-  MODIFIERS tabs must list what they list on the real board. **HWV1's panel places are still my guess**
-  (`boards/hwv1/hwv1_controls.c`, `px` / `py` in half key pitches): say where the pots and the joystick really sit and
-  I move them. Not built: `release`, `card_reader`.
 - Set aside (user, 2026-10-07): unformatted card "format?" ASK (a mount without a file system is still "no card"; needs FATFS mkfs)
 
 The notes of the sessions before, as written then (the item order they speak of is the one of their day):
@@ -845,7 +839,8 @@ performance work and not picked at the session start of 2026-10-14.
 4. Fixed cost: reverb 20.5k (the tank halves ~5k each at half rate; trimming one of the four input allpasses or the second decay diffuser saves 2-3k and changes the character; a cheaper diffusion structure was proposed, not tried),
    delay 8.4k (PSRAM Hermite read + write per sample, 5.2k).
 5. Before a release remove the dev flags (list in DEVELOPING.md) and decide `DEV_OUTPUT_GAIN_PCT` (currently 25 %, platformio.ini), `ENGINE_FX_MONO`, `ENGINE_REVERB_HALF`.
-6. Open hardware items: speaker amplifier check, display / audio separation check by ear, the TF card.
+6. Open hardware items: speaker amplifier check (Spk Off checked by the user 2026-10-28; the pop at start-up is the
+   prototype's hardware, fixed in the next one), display / audio separation check by ear, the TF card.
 
 ## Decisions that went against my recommendation (recorded with their risks in ENGINE_DESIGN.md)
 
@@ -956,6 +951,15 @@ From the session todo (long-term; moved here 2026-10-11):
   Write multi-line scripts with the Write tool and run them; edit with the Edit tool. Many sources are CRLF: scripted edits must keep each file's line endings.
   **`sed -i` in this Git Bash rewrites a CRLF file with LF endings** (hit twice on 2026-10-09; git hides it in the diff): use a Python script that reads
   with `newline=''` and writes the endings back, and check with `file <path>` after any scripted edit.
+- **The repo can be moved** (2026-10-28; the user: "my SSD is probably dying", they want to move things around). It moved
+  again that day to `D:\PRODUCT DESIGN\SevenSynthCore\Sevenist Core`, and the build was found linking stale objects (the
+  `.d` files named the old folder: every header looked unchanged) with a link line of 28 200 characters. Fixed: the
+  desktop build (`framework/tools/sim_build.ps1`, `Get-RelPath`) and the three test scripts pass paths relative to the app's
+  folder; a `.d` file naming a file that is gone rebuilds its object. Link line now ~10 900 characters. Still absolute:
+  the toolchains (`C:\msys64\ucrt64`, `C:\.platformio`: if C: is the dying disk, they have to be reinstalled or made a
+  setting) and the PlatformIO-generated `.vscode` / `compile_commands.json` (ignored by git, rewritten by PlatformIO; the
+  root `.vscode` still names the very old `D:\DEV\SevenSynthCore\ui\oled_sim`, unused). The paragraph below about the link
+  line's length is history now.
 - **The repo's folder has a space in its name** (`Sevenist Core`, since 2026-10-14). `Start-Process -ArgumentList` quotes nothing, so
   the scripts handed the compiler half a path ("Core\apps\...: No such file"): `framework/tools/sim_build.ps1` (`Format-ToolArgs`,
   and the `.d` files' `\ ` in `Test-NeedsBuild`) and the three test scripts now quote. The objects built in the old folder name it in

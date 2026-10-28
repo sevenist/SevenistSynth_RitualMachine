@@ -13,7 +13,8 @@ New-Item -ItemType Directory -Force build | Out-Null
 
 # (the two control tables and the simulator's panel layout: plain data and plain code, read by tests/ui/test_controls.c)
 $boards = @("$fw/boards/hwv1/hwv1_controls.c", "$fw/boards/desktop/panel_controls.c", "$fw/boards/desktop/sim_board.c")
-$src = @((Get-ChildItem tests/ui/*.c).FullName) + @("tools/ui_stubs.c") + @((Get-ChildItem src/core/*.c).FullName) + @((Get-ChildItem src/app/*.c).FullName) + @((Get-ChildItem $fw/ui/*.c).FullName) + $boards + @((Get-ChildItem $u8g2/csrc/*.c).FullName)
+# (paths relative to the app's folder: no folder name on the command line, so the repo can move and the line stays short)
+$src = @(Get-ChildItem tests/ui/*.c | Resolve-Path -Relative) + @("tools/ui_stubs.c") + @(Get-ChildItem src/core/*.c, src/app/*.c, $fw/ui/*.c | Resolve-Path -Relative) + $boards + @(Get-ChildItem $u8g2/csrc/*.c | Resolve-Path -Relative)
 $out = "build/ui_tests.exe"
 if (Test-Path $out) { Remove-Item $out }
 $log = Join-Path $env:TEMP "ui_tests_build.log"

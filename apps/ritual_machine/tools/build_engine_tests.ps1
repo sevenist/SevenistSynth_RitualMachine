@@ -14,9 +14,10 @@ $fw = "../../framework"                 # the library: its engine, and the tests
 Push-Location (Join-Path $PSScriptRoot "..")
 try {
 
-$cpp = @((Get-ChildItem tests/engine/*.cpp).FullName) + @((Get-Item "$fw/tests/test_main.cpp").FullName) +
-       @((Get-ChildItem "$fw/engine" -Recurse -Filter *.cpp).FullName) +
-       @((Get-ChildItem src/platform/engine/*.cpp).FullName)
+# (paths relative to the app's folder: no folder name on the command line, so the repo can move and the line stays short)
+$cpp = @(Get-ChildItem tests/engine/*.cpp | Resolve-Path -Relative) + @("$fw/tests/test_main.cpp") +
+       @(Get-ChildItem "$fw/engine" -Recurse -Filter *.cpp | Resolve-Path -Relative) +
+       @(Get-ChildItem src/platform/engine/*.cpp | Resolve-Path -Relative)
 # the C core files the integration tests use (the application's data model, compiled as C)
 $coreObj = @()
 New-Item -ItemType Directory -Force build/tobj | Out-Null

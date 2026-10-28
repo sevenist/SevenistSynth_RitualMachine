@@ -36,7 +36,8 @@ function Get-SimBoard([string]$Board = "panel") {
     return $null
 }
 
-# Does this object need building? (missing, source newer, or any header listed in its .d file newer)
+# Does this object need building? (missing, source newer, or any header listed in its .d file newer or gone: a header that is gone was
+# deleted, or the .d file names the folder the repo was in before a move)
 function Test-NeedsBuild($src, $obj, $dep) {
     if (-not (Test-Path $obj)) { return $true }
     $t = (Get-Item $obj).LastWriteTime
@@ -44,8 +45,17 @@ function Test-NeedsBuild($src, $obj, $dep) {
     if (-not (Test-Path $dep)) { return $true }
     $text = (Get-Content $dep -Raw) -replace '\\\r?\n', ' ' -replace '\\ ', '|'     # (a space inside a path is written "\ ": kept through the split)
     $files = ($text -split '\s+') | Where-Object { $_ -and $_ -notmatch ':$' } | ForEach-Object { $_ -replace '\|', ' ' }
-    foreach ($f in $files) { if ((Test-Path $f) -and (Get-Item $f).LastWriteTime -gt $t) { return $true } }
+    foreach ($f in $files) {
+        if (-not (Test-Path -LiteralPath $f)) { return $true }
+        if ((Get-Item -LiteralPath $f).LastWriteTime -gt $t) { return $true }
+    }
     return $false
+}
+
+# Paths handed to the compilers are relative to the app's folder (the current location), never absolute: the .d files and the link
+# line then hold no folder name, so the repo can be moved or copied without stale objects, and the link line stays short.
+function Get-RelPath([string]$Path) {
+    return (Resolve-Path -Relative -LiteralPath $Path) -replace '\\', '/'
 }
 
 # Start-Process joins its arguments with spaces and quotes none: an argument with a space in it (the repo in a folder like
@@ -71,12 +81,13 @@ function Invoke-SimBuild {
     foreach ($set in @(@{files = $CSources; tool = "gcc"; flags = $common + $CFlags}, @{files = $CppSources; tool = "g++"; flags = $common + $CppFlags})) {
         foreach ($f in $set.files) {
             if ($f -isnot [IO.FileInfo]) { $f = Get-Item $f }     # (a FileInfo from a recursive listing turns into its bare name as a string)
-            $rel = (Resolve-Path -Relative $f.FullName) -replace '^(\.{1,2}[\\/])+', '' -replace '[\\/:]', '_'     # (no leading ..\..\ for the library's files)
-            $obj = Join-Path $ObjDir ($rel + ".o")
-            $dep = Join-Path $ObjDir ($rel + ".d")
-            $expected[(Split-Path $obj -Leaf)] = $true
-            if (Test-NeedsBuild $f.FullName $obj $dep) {
-                $jobs += [pscustomobject]@{src = $f.FullName; obj = $obj; dep = $dep; tool = $set.tool; flags = $set.flags; name = $f.Name}
+            $src = Get-RelPath $f.FullName
+            $rel = $src -replace '^(\.{1,2}/)+', '' -replace '[/:]', '_'     # (no leading ../../ for the library's files)
+            $obj = "$ObjDir/$rel.o"
+            $dep = "$ObjDir/$rel.d"
+            $expected["$rel.o"] = $true
+            if (Test-NeedsBuild $src $obj $dep) {
+                $jobs += [pscustomobject]@{src = $src; obj = $obj; dep = $dep; tool = $set.tool; flags = $set.flags; name = $f.Name}
             }
         }
     }
@@ -129,7 +140,7 @@ function Invoke-SimBuild {
         }
     }
 
-    $objs = Get-ChildItem $ObjDir -Filter *.o | ForEach-Object { $_.FullName }
+    $objs = Get-ChildItem $ObjDir -Filter *.o | ForEach-Object { "$ObjDir/$($_.Name)" }
     $linkLog = Join-Path $env:TEMP "oled_link.log"
     $p = Start-Process g++ -ArgumentList (Format-ToolArgs (@($objs) + $Libs + @("-o", $Out))) -NoNewWindow -PassThru -Wait -RedirectStandardError $linkLog -RedirectStandardOutput "$linkLog.out"
     Get-Content $linkLog, "$linkLog.out" -ErrorAction SilentlyContinue | ForEach-Object { Write-Host $_ }

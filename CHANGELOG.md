@@ -20,6 +20,14 @@ on the hardware.
   and the next panel (4 columns, encoders).
 - **For developers:** the repo is now a library and the apps built on it. The next section is the guide to it.
 
+## 2026-10-28: the repo can be moved
+
+- **For developers:** the desktop build and the three test scripts hand the compilers paths relative to the app's folder,
+  never absolute ones. The dependency files and the link line hold no folder name, so the repo can be moved or copied without
+  stale objects, and the link line is about 11 000 characters instead of 28 000 (Windows' limit is 32 767). An object whose
+  dependency file names a file that no longer exists is rebuilt (after a move: once, everything). The toolchain paths
+  (`C:\msys64`, `C:\.platformio`) are still fixed.
+
 ## 2026-10-22: the synth sequencer's piano roll, edited with the joystick
 
 - **The joystick picks a note in the roll.** Left / right moves to the previous / next step, up / down over the notes of

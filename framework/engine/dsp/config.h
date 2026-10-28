@@ -36,7 +36,7 @@
 #endif
 
 // Entries of the control -> audio command ring (a power of two). Each entry is about 270 bytes (it can carry a 256 byte blob), so the
-// default of 512 costs 137 KB: on a target with little internal RAM lower it (the ESP32 build uses 128).
+// default of 512 costs 137 KB, taken from the engine's bulk heap at init (PSRAM on the ESP32, whose build uses 128).
 #ifndef ENGINE_CMD_RING
 #define ENGINE_CMD_RING 512
 #endif

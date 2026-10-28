@@ -1,10 +1,14 @@
 #pragma once
 // Single-producer single-consumer ring of fixed-size commands (ADR-024): the UI / control thread posts, the audio
-// thread drains at the start of every block. No locks, no allocation; a full queue rejects the command (the
-// caller sees `false`) instead of blocking.
+// thread drains at the start of every block. No locks, no allocation after attach(); a full queue rejects the
+// command (the caller sees `false`) instead of blocking.
+// The slots come from a heap at attach() (the engine gives its bulk heap: 128 slots are ~34 KB, too much for the
+// board's internal RAM); a copy in or out moves the header and the `size` bytes of payload only.
 #include <atomic>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include "engine/core/heap.h"
 
 namespace sc {
 
@@ -26,24 +30,38 @@ template <int N>
 class CommandRing {
     static_assert((N & (N - 1)) == 0, "N must be a power of two");
 public:
+    bool attach(Heap &h) {                                          // [INIT] once, before the first push
+        if (!slot_) slot_ = h.alloc_array<Command>(N);
+        return slot_ != nullptr;
+    }
+    void detach(Heap &h) {                                          // [INIT] the slots back to the heap (queued commands are dropped)
+        h.free(slot_);
+        slot_ = nullptr;
+        head_.store(0, std::memory_order_relaxed);
+        tail_.store(0, std::memory_order_relaxed);
+    }
     bool push(const Command &c) {                                   // [CONTROL] producer
         const uint32_t h = head_.load(std::memory_order_relaxed);
-        if (h - tail_.load(std::memory_order_acquire) >= static_cast<uint32_t>(N)) return false;
-        slot_[h & (N - 1)] = c;
+        if (!slot_ || h - tail_.load(std::memory_order_acquire) >= static_cast<uint32_t>(N)) return false;
+        copy(slot_[h & (N - 1)], c);
         head_.store(h + 1, std::memory_order_release);
         return true;
     }
     bool pop(Command &c) {                                          // [AUDIO] consumer
         const uint32_t t = tail_.load(std::memory_order_relaxed);
         if (t == head_.load(std::memory_order_acquire)) return false;
-        c = slot_[t & (N - 1)];
+        copy(c, slot_[t & (N - 1)]);
         tail_.store(t + 1, std::memory_order_release);
         return true;
     }
     uint32_t size() const { return head_.load(std::memory_order_acquire) - tail_.load(std::memory_order_acquire); }
 
 private:
-    Command slot_[N];
+    static void copy(Command &to, const Command &from) {
+        std::memcpy(static_cast<void *>(&to), &from, offsetof(Command, blob));    // (plain data: its only non-trivial part is the member defaults)
+        if (from.size) std::memcpy(to.blob, from.blob, from.size < kCmdBlobMax ? from.size : kCmdBlobMax);
+    }
+    Command *slot_ = nullptr;
     std::atomic<uint32_t> head_{0}, tail_{0};
 };
 

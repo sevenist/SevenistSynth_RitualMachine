@@ -98,6 +98,11 @@ TEST(audio_thread_survives_rebuilds_notes_and_parameter_traffic) {
 TEST(command_ring_is_ordered_and_reports_overflow) {
     CommandRing<8> ring;
     Command c;
+    CHECK(!ring.push(c));                                              // no slots before attach()
+    alignas(16) static uint8_t mem[8 * sizeof(Command) + 1024];
+    Heap heap;
+    heap.init(mem, sizeof mem);
+    CHECK(ring.attach(heap));
     for (int i = 0; i < 8; i++) { c.value = i; CHECK(ring.push(c)); }
     c.value = 99;
     CHECK(!ring.push(c));                                              // full: rejected, not overwritten
@@ -108,4 +113,20 @@ TEST(command_ring_is_ordered_and_reports_overflow) {
     CHECK(ring.push(c));
     CHECK(ring.pop(o));
     CHECK_EQ(o.value, 5);
+    // a payload comes out whole, with the header (a copy moves the `size` bytes of it only)
+    Command b;
+    b.type = Cmd::SetBlob; b.node = 7; b.idx = 3; b.note = 60; b.value = -12345; b.size = kCmdBlobMax;
+    for (int i = 0; i < kCmdBlobMax; i++) b.blob[i] = static_cast<uint8_t>(i * 7 + 1);
+    CHECK(ring.push(b));
+    Command r;
+    CHECK(ring.pop(r));
+    CHECK(r.type == Cmd::SetBlob);
+    CHECK_EQ(r.node, 7); CHECK_EQ(r.idx, 3); CHECK_EQ(r.note, 60); CHECK_EQ(r.value, -12345); CHECK_EQ(r.size, kCmdBlobMax);
+    CHECK(std::memcmp(r.blob, b.blob, kCmdBlobMax) == 0);
+    b.size = 5;
+    for (int i = 0; i < 5; i++) b.blob[i] = static_cast<uint8_t>(200 + i);
+    CHECK(ring.push(b));
+    CHECK(ring.pop(r));
+    CHECK_EQ(r.size, 5);
+    CHECK(std::memcmp(r.blob, b.blob, 5) == 0);
 }

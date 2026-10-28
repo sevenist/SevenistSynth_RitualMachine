@@ -36,6 +36,7 @@ int Engine::prof_take(ProfEntry *out, int max, uint32_t *blocks) {
 bool Engine::init(Memory mem, int nvoices) {
     mem_ = mem;
     nvoices_ = default_nv_ = nvoices < 1 ? 1 : (nvoices > kMaxVoices ? kMaxVoices : nvoices);
+    if (!cmd_.attach(mem.bulk ? *mem.bulk : *mem.fast)) return false;    // (the bulk heap: the ring is large and read a few slots a block)
     register_builtin_modules(reg_);
     seq_.clear();
     seq_step_.store(-1, std::memory_order_relaxed);
@@ -160,8 +161,7 @@ void Engine::shutdown() {
     free_retired();
     for (auto &r : rec_) if (r.alive) destroy_rec(r);
     for (auto &v : voices_) v = VoiceState{};
-    Command c;
-    while (cmd_.pop(c)) {}
+    if (mem_.fast) cmd_.detach(mem_.bulk ? *mem_.bulk : *mem_.fast);    // (init() takes it again)
 }
 
 /* ---------------- control side: post commands ---------------- */

@@ -611,7 +611,7 @@ demo samples (never the user's `samples/`), a readme (`tools/release/README-simu
 | `ENGINE_FX_MONO=1` | delay and reverb compute one channel (user choice) | decision |
 | `ENGINE_REVERB_HALF=1` | reverb tank at half rate (user choice) | decision |
 | `ENGINE_FILTER_EXACT=1` | (not set) filter coefficients exact per sample even for smooth modulation | |
-| `ENGINE_CMD_RING=128` | command ring entries (270 bytes each) | keep |
+| `ENGINE_CMD_RING=128` | command ring entries (270 bytes each, taken from the bulk heap, PSRAM, since 2026-10-28) | keep |
 | `ENGINE_MAX_VOICES` | (default 32) the engine's voice ceiling; the Strings type uses it all, Modular / FM stop at 8. Costs ~13 KB of static RAM at 32 (instance records); plans are sized by their own voice count | keep |
 | `ENGINE_WT_RAM=1` | (not set) the Strings mipmap tables in internal RAM (41 KB) instead of flash: faster reads, smaller fast heap | measure, then decide |
 | `ENGINE_NO_IRAM` | (not set) keep module code in flash instead of IRAM | |

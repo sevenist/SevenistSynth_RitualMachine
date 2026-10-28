@@ -182,8 +182,8 @@ TEST(compile_errors) {
     bl.connect(1, 0, 2, Dst::In, 0);
     CHECK(compile_plan(bl, reg, rig.heap, 4, &pl) == Err::BusLoop);
     CHECK(rig.heap.check());
-    CHECK_EQ(rig.heap.used(), 0);                                      // failed compiles leak nothing
     rig.eng.shutdown();
+    CHECK_EQ(rig.heap.used(), 0);                                      // failed compiles leak nothing
 }
 
 TEST(global_chain_values) {

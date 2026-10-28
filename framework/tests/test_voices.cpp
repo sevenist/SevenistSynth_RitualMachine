@@ -65,11 +65,12 @@ TEST(the_voice_count_is_chosen_per_load_and_the_unused_voices_cost_nothing) {
     DspRig rig(8);
     GraphDesc g;
     voice_heavy_patch(rig, g);
+    const size_t base = rig.heap.used();                                    // the engine's own (its command ring): not module memory
 
     CHECK(rig.eng.load(g, 8) == Err::Ok);
     rig.run(2);
     rig.eng.gc();
-    const size_t used8 = rig.heap.used();
+    const size_t used8 = rig.heap.used() - base;
     for (int n : {60, 62, 64, 65, 67}) rig.eng.note_on(n);
     rig.run(4);
     CHECK_EQ(rig.eng.active_voices(), 5);
@@ -79,7 +80,7 @@ TEST(the_voice_count_is_chosen_per_load_and_the_unused_voices_cost_nothing) {
     CHECK(rig.eng.load(g, 1) == Err::Ok);                                   // one voice: the 8 copies are replaced by 1, and freed by gc()
     rig.run(2);
     rig.eng.gc();
-    const size_t used1 = rig.heap.used();
+    const size_t used1 = rig.heap.used() - base;
     for (int n : {60, 62, 64, 65, 67}) rig.eng.note_on(n);
     rig.run(4);
     CHECK_EQ(rig.eng.active_voices(), 1);                                   // the poly allocator steals within the one voice
@@ -93,7 +94,7 @@ TEST(the_voice_count_is_chosen_per_load_and_the_unused_voices_cost_nothing) {
         CHECK(rig.eng.load(g, 8) == Err::Ok);
         rig.run(2);
         rig.eng.gc();
-        const size_t u8 = rig.heap.used();
+        const size_t u8 = rig.heap.used() - base;
         if (round > 0) CHECK_EQ(u8, back);
         back = u8;
         CHECK(rig.eng.load(g, 1) == Err::Ok);

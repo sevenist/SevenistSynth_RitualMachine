@@ -39,16 +39,47 @@ bool popup_ask(popup_t *p, const char *title, const char *text, bool default_yes
     return true;
 }
 
-bool popup_choose(popup_t *p, const char *title, const char *const *options, int count, int focus, popup_choice_fn choose, void *ctx) {
-    if (!options || count < 1) return false;
+// Option i's text into out (a caller's string or its label); true when it is a heading.
+static bool option_text(const popup_msg_t *m, int i, char *out, int n) {
+    out[0] = 0;
+    if (m->label) return m->label(m->ctx, i, out, n);
+    snprintf(out, (size_t)n, "%s", m->options && m->options[i] ? m->options[i] : "");
+    return false;
+}
+
+static bool is_heading(const popup_msg_t *m, int i) {
+    char t[POPUP_LABEL_LEN];
+    return option_text(m, i, t, (int)sizeof t);
+}
+
+// From `from`, the first option that is not a heading going `dir` (+1 / -1) around the list; `from` itself when all are headings.
+static int focusable(const popup_msg_t *m, int from, int dir) {
+    const int n = m->n_options;
+    for (int k = 0, i = from; k < n; k++, i = (i + dir + n) % n)
+        if (!is_heading(m, i)) return i;
+    return from;
+}
+
+static bool choose_add(popup_t *p, const char *title, const char *const *options, popup_label_fn label, int count, int focus,
+                       popup_choice_fn choose, void *ctx) {
+    if ((!options && !label) || count < 1) return false;
     popup_msg_t *m = queue_add(p);
     if (!m) return false;
     msg_set(m, POPUP_CHOOSE, title, NULL);
     m->options = options;
-    m->n_options = (uint8_t)(count > POPUP_CHOICES ? POPUP_CHOICES : count);
-    m->focus = (uint8_t)(focus < 0 ? 0 : focus >= m->n_options ? m->n_options - 1 : focus);
+    m->label = label;
     m->choose = choose; m->ctx = ctx;
+    m->n_options = (uint8_t)(count > POPUP_CHOICES ? POPUP_CHOICES : count);
+    m->focus = (uint8_t)focusable(m, focus < 0 ? 0 : focus >= m->n_options ? m->n_options - 1 : focus, 1);
     return true;
+}
+
+bool popup_choose(popup_t *p, const char *title, const char *const *options, int count, int focus, popup_choice_fn choose, void *ctx) {
+    return choose_add(p, title, options, NULL, count, focus, choose, ctx);
+}
+
+bool popup_choose_labels(popup_t *p, const char *title, int count, int focus, popup_label_fn label, popup_choice_fn choose, void *ctx) {
+    return choose_add(p, title, NULL, label, count, focus, choose, ctx);
 }
 
 bool popup_modal(const popup_t *p) { return p->count > 0; }
@@ -63,9 +94,9 @@ void popup_move(popup_t *p, int dir) {
     if (!p->count || !dir) return;
     popup_msg_t *m = &p->queue[0];
     if (m->kind == POPUP_ASK) m->yes = dir < 0;
-    if (m->kind == POPUP_CHOOSE) {                          // around the list, one option per step whatever the turn
-        const int n = m->n_options;
-        m->focus = (uint8_t)((m->focus + (dir < 0 ? n - 1 : 1)) % n);
+    if (m->kind == POPUP_CHOOSE) {                          // around the list, one option per step whatever the turn (headings skipped)
+        const int n = m->n_options, d = dir < 0 ? -1 : 1;
+        m->focus = (uint8_t)focusable(m, (m->focus + d + n) % n, d);
     }
 }
 
@@ -116,7 +147,8 @@ static int wrap(u8g2_t *g, const char *text, int w, char lines[][POPUP_TEXT_LEN]
     return n;
 }
 
-// A list: the title bar, then one row per option, the focused one inverted; as many rows as the screen holds, around the focus.
+// A list: the title bar, then one row per option, the focused one inverted, a heading centred between two short lines; as many
+// rows as the screen holds, around the focus.
 static void draw_choose(const popup_msg_t *m, u8g2_t *g, const gui_style_t *st) {
     const gui_rect_t scr = gui_screen(g);
     const int row_h = gui_row_h(g, st);
@@ -146,8 +178,18 @@ static void draw_choose(const popup_msg_t *m, u8g2_t *g, const gui_style_t *st) 
     y += 2;
     for (int i = first; i < first + rows; i++, y += row_h) {
         const gui_rect_t r = gui_rect(box.x + 2, y, box.w - 4, row_h);
+        char t[POPUP_LABEL_LEN];
+        if (option_text(m, i, t, (int)sizeof t)) {
+            const int tw = gui_text_w(g, t), mid = r.y + r.h / 2;
+            gui_draw_text_centered(g, r, t);
+            if (r.w - tw > 16) {
+                u8g2_DrawHLine(g, r.x + 2, mid, (r.w - tw) / 2 - 5);
+                u8g2_DrawHLine(g, r.x + (r.w + tw) / 2 + 3, mid, (r.w - tw) / 2 - 5);
+            }
+            continue;
+        }
         if (i == m->focus) { u8g2_DrawBox(g, r.x, r.y, r.w, r.h); u8g2_SetDrawColor(g, 0); }
-        u8g2_DrawStr(g, r.x + st->padding + 2, r.y + (r.h - gui_text_h(g)) / 2 + u8g2_GetAscent(g), m->options[i] ? m->options[i] : "");
+        u8g2_DrawStr(g, r.x + st->padding + 2, r.y + (r.h - gui_text_h(g)) / 2 + u8g2_GetAscent(g), t);
         u8g2_SetDrawColor(g, 1);
     }
     if (first > 0) gui_draw_arrow(g, gui_right(box) - 5, box.y + fixed - 1, 'u', 2);                    // more above / below

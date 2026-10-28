@@ -27,7 +27,7 @@ namespace {
 struct Synth {
     Heap fast, bulk;
     Engine eng;
-    RackGraph last, cur;
+    RackGraph *last = nullptr, *cur = nullptr;   // the graph loaded and the one being built: control data, 6.4 KB each, in the bulk heap (engine_synth_init)
     bool have_last = false;
     bool pads_have_last = false;              // `last` holds the pads graph (the Pads section; have_last stays false: the synth's is gone)
     q15 bl[kBlock], br[kBlock];
@@ -232,6 +232,9 @@ int engine_synth_init(void *fast, size_t fast_bytes, void *bulk, size_t bulk_byt
     s.bulk.init(bulk, bulk_bytes);
     if (fast != bulk) s.fast.set_spill(&s.bulk);              // a full fast heap falls back to the big one instead of failing to create a module
     s.mem = Memory{&s.fast, &s.bulk, &s.bank};
+    s.last = s.bulk.make<RackGraph>();
+    s.cur = s.bulk.make<RackGraph>();
+    if (!s.last || !s.cur) return -1;
     s.eng.init(s.mem, SYNTH_MAX_VOICES);
     s.bank_on = false; s.cat_n = 0;
     for (auto &v : s.slot_of) v = -1;
@@ -322,9 +325,9 @@ void engine_synth_set_osc_engine(int index, int engine) {
     Synth &s = s_synth;
     if (!s.have_last) return;
     int k = 0;
-    for (int i = 0; i < s.last.g.n_nodes; i++) {
-        if (s.last.g.node[i].type != T_OSCX) continue;
-        if (k++ == index) { s.eng.set_param(s.last.g.node[i].id, OSCX_ENGINE, engine); return; }
+    for (int i = 0; i < s.last->g.n_nodes; i++) {
+        if (s.last->g.node[i].type != T_OSCX) continue;
+        if (k++ == index) { s.eng.set_param(s.last->g.node[i].id, OSCX_ENGINE, engine); return; }
     }
 }
 
@@ -337,14 +340,14 @@ void engine_synth_build(const rack_t *rack, const synth_params_t *params) {
     prepare_samples(*rack);
     std::lock_guard<std::mutex> lk(s.mx);
     resolve_samples(*rack);
-    if (!rack_graph_build(*rack, *params, s.eng.registry(), s.cur, s.slot_of, s.cat_n)) return;
+    if (!rack_graph_build(*rack, *params, s.eng.registry(), *s.cur, s.slot_of, s.cat_n)) return;
     const int nv = synth_config_voices(&rack->cfg);
-    if (s.eng.load(s.cur.g, nv) != Err::Ok) return;
+    if (s.eng.load(s.cur->g, nv) != Err::Ok) return;
     s.gc_due = true;
     s.last_nv = nv;
     send_voice_mode(*rack);
-    send_blob(s.cur);
-    s.last = s.cur;
+    send_blob(*s.cur);
+    *s.last = *s.cur;
     s.have_last = true;
     s.eng.gc();
 }
@@ -358,34 +361,34 @@ void engine_synth_set_params(const rack_t *rack, const synth_params_t *params) {
     {
         std::lock_guard<std::mutex> lk(s.mx);
         resolve_samples(*rack);
-        if (!rack_graph_build(*rack, *params, s.eng.registry(), s.cur, s.slot_of, s.cat_n)) return;
+        if (!rack_graph_build(*rack, *params, s.eng.registry(), *s.cur, s.slot_of, s.cat_n)) return;
     }
     if (synth_config_voices(&rack->cfg) != s.last_nv) {                  // another voice count: the voice modules are created anew
         std::snprintf(s_reason, sizeof s_reason, "voices %d -> %d", s.last_nv, synth_config_voices(&rack->cfg));
         engine_synth_build(rack, params); return;
     }
-    if (!same_structure(s.last.g, s.cur.g) || s.last.fm != s.cur.fm) {
-        std::snprintf(s_reason, sizeof s_reason, "structure n%d/%d e%d/%d fm%d/%d", s.last.g.n_nodes, s.cur.g.n_nodes, s.last.g.n_edges, s.cur.g.n_edges, s.last.fm, s.cur.fm);
+    if (!same_structure(s.last->g, s.cur->g) || s.last->fm != s.cur->fm) {
+        std::snprintf(s_reason, sizeof s_reason, "structure n%d/%d e%d/%d fm%d/%d", s.last->g.n_nodes, s.cur->g.n_nodes, s.last->g.n_edges, s.cur->g.n_edges, s.last->fm, s.cur->fm);
         engine_synth_build(rack, params); return;
     }
-    for (int k = 0; k < s.cur.g.n_edges; k++)                         // modulation amounts: a gain write, not a rebuild (unless a cable is, or becomes, exactly unity)
-        if (s.cur.g.edge[k].depth != s.last.g.edge[k].depth && !s.eng.set_edge_depth(k, s.cur.g.edge[k].depth)) {
-            std::snprintf(s_reason, sizeof s_reason, "edge %d depth %d -> %d", k, s.last.g.edge[k].depth, s.cur.g.edge[k].depth);
+    for (int k = 0; k < s.cur->g.n_edges; k++)                         // modulation amounts: a gain write, not a rebuild (unless a cable is, or becomes, exactly unity)
+        if (s.cur->g.edge[k].depth != s.last->g.edge[k].depth && !s.eng.set_edge_depth(k, s.cur->g.edge[k].depth)) {
+            std::snprintf(s_reason, sizeof s_reason, "edge %d depth %d -> %d", k, s.last->g.edge[k].depth, s.cur->g.edge[k].depth);
             engine_synth_build(rack, params); return;
         }
-    for (int i = 0; i < s.cur.g.n_nodes; i++) {                       // same graph: only values moved
-        const NodeDesc &n = s.cur.g.node[i], &o = s.last.g.node[i];
+    for (int i = 0; i < s.cur->g.n_nodes; i++) {                       // same graph: only values moved
+        const NodeDesc &n = s.cur->g.node[i], &o = s.last->g.node[i];
         for (int p = 0; p < kMaxParams; p++)
             if (n.param[p] != o.param[p]) s.eng.set_param(n.id, p, n.param[p]);
     }
-    if (s.cur.fm && std::memcmp(&s.cur.fm_patch, &s.last.fm_patch, sizeof(Dx7Patch)) != 0) send_blob(s.cur);
+    if (s.cur->fm && std::memcmp(&s.cur->fm_patch, &s.last->fm_patch, sizeof(Dx7Patch)) != 0) send_blob(*s.cur);
     if (synth_config_is_mono(&rack->cfg) != s.last_mono || synth_config_glide_ms(&rack->cfg) != s.last_glide ||
         (s.last_mono && (rack->cfg.legato ? 1 : 0) != s.last_legato)) send_voice_mode(*rack);
-    for (int i = 0; i < s.cur.ms_count; i++)
-        if (std::memcmp(&s.cur.ms_blob[i], &s.last.ms_blob[i], sizeof(MotionBlob)) != 0) s.eng.set_blob(s.cur.ms_node[i], &s.cur.ms_blob[i], sizeof(MotionBlob));
-    for (int k = 0; k < s.cur.conv_count; k++)                         // (same graph: the same Convolver nodes in the same order)
-        if (s.cur.conv_ir[k] != s.last.conv_ir[k] || s.cur.conv_len[k] != s.last.conv_len[k]) send_conv(s.cur, k);
-    s.last = s.cur;
+    for (int i = 0; i < s.cur->ms_count; i++)
+        if (std::memcmp(&s.cur->ms_blob[i], &s.last->ms_blob[i], sizeof(MotionBlob)) != 0) s.eng.set_blob(s.cur->ms_node[i], &s.cur->ms_blob[i], sizeof(MotionBlob));
+    for (int k = 0; k < s.cur->conv_count; k++)                         // (same graph: the same Convolver nodes in the same order)
+        if (s.cur->conv_ir[k] != s.last->conv_ir[k] || s.cur->conv_len[k] != s.last->conv_len[k]) send_conv(*s.cur, k);
+    *s.last = *s.cur;
 }
 
 void engine_synth_set_clock(int bpm, int running) {
@@ -557,14 +560,14 @@ void engine_synth_pads_build(const pads_t *pads, const rack_t *rack) {
     std::snprintf(s_reason, sizeof s_reason, "pads");
     for (int i = 0; i < PAD_COUNT; i++) pad_prepare(pads->pad[i]);
     std::lock_guard<std::mutex> lk(s.mx);
-    if (!pads_graph_build(pads->fx, rack->cfg, s.eng.registry(), s.cur)) return;   // the player, its FX chains, the output
-    if (s.eng.load(s.cur.g, 1) != Err::Ok) return;
+    if (!pads_graph_build(pads->fx, rack->cfg, s.eng.registry(), *s.cur)) return;   // the player, its FX chains, the output
+    if (s.eng.load(s.cur->g, 1) != Err::Ok) return;
     s.gc_due = true;
     s.pads_mode = true;
     s.have_last = false;                                    // the synth's graph is gone: the next set_params is a build
     s.last_nv = 1;
-    for (int k = 0; k < s.cur.conv_count; k++) send_conv(s.cur, k);
-    s.last = s.cur;
+    for (int k = 0; k < s.cur->conv_count; k++) send_conv(*s.cur, k);
+    *s.last = *s.cur;
     s.pads_have_last = true;
     for (int i = 0; i < PAD_COUNT; i++) {
         const PadBlob b = pad_blob(i, pads->pad[i]);
@@ -580,27 +583,27 @@ void engine_synth_pads_fx(const pads_t *pads, const rack_t *rack) {
     if (!s_ready || !s_synth.pads_mode) return;
     Synth &s = s_synth;
     std::lock_guard<std::mutex> lk(s.mx);
-    if (!pads_graph_build(pads->fx, rack->cfg, s.eng.registry(), s.cur)) return;
-    if (!s.pads_have_last || !same_structure(s.last.g, s.cur.g)) {
+    if (!pads_graph_build(pads->fx, rack->cfg, s.eng.registry(), *s.cur)) return;
+    if (!s.pads_have_last || !same_structure(s.last->g, s.cur->g)) {
         s_builds++;
-        std::snprintf(s_reason, sizeof s_reason, "pads fx n%d/%d e%d/%d", s.last.g.n_nodes, s.cur.g.n_nodes, s.last.g.n_edges, s.cur.g.n_edges);
-        if (s.eng.load(s.cur.g, 1) != Err::Ok) return;
+        std::snprintf(s_reason, sizeof s_reason, "pads fx n%d/%d e%d/%d", s.last->g.n_nodes, s.cur->g.n_nodes, s.last->g.n_edges, s.cur->g.n_edges);
+        if (s.eng.load(s.cur->g, 1) != Err::Ok) return;
         s.gc_due = true;
-        for (int k = 0; k < s.cur.conv_count; k++) send_conv(s.cur, k);
-        s.last = s.cur;
+        for (int k = 0; k < s.cur->conv_count; k++) send_conv(*s.cur, k);
+        *s.last = *s.cur;
         s.pads_have_last = true;
         s.eng.gc();
         return;
     }
-    for (int i = 0; i < s.cur.g.n_nodes; i++) {
-        const NodeDesc &n = s.cur.g.node[i], &o = s.last.g.node[i];
+    for (int i = 0; i < s.cur->g.n_nodes; i++) {
+        const NodeDesc &n = s.cur->g.node[i], &o = s.last->g.node[i];
         if (n.id == RP_PADS) continue;                                          // (its parameters are the pads' events)
         for (int p = 0; p < kMaxParams; p++)
             if (n.param[p] != o.param[p]) s.eng.set_param(n.id, p, n.param[p]);
     }
-    for (int k = 0; k < s.cur.conv_count; k++)
-        if (s.cur.conv_ir[k] != s.last.conv_ir[k] || s.cur.conv_len[k] != s.last.conv_len[k]) send_conv(s.cur, k);
-    s.last = s.cur;
+    for (int k = 0; k < s.cur->conv_count; k++)
+        if (s.cur->conv_ir[k] != s.last->conv_ir[k] || s.cur->conv_len[k] != s.last->conv_len[k]) send_conv(*s.cur, k);
+    *s.last = *s.cur;
 }
 
 void engine_synth_pad_set(int pad, const pad_t *p) {

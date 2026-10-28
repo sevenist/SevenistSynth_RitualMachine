@@ -8,6 +8,7 @@
 #include "engine/dsp/interp.h"
 #include "engine/dsp/phase.h"
 #include "engine/dsp/svf.h"
+#include "engine/modules/fx_modules.h"     // (SEC_BEGIN / SEC_MARK: stage timers of ENGINE_PROFILE builds)
 #include "engine/dsp/util.h"
 #include "engine/modules/builtin.h"
 #include "engine/sampler/sample_bank.h"
@@ -524,7 +525,9 @@ public:
     }
     void process(const ProcessCtx &ctx, const Ports &p) override {
         const int n = ctx.frames;
+        SEC_BEGIN();
         start_due(ctx.transport, n);
+        SEC_MARK(16);
         int32_t acc[2 * kPadBuses][kBlock];                                      // L / R of each bus
         bool used[kPadBuses] = {};
         q15 buf[kBlock];
@@ -538,7 +541,9 @@ public:
             if (v.pad < 0) continue;
             const PadBlob &b = pads_[v.pad];
             vc.voice = &v.vs;
+            SEC_MARK(18);
             v.smp->process(vc, vp);
+            SEC_MARK(17);
             if (b.filter) {
                 const SvfCoefF c{b.a1, b.a2, b.a3, b.k};
                 for (int i = 0; i < n; i++) {
@@ -554,7 +559,17 @@ public:
             const int32_t tl = b.mute ? 0 : (b.gain_l * v.lvl) >> 15, tr = b.mute ? 0 : (b.gain_r * v.lvl) >> 15;
             const int32_t dl = (tl - v.gl) / n, dr = (tr - v.gr) / n;
             int32_t gl = v.gl, gr = v.gr, env = v.env;
-            for (int i = 0; i < n; i++) {
+#ifndef SC_PADS_NO_FAST                                                          // (the general loop alone: for the checksum comparison)
+            if (tl == gl && tr == gr && v.env_step == 0 && env >= 0 && env <= 32767) {   // steady gains, no fade: the same products, no ramps
+#else
+            if (false) {
+#endif
+                for (int i = 0; i < n; i++) {
+                    const int32_t x = (static_cast<int32_t>(buf[i]) * env) >> 15;
+                    acc_l[i] += (x * gl) >> 15;
+                    acc_r[i] += (x * gr) >> 15;
+                }
+            } else for (int i = 0; i < n; i++) {
                 gl = i == n - 1 ? tl : gl + dl;
                 gr = i == n - 1 ? tr : gr + dr;
                 env += v.env_step;
@@ -573,15 +588,18 @@ public:
             }
             if (!v.stopping) { playing |= 1ull << v.pad; g_pads_pos[v.pad].store(static_cast<int32_t>(v.smp->position()) + 1, std::memory_order_relaxed); }
         }
+        SEC_MARK(18);
         for (int i = 0; i < n_ended; i++) follow(ended[i]);
-        for (int pad = 0; pad < kPadCount; pad++)
-            if (!((playing >> pad) & 1)) g_pads_pos[pad].store(0, std::memory_order_relaxed);
+        for (uint64_t gone = pos_live_ & ~playing; gone; gone &= gone - 1)       // a pad that stopped: its position goes back to none
+            g_pads_pos[__builtin_ctzll(gone)].store(0, std::memory_order_relaxed);
+        pos_live_ = playing;
         for (int bus = 0; bus < kPadBuses; bus++) {
             q15 *ol = p.out[2 * bus], *orr = p.out[2 * bus + 1];
             if (!used[bus]) { std::memset(ol, 0, sizeof(q15) * n); std::memset(orr, 0, sizeof(q15) * n); continue; }
             for (int i = 0; i < n; i++) { ol[i] = sat16(acc[2 * bus][i]); orr[i] = sat16(acc[2 * bus + 1][i]); }
         }
         g_pads_playing.store(playing, std::memory_order_relaxed);
+        SEC_MARK(19);
     }
 
 private:
@@ -619,6 +637,7 @@ private:
             if (want_[pad]) { if (b.mode == PADM_TOGGLE) want_[pad] = 0; return; }   // waiting: a toggle pushed again cancels, the others wait on
             if (b.mode == PADM_TOGGLE) if (Voice *cur = sounding(pad)) { stop(*cur, b.tail); follow(pad); return; }
             want_[pad] = 1;                                                      // its beat is found at the next process() (the clock is there)
+            waiting_ |= 1ull << pad;
             return;
         }
         start(pad);
@@ -626,20 +645,28 @@ private:
 
     // The grid pads that wait: their beat / bar is the first one at or after the block they were pushed in; they start in the block nearest
     // to it. A stopped clock starts them at once.
+    // Only the pads of `waiting_` are looked at, in order; a pad whose want_ went back to 0 leaves it. The mask is read again after each
+    // pad, so a pad above it that starts to wait meanwhile (a Next) is seen in the same pass, as when every pad was looked at.
     void start_due(const Transport *tr, int n) {
-        for (int pad = 0; pad < kPadCount; pad++) {
-            if (!want_[pad]) continue;
-            if (!tr || !tr->running) { want_[pad] = 0; start(pad); continue; }
-            if (want_[pad] == 1) {
-                const PadBlob &b = pads_[pad];
-                const uint64_t unit = static_cast<uint64_t>(b.grid ? b.grid : 4) << 32;           // Sync without a grid: the bar
-                const uint64_t pre = b.sync ? static_cast<uint64_t>(b.preroll > 0 ? b.preroll : 0) * tr->inc_q32 : 0;   // beats before the anchor
-                const uint64_t line = (tr->beat_q32 + pre + unit - 1) / unit * unit;              // the first grid line the anchor can reach
-                at_[pad] = line - pre;
-                want_[pad] = 2;
-            }
-            if (tr->sample_at(at_[pad], n) <= n / 2) { want_[pad] = 0; start(pad, pads_[pad].from && pads_[pad].loop); }
+        for (uint64_t rest = waiting_; rest;) {
+            const int pad = __builtin_ctzll(rest);
+            start_due_pad(tr, n, pad);
+            if (!want_[pad]) waiting_ &= ~(1ull << pad);
+            rest = waiting_ & ~((2ull << pad) - 1);                             // (pad 63: 2 << 63 is 0, so nothing is left)
         }
+    }
+    void start_due_pad(const Transport *tr, int n, int pad) {
+        if (!want_[pad]) return;
+        if (!tr || !tr->running) { want_[pad] = 0; start(pad); return; }
+        if (want_[pad] == 1) {
+            const PadBlob &b = pads_[pad];
+            const uint64_t unit = static_cast<uint64_t>(b.grid ? b.grid : 4) << 32;           // Sync without a grid: the bar
+            const uint64_t pre = b.sync ? static_cast<uint64_t>(b.preroll > 0 ? b.preroll : 0) * tr->inc_q32 : 0;   // beats before the anchor
+            const uint64_t line = (tr->beat_q32 + pre + unit - 1) / unit * unit;              // the first grid line the anchor can reach
+            at_[pad] = line - pre;
+            want_[pad] = 2;
+        }
+        if (tr->sample_at(at_[pad], n) <= n / 2) { want_[pad] = 0; start(pad, pads_[pad].from && pads_[pad].loop); }
     }
 
     void start(int pad, bool at_loop = false, bool seq = false, int level = 15) {
@@ -684,6 +711,8 @@ private:
     Voice voice_[kPadVoices];
     PadBlob pads_[kPadCount];
     uint8_t want_[kPadCount] = {};                                               // a grid pad waits: 1 = its beat is not known yet, 2 = at_
+    uint64_t waiting_ = 0;                                                       // bit i: want_[i] may be set (start_due looks at these only)
+    uint64_t pos_live_ = ~0ull;                                                  // bit i: g_pads_pos[i] may be non-zero (all at first: a stale value of an earlier instance)
     uint64_t at_[kPadCount] = {};                                                // ... the beat (Q32) it starts on
     uint32_t order_ = 0;
     q15 silence_[kBlock] = {};

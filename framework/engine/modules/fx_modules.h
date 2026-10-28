@@ -7,10 +7,10 @@
 #endif
 
 // Section cycle counters (ESP32 with -DENGINE_PROFILE): the reverb and delay loops add the cycles of each stage to g_sec_prof[]; the audio task prints
-// and clears them with the [PROF] line. No effect (and no code) otherwise.
+// and clears them with the [PROF] line. No effect (and no code) otherwise. 0..5 reverb, 8..11 delay, 12..14 SpectralFx, 16..19 the Pads player.
 #if defined(ENGINE_PROFILE) && defined(ARDUINO_ARCH_ESP32)
 #include <esp_cpu.h>
-extern uint32_t g_sec_prof[16];
+extern uint32_t g_sec_prof[20];
 #define SEC_BEGIN() uint32_t sec_t = esp_cpu_get_cycle_count()
 #define SEC_MARK(n) do { const uint32_t sec_n = esp_cpu_get_cycle_count(); g_sec_prof[n] += sec_n - sec_t; sec_t = sec_n; } while (0)
 #else

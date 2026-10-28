@@ -9,7 +9,7 @@
 #include "engine/modules/synth_modules.h"
 
 #if defined(ENGINE_PROFILE) && defined(ARDUINO_ARCH_ESP32)
-uint32_t g_sec_prof[16];
+uint32_t g_sec_prof[20];
 #endif
 
 namespace sc {

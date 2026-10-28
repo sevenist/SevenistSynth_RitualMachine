@@ -87,6 +87,9 @@ void report(const audio_out_stats_t *s) {
                     if (g_sec_prof[14])                                                     // SpectralFx (stereo, the FX rack): 12..14
                         Serial.printf("[SEC] spectral: stft + frame work %u, analysis %u, resynthesis %u\n", (unsigned)(g_sec_prof[14] / nblocks),
                                       (unsigned)(g_sec_prof[12] / nblocks), (unsigned)(g_sec_prof[13] / nblocks));
+                    if (g_sec_prof[16] || g_sec_prof[17])                                   // the Pads player: 16..19
+                        Serial.printf("[SEC] pads: grid waits %u, samplers %u, filter+mix %u, block end %u\n", (unsigned)(g_sec_prof[16] / nblocks),
+                                      (unsigned)(g_sec_prof[17] / nblocks), (unsigned)(g_sec_prof[18] / nblocks), (unsigned)(g_sec_prof[19] / nblocks));
                     for (auto &v : g_sec_prof) v = 0;
                     static const char *const names[sc::OSCX_ENGINES] = {"karp", "modal", "fm2", "fold", "ssaw", "vowel", "add", "dust", "str"};
                     {

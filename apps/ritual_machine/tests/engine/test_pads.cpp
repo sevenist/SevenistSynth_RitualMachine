@@ -176,6 +176,55 @@ TEST(pads_more_pushes_than_voices_steal_the_oldest) {
     CHECK((m & 3u) == 0 && (m >> (kPadVoices + 1) & 1));                     // the two oldest went, the newest plays
 }
 
+// A render through every path of the player's mix (steady gains, level / pan ramps, fade-ins after a trimmed start, cut / choke /
+// stop fades, mute, the filter, stealing) as one checksum. The steady-gain fast path must not change a sample: build the tests once
+// more with -DSC_PADS_NO_FAST (.\test.ps1 -Defs "-DSC_PADS_NO_FAST") and compare the two printed checksums.
+TEST(pads_render_checksum_through_every_mix_path) {
+    PadsApp a;
+    a.add("long", sine(330.0, 2.0));
+    a.add("tone", sine(523.25, 1.0));
+    for (int i = 0; i < 10; i++) {
+        pad_t &p = a.pad(i, i % 2 ? "tone" : "long");
+        p.level = static_cast<uint8_t>(40 + 6 * i);
+        p.pan = static_cast<int8_t>(-45 + 10 * i);
+        p.loop = i % 3 ? PAD_LOOP_TRIM : PAD_LOOP_OFF;
+        p.start = i % 4 == 1 ? static_cast<uint32_t>(kSampleRate / 50) : 0;  // a trimmed start: a fade-in
+        p.choke = i >= 6 && i < 8 ? 1 : 0;
+        p.cut = i == 3 ? 40 : 100;
+        p.tail_ms = 30;
+    }
+    a.build();
+    uint64_t h = 1469598103934665603ull;
+    double energy = 0;
+    auto take = [&](const Stereo &s) {
+        for (size_t i = 0; i < s.l.size(); i++) {
+            for (double v : {s.l[i], s.r[i]}) { h = (h ^ static_cast<uint64_t>(static_cast<int64_t>(v) & 0xFFFF)) * 1099511628211ull; energy += v * v; }
+        }
+    };
+    for (int i = 0; i < 6; i++) { engine_synth_pad_push(i); take(a.run(0.03)); }
+    take(a.run(0.2));
+    pad_t &p2 = a.pads.pad[2];
+    p2.level = 90; p2.pan = 40;                                               // a level / pan change while it sounds: a ramp
+    engine_synth_pad_set(2, &p2);
+    take(a.run(0.1));
+    pad_t &p4 = a.pads.pad[4];
+    p4.mute = 1;
+    engine_synth_pad_set(4, &p4);
+    take(a.run(0.1));
+    p4.mute = 0;
+    engine_synth_pad_set(4, &p4);
+    engine_synth_pad_push(0);                                                 // a restart: the old sound fades
+    engine_synth_pad_push(6);
+    take(a.run(0.05));
+    engine_synth_pad_push(7);                                                 // chokes 6
+    for (int i = 8; i < 10; i++) engine_synth_pad_push(i);                   // more than 8 voices: stealing
+    take(a.run(0.3));
+    engine_synth_pads_stop();
+    take(a.run(0.2));
+    std::printf("    checksum %016llx, energy %.3e\n", static_cast<unsigned long long>(h), energy);
+    CHECK(energy > 1e9);
+}
+
 TEST(pads_trim_loop_and_tune) {
     PadsApp a;
     a.add("tone", sine(261.6256, 1.0));

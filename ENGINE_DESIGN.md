@@ -465,7 +465,7 @@ Rules that follow (each one cost a wrong turn to learn): the FPU wins on a **cha
 5. **Reverb** (user choices): `ENGINE_REVERB_HALF=1` runs the Dattorro tank at 24 kHz (half-band FIR -1 9 16 9 -1 / 32 down, cubic midpoint up; delays defined in seconds so decay and size are unchanged; combined response about
    -3 dB at 8 kHz, -6 dB at 10 kHz, -12 dB at 12 kHz): 38k -> 20.5k cycles and 91 -> 49 KB of internal RAM. `ENGINE_FX_MONO=1` computes one channel in the delay (one line, half the cost, -192 KB PSRAM) and the left taps only in the
    reverb. Both are build flags, on in the prototype's `platformio.ini`; the stereo-specific tests fail with MONO on by design.
-6. **Memory** (internal RAM for the engine is the "fast heap", about 106 KB): when it is full, allocations **spill** to PSRAM (`Heap::set_spill`) and everything touching them gets slower (a mixer went from 88 to ~20 cycles per sample once
+6. **Memory** (internal RAM for the engine is the "fast heap", about 106 KB then; 73.7 KB since item 10): when it is full, allocations **spill** to PSRAM (`Heap::set_spill`) and everything touching them gets slower (a mixer went from 88 to ~20 cycles per sample once
    the oscillators stopped taking the space). Oscillator engine tables are shared (`Tabs`), the Karplus string buffers (4 KB x 32 instances) live in the bulk heap, the command ring is 128 entries. `[HEAP]` reports used / spilled bytes.
 7. **Oscillator engines**: the per-block setup is cached on (engine, pitch step, timbre, morph); a **fast path** runs a tight loop per engine when the pitch is steady and the gate does not change inside the block (the loop around the
    engines was about 50 cycles per sample); modal modes are decaying phasors with the rotation normalised to unit length (exact decay time, tested); additive uses the Chebyshev recurrence (everything outside the 12 harmonics is -72 dB);
@@ -474,6 +474,24 @@ Rules that follow (each one cost a wrong turn to learn): the FPU wins on a **cha
    depth is now a live command (`Engine::set_edge_depth`, `Cmd::SetDepth`); modulation cables are capped at 32766; the filter's own envelope node always exists (amount 0 = gain 0). Test: `changing_a_modulation_depth_does_not_rebuild_the_graph`.
 9. **Dev tooling** (all removable, see the flag list in DEVELOPING.md): `[AUDIO]` render time and graph build count, `[PROF]` per module, `[SEC]` stage timers in Reverb / Delay, `[OSC]` per engine, `[HEAP]`, `[BENCH]`, and a serial command channel
    (`DEV_SERIAL_CMD`: `on`, `off`, `chord K`, `eng a b c d`, `release`) driven by `apps/ritual_machine/tools/serial_test.py`.
+
+10. **The fast heap back in internal RAM, the Pads player's fixed cost** (2026-10-28; exact changes, measured on the board with the measuring build at 44.1 kHz; branch `perf-pads`). The fast heap had fallen
+   whole into PSRAM (largest internal block 31.7 KB at the audio start, below the 64 KB minimum + 16 KB margin). Static internal RAM 223852 -> 155412 bytes: no static probe instance per module type
+   (`module_type_of`, -20 KB), the command ring's slots from the bulk heap (-34 KB; a copy moves the header and `size` payload bytes only), the two `RackGraph` copies of the Ritual Machine in the bulk heap
+   (-13 KB). Largest block at the audio start 31.7 -> 94.2 KB: **fast heap 73.7 KB internal** (77.8 KB before the 4 KB of IRAM below). A section switch (synth <-> Pads) now frees the old graph before the new one is
+   built (`free_old_graph`: an empty graph, the audio thread takes it, `gc`), else the new graph spilled whole. The Pads player: the 64-pad scans of every block replaced by bit masks (waiting pads, published
+   positions), a steady-gain mix path (bit-identical: checksum test with / without `SC_PADS_NO_FAST`), and `Pads::process` in IRAM (3.5 KB; `Sampler::process`, 10 KB, stays in flash: in IRAM it would take
+   the fast heap under its minimum). Cycles per block, the user's sounds (Pads FX chains Reverb + Delay + Compressor), baseline -> now:
+
+   | case | baseline | now |
+   |---|---|---|
+   | Pads module, 1 pad / 8 short / 8 streamed | 8.9k / 49.7k / 71.3k | 1.7k / 32.4k / 53.1k |
+   | Pads section total, 1 short / 8 short / 8 streamed | 62.7k / 102.3k / 125.7k | 49.6k / 80.4k / 101.7k |
+   | blocks over budget, 8 streamed (3450 blocks) | 458 | 15 |
+   | Reverb (in the Pads FX chain) | 25.0k | 20.7k |
+   | synth idle, the user's patch | 46.7k | 42.7k |
+
+   The Pads player with no pad playing: ~7-8k (stage timers `[SEC] pads`) -> ~1.3k. DMA underruns: 0 everywhere, before and after; the card underruns of 8 streamed pads are the card's limit (unchanged).
 
 Risks accepted: float and fixed point now coexist in the filter (two representations to keep consistent); the supersaw is thinner than the 7-saw version; the half-rate reverb is darker in the top octave; mono FX lose stereo width;
 the interpolated filter coefficients are a (tested, small) approximation for fast but smooth modulation. Items not yet done are listed in CONTINUE.md ("Next performance steps").

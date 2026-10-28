@@ -73,6 +73,7 @@ C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py 
 | Command | Does |
 | --- | --- |
 | `ping` | answers `[CMD] pong`: the board runs a firmware with commands |
+| `nosave 1`, `nosave 0`, `nosave` | 1: nothing is written to the card any more (the settings files: pads, sounds, patterns; the app believes they were saved), 0: back to normal; alone: prints the state. For tests that change the pads or the sound (`pads_test.py` sends `nosave 1` first): restart the board afterwards to have the card's settings back |
 | `status` | notes held by `chord`, uptime, free heap |
 | `pieconv` | checks the Convolver's PIE dot products (`pie_conv2_s16`) against the C sums at full scale, 1..64 vectors, and prints the cost of a 128-tap call for both channels |
 | `samples` | takes the samples of the library's root folder into the catalog (it holds the files in use, 32 at most; nothing is scanned at start), then prints the catalog: index, name, frames, rate, root note, loop points and mode (the index is the F of `patch sampler`) |

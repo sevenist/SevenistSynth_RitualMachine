@@ -20,6 +20,15 @@ on the hardware.
   and the next panel (4 columns, encoders).
 - **For developers:** the repo is now a library and the apps built on it. The next section is the guide to it.
 
+## 2026-10-28: faster Pads, the engine's fast memory back in internal RAM (branch `perf-pads`)
+
+- **The Pads section costs less CPU.** With one pad playing the Pads player takes a fifth of what it did, and 8 streamed
+  pads leave about 20 % more of the budget free. Nothing should sound different (every change is exact).
+- **For developers:** the engine's fast heap fits in the first prototype's internal RAM again (it had fallen whole into
+  PSRAM): no static instance per module type, the command ring and the rack graphs in the bulk heap, and a section switch
+  frees the old graph before building the new one. New dev serial command `nosave` (nothing written to the card, for
+  tests); `pads_test.py` uses it. Numbers: ENGINE_DESIGN.md ADR-035 item 10.
+
 ## 2026-10-28: the repo can be moved
 
 - **For developers:** the desktop build and the three test scripts hand the compilers paths relative to the app's folder,

@@ -18,7 +18,12 @@ see the traps; committed on `main` by me). Then **board performance, unattended*
 answers before leaving: **flash freely** on COM8 and leave the normal build on the board at the end; commits on **a new
 branch `perf-pads`**, one per measured step, so the work can be resumed or reverted; **exact changes only**: anything that
 would change the sound is written up as an option, not done; **the Pads fixed cost, then the internal RAM**). The results
-are in "Next performance steps" and ADR-035; the branch's log is the step list.
+are in "Next performance steps" and ADR-035; the branch's log is the step list. Early on I sent the serial command
+`storage` (to look at the card) and the board went into the card reader: about an hour of host-only work until someone
+brought it back (trap added below). **At the end the board runs the normal build of `perf-pads`** (`f689e3e` + docs; boot:
+fast heap 73716 bytes in internal RAM). The test pads lived in RAM only (`nosave`) and the flash restarted the board, so
+the card's pads and sounds are the user's own. `main` still has the path fix commit `97e206c` on top of the user's
+`9643e27`; neither is pushed.
 
 **Where things stood (2026-10-22):** nothing changed in the code since 2026-10-14 (the working tree is that session's work,
 51 files, uncommitted: **the user commits it themselves**). The board still runs the beta 1.1 release image. At
@@ -90,11 +95,14 @@ item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
   the speaker plays at start; Spk Off: silent, and no hiss with the ear on the speaker; Spk back on: it plays (a click at the
   switch is possible: say if it bothers); power off with the speaker on: no thump. If the speaker stays silent with Spk on,
   the level is the other way: swap `kSpkOn` / `kSpkShutdown` in `board_esp32.cpp`
-- [ ] **Board performance: the Pads fixed cost, then the internal RAM** (picked third by the user on 2026-10-22; from:
-  user). The first two items of "Next performance steps" below, with their numbers and what "done" means there. Needs the
-  board: the normal build flashed first (the release image has no serial commands; ask before flashing), the skill
-  `esp32-optimize`. Done = before / after numbers recorded there and in ADR-035, the output unchanged where the change is
-  meant to be exact
+- [x] **Board performance: the Pads fixed cost, then the internal RAM** (done 2026-10-28, unattended, on the branch
+  **`perf-pads`**, not merged: the user merges if they like it; from: user). Every step measured on the board (flashed by
+  me with their permission for that session) and committed with its numbers; ENGINE_DESIGN.md ADR-035 item 10 has the table.
+  In short, baseline -> now: **the fast heap is internal again** (73.7 KB; it was 409.6 KB of PSRAM: static internal RAM
+  223852 -> 155412 bytes); the Pads module with 1 pad 8.9k -> 1.7k cycles, 8 pads 49.7k -> 32.4k; the Pads section with 8
+  streamed pads 125.7k -> 101.7k (blocks over budget 458 -> 15); synth idle 46.7k -> 42.7k. All exact (the mix fast path:
+  checksum test); host tests pass. **Not listened to** (nothing should sound different: worth a quick check of the pads and
+  the switch between the sections). The board was left with the normal build of the branch (see "Where things stand")
 - [ ] **Synth sequencer: the user tries the erase, its Undo and the roll that follows** (from: user, 2026-10-14; ENGINE_DESIGN.md
   ADR-042 decisions 21-23, with the choices made while building: say if one is wrong). Their words: "pressing back/delete key
   while recording, erase the sequencer under the playhead, the undo should revert the deletions, also the sequencer doesn't
@@ -817,16 +825,17 @@ engine: the build made after these numbers adds a **fast path** (steady pitch an
 Before the list, moved from the todo on 2026-10-14: the first two were chosen by the user on 2026-10-11 as the next
 performance work and not picked at the session start of 2026-10-14.
 
-- **Pads fixed cost: ~9k cycles a block for the 64-pad bookkeeping** ("Pads on the board": 13.1k with one pad, ~3.6k per voice).
-  An exact change. Done = before / after with `apps/ritual_machine/tools/pads_test.py` on the board, the output bit-identical, host tests green in the 6
-  configurations (from: user)
-- **Internal RAM: the fast heap is in PSRAM on the board** (measured 2026-10-09, `[RAM]` boot lines): largest internal block 59 KB at boot,
-  51 KB before `audio_init`, so the fast heap (needs 64 KB + 16 KB margin) falls back whole to PSRAM: every module's state is in PSRAM. On
-  2026-10-06 the largest block was 90 KB: ~27 KB of static RAM appeared since. Biggest user: `s_synth` 78.6 KB (the Engine, two RackGraph copies and
-  the sample catalog; the RackGraphs and the catalog are control-only). Boot log of this session (normal build): internal free 83 KB,
-  largest block 41 KB when the audio starts, fast heap 409600 bytes in PSRAM; since the display starts first (the boot task) it is
-  71 KB free, largest 32 KB at that point (the display's task and bus are allocated before the audio now: count them in). Done = the `[RAM]` lines show the fast heap in internal
-  RAM and the startup patch + the Pads cases are re-measured; options to the user where a trade exists (from: user + measurements)
+- **Done 2026-10-28 (branch `perf-pads`, ADR-035 item 10): the Pads fixed cost and the fast heap back in internal RAM.** What is
+  left from that work, in the order I would take it:
+  - **`Sampler::process` (10 KB) in IRAM**: `Pads::process` in IRAM cut the Pads player's cost by 4k a block at no cost to the
+    synth; the samplers are now the Pads section's biggest cost (~3k per short pad, ~5.6k per streamed one). In IRAM they would
+    take the fast heap under its 64 KB minimum (largest block 90.1 KB at the audio start, the fast heap = block - 16 KB). Room
+    must be found first: the next big static user is the UI's `app_t app` (18.5 KB, `main_esp32.cpp`), which could live in
+    PSRAM (a trade: the UI's state behind the cache; measure the UI step times with `HWV1_DEBUG_UI`). Ask the user
+  - **The synth's graph after a stay in the Pads section holds 48 KB of the fast heap, 76 KB at boot** (same before the RAM
+    work, seen in the `[HEAP]` lines): the cycles were the same both times, so not chased; likely the order in which the
+    reverb's big buffers find room
+  - The card limit of 8 streamed pads (~300 card underruns in 6 s, unchanged): "SD options" below
 - **Workflow plan phase 2: measure the cost on the board**: step 1 (both branches, Para per branch, MIX) and step 2 (effects inside a
   branch, modulators reaching row M, row M's filter envelope; ADR-041 "Phase 2, step 2") flashed and tried by the user on the prototype
   2026-10-09: Osc -> Phaser -> Filter works, modulators work. Not measured: the cost of per-voice effects and of a stereo shared part (from: notes)
@@ -942,6 +951,12 @@ From the session todo (long-term; moved here 2026-10-11):
 - UI tests address some rows by number (the RACK page's menu rows in `apps/ritual_machine/tests/ui/test_rows.c`, the EDIT page's rows in `apps/ritual_machine/tests/ui/test_pads.c`): inserting a row in those screens shifts them.
 - The user often keeps the simulator open: `build.ps1` then builds `oled_sim_new.exe`. A stale exe has caused a false "bug" before. Since 2026-10-13 each simulated board is its own exe (`oled_sim.exe`, `oled_sim_hwv1.exe`): a change built for one board is not in the other (`run.ps1` prints a note when the one it starts is the older).
 - PlatformIO: use `C:\.platformio\penv\Scripts\pio.exe`, **never a bare `pio`** (PATH points at Python 3.13's pio, which recreates and destroys the penv). It happened twice; the second time (2026-10-05) Claude did it, and the user had to restore the penv by hand. Repair steps: DEVELOPING.md, "ESP32 firmware" warning. One link failure with no error text happened twice; the immediate rerun succeeded.
+- **Never send the serial command `storage` in an unattended session**: it restarts the board into the USB card reader, the
+  serial port disappears and only a hand brings it back (the joystick held 2 s, or the power button off and on). It happened
+  on 2026-10-28 (Claude used it to look at the card): the board work stopped until the user came by. Read what a serial command
+  does (`serial_cmd_esp32.cpp`) before sending it. **Tests that redefine pads or sounds save them to the card** (the app saves
+  a moment later): `nosave 1` first (`pads_test.py` does it and refuses a firmware without it), and a restart afterwards
+  brings the card's settings back.
 - One program per serial port: close the serial monitor before `serial_test.py`. Before an upload, check that the board is there
   (`[System.IO.Ports.SerialPort]::GetPortNames()`): switched off or unplugged it is on no port, and `pio run -d apps/ritual_machine -t upload` fails after
   the whole build ("Please specify `upload_port`"). A build to check only: `PLATFORMIO_BUILD_DIR` in the scratchpad.

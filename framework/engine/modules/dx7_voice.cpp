@@ -177,7 +177,7 @@ private:
 };
 
 template <typename T>
-ModuleType type_of() { static T probe; return {&probe.info(), &create_module<T>}; }
+ModuleType type_of() { return module_type_of<T>(); }
 
 }  // namespace
 

@@ -11,6 +11,8 @@
 // Parameters are int32 in module-defined units (see ParamDesc), set at control rate by set_param().
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <new>
 #include "engine/core/heap.h"
 #include "engine/dsp/config.h"
 #include "engine/dsp/q.h"
@@ -141,6 +143,19 @@ inline void destroy_module(Heap &h, Module *m) {
     if (!m) return;
     m->~Module();
     h.free(m);
+}
+
+// A type's table entry. Its description is read from a short-lived instance: info() returns a function-local static, so the
+// description outlives it. (A static probe instance per type held ~20 KB of internal RAM on the board for 106 types.) The instance
+// is built in a malloc'd buffer that is freed again without running its destructor, as the static probe's never ran either.
+template <typename T>
+ModuleType module_type_of() {
+    void *raw = std::malloc(sizeof(T) + alignof(T));
+    if (!raw) return {nullptr, nullptr};
+    const uintptr_t at = (reinterpret_cast<uintptr_t>(raw) + alignof(T) - 1) & ~static_cast<uintptr_t>(alignof(T) - 1);
+    const ModuleInfo *info = &(new (reinterpret_cast<void *>(at)) T())->info();
+    std::free(raw);
+    return {info, &create_module<T>};
 }
 
 // Module type table: type ids are chosen by the application (builtins use the low ids, see builtin.h).

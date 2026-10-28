@@ -23,7 +23,7 @@ inline int32_t clampi(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : 
 inline uint32_t lfo_inc(int32_t rate, uint32_t one_hz) { return exp2_scale(one_hz, clampi(rate, -6 * 12 * kSemi, 8 * 12 * kSemi) * 256 / 12); }
 
 template <typename T>
-ModuleType type_of() { static T probe; return {&probe.info(), &create_module<T>}; }
+ModuleType type_of() { return module_type_of<T>(); }
 
 /* ------------------------------------------------------------------ Phaser */
 

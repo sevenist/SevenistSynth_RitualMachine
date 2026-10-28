@@ -281,31 +281,28 @@ bool synth_ui_shows_playhead(const synth_ui_t *ui, const rack_t *rack) {
 }
 
 /* ---------------- menu tabs ----------------
- * Modular synth: RACK, PRESETS, GENERAL, SAMPLES, KEYS, LEDS, MODIFIERS, MACROS, JOY, CURVES.  FM synth: RACK (row M only, ADR-041), PRESETS, GENERAL, ALGORITHM
- * (the operator tree: a push opens the operator's page), KEYS, LEDS, MODIFIERS, MACROS, JOY, CURVES.  Strings: the FM list without ALGORITHM
- * (its sound is edited on the pages). */
+ * Every synth type: RACK (FM, Strings: row M only, ADR-041), PRESETS, SOUND (the synth's settings, then the rack's sample (Modular) or
+ * the DX7 patch's algorithm (FM): ADR-044, it was GENERAL + SAMPLES / ALGORITHM), KEYS, LEDS, MODIFIERS, MACROS, JOY, CURVES. */
 
-int tab_count(const rack_t *r) {
-    if (synth_type_is_fm(r->cfg.type)) return 10;
-    return 10 - (synth_type_is_strings(r->cfg.type) ? 1 : 0);
-}
+#define TABS 9
+
+int tab_count(const rack_t *r) { (void)r; return TABS; }
 
 tab_t tab_kind(const rack_t *r, int idx) {
-    static const tab_t modular[10] = {TAB_RACK, TAB_PRESET, TAB_GENERAL, TAB_SAMPLES, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
-    static const tab_t fm[10] = {TAB_RACK, TAB_PRESET, TAB_GENERAL, TAB_FM_ALGO, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
-    static const tab_t strings[9] = {TAB_RACK, TAB_PRESET, TAB_GENERAL, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
-    if (synth_type_is_fm(r->cfg.type)) return fm[idx % 10];
-    return synth_type_is_strings(r->cfg.type) ? strings[idx % 9] : modular[idx % 10];
+    static const tab_t tabs[TABS] = {TAB_RACK, TAB_PRESET, TAB_SOUND, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
+    (void)r;
+    return tabs[(idx % TABS + TABS) % TABS];
 }
 
 const char *tab_name(tab_t t) {
-    static const char *const n[] = {"RACK", "GENERAL", "ALGORITHM", "OPERATOR", "ENVELOPE", "FX RACK", "SAMPLES", "KEYS", "MODIFIERS", "MACROS", "CURVES", "LEDS", "JOY", "PRESETS"};
+    static const char *const n[] = {"RACK", "GENERAL", "ALGORITHM", "OPERATOR", "ENVELOPE", "FX RACK", "SAMPLES", "KEYS", "MODIFIERS", "MACROS", "CURVES", "LEDS", "JOY", "PRESETS", "SOUND"};
     return n[t];
 }
 
 const char *tab_icon(tab_t t) {
     static const char *const n[] = {"16/tab_rack", "16/tab_general", "16/tab_algorithm", "16/tab_operator", "16/tab_envelope", "16/tab_fx",
-                                    "16/tab_samples", "16/tab_keys", "16/tab_modifiers", "16/tab_macros", "16/tab_curves", "16/tab_leds", "16/tab_joy", "16/tab_presets"};
+                                    "16/tab_samples", "16/tab_keys", "16/tab_modifiers", "16/tab_macros", "16/tab_curves", "16/tab_leds", "16/tab_joy", "16/tab_presets",
+                                    "16/tab_general" /* SOUND: GENERAL's icon until one is painted */};
     return n[t];
 }
 
@@ -343,11 +340,11 @@ bool synth_ui_open_page(synth_ui_t *ui, const rack_t *rack, int slot, int def) {
     return false;
 }
 
-// The page list's screens (ADR-044): the tab of each (TAB_COUNT: not a tab). Sound is GENERAL for now.
-#define TAB_COUNT ((tab_t)(TAB_PRESET + 1))
+// The page list's screens (ADR-044): the tab of each (NOT_A_TAB: a page of the main view).
+#define NOT_A_TAB ((tab_t)255)
 static const tab_t go_tab[SYNTH_GO_COUNT] = {
-    [SYNTH_GO_MAIN] = TAB_COUNT, [SYNTH_GO_RACK] = TAB_RACK, [SYNTH_GO_PRESETS] = TAB_PRESET, [SYNTH_GO_SOUND] = TAB_GENERAL,
-    [SYNTH_GO_SEQ] = TAB_COUNT, [SYNTH_GO_MACROS] = TAB_MACROS, [SYNTH_GO_KEYS] = TAB_KEYS, [SYNTH_GO_LEDS] = TAB_LEDS,
+    [SYNTH_GO_MAIN] = NOT_A_TAB, [SYNTH_GO_RACK] = TAB_RACK, [SYNTH_GO_PRESETS] = TAB_PRESET, [SYNTH_GO_SOUND] = TAB_SOUND,
+    [SYNTH_GO_SEQ] = NOT_A_TAB, [SYNTH_GO_MACROS] = TAB_MACROS, [SYNTH_GO_KEYS] = TAB_KEYS, [SYNTH_GO_LEDS] = TAB_LEDS,
     [SYNTH_GO_MODS] = TAB_MODS, [SYNTH_GO_JOY] = TAB_JOY, [SYNTH_GO_CURVES] = TAB_CURVES,
 };
 
@@ -394,7 +391,6 @@ bool synth_ui_go_page(synth_ui_t *ui, const rack_t *rack, int idx) {
 synth_go_t synth_ui_where(const synth_ui_t *ui, const rack_t *rack) {
     if (!ui->in_rack) return synth_ui_shows_seq(ui) ? SYNTH_GO_SEQ : SYNTH_GO_MAIN;
     const tab_t t = tab_kind(rack, ui->menu_tab);
-    if (t == TAB_SAMPLES || t == TAB_FM_ALGO) return SYNTH_GO_SOUND;
     for (int w = 0; w < SYNTH_GO_COUNT; w++) if (go_tab[w] == t) return (synth_go_t)w;
     return SYNTH_GO_MAIN;
 }
@@ -407,6 +403,7 @@ bool synth_ui_on_leds_tab(const synth_ui_t *ui, const rack_t *rack) { return ui-
 int tab_rows(tab_t t) { return screen_for_tab(t)->n; }      // every tab is a declarative screen: its rows are its elements
 
 int tab_index_of(const rack_t *r, tab_t t) {
+    if (t == TAB_GENERAL || t == TAB_SAMPLES || t == TAB_FM_ALGO) t = TAB_SOUND;     // (a jump slot saved before ADR-044)
     for (int i = 0; i < tab_count(r); i++) if (tab_kind(r, i) == t) return i;
     return -1;
 }

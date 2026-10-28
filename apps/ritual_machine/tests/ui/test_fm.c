@@ -39,8 +39,8 @@ TEST(fm_tree_push_opens_the_operator_page) {
     ui_fresh();
     ui_set_type(SYNTH_FM);
     ev_tap(CTL_BTN_1);
-    ui_app.ui.menu_tab = tab_index_of(&ui_app.rack, TAB_FM_ALGO);
-    ui_app.ui.row = 3;                                                      // Op
+    ui_app.ui.menu_tab = tab_index_of(&ui_app.rack, TAB_FM_ALGO);          // (the SOUND tab now: ADR-044)
+    ui_app.ui.row = 15;                                                     // Op
     ui_app.ui.fm_op = 0;
     ev_tap(CTL_JOY_RIGHT);                                                  // the selector: next operator
     CHECK_EQ(ui_app.ui.fm_op, 1);

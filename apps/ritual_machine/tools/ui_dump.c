@@ -34,7 +34,7 @@ static void dump(const char *title) {
 }
 
 // Event names: the hardware controls, by the role they have in the default binding table.
-//   up down left right (joystick directions)  latch (joystick push)  menu (BTN 1)  back (BTN 2)  play  shift / unshift (BTN 3 down / up)
+//   up down left right (joystick directions)  latch (joystick push)  menu (BTN 1, pressed and let go)  back (BTN 2)  play  shift / unshift (BTN 3 down / up)
 //   encA:+1  encB:-2 (encoder turns)  encAsw encBsw (encoder pushes)  knob:<ctl number>:<0..1023>  key:<row>.<col>  keyup:<row>.<col>
 //   popup:info popup:error popup:ask (raise a test popup, ui/popup.h)
 static input_event_t ev(const char *name) {
@@ -69,7 +69,9 @@ static void feed(app_t *app, const char *script) {
         if (!strcmp(t, "popup:info"))  { popup_info(&app->popup, "SD CARD", "Card inserted", 0, audio_millis(), 2000); app->redraw_owed = true; }
         else if (!strcmp(t, "popup:error")) { popup_error(&app->popup, NULL, "The card could not be read. Check that it is inserted.", NULL, NULL); app->redraw_owed = true; }
         else if (!strcmp(t, "popup:ask"))   { popup_ask(&app->popup, "SD CARD", "The card is not formatted. Format it?", false, NULL, NULL); app->redraw_owed = true; }
-        app_step(app, ev(t));
+        const input_event_t e = ev(t);
+        app_step(app, e);
+        if (e.ctl == CTL_BTN_1 && e.kind == IN_PRESS) app_step(app, (input_event_t){CTL_BTN_1, IN_RELEASE, 0, false});   // Menu acts at its release (ADR-044)
     }
 }
 

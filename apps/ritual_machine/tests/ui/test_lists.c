@@ -1,5 +1,6 @@
 // The page list on Shift + Menu (app/app_lists.c; ENGINE_DESIGN.md ADR-044): MODES, MAIN, ADVANCED >, the entries following the mode.
 #include "ui_test.h"
+#include "core/ui_screen.h"
 
 #define SHIFT CTL_BTN_3
 #define MENU  CTL_BTN_1
@@ -40,7 +41,7 @@ TEST(page_list_goes_to_the_synths_screens_and_opens_on_the_one_on_show) {
     focused(t, (int)sizeof t);
     CHECK_STR(t, "Rack");                                               // it opens on the screen on show
     CHECK(ui_list_pick("Sound"));
-    CHECK(on_tab(TAB_GENERAL));
+    CHECK(on_tab(TAB_SOUND));
     shift_menu(); CHECK(ui_list_pick("Macros"));
     CHECK(on_tab(TAB_MACROS));
     shift_menu(); CHECK(ui_list_pick("Presets"));
@@ -206,4 +207,51 @@ TEST(page_list_storage_asks_then_saves_and_restarts_as_the_card_reader) {
     CHECK_EQ(ui_stub_card_reader, calls + 1);
     CHECK(popup_info_showing(&ui_app.popup));                           // the tests' platform has none: it says so
     CHECK_STR(ui_app.popup.info.text, "No card reader on this platform");
+}
+
+/* ---------------- the SOUND tab: GENERAL + SAMPLES or ALGORITHM (ADR-044) ---------------- */
+
+// The labels of the SOUND tab's rows the focus reaches, from the first, joined with '|' (encoder A down, as by hand).
+static void sound_rows(char *out, int n) {
+    out[0] = 0;
+    ui_app.ui.row = 1;
+    const screen_def_t *s = screen_for_tab(TAB_SOUND);
+    for (int k = 0; k < 20; k++) {
+        const el_def_t *e = &s->el[ui_app.ui.row - 1];
+        const ui_ctx_t c = {&ui_app.ui, &ui_app.rack, e->arg};
+        const char *l = e->label_dyn ? e->label_dyn(&c) : e->label;
+        if (out[0]) strncat(out, "|", (size_t)n - strlen(out) - 1);
+        strncat(out, l, (size_t)n - strlen(out) - 1);
+        const int was = ui_app.ui.row;
+        ev_turn(CTL_ENC_A, 1);
+        if (ui_app.ui.row <= was) break;                                // around: the list is done
+    }
+}
+
+TEST(sound_tab_holds_the_settings_then_the_sample_or_the_algorithm_by_synth_type) {
+    ui_fresh();
+    char all[200];
+    CHECK_EQ(tab_count(&ui_app.rack), 9);
+    CHECK_EQ(tab_kind(&ui_app.rack, 2), TAB_SOUND);
+    CHECK_EQ(tab_index_of(&ui_app.rack, TAB_GENERAL), 2);              // a jump slot saved on GENERAL, SAMPLES or ALGORITHM lands on SOUND
+    CHECK_EQ(tab_index_of(&ui_app.rack, TAB_SAMPLES), 2);
+    CHECK_EQ(tab_index_of(&ui_app.rack, TAB_FM_ALGO), 2);
+    CHECK_STR(tab_name(TAB_SOUND), "SOUND");
+    shift_menu(); CHECK(ui_list_pick("Sound"));
+    CHECK(on_tab(TAB_SOUND));
+    sound_rows(all, (int)sizeof all);                                   // Modular: the sample rows
+    CHECK(strstr(all, "Knob|File|Tgt|Assign") != NULL);
+    CHECK(strstr(all, "Algo") == NULL);
+    ui_set_type(SYNTH_FM);
+    ev_tap(MENU);
+    shift_menu(); CHECK(ui_list_pick("Sound"));
+    sound_rows(all, (int)sizeof all);                                   // FM: the algorithm's
+    CHECK(strstr(all, "Knob|Algo|Fb|Op") != NULL);
+    CHECK(strstr(all, "File") == NULL);
+    ui_set_type(SYNTH_STRINGS);
+    sound_rows(all, (int)sizeof all);                                   // Strings: the settings only
+    CHECK(strstr(all, "Knob") != NULL && strstr(all, "File") == NULL && strstr(all, "Algo") == NULL);
+    // the picture follows the part: drawn on each without trouble
+    ui_set_type(SYNTH_MODULAR);
+    for (int row = 1; row <= 12; row++) { ui_app.ui.row = row; ui_app.dirty = true; ev_idle(1); }
 }

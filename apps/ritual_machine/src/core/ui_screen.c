@@ -190,9 +190,7 @@ void ui_layout_column(u8g2_t *g, const gui_style_t *st, gui_rect_t area, int n, 
 
 const screen_def_t *screen_for_tab(tab_t t) {
     switch (t) {
-        case TAB_GENERAL: return &scr_general_screen;
-        case TAB_SAMPLES: return &scr_samples_screen;
-        case TAB_FM_ALGO: return &scr_fm_algo_screen;
+        case TAB_SOUND:   return &scr_sound_screen;
         case TAB_KEYS:    return &scr_keys_screen;
         case TAB_MODS:    return &scr_mods_screen;
         case TAB_MACROS:  return &scr_macros_screen;

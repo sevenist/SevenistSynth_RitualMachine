@@ -337,7 +337,7 @@ typedef enum { SYNTH_GO_MAIN, SYNTH_GO_RACK, SYNTH_GO_PRESETS, SYNTH_GO_SOUND, S
                SYNTH_GO_KEYS, SYNTH_GO_LEDS, SYNTH_GO_MODS, SYNTH_GO_JOY, SYNTH_GO_CURVES, SYNTH_GO_COUNT } synth_go_t;
 // Shows that screen (leaving the menu as MENU does when it goes to the main view). False when this synth type has no such screen.
 bool synth_ui_go(synth_ui_t *ui, const rack_t *rack, synth_go_t where);
-// The screen on show, as one of those (SAMPLES and ALGORITHM are Sound; any page but the SEQUENCER is the main view).
+// The screen on show, as one of those (any page but the SEQUENCER is the main view).
 synth_go_t synth_ui_where(const synth_ui_t *ui, const rack_t *rack);
 // The main view's page `idx` (0 .. page_count - 1): its title; shown, row 1, leaving the menu (the jump list, a long Menu press).
 void synth_ui_page_title(const synth_ui_t *ui, const rack_t *rack, int idx, char *out, int n);

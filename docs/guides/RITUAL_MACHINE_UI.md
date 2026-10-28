@@ -292,7 +292,8 @@ heading is skipped by the focus, a long list scrolls).
   storage HAL; Back from the submenu = the list on Advanced). A synth tab picked in Pads switches to the synth first. The
   synth's side goes through `synth_ui_go` / `synth_ui_where` (`synth_go_t`, `ui_pages.c`).
 - **Menu held `MENU_LONG_MS` (500 ms): the jump list**, the main view's pages by title (`synth_ui_page_title`), on the page on
-  show; a pick shows it (`synth_ui_go_page`, row 1), from the menu or from Pads too. A rack edited in the menu is applied
+  show; a pick shows it (`synth_ui_go_page`, row 1), from the menu too. **Not in Pads** (the user, ADR-044 decision 8): there
+  a long press is a short one, the FX chains. A rack edited in the menu is applied
   first, so the list holds the pages it makes. Menu's short press therefore acts at its release (`app_menu_up`, called from
   both release paths of `app_input.c`).
 

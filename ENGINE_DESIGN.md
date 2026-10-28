@@ -1738,7 +1738,7 @@ Chosen by me while building (say if one is wrong):
   real screen, the display window's place next to a taller panel. The engine tests were not run again (no engine or app engine
   file changed). `release` and `card_reader` were not built.
 
-### ADR-044: A page list on Shift + Menu, a page jump list on a long Menu press (Accepted; user choices of 2026-10-28; built on `main` the same day, `e45de47` .. the docs commit, host-tested, NOT flashed, NOT tried by the user)
+### ADR-044: A page list on Shift + Menu, a page jump list on a long Menu press (Accepted; user choices of 2026-10-28 / 29; built on `main`, `e45de47` .. `d30f0b2`; flashed and tried by the user on the prototype 2026-10-29: "all good", every point of the test list; the jump list in Pads changed at their word, decision 8)
 **Why.** The user, preparing the controls of the next prototype: "the shift menu should now show a list of pages available
 including main view (with all pages unchanged)", "a long menu press should show a list of dynamic pages in the main view",
 and "group stuff together: the advanced options in a separate submenu, the main ones together, and modes". Until now a screen
@@ -1762,6 +1762,9 @@ Synth <-> Pads.
    option: Sound only in the list, the three tabs kept): 9 tabs for every synth type.
 7. **Vol, Out, Spk and Knob stay in SOUND** (asked while building; the other option: Out / Spk / Knob to a Settings entry of
    ADVANCED).
+8. **No jump list in Pads** (2026-10-29, after trying it; their words: "the long press on menu shouldn't show synth parts in pad
+   mode"; offered: the Pads screens, nothing, the 64 pads): a long Menu press there is a short one (the FX chains, at the
+   release). It replaces the second half of my point 2 below.
 
 **The plan, one commit per step.** (1) The list popup takes more options than fit (it scrolls), headings that the focus skips,
 and labels asked from the caller (a list of 69 pages needs no copy of their names). (2) The list on Shift + Menu. (3) The long
@@ -1771,7 +1774,7 @@ Chosen by me while building (say if one is wrong):
 1. **Shift + Menu opens the list at once** (on the press); **a plain Menu press acts on its release** when it was short, so a
    hold can become the jump list (`MENU_LONG_MS` 500): the menu opens a moment later than before, at the release.
 2. **In Pads, the synth's entries take you to the synth** (Presets, Macros, the ADVANCED tabs: they are the synth's menu
-   tabs); Sound is not listed there. The long press in Pads lists the synth's pages too, and a pick goes to the synth.
+   tabs); Sound is not listed there. (The long press in Pads listed the synth's pages too: changed by decision 8.)
 3. **The Synth <-> Pads switch moves into MODES**; the key function Section (`ACT_SECTION`) stays as a direct switch.
 4. **The list opens on the entry of the screen on show** (Rack when the RACK tab is open, Synth on a main view page ...), the
    jump list on the page on show.

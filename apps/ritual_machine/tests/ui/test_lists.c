@@ -176,19 +176,20 @@ TEST(jump_list_on_a_long_menu_press_lists_the_main_views_pages) {
     CHECK(!ui_app.ui.in_rack && ui_app.ui.page == 1);
 }
 
-TEST(jump_list_in_pads_goes_to_the_synths_page_and_a_short_press_is_still_the_fx) {
+// In Pads there is no jump list: a long press is a short one, the FX chains (user, 2026-10-29: "the long press on menu shouldn't
+// show synth parts in pad mode").
+TEST(no_jump_list_in_pads_a_long_press_is_the_fx_as_a_short_one) {
     ui_fresh();
-    char want[24];
     shift_menu(); CHECK(ui_list_pick("Pads"));
     ev_tap(MENU);
     CHECK(ui_app.ui.pad_fx);                                            // short: the FX chains, as before
     ev_tap(MENU);
     CHECK(!ui_app.ui.pad_fx);
-    menu_hold();
-    CHECK(popup_modal(&ui_app.popup) && !ui_app.ui.pad_fx);
-    synth_ui_page_title(&ui_app.ui, &ui_app.rack, 0, want, (int)sizeof want);
-    CHECK(ui_list_pick(want));
-    CHECK(ui_app.section == SECTION_SYNTH && !ui_app.ui.in_rack && ui_app.ui.page == 0);
+    ev_press(MENU);
+    ev_idle(100);                                                       // well past MENU_LONG_MS
+    CHECK(!popup_modal(&ui_app.popup) && !ui_app.ui.pad_fx);
+    ev_release(MENU);
+    CHECK(!popup_modal(&ui_app.popup) && ui_app.ui.pad_fx && ui_app.section == SECTION_PADS);
 }
 
 extern int ui_stub_card_reader;

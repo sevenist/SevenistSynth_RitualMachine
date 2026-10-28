@@ -66,9 +66,11 @@ was then asked with options (audio into a sample, a popup when arming, the desti
 item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
 21-23).
 
-- [ ] **The page list on Shift + Menu, and the page jump list on a long Menu press: the user tries it** (from: user, design
-  round 2026-10-28; ENGINE_DESIGN.md ADR-044, with the points chosen by me while building: say if one is wrong). **Built
-  2026-10-28 on `main` (6 commits), host-tested (162 UI tests), simulator + firmware built, NOT flashed, NOT tried.** **To try**
+- [x] **The page list on Shift + Menu, and the page jump list on a long Menu press: flashed and tried by the user on the
+  prototype, every point of the 21-point list: "all good"** (done 2026-10-29). One change at their word: no jump list in
+  Pads (a long press there is the FX chains, ADR-044 decision 8; host-tested, not flashed yet). The 21 points tried include the
+  old ones: the sequencer's Undo after an erase, the roll past step 16, the pattern recorded as a sample.
+  (from: user, design round 2026-10-28; ENGINE_DESIGN.md ADR-044). **Built 2026-10-28 on `main` (6 commits).** **To try**
   (simulator: `.uild.ps1`, `.un.ps1`; the board after a flash): Shift + Menu (it opens on the screen you are on), Rack,
   Sound (Modular: the sample rows at the end; FM: Algo / Fb / Op), Sequencer, Macros, Advanced > Curves, Back from the
   submenu; Pads, then Shift + Menu: Pad FX, Steps, Pads, Presets (back to the synth); Menu held 0.5 s on a page, in the menu,
@@ -122,8 +124,8 @@ item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
   streamed pads 125.7k -> 101.7k (blocks over budget 458 -> 15); synth idle 46.7k -> 42.7k. All exact (the mix fast path:
   checksum test); host tests pass. **Not listened to** (nothing should sound different: worth a quick check of the pads and
   the switch between the sections). The board was left with the normal build of the branch (see "Where things stand")
-- [ ] **Synth sequencer: the user tries the erase, its Undo and the roll that follows** (**2026-10-28: the erase tried on the
-  board: works, "but confusing"**; the Undo and the roll not reported) (from: user, 2026-10-14; ENGINE_DESIGN.md
+- [x] **Synth sequencer: the erase, its Undo and the roll that follows: tried on the board** (done 2026-10-29: the Undo and the
+  roll in the user's test round, "all good"; 2026-10-28: the erase works, "but confusing": in the editing-tools round) (from: user, 2026-10-14; ENGINE_DESIGN.md
   ADR-042 decisions 21-23, with the choices made while building: say if one is wrong). Their words: "pressing back/delete key
   while recording, erase the sequencer under the playhead, the undo should revert the deletions, also the sequencer doesn't
   scroll"; asked, their answers: Back erases **"while it's held"**; the scroll (follow the playhead, sideways past step 16, up
@@ -143,7 +145,7 @@ item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
   push: they are back. Chosen by me: an erased step loses its Len / Vel / Prob / Rtch too; pages, not a roll sliding step by
   step; octaves, not semitones; the 4 s; the cursor still does not follow the playhead; stopped (step entry) Back is Back; an
   erase replaces a tool's undo (one level); notes recorded live are not undone
-- [ ] **Record the synth's pattern as a sample: the user tries it, by ear** (from: user, 2026-10-14; ENGINE_DESIGN.md ADR-042
+- [x] **Record the synth's pattern as a sample: tried by the user on the board** (done 2026-10-29, the test round: "all good") (from: user, 2026-10-14; ENGINE_DESIGN.md ADR-042
   decision 24, with the choices made while building: say if one is wrong). Their words: "add option to record from start to
   finish"; "user selectable, also make the option to record in loops (keep a tail, or record 2 time the sequence (so the reverb
   tail of the 1st phrase is in the second too"; asked with options, their answers: **audio into a sample**, **a popup when

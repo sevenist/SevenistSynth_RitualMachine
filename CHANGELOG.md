@@ -25,7 +25,8 @@ on the hardware.
 - **Shift + Menu opens a list of the machine's screens**: MODES (Synth, Pads), MAIN (Rack, or Pad FX in Pads; Presets;
   Sound; Sequencer, or Steps in Pads; Macros) and ADVANCED > (Keys, LEDs, Modifiers, Joy, Curves, Storage). It opens on
   the screen you are on. Switching Synth <-> Pads is now done there (or with the key function Section).
-- **Hold Menu half a second** for a list of the main view's pages, and jump to one. A short press still opens the menu,
+- **Hold Menu half a second** in the synth for a list of the main view's pages, and jump to one (in Pads, Menu still opens
+  the FX chains, however long it is held). A short press still opens the menu,
   now when you let go of the key.
 - **The SOUND tab** holds what GENERAL, SAMPLES and ALGORITHM held: one screen, the menu has nine tabs for every synth type.
 - **Storage** (in ADVANCED) restarts the machine as the USB card reader, after asking.

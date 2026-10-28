@@ -29,6 +29,13 @@ card_state_t card_task_state();
 uint32_t card_task_read_us();        // CARD_SLOW: the measured time of a sector read
 uint32_t card_task_generation();     // +1 on every insertion, removal and when the folders were made
 
+#ifdef DEV_SERIAL_CMD
+// Dev: while on, storage_write and storage_remove report success and leave the card as it is: a measurement that changes the app's
+// settings (pads_test.py) does not save over the user's, and a restart reads theirs back.
+void card_task_dev_readonly(bool on);
+bool card_task_dev_is_readonly();
+#endif
+
 // The engine's streaming device on this card (engine/sampler/storage.h). The card task services its pinned reads and closes its
 // files when the card goes; the app attaches it to its sample bank and says which folder its files are in (set_dir).
 SdStorage &card_task_storage();

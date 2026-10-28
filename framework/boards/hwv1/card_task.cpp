@@ -307,7 +307,16 @@ extern "C" int storage_read(const char *name, char *buf, int cap) {
     return n;
 }
 
+#ifdef DEV_SERIAL_CMD
+static volatile bool g_dev_readonly = false;
+void card_task_dev_readonly(bool on) { g_dev_readonly = on; }
+bool card_task_dev_is_readonly() { return g_dev_readonly; }
+#endif
+
 extern "C" bool storage_write(const char *name, const char *data, int len) {
+#ifdef DEV_SERIAL_CMD
+    if (g_dev_readonly) return true;
+#endif
     if (g_state == CARD_NONE || len < 0 || len > STORAGE_FILE_MAX || !job_free()) return false;
     snprintf(g_job.name, sizeof g_job.name, "%s", name);
     memcpy(g_job.data, data, len);
@@ -321,6 +330,9 @@ extern "C" bool storage_write(const char *name, const char *data, int len) {
 }
 
 extern "C" bool storage_remove(const char *name) {
+#ifdef DEV_SERIAL_CMD
+    if (g_dev_readonly) return true;
+#endif
     if (g_state == CARD_NONE || !job_free()) return false;
     snprintf(g_job.name, sizeof g_job.name, "%s", name);
     g_job.write = false;

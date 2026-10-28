@@ -15,6 +15,7 @@
 #include "platform/esp32/serial_cmd_esp32.h"
 #include "boards/hwv1/sd_card.h"
 #include "boards/hwv1/board_esp32.h"
+#include "boards/hwv1/card_task.h"
 #include "hal/hal_power.h"
 #include "engine/offline/process.h"
 #ifdef HWV1
@@ -54,6 +55,11 @@ void run(char *line) {
     if (arg) { *arg++ = 0; while (*arg == ' ') arg++; }
     const int v = arg ? atoi(arg) : 0;
     if (!strcmp(line, "ping")) { Serial.println("[CMD] pong"); return; }
+    if (!strcmp(line, "nosave")) {                        // nosave 1|0: the settings files are not written to the card (a test's pads and sounds stay in RAM; a restart reads the card's back)
+        if (arg) card_task_dev_readonly(v != 0);
+        Serial.printf("[CMD] nosave %d\n", card_task_dev_is_readonly() ? 1 : 0);
+        return;
+    }
     if (!strcmp(line, "on")) { note_on(v); Serial.printf("[CMD] on %d\n", v); return; }
     if (!strcmp(line, "off")) { note_off(v); Serial.printf("[CMD] off %d\n", v); return; }
     if (!strcmp(line, "release")) { release_all(); Serial.println("[CMD] released"); return; }

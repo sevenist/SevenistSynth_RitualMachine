@@ -2,7 +2,8 @@
 
 Switches to the Pads section, then for a short sample (kept whole in memory) and a long one (streamed from the card) plays 1, 4 and 8
 pads looping (Trim loop), then the same 8 with a loop crossfade, and prints the render time, the cycles per engine block, the per-module
-table, the card's reads and the heaps. Needs the firmware built with -DDEV_SERIAL_CMD -DHWV1_DEBUG_AUDIO -DENGINE_PROFILE.
+table, the card's reads and the heaps. Needs the firmware built with -DDEV_SERIAL_CMD -DHWV1_DEBUG_AUDIO -DENGINE_PROFILE, and
+one that knows `nosave` (2026-10-28): the test redefines pads A1..A8 and must not save them over the card's (restart the board after it).
 
     C:\\.platformio\\penv\\Scripts\\python.exe tools\\pads_test.py [--short N] [--long N] [--hold 5] [--log run.txt]
 """
@@ -43,14 +44,22 @@ def main():
     try:
         if not ask(port, "ping", "[CMD] pong"):
             sys.exit("no answer to 'ping' (firmware with -DDEV_SERIAL_CMD? the right port? the monitor closed?)")
+        # the test redefines pads A1..A8: nothing of it may be saved over the user's pads (a restart reads theirs back)
+        if not ask(port, "nosave 1", "[CMD] nosave 1"):
+            sys.exit("no answer to 'nosave 1': this firmware would save the test's pads over the card's; flash a newer build")
         t0 = time.time()
         port.send("samples")
-        time.sleep(1.0)
-        cat = []
-        for _, x in port.take(t0):
-            m = SAMPLE_RE.search(x)
-            if m:
-                cat.append((int(m.group(1)), m.group(2), int(m.group(3)), int(m.group(4))))
+        cat, done = [], False
+        while not done and time.time() - t0 < 20:                # (a folder of 1800 files takes about a second to list)
+            cat = []
+            for _, x in port.take(t0):
+                m = SAMPLE_RE.search(x)
+                if m:
+                    cat.append((int(m.group(1)), m.group(2), int(m.group(3)), int(m.group(4))))
+                if "sample(s)" in x:
+                    done = True
+            time.sleep(0.1)
+        cat = [c for c in cat if c[2] > 0 and c[3] > 0]
         if not cat:
             sys.exit("no samples on the card")
         for i, name, frames, rate in cat:
@@ -90,6 +99,7 @@ def main():
         print(ask(port, "pad off", "[CMD] pad section") or "")
         time.sleep(2.0)
         print(ask(port, "pad mem", "[CMD] pad mem") or "", "\n")
+        print("The test's pads are in RAM only (nosave): restart the board to have the card's back.\n")
 
         print("== summary: cycles per engine block ==")
         print("   case              cycles   %budget   render avg us   worst us   blocks over   DMA underruns   card underruns")

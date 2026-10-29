@@ -3,7 +3,10 @@
 **Status (2026-10-29, second session): decided** (the user's answers to Q1..Q9 are ENGINE_DESIGN.md **ADR-046**: design for
 HWV1, push = Enter, JOY to PERFORM, Out / Spk / Knob to SETUP > MACHINE, Back never deletes, **no Relative mode**, a Pads Rec
 list, the extras Bar / Reset / macro Value / **battery in the header**). **Being built on branch `gui-reorg`**: phase 1, then
-2, then 4. Where this file and ADR-046 disagree, ADR-046 wins. The original status line follows.
+2, then 4. Where this file and ADR-046 disagree, ADR-046 wins. **Phases 1, 2 and 4 are built** (2026-10-29: the knob legend
+and the header's marks; push = Enter with the XY binding on a held push; Back never deletes, the "*", the REC mark); **next:
+phase 3** (views and rings), then 5 (the Tier 0 table, the Pads Rec list), 6 (LEDs, after Q6), the extras Reset and macro
+Value. The original status line follows.
 
 **Status (2026-10-29): a proposal. Nothing is decided by the user and nothing is built.** Written at the user's request ("you
 have the role of UX designer, create a plan to reorganize the whole GUI ... without leaving current features hidden or lost

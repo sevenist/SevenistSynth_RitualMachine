@@ -20,6 +20,18 @@ on the hardware.
   and the next panel (4 columns, encoders).
 - **For developers:** the repo is now a library and the apps built on it. The next section is the guide to it.
 
+## 2026-10-29: the GUI reorganization, part 1 (ADR-046; branch `gui-reorg`)
+
+- **A knob legend** at the bottom of the screen: what each column knob drives, laid out like the knobs (2 x 2 on the first
+  prototype), with a bar of the value and, until the knob has caught it, a tick where the knob stands. Hold Shift or Mod and it
+  shows that layer's targets. In the Pads section: Start, End, Tune, Cut.
+- **The header** shows the battery, the page's place ("3/22"), "S" / "M" while a modifier is held, and REC (framed: armed,
+  filled: recording).
+- **Push = Enter** on the synth's pages: a push latches the value (up / down then change it by 4 steps), flips an on / off
+  row, opens the cog. It no longer steps the value up. **Hold the push half a second** to bind the row to the joystick's XY.
+- **Back never deletes**: on RACK it closes the cell's menu (Delete is there), then goes up to the header, then leaves the
+  menu. A "*" in the menu's title marks rack edits waiting; "Applied" says when they are.
+
 ## 2026-10-29: LEDs under the pots and encoder A, for the next prototype (ADR-045)
 
 - **The next prototype's pots and encoder A light up** (the simulator draws them as rings). A column knob is dim until it

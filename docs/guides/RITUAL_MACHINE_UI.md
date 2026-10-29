@@ -168,10 +168,12 @@ The frame is not sent here: `app_draw_frame` adds the popup, then sends.
 
 ### Events in the main view (`synth_ui_handle`, `ui_input.c`)
 
-The main view understands only the older events, so the newer ones are **translated first**: `UI_NAV_*` become
-`UI_UP / DOWN / LEFT / RIGHT`, `UI_VALUE_INC / DEC` become `UI_RIGHT / LEFT`, `UI_LATCH` becomes `UI_SELECT`. The result:
-the joystick moves between rows and changes the value directly, encoder B changes the value, and a push acts like "right" on
-the row (it opens the cog on the cog). **There is no latch in the main view.** The SEQUENCER page takes the joystick and
+**Push = Enter** (ADR-046 phase 2): `UI_LATCH` / `UI_SELECT` go to `page_enter`: the cog opens / closes, a two-state row flips
+(`row_flips`: PATTERNS Chain, MOTION On, LANE Mode / Pol), any other row latches (`ui->latched`; drawn filled by `draw_row`).
+Latched, `UI_NAV_UP / DOWN` step the value `LATCH_COARSE` (4) times; Back, a push, encoder A or a page change release it. The
+other events are then **translated**: `UI_NAV_*` become `UI_UP / DOWN / LEFT / RIGHT`, `UI_VALUE_INC / DEC` become
+`UI_RIGHT / LEFT`. On a parameter row the app holds the push back until its release (`app_push_down` / `_up`, `app_input.c`):
+held `PUSH_LONG_MS` it binds the row to the joystick instead (`app_joy_bind`). The SEQUENCER page takes the joystick and
 its push before that translation (`seq_nav`, then the push: the selected note added / removed, or the tool run on Tool / On):
 there the joystick moves over the notes of the roll, encoder A picks the value on the info lines and encoder B changes it.
 
@@ -303,7 +305,7 @@ heading is skipped by the focus, a long list scrolls).
 [ < RACK > ]                                    the header: up from row 1
 [ 1: its modules, +, OUT (to the MIX) ]         three EL_DIRECT rows: left / right pick the cell, up / down the row; the selected
 [ 2: the same ]                                 cell has a frame (doubled while its row or its menu has the focus); a push opens
-[ M: MIX, its modules, +, OUT ]                 the menu; Back deletes the selected module
+[ M: MIX, its modules, +, OUT ]                 the menu (Delete is there); Back closes the menu, never deletes (ADR-046)
   one line describing the selection ("1 FL1 Filter PARA")
 the menu (a popup over the rows, only the rows that apply): Edit, Type, Insert, Tgt, Prm, Dpth, Row, Para, PEnv,
   Lvl1, Pan1, Lvl2, Pan2, Delete; Back closes it
@@ -456,13 +458,29 @@ From the repo root unless said otherwise.
   (the build line is at the top of the file; `UI_DUMP_SIZE=128x128` for the taller screen). With no argument it shows the
   main view, then every menu tab of the modular and of the FM synth.
 
+## 13b. The knob legend and the header's marks (`core/ui_legend.c`; ENGINE_DESIGN.md ADR-046)
+
+- **The zone**: `ui_legend_h(g)` is its height (0 under 100 px of screen or without column knobs), laid out from the knobs'
+  places in the board table (`controls_place`). `ui_legend_shown(ui, rack, pads)` says whether the screen on show has it: the
+  synth's pages, the CURVES tab, the Pads screens but the FX chains. `synth_ui_draw` and `pads_ui_draw` leave it free (their
+  content and `gui_style_init` get the height above it); `app_draw_frame` fills the cells and draws it (`ui_legend_draw`).
+- **The cells** (`legend_cell_t`: label, value 0..1 for the bar, the knob's place for the catch tick, the state): the synth
+  section `synth_ui_legend` (`ui_draw.c`: the page's rows through `row_text`, the SEQUENCER's Note Len Vel Prob, the CURVES
+  point), a modifier held `app_layer_legend` (`app_layers.c`), Pads `app_pads_legend` (`app_pads.c`; a module's values page:
+  `pads_ui_fx_legend`).
+- **The header's marks** at its right end (`ui_header_marks`, both sections, XOR): the battery (`ui->batt_pct`, set by
+  `app_power_poll`), the recording mark (`ui->rec_mark`, `REC_MARK_*`, set by `rec_mark` in `app.c`), "S" / "M" while a
+  modifier is held (`ui->layer_held`). The synth's pages also show their place ("3/22") at the left; the menu's header reads
+  `< RACK* >` while edits wait.
+- **Back in the menu** (`handle_event`, `ui_input.c`) goes up one level: a latch, the screen's `back()` (RACK: its cell menu;
+  it returns false when it has nothing to close), the focus to the header, then out of the menu.
+
 ## 14. What is still open
 
 Observations about the current structure, not decisions.
 
-1. **The main view is not declarative.** Its pages still have hand-numbered rows, a `handle_*` far from its `draw_*`, and no
-   latch: the joystick edits values directly there and moves the focus in the menu. Nothing on the screen says which row a
-   column knob drives.
+1. **The main view is not declarative.** Its pages still have hand-numbered rows and a `handle_*` far from its `draw_*`. Since
+   ADR-046 its gestures are the menu's (push = Enter, a latch) and the knob legend says what the column knobs drive.
 2. **Navigation and layout are not tied together.** On a declarative screen the joystick goes by the `row` / `col` typed in
    the element table (`nav`), while the pixels come from `layout()`. The RACK tab's layout reads the typed numbers back to
    build its grid, so the two agree; the list tabs stack the elements in table order and ignore the numbers, so they agree

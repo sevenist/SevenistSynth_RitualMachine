@@ -11,7 +11,14 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
 **Where things stand (2026-10-29, second session):** at `/session-start` the user asked for **a new branch for the GUI
 reorganization**: `gui-reorg`, made from `main` at `890597c` (the three uncommitted docs files carried over: this file, the
 guides README, UX_REORGANIZATION.md). The claude.ai doc had no comments, no ticked questions, no edits (rev 14). **The
-decision round was held** (two rounds, answers in the first item below); not yet written as ADR-046, nothing built.
+decision round was held** (two rounds, answers recorded as ADR-046). Then, at their choice ("Start with A, then C and B, skip D
+... make decisions on your own, I trust you! Make your best and be creative"; they were away for some hours), **phases 1, 2
+and 4 were built on `gui-reorg`, one commit per step** (`bf4151f` .. the docs commit): the knob legend and the header's
+marks, push = Enter, safety. My choices are ADR-046 "Chosen by me while building" (13 points; **point 9 changes a design of
+theirs**: the XY binding moved from a plain push to a held one). Host-tested (184 UI tests), both simulators built, the
+screens looked at as images. **NOT tried by the user, the firmware NOT built**: my `pio run` from the shell emptied
+`C:\.platformio\penv` (see the traps); I restored its `pyvenv.cfg` so `build.ps1` works, PlatformIO Core itself is missing
+there.
 
 **Where things stood (2026-10-29):** ADR-044 flashed and tried by the user ("all good"); ADR-045 (the pot / Enc A LEDs)
 built on `main` and committed (`5ed38ed` .. `890597c`), not tried by the user. Then, at their request, **a plan to reorganize
@@ -79,8 +86,21 @@ was then asked with options (audio into a sample, a popup when arming, the desti
 item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
 21-23).
 
-- [ ] **The GUI reorganization on branch `gui-reorg`: write ADR-046, then build phase by phase, one commit per step**
-  (from: user, 2026-10-29). **Their answers (2026-10-29, second session; all my recommendations unless said):**
+- [ ] **Try the GUI reorganization, phases 1, 2, 4 (branch `gui-reorg`)** (from: user, 2026-10-29; ADR-046). First restore
+  PlatformIO (open VS Code: its PlatformIO extension reinstalls the Core into `C:\.platformio\penv`; if that fails on "uv",
+  install an older Core there: `C:\.platformio\penv\Scripts\python.exe -m ensurepip` then `-m pip install "platformio<6.2"`),
+  then build and flash `gui-reorg`. **To try** (the simulator first: `.\build.ps1 -Board hwv1`, `.\run.ps1 -Board hwv1`):
+  (1) the legend under every synth page: the four names match the pots around the joystick (K1 top left ... K4 bottom right;
+  **the HWV1 places in `hwv1_controls.c` are a guess: say if the layout is mirrored**); turn K2: a tick shows where it is until
+  it meets the end of the bar, then the bar follows; (2) hold Shift: the legend shows Spk, Vol, M1, M2 and an "S" in the
+  header; (3) SEQUENCER: Note Len Vel Prob; Pads: Strt End Tune Cut, the pad editor's four pages still show every row; (4) the
+  header: "3/22" at the left, the battery at the right (on the board), REC framed when armed / filled when recording; (5) on
+  a page, a push: the value is framed `<0.50>`, up / down change it by 4 steps, push or Back releases; on PATTERNS Chain a push
+  flips it; the cog still opens; (6) **hold the push 0.5 s** on a row: it binds to the joystick X / Y (popup JOY), as the old
+  plain push did; (7) the menu: Back from a row goes to the header, then out; on RACK Back never deletes (the cell menu's
+  Delete does), `< RACK* >` while an edit waits, "Applied" when leaving. Say what to change; then phase 3 (views and rings).
+- [x] **The GUI reorganization on branch `gui-reorg`: write ADR-046, then build phase by phase, one commit per step**
+  (done 2026-10-29 for phases 1, 2, 4) (from: user, 2026-10-29). **Their answers (2026-10-29, second session; all my recommendations unless said):**
   Q1 **design for HWV1, the board in hand** ("we will make modifications for the next board on another app version"): the
   next board's map is out of this branch, the panel stays the simulator's reference; Q7 **push = Enter everywhere**; Q3 **JOY
   moves to PERFORM** (reopens ADR-044 decision 1, on their answer); Q4 **Out, Spk, Knob move to SETUP > MACHINE**, Vol stays
@@ -1013,6 +1033,12 @@ From the session todo (long-term; moved here 2026-10-11):
 - `framework/tests/test_sampler.cpp` has a `run_trace` helper that prints underruns. Engine items under "Known limits" in ENGINE_DESIGN.md (reverb q15 floor, block-rate envelopes, mono samples, ...).
 
 ## Working style and environment traps
+
+- **Never run `pio` from a shell** (2026-10-29): a `pio run` from Bash / PowerShell (PlatformIO Core 6.2.0, from Python313 or
+  `%USERPROFILE%\.platformio\penv`) failed on "uv installation via pip failed" and emptied `C:\.platformio\penv`, the
+  environment of the VS Code extension that `build.ps1` (sprites) and the firmware use. `pyvenv.cfg` was recreated
+  (`C:\.platformio\python3\python.exe -m venv C:\.platformio\penv`); the Core must be reinstalled (above). The user builds
+  and flashes the firmware from VS Code; say "firmware not built" instead.
 
 - The user iterates with short requests, tests on the board or in the SDL window, and wants concise answers that say what was verified vs not. Windows 11, PowerShell, MSYS2 UCRT64; AZERTY keyboard; English with some French.
   For design work they want options with pros and cons at each stage; they often pick against my recommendation. **By default they flash the board themselves** (COM8). On 2026-10-10 / 11 they allowed Claude to flash and measure (asked each time: "flash and measure?"): ask again in a new session before the first flash. They sometimes say "flashed" about an older build: check (see the skill).

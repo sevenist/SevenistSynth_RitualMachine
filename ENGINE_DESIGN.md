@@ -1870,7 +1870,7 @@ Chosen by me while building (say if one is wrong):
   runs on HWV1 too, where the LEDs do not exist: a few reads per frame); the HWV1 simulator shows no pot LEDs (its board has
   none).
 
-### ADR-046: The GUI reorganization, one UX ruleset, built for HWV1 (Accepted; user choices of 2026-10-29; built on branch `gui-reorg`, in progress)
+### ADR-046: The GUI reorganization, one UX ruleset, built for HWV1 (Accepted; user choices of 2026-10-29; phases 1, 2, 4 built on branch `gui-reorg` 2026-10-29, `bf4151f` .. the docs commit; host-tested, NOT tried by the user, the firmware NOT built)
 **Why.** The user, 2026-10-29: "you have the role of UX designer, create a plan to reorganize the whole GUI ... without leaving
 current features hidden or lost ... a current and future proof ruleset for creating a new UX for specific hardware". The plan
 (rules R1..R23, the views, the controls per board, where every feature goes, the phases) is
@@ -1947,6 +1947,17 @@ Chosen by me while building (the user away; say if one is wrong):
    synth's Rec on and stopped, the Pads capture waiting, the Pads live record with the clock stopped), `REC` inverted =
    recording (running, the pattern's sound being recorded, the capture), `ERS` inverted = Back held erasing. No blinking (it
    would need timed redraws: the frame / fill difference says it).
+
+**As built (2026-10-29, branch `gui-reorg`), one commit per step.** `bf4151f` this ADR; `193229b` phase 1 (`core/ui_legend.c`,
+`controls_place`, `synth_ui_legend` / `row_text`, `app_layer_legend`, `app_pads_legend`, `pads_ui_fx_legend`, the header's
+marks, the battery from `app_power_poll`, the pad editor's overview heights); `1f17964` phase 2 (`page_enter`, `row_flips`,
+`draw_row`, `app_push_down` / `_poll` / `_up`); `83d6762` phase 4 (Back in the menu, `rec_mark`, the "*", the Applied toast).
+- Checked: 184 UI tests (16 new: `test_legend.c`, `test_enter.c`, `test_safety.c`; `test_joy.c`'s binding now holds the push);
+  both simulators built; the screens looked at as images (`ui_dump`, HWV1 and the panel: the legend, the Shift preview, the
+  Pads editor's four pages, the latch, the header).
+- **Not done / not checked**: not tried by the user; **the firmware was not built** (PlatformIO failed from the shell, see
+  CONTINUE.md); the 128 x 64 screen has no legend and was not looked at; phases 3, 5, 6 and the extras Reset to default and the
+  macro Value field are not built; the menu's other tabs keep idle knobs (no "first four numeric fields" yet); Q6 not asked.
 
 ## Known limits and ideas for later
 

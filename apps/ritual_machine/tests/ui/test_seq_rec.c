@@ -134,12 +134,19 @@ TEST(seq_rec_key_function_and_the_section_switch) {
     CHECK(ui_app.rec.armed);
     ev_tap((control_id_t)CTL_KEY(1, 7));
     CHECK(!ui_app.rec.armed && !popup_modal(&ui_app.popup));             // armed: Rec again is off at once
+    ev_tap((control_id_t)CTL_KEY(1, 7));                                 // the list's last option: the metronome (not remembered)
+    CHECK(ui_list_pick("Click: Off"));
+    CHECK(ui_app.metronome && !ui_app.rec.armed);
+    ev_tap((control_id_t)CTL_KEY(1, 7));
+    CHECK(ui_list_pick("Click: On"));
+    CHECK(!ui_app.metronome);
     ev_tap((control_id_t)CTL_KEY(1, 7));
     ev_tap(CTL_JOY_SW);
     app_set_section(&ui_app, true);                                      // the Pads section: the sequencer's Rec is off
     CHECK(!ui_app.rec.armed && !ui_app.ui.seq_rec);
-    ev_press(SHIFT); ev_tap(CTL_PLAY); ev_release(SHIFT);                // there Play is the clock, with or without Shift
-    CHECK(!ui_app.rec.armed);
+    ev_press(SHIFT); ev_tap(CTL_PLAY); ev_release(SHIFT);                // there Shift + Play is the Pads Rec list (ADR-046 phase 5)
+    CHECK(!ui_app.rec.armed && popup_modal(&ui_app.popup));
+    ev_tap(CTL_BTN_2);
     app_set_section(&ui_app, false);
 }
 
@@ -232,13 +239,13 @@ extern int ui_stub_cap_state, ui_stub_cap_seq, ui_stub_cap_tail, ui_stub_cap_lis
 extern uint32_t ui_stub_seq_halts;
 extern char ui_stub_cap_name[AUDIO_NAME_MAX];
 void ui_stub_capture_sound(uint32_t frames);
-enum { OPT_NOTES, OPT_AUDIO_STOP, OPT_AUDIO_ON, OPT_AUDIO_TAIL, OPT_LOOP_STOP, OPT_LOOP_ON };
+enum { OPT_NOTES, OPT_AUDIO_STOP, OPT_AUDIO_ON, OPT_AUDIO_TAIL, OPT_LOOP_STOP, OPT_LOOP_ON, OPT_CLICK, OPT_COUNT };
 
 // Shift + Play, then the joystick down to the option and its push.
 static void rec_choose(int option) {
     ev_press(SHIFT); ev_tap(CTL_PLAY); ev_release(SHIFT);
     CHECK(popup_modal(&ui_app.popup));
-    for (int k = ui_app.rec_choice; k != option; k = (k + 1) % 6) ev_tap(CTL_JOY_DOWN);
+    for (int k = ui_app.rec_choice; k != option; k = (k + 1) % OPT_COUNT) ev_tap(CTL_JOY_DOWN);
     ev_tap(CTL_JOY_SW);
 }
 

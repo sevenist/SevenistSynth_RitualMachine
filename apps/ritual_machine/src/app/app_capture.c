@@ -25,24 +25,12 @@ static void lib_new_name(const char *stem, char *out, int n) {
     snprintf(out, (size_t)n, "%s%d", stem, top + 1);
 }
 
-// The Rec key: arms a recording, or stops the one that runs. It goes to the selected pad when that is empty, else to the next empty
-// one. With a length (Shift + Rec: 1, 2, 4, 8 bars at the tempo) it starts on the next bar line when the clock runs, else at the first
-// sound, and stops by itself; the pad then loops it on the bar. Without one it starts at the first sound and stops at the next push.
-void app_capture_key(app_t *app) {
+static void rec_info(app_t *app, const char *text);
+
+// Arms a recording with the length c->bars, or stops the one that runs (the Rec key, the Pads Rec list).
+static void capture_arm(app_t *app) {
     pad_capture_t *c = &app->capture;
     const uint32_t now = audio_millis();
-    if (!in_pads(app)) return;
-    if (app->in.shift && !app->in.mod) {                    // the length
-        static const uint8_t steps[] = {0, 1, 2, 4, 8};
-        int k = 0;
-        for (int i = 0; i < 5; i++) if (steps[i] == c->bars) k = i;
-        c->bars = steps[(k + 1) % 5];
-        char t[24];
-        if (c->bars) snprintf(t, sizeof t, "Length %d bar%s", c->bars, c->bars > 1 ? "s" : ""); else snprintf(t, sizeof t, "Until Rec again");
-        popup_info(&app->popup, "REC", t, 0, now, POPUP_INFO_MS);
-        app->dirty = true;
-        return;
-    }
     if (c->stage == 1) { audio_capture_stop(); return; }    // stop: the card finishes the file, app_capture_poll puts it on its pad
     if (c->stage || app->render.stage || audio_sd_state() != SD_OK) {
         popup_info(&app->popup, "REC", audio_sd_state() != SD_OK ? "No card" : "Busy", 0, now, POPUP_INFO_MS);
@@ -75,6 +63,72 @@ void app_capture_key(app_t *app) {
     pad_label(pad, l, sizeof l);
     snprintf(t, sizeof t, "Ready -> %s", l);
     popup_info(&app->popup, "REC", t, 0, now, POPUP_INFO_MS);
+    app->dirty = true;
+}
+
+// The Rec key: arms a recording, or stops the one that runs. It goes to the selected pad when that is empty, else to the next empty
+// one. With a length (Shift + Rec: 1, 2, 4, 8 bars at the tempo) it starts on the next bar line when the clock runs, else at the first
+// sound, and stops by itself; the pad then loops it on the bar. Without one it starts at the first sound and stops at the next push.
+void app_capture_key(app_t *app) {
+    pad_capture_t *c = &app->capture;
+    if (!in_pads(app)) return;
+    if (app->in.shift && !app->in.mod) {                    // the length
+        static const uint8_t steps[] = {0, 1, 2, 4, 8};
+        int k = 0;
+        for (int i = 0; i < 5; i++) if (steps[i] == c->bars) k = i;
+        c->bars = steps[(k + 1) % 5];
+        char t[24];
+        if (c->bars) snprintf(t, sizeof t, "Length %d bar%s", c->bars, c->bars > 1 ? "s" : ""); else snprintf(t, sizeof t, "Until Rec again");
+        popup_info(&app->popup, "REC", t, 0, audio_millis(), POPUP_INFO_MS);
+        app->dirty = true;
+        return;
+    }
+    capture_arm(app);
+}
+
+/* ---------------- the Pads Rec list: Shift + Play in the Pads section (ADR-046 decision 7) ---------------- */
+
+// What the Rec key, Shift + Rec and Select + Rec / Play do, in a list, for a board without the right block (the panel's 4 columns):
+//   Capture             what plays, until Shift + Play (or Rec) again
+//   Capture 1 .. 8 bars that length at the tempo (the same as Shift + Rec's length, which it sets)
+//   Pattern rec         the pads' pattern recorded live (Select + Rec)
+//   Steps on / off      step mode (Select + Play)
+//   Click: Off / On     the metronome (the key function Click)
+// The list opens on the option chosen last (Click excepted). While a capture or the pattern's record runs, Shift + Play stops it at once.
+enum { PREC_CAPTURE, PREC_BAR1, PREC_BAR2, PREC_BAR4, PREC_BAR8, PREC_PATTERN, PREC_STEPS, PREC_CLICK, PREC_CHOICES };
+
+static bool pads_rec_label(void *ctx, int i, char *out, int n) {
+    const app_t *app = ctx;
+    static const char *const names[PREC_CHOICES] = {"Capture", "Capture 1 bar", "Capture 2 bars", "Capture 4 bars", "Capture 8 bars",
+                                                    "Pattern rec", "Steps on", "Click: Off"};
+    if (i == PREC_STEPS && app->ui.pad_steps) snprintf(out, (size_t)n, "Steps off");
+    else if (i == PREC_CLICK) snprintf(out, (size_t)n, "Click: %s", app->metronome ? "On" : "Off");
+    else snprintf(out, (size_t)n, "%s", i >= 0 && i < PREC_CHOICES ? names[i] : "");
+    return false;
+}
+
+static void on_pads_rec(void *ctx, int choice) {
+    app_t *app = ctx;
+    static const uint8_t bars[] = {0, 1, 2, 4, 8};
+    if (choice < 0 || choice >= PREC_CHOICES || !in_pads(app)) return;
+    if (choice != PREC_CLICK) app->pads_rec_choice = (uint8_t)choice;
+    switch (choice) {
+        case PREC_PATTERN:
+            if (!app->pbank.pat) rec_info(app, "No pattern");
+            else app_pseq_rec_set(app, true);
+            break;
+        case PREC_STEPS: app_pseq_steps_set(app, !app->ui.pad_steps); break;
+        case PREC_CLICK: app_click_toggle(app); break;
+        default: app->capture.bars = bars[choice - PREC_CAPTURE]; capture_arm(app); break;
+    }
+    app->dirty = true;
+}
+
+void app_capture_pads_list(app_t *app) {
+    if (!in_pads(app)) return;
+    if (app->capture.stage == 1 && !app->capture.seq_mode) { audio_capture_stop(); rec_info(app, "Stopped"); return; }
+    if (app->prec.armed) { app_pseq_rec_set(app, false); return; }
+    popup_choose_labels(&app->popup, "REC", PREC_CHOICES, app->pads_rec_choice, pads_rec_label, on_pads_rec, app);
     app->dirty = true;
 }
 
@@ -134,9 +188,17 @@ void app_capture_poll(app_t *app, uint32_t now) {
 //   Loop, stop / play on    the pattern plays twice and the second pass is kept: the first one's tail is under its start, it loops
 // The capture opens its file first; once it listens the sequencer is asked for the pass (audio_seq_record) and started if it was
 // stopped. When the file is in the library a second list asks where it goes: the selected pad, the next empty one, or the library only.
-enum { REC_NOTES, REC_AUDIO_STOP, REC_AUDIO_ON, REC_AUDIO_TAIL, REC_LOOP_STOP, REC_LOOP_ON, REC_CHOICES };
+// The last option, Click: Off / On, is the metronome (ADR-046 phase 5: for a board without the key function Click; not remembered).
+enum { REC_NOTES, REC_AUDIO_STOP, REC_AUDIO_ON, REC_AUDIO_TAIL, REC_LOOP_STOP, REC_LOOP_ON, REC_CLICK, REC_CHOICES };
 enum { REC_PH_OPENING = 1, REC_PH_PASS };
-static const char *const rec_options[REC_CHOICES] = {"Notes", "Audio, stop", "Audio, play on", "Audio + tail", "Loop, stop", "Loop, play on"};
+static const char *const rec_options[REC_CLICK] = {"Notes", "Audio, stop", "Audio, play on", "Audio + tail", "Loop, stop", "Loop, play on"};
+
+static bool rec_label(void *ctx, int i, char *out, int n) {
+    const app_t *app = ctx;
+    if (i == REC_CLICK) snprintf(out, (size_t)n, "Click: %s", app->metronome ? "On" : "Off");
+    else snprintf(out, (size_t)n, "%s", i >= 0 && i < REC_CLICK ? rec_options[i] : "");
+    return false;
+}
 
 static bool rec_loop(int mode) { return mode == REC_LOOP_STOP || mode == REC_LOOP_ON; }
 static bool rec_stops(int mode) { return mode == REC_AUDIO_STOP || mode == REC_AUDIO_TAIL || mode == REC_LOOP_STOP; }
@@ -184,6 +246,7 @@ static void synth_rec_start(app_t *app, int mode) {
 static void on_rec_choice(void *ctx, int choice) {
     app_t *app = (app_t *)ctx;
     if (choice < 0 || choice >= REC_CHOICES) return;
+    if (choice == REC_CLICK) { app_click_toggle(app); return; }
     app->rec_choice = (uint8_t)choice;
     if (choice == REC_NOTES) app_seq_rec_set(app, true);
     else synth_rec_start(app, choice);
@@ -200,7 +263,7 @@ void app_capture_synth_key(app_t *app) {
         rec_info(app, "Stopped");
         return;
     }
-    popup_choose(&app->popup, "REC", rec_options, REC_CHOICES, app->rec_choice, on_rec_choice, app);
+    popup_choose_labels(&app->popup, "REC", REC_CHOICES, app->rec_choice, rec_label, on_rec_choice, app);
     app->dirty = true;
 }
 

@@ -54,6 +54,7 @@ void app_catch_poll(app_t *app);                                    // every ste
 void app_run_action(app_t *app, const binding_t *b, input_event_t e);
 // Gives the UI one event; pushes the sound to the audio side when a value changed.
 void app_ui_event(app_t *app, ui_event_t ev);
+void app_click_toggle(app_t *app);                                  // the metronome on / off (the key function Click, the Rec lists)
 // The Pads section's views (ADR-046 phase 3, app_pads.c): EDIT = the grid or a pad's editor, SEQ = STEPS, RACK = PAD FX, PERFORM and SETUP =
 // the synth's tabs shown over the pads (the section stays: the keys play the pads, the music goes on); PRESETS: none yet (skipped).
 view_t app_pads_view(const app_t *app);
@@ -93,6 +94,7 @@ void app_render_poll(app_t *app, uint32_t now);
 
 void app_capture_key(app_t *app);                                   // the Rec key
 void app_capture_synth_key(app_t *app);                             // Shift + Play / Rec in the synth: what to record (notes, the pattern's sound), or stop
+void app_capture_pads_list(app_t *app);                             // Shift + Play in Pads: the Pads Rec list (capture, pattern rec, steps, click), or stop
 void app_capture_synth_poll(app_t *app, uint32_t now);              // every step, any section: the pattern's recording goes on
 void app_capture_poll(app_t *app, uint32_t now);
 

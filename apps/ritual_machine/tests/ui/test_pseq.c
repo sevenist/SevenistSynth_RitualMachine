@@ -111,8 +111,9 @@ TEST(pseq_select_play_turns_the_pad_keys_into_steps) {
     // Back leaves step mode: the keys are pads again
     ev_tap(BACK);
     CHECK(!ui_app.ui.pad_steps);
-    // Shift + Play does the same as Select + Play (a board without the right block, the simulator), and Shift + pad picks the track
+    // Shift + Play: the Pads Rec list, Steps in it (a board without the right block, the simulator), and Shift + pad picks the track
     ev_press(CTL_BTN_3); ev_tap(PLAY); ev_release(CTL_BTN_3);
+    CHECK(ui_list_pick("Steps on"));
     CHECK(ui_app.ui.pad_steps && !ui_app.pads_run);
     ev_press(CTL_BTN_3); ev_tap(PADK(7)); ev_release(CTL_BTN_3);
     CHECK_EQ(ui_app.ui.pad_cur, 7);
@@ -121,6 +122,7 @@ TEST(pseq_select_play_turns_the_pad_keys_into_steps) {
     field_turn(14, 1);
     CHECK(!ui_app.prec.armed);
     ev_press(CTL_BTN_3); ev_tap(PLAY); ev_release(CTL_BTN_3);
+    CHECK(ui_list_pick("Steps off"));
     CHECK(!ui_app.ui.pad_steps);
     ev_press(CTL_BTN_3); ev_tap(PADK(0)); ev_release(CTL_BTN_3);
     ev_tap(PADK(5));

@@ -968,6 +968,51 @@ TEST(pads_rec_with_a_length_runs_on_the_clock_and_makes_a_loop) {
     CHECK_EQ(ui_stub_cap_state, CAPTURE_ST_IDLE);
 }
 
+/* ---------------- the Pads Rec list: Shift + Play (ADR-046 decision 7, phase 5) ---------------- */
+extern int ui_stub_metronome;
+
+static void shift_play(void) { ev_press(SHIFT); ev_tap(CTL_PLAY); ev_release(SHIFT); }
+static bool rec_focus_is(const char *name) {
+    if (!popup_modal(&ui_app.popup)) return false;
+    const popup_msg_t *m = &ui_app.popup.queue[0];
+    char t[POPUP_LABEL_LEN];
+    m->label(m->ctx, m->focus, t, (int)sizeof t);
+    return !strcmp(t, name);
+}
+
+TEST(pads_rec_list_captures_records_the_pattern_steps_and_clicks) {
+    ui_stub_ramcard(false); ui_stub_ramcard(true);
+    ui_fresh();
+    shift_menu();
+    ui_app.seq.bpm = 120;
+    shift_play();                                                        // the list, on Capture in a fresh app
+    CHECK(rec_focus_is("Capture"));
+    CHECK(ui_list_pick("Capture 2 bars"));                               // a length: Shift + Rec's, armed at once
+    CHECK(ui_app.capture.bars == 2 && ui_stub_cap_state == CAPTURE_ST_ARMED && ui_stub_cap_limit == 2u * 96000u);
+    shift_play();                                                        // a capture runs: Shift + Play stops it, no list
+    CHECK(!popup_modal(&ui_app.popup));
+    ev_idle(3);
+    CHECK_EQ(ui_app.capture.stage, 0);                                   // (no sound: nothing recorded)
+    shift_play();
+    CHECK(rec_focus_is("Capture 2 bars"));                               // the option chosen last
+    CHECK(ui_list_pick("Click: Off"));                                   // the metronome
+    CHECK(ui_app.metronome && ui_stub_metronome);
+    shift_play();
+    CHECK(rec_focus_is("Capture 2 bars"));                               // (Click is not remembered)
+    CHECK(ui_list_pick("Click: On"));
+    CHECK(!ui_app.metronome && !ui_stub_metronome);
+    shift_play(); CHECK(ui_list_pick("Steps on"));                       // step mode, as Select + Play
+    CHECK(ui_app.ui.pad_steps && !ui_app.pads_run);
+    shift_play(); CHECK(ui_list_pick("Steps off"));
+    CHECK(!ui_app.ui.pad_steps);
+    shift_play(); CHECK(ui_list_pick("Pattern rec"));                    // the pattern's live record, as Select + Rec
+    CHECK(ui_app.prec.armed && ui_app.ui.pseq_rec);
+    shift_play();                                                        // armed: Shift + Play turns it off, no list
+    CHECK(!ui_app.prec.armed && !popup_modal(&ui_app.popup));
+    shift_play(); ev_tap(CTL_BTN_2);                                     // Back closes the list: nothing happens
+    CHECK(!popup_modal(&ui_app.popup) && !ui_app.prec.armed && ui_stub_cap_state == CAPTURE_ST_IDLE && !ui_app.ui.pad_steps);
+}
+
 
 /* ---------------- the sample browser (scr_browse.c): folders read when opened, the catalog holds the files in use ---------------- */
 

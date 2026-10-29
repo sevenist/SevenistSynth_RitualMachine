@@ -130,6 +130,7 @@ typedef struct {
     // lib_tries = steps spent waiting for an unused sample to be unloaded.
     bool           lib_dirty;
     uint8_t        rec_choice;       // the synth's Rec list: the option chosen last (the list opens on it)
+    uint8_t        pads_rec_choice;  // the Pads Rec list's (Shift + Play in Pads)
     uint16_t       rec_next;         // the number of the next recording's name (recN); 0 = not known yet: the library's root is listed once
     uint64_t       lib_missing;
     uint8_t        lib_tries;

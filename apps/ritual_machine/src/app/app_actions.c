@@ -105,6 +105,13 @@ static void set_tempo(app_t *app, int bpm, const char *title) {
     app_catch_stale = true;                                     // a knob on the BPM row re-measures it
 }
 
+void app_click_toggle(app_t *app) {
+    app->metronome = !app->metronome;
+    audio_set_metronome(app->metronome);
+    popup_info(&app->popup, "CLICK", app->metronome ? "On" : "Off", 0, audio_millis(), POPUP_INFO_MS);
+    app->dirty = true;
+}
+
 /* ---------------- actions ---------------- */
 
 // Runs one binding for one event. `e.kind` is IN_RELEASE only for hold actions.
@@ -174,9 +181,10 @@ void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             } else app_ui_event(app, UI_BACK);
             break;
         case ACT_PLAY:                                      // Pads: the clock (a start is bar 1); the synth: the sequencer, the clock with it
-            // Pads: Select + Play = step mode (user, 2026-10-12); Shift + Play too: Shift is what a board without the right block
-            // (and the simulator) has in place of Select, as for Shift + pad
-            if (in_pads(app) && (app->in.pad_select || (app->in.shift && !app->in.mod))) app_pseq_steps_set(app, !app->ui.pad_steps);
+            // Pads: Select + Play = step mode (user, 2026-10-12); Shift + Play = the Pads Rec list, step mode one of its options (ADR-046
+            // decision 7: the capture for a board without the Rec key)
+            if (in_pads(app) && app->in.pad_select) app_pseq_steps_set(app, !app->ui.pad_steps);
+            else if (in_pads(app) && app->in.shift && !app->in.mod) app_capture_pads_list(app);
             else if (in_pads(app)) { app->pads_run = !app->pads_run; app->dirty = true; }
             else if (app->in.shift && !app->in.mod) app_capture_synth_key(app);   // Shift + Play (its Shift entry Default): Rec (a list: notes or sound)
             else app_ui_event(app, UI_PLAY);
@@ -193,12 +201,7 @@ void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             else if (in_pads(app)) app_capture_key(app);
             else app_capture_synth_key(app);
             break;
-        case ACT_METRONOME:
-            app->metronome = !app->metronome;
-            audio_set_metronome(app->metronome);
-            popup_info(&app->popup, "CLICK", app->metronome ? "On" : "Off", 0, audio_millis(), POPUP_INFO_MS);
-            app->dirty = true;
-            break;
+        case ACT_METRONOME:    app_click_toggle(app); break;
         case ACT_SHIFT:
             app->in.shift = e.kind != IN_RELEASE;
             break;

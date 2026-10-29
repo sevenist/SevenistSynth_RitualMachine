@@ -61,6 +61,7 @@ static const fn_def_t fns[] = {
     {ACT_TAP,          0,         "Tap",    "tap"},
     {ACT_METRONOME,    0,         "Click",  "click"},
     {ACT_PAD_REC,      0,         "Rec",    "padrec"},
+    {ACT_VALUE_RESET,  0,         "Reset",  "reset"},         // (appended: the F_* indexes below stay)
 };
 #define N_FNS ((int)(sizeof fns / sizeof fns[0]))
 

@@ -127,6 +127,7 @@ typedef struct {
     int16_t view_at[VIEW_COUNT];   // where each view was left: its page / tab, counted from the view's first
     uint8_t view_last;     // the last view on show other than EDIT: where Menu goes from EDIT
     bool storage_req;      // the MACHINE tab's Storage button was pushed: the app asks, then restarts as the card reader
+    uint8_t reset_id;      // a cog's Reset was pushed: that module's id (0: none); the app asks, then puts its values back to their defaults
     bool latched;          // the focused element is latched: the joystick changes its value (declarative screens, see ui_screen.h)
     bool in_rack;          // the rack editor (special page, opened with MENU) is showing
     bool rack_dirty;       // rack edited since the synth was last built
@@ -258,6 +259,8 @@ bool synth_ui_knob_target(synth_ui_t *ui, synth_params_t *params, seq_t *seq, ra
 bool synth_ui_target_step(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_t *m, int n);
 // The target's value as 0..1 of its range (the macro / mapping pictures); -1 when it has none.
 float synth_ui_target_norm(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_t *m);
+// The target back to its default (ADR-046 phase 5): 1 = changed, 0 = it was, -1 = it has none (the sequencer's, the settings', FM's).
+int   synth_ui_target_reset(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_t *m);
 // The same only when it reads exactly (-1 for a walked value: measuring one moves it); cheap, for what is polled (the pots' LEDs).
 float synth_ui_target_peek(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_t *m);
 // The target's name ("FL1 Cut", "Vol") and value text (value NULL: the name only, params / seq unused); false when it has none

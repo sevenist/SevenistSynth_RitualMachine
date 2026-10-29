@@ -175,6 +175,10 @@ bool        rack_mparam_adjust(rack_slot_t *s, int i, int dir);                 
 bool        rack_mparam_is_continuous(module_type_t t, int i);
 float       rack_mparam_norm(const rack_slot_t *s, int i);
 bool        rack_mparam_set_norm(rack_slot_t *s, int i, float n);
+// Defaults (ADR-046 phase 5): value i, or every value of a module, back to what a new module starts with (the sampler's File, the
+// motion sequencer's pool stay). True if one changed.
+bool        rack_mparam_reset(rack_slot_t *s, int i);
+bool        rack_slot_reset(rack_t *r, int slot);
 void        rack_mparam_format(const rack_slot_t *s, int i, char *out, int n);    // "4.0kHz", "Saw"
 
 // Lookup / connections

@@ -720,6 +720,24 @@ float rack_mparam_norm(const rack_slot_t *s, int i) {
     return n < 0.0f ? 0.0f : n > 1.0f ? 1.0f : n;
 }
 
+// Back to the value a new module starts with (insert_raw). Not the sampler's File nor the motion sequencer's pool: they are not values.
+static bool keeps_value(const rack_slot_t *s, int i) { return (s->type == MOD_SAMPLER && i == MP_SM_FILE) || (s->type == MOD_MSEQ && i == MP_MS_POOL); }
+
+bool rack_mparam_reset(rack_slot_t *s, int i) {
+    if (s->type >= MOD_TYPE_COUNT || i < 0 || i >= info[s->type].nmp || keeps_value(s, i)) return false;
+    const float d = info[s->type].mp[i].def;
+    if (s->v[i] == d) return false;
+    s->v[i] = d;
+    return true;
+}
+
+bool rack_slot_reset(rack_t *r, int slot) {
+    if (slot < 0 || slot >= r->count) return false;
+    bool any = false;
+    for (int i = 0; i < MOD_PARAM_MAX; i++) any |= rack_mparam_reset(&r->slot[slot], i);
+    return any;
+}
+
 bool rack_mparam_set_norm(rack_slot_t *s, int i, float n) {
     const mp_t *d = &info[s->type].mp[i];
     if (d->kind == K_ENUM) return false;

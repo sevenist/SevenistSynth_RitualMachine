@@ -53,6 +53,7 @@ typedef enum {
     ACT_TAP,                // tap tempo: the average of the last taps sets the BPM
     ACT_METRONOME,          // the metronome click on / off
     ACT_PAD_REC,            // capture / resampling: arm a recording of what plays, push again to stop; with Shift: its length (bars)
+    ACT_VALUE_RESET,        // the focused value back to its default (ADR-046 phase 5; Shift + push does it while a value is latched)
     ACT_COUNT
 } action_id_t;
 

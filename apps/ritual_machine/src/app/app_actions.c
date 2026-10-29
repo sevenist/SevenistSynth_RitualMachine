@@ -19,6 +19,7 @@ void app_ui_event(app_t *app, ui_event_t ev) {
     if (synth_ui_handle(&app->ui, &app->params, &app->seq, &app->rack, ev)) audio_set_params(&app->rack, &app->params);
     if (app->ui.br_req) { app->ui.br_req = 0; app_browse_open(app, BROWSE_RACK); }                             // the SAMPLES tab's File row
     if (app->ui.storage_req) { app->ui.storage_req = false; app_storage_ask(app); }                            // the MACHINE tab's Storage
+    if (app->ui.reset_id) { const uint8_t id = app->ui.reset_id; app->ui.reset_id = 0; app_module_reset_ask(app, id); }   // a cog's Reset
     if (app->ui.seq_msg[0]) {                                                                                  // a sequencer tool ran: what it did
         popup_info(&app->popup, "SEQUENCER", app->ui.seq_msg, 0, audio_millis(), POPUP_INFO_MS);
         app->ui.seq_msg[0] = 0;
@@ -105,6 +106,50 @@ static void set_tempo(app_t *app, int bpm, const char *title) {
     app_catch_stale = true;                                     // a knob on the BPM row re-measures it
 }
 
+/* ---------------- defaults (ADR-046 phase 5) ---------------- */
+
+// The action Reset (a key, a Shift / Mod entry; Shift + push while a value is latched): the focused value back to its default (one
+// value: not asked; a latch stays).
+static void value_reset(app_t *app) {
+    macro_t m;
+    char name[24], val[16];
+    const int r = synth_ui_target_at_cursor(&app->ui, &app->rack, &m) ? synth_ui_target_reset(&app->params, &app->seq, &app->rack, &m) : -1;
+    if (r > 0) { audio_set_params(&app->rack, &app->params); app_catch_stale = true; }
+    if (r < 0 || !synth_ui_target_describe(&app->params, &app->seq, &app->rack, &m, name, sizeof name, val, sizeof val))
+        popup_info(&app->popup, "RESET", "No default here", 0, audio_millis(), POPUP_INFO_MS);
+    else {
+        char t[32];
+        snprintf(t, sizeof t, "Default: %s", val);
+        popup_info(&app->popup, name, t, 0, audio_millis(), POPUP_INFO_MS);
+    }
+    app->dirty = true;
+}
+
+// A cog's Reset: asked (No focused), then every value of that module back to its default.
+static uint8_t reset_module_id;
+static void on_module_reset(void *ctx, bool yes) {
+    app_t *app = ctx;
+    const int slot = rack_find(&app->rack, reset_module_id);
+    if (!yes || slot == RACK_NONE) return;
+    char nm[8], t[24];
+    rack_slot_name(&app->rack, slot, nm, sizeof nm);
+    if (rack_slot_reset(&app->rack, slot)) { audio_set_params(&app->rack, &app->params); app_catch_stale = true; }
+    snprintf(t, sizeof t, "%s: defaults", nm);
+    popup_info(&app->popup, "RESET", t, 0, audio_millis(), POPUP_INFO_MS);
+    app->dirty = true;
+}
+
+void app_module_reset_ask(app_t *app, uint8_t id) {
+    const int slot = rack_find(&app->rack, id);
+    if (slot == RACK_NONE) return;
+    char nm[8], t[40];
+    rack_slot_name(&app->rack, slot, nm, sizeof nm);
+    snprintf(t, sizeof t, "Every value of %s back to its default?", nm);
+    reset_module_id = id;
+    popup_ask(&app->popup, "RESET", t, false, on_module_reset, app);
+    app->dirty = true;
+}
+
 void app_click_toggle(app_t *app) {
     app->metronome = !app->metronome;
     audio_set_metronome(app->metronome);
@@ -133,9 +178,11 @@ void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             app_push_down(app, b->ctl, audio_millis());       // Enter; on a page's parameter row at the release, held it binds the row to the joystick
             snprintf(app->status, sizeof app->status, "%s > %s", control_name(b->ctl), app->ui.latched ? "Latched" : "Released");
             break;
-        case ACT_JOY_MODE:
-            if (!in_pads(app)) app_joy_mode(app, !app->ui.joy_xy);
+        case ACT_JOY_MODE:                                  // Shift + push: XY mode; with a value latched, the action Reset (ADR-046 phase 5)
+            if (app->ui.latched && (!in_pads(app) || app->ui.in_rack)) app_run_action(app, &(binding_t){b->ctl, b->on, b->mods, ACT_VALUE_RESET, 0}, e);
+            else if (!in_pads(app)) app_joy_mode(app, !app->ui.joy_xy);
             break;
+        case ACT_VALUE_RESET:  if (!in_pads(app) || app->ui.in_rack) value_reset(app); break;
         case ACT_VALUE_ADJUST: ui_event_n(app, n, UI_VALUE_INC, UI_VALUE_DEC); set_status(app, b, n); break;
         case ACT_VALUE_FINE:                                // the same in fine steps (core/fine_step.h)
             g_fine_step = true;

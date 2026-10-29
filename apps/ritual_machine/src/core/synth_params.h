@@ -68,6 +68,7 @@ typedef enum {
 } param_id_t;
 
 void synth_params_default(synth_params_t *p);
+bool param_reset(synth_params_t *p, param_id_t id);     // back to its synth_params_default value; true if it changed
 
 // Changes a parameter by one step (dir = +1 / -1), clamped. Returns true if it changed.
 int  param_adjust(synth_params_t *p, param_id_t id, int dir);

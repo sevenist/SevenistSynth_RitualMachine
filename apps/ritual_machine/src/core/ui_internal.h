@@ -64,6 +64,7 @@ void synth_ui_seq_view(const synth_ui_t *ui, const seq_t *q, int *first, int *lo
 // Pseudo parameter indexes on a modulator's DEST page: the target module and its parameter live in the slot, not in slot.v[].
 #define PRM_TGT  100
 #define PRM_TPRM 101
+#define PRM_RESET 102      // the cog's last row: Reset (every value of the module back to its default, asked first)
 
 // The values are saved in ui.cfg (jump slots): never reorder. TAB_FM_OP / TAB_FM_ENV are no longer shown (the operators have main-view pages).
 typedef enum { TAB_RACK, TAB_GENERAL, TAB_FM_ALGO, TAB_FM_OP, TAB_FM_ENV, TAB_FX /* removed: row M (ADR-041) */, TAB_SAMPLES, TAB_KEYS, TAB_MODS, TAB_MACROS, TAB_CURVES, TAB_LEDS, TAB_JOY, TAB_PRESET, TAB_SOUND, TAB_MACHINE } tab_t;   // append only: jump slots save these values (GENERAL, SAMPLES, ALGORITHM: now SOUND, ADR-044)
@@ -80,7 +81,7 @@ static inline bool graph_is_fm(graph_t g) { return g == GRAPH_FM || g == GRAPH_F
 
 /* ---- ui_pages.c ---- */
 void get_page(const synth_ui_t *ui, const rack_t *rack, int idx, page_t *out);
-int  module_hidden_count(int type);   // how many hidden settings a module type has behind its cog (0: no cog)
+int  module_hidden_count(int type);   // how many hidden settings a module type has behind its cog (then Reset; ADR-046 phase 5)
 // A module's pages: rows on the left, the icon / infos on the right, the preview at the bottom (ui_draw.c); the first page also has the cog, the
 // row after the last one. The motion sequencer and the EG draw their first page by hand and have no cog.
 bool page_has_cog(const rack_t *rack, const page_t *pg);

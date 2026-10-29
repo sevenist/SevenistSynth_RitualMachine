@@ -2,6 +2,7 @@
 #include "core/fine_step.h"
 #include <math.h>
 #include <stdio.h>
+#include <string.h>
 
 bool g_fine_step;
 
@@ -72,6 +73,17 @@ void synth_params_default(synth_params_t *p) {
     p->filter_env_amt = 0;
     p->filter_env = (env_params_t){5, 300, 0.0f, 200, 0, 55, 60, 60};
     p->str = (str_params_t){STRW_SAW_, 1, 0, FILT_LP, 12, 1.0f, 0.5f, 0.5f, 1500, 2.0f, 0.5f, 6000, 0.7f};
+}
+
+bool param_reset(synth_params_t *p, param_id_t id) {
+    synth_params_t d;
+    synth_params_default(&d);
+    const desc_t *t = &table[id];
+    const size_t n = t->kind == KIND_ENUM ? 1 : sizeof(float);             // (an enumeration is a byte: param_adjust)
+    uint8_t *v = (uint8_t *)p + t->offset;
+    if (!memcmp(v, (const uint8_t *)&d + t->offset, n)) return false;
+    memcpy(v, (const uint8_t *)&d + t->offset, n);
+    return true;
 }
 
 int param_adjust(synth_params_t *p, param_id_t id, int dir) {

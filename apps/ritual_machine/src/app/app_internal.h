@@ -55,6 +55,7 @@ void app_run_action(app_t *app, const binding_t *b, input_event_t e);
 // Gives the UI one event; pushes the sound to the audio side when a value changed.
 void app_ui_event(app_t *app, ui_event_t ev);
 void app_click_toggle(app_t *app);                                  // the metronome on / off (the key function Click, the Rec lists)
+void app_module_reset_ask(app_t *app, uint8_t id);                  // a cog's Reset: asked, then the module's values to their defaults
 // The Pads section's views (ADR-046 phase 3, app_pads.c): EDIT = the grid or a pad's editor, SEQ = STEPS, RACK = PAD FX, PERFORM and SETUP =
 // the synth's tabs shown over the pads (the section stays: the keys play the pads, the music goes on); PRESETS: none yet (skipped).
 view_t app_pads_view(const app_t *app);

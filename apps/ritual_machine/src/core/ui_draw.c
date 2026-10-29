@@ -429,7 +429,10 @@ static const char *row_text(const synth_ui_t *ui, const synth_params_t *p, const
     const int i = row - 1;
     const rack_slot_t *ms = pg->slot != GLOBAL_PAGE ? &rack->slot[pg->slot] : NULL;
     const char *label;
-    if (ms && (pg->params[i] == PRM_TGT || pg->params[i] == PRM_TPRM)) {
+    if (ms && pg->params[i] == PRM_RESET) {
+        label = "Reset";
+        snprintf(val, (size_t)n, "All");
+    } else if (ms && (pg->params[i] == PRM_TGT || pg->params[i] == PRM_TPRM)) {
         const int ti = ms->tgt_id ? rack_find(rack, ms->tgt_id) : RACK_NONE;
         if (pg->params[i] == PRM_TGT) {
             label = "Tgt";

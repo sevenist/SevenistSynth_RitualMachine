@@ -187,6 +187,7 @@ static bool page_row_step(synth_ui_t *ui, synth_params_t *params, seq_t *seq, ra
     } else if (pg->slot != GLOBAL_PAGE) {
         rack_slot_t *sl = &rack->slot[pg->slot];
         const int prm = pg->params[row - 1];
+        if (prm == PRM_RESET) return false;                                                 // (a button: Enter)
         if (prm == PRM_TGT)  { rack_cycle_target(rack, pg->slot, dir); return true; }       // audio_set_params rebuilds the graph
         if (prm == PRM_TPRM) { rack_cycle_param(rack, pg->slot, dir);  return true; }
         if (prm == rack_depth_index((module_type_t)sl->type)) return rack_depth_adjust(rack, pg->slot, dir);     // Dpth: in the target's unit
@@ -346,7 +347,7 @@ static bool row_is_knobbable(const rack_t *rack, const page_t *pg, int row) {
     if (pg->graph == GRAPH_EG && row == 1) return false;
     if (pg->slot == GLOBAL_PAGE) return true;
     const int prm = pg->params[row - 1];
-    return prm != PRM_TGT && prm != PRM_TPRM && !(rack->slot[pg->slot].type == MOD_SAMPLER && prm == MP_SM_FILE);
+    return prm != PRM_TGT && prm != PRM_TPRM && prm != PRM_RESET && !(rack->slot[pg->slot].type == MOD_SAMPLER && prm == MP_SM_FILE);
 }
 
 bool synth_ui_knob_row(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int row, int value) {
@@ -506,6 +507,18 @@ float synth_ui_target_peek(synth_params_t *params, seq_t *seq, rack_t *rack, con
     if (!target_ctx(params, seq, rack, m, &c)) return -1.0f;
     const knob_drv_t d = target_drv(&c, &fc);
     return d.get ? d.get(d.ctx) : -1.0f;
+}
+
+int synth_ui_target_reset(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_t *m) {
+    (void)seq;
+    switch (m->kind) {
+        case MACRO_MODULE: {
+            const int slot = rack_find(rack, m->id);
+            return slot == RACK_NONE ? -1 : rack_mparam_reset(&rack->slot[slot], m->prm) ? 1 : 0;
+        }
+        case MACRO_GLOBAL: return param_reset(params, (param_id_t)m->prm) ? 1 : 0;
+        default:           return -1;
+    }
 }
 
 bool synth_ui_target_describe(const synth_params_t *params, const seq_t *seq, const rack_t *rack, const macro_t *m, char *name, int nn, char *value, int nv) {
@@ -864,6 +877,7 @@ static bool page_enter(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_
         return false;
     }
     if (ui->row > pg.count) return false;
+    if (pg.slot != GLOBAL_PAGE && pg.params[ui->row - 1] == PRM_RESET) { ui->latched = false; ui->reset_id = rack->slot[pg.slot].id; return false; }   // the app asks
     if (row_flips(&pg, ui->row)) { ui->latched = false; return page_row_step(ui, params, seq, rack, &pg, ui->row, 1); }
     ui->latched = !ui->latched;
     return false;

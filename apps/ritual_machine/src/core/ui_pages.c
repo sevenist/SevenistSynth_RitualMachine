@@ -80,8 +80,8 @@ static const struct { const mpage_def_t *defs; int n; } mod_pages[MOD_TYPE_COUNT
     [MOD_VEL]      = {vl_pages, 1},
 };
 
-// The hidden settings of a module: rarely used rows, shown in place of its first page's rows while its cog is open (ui->cog_page).
-// A module without any has no cog.
+// The hidden settings of a module: rarely used rows, shown in place of its first page's rows while its cog is open (ui->cog_page), then
+// Reset (ADR-046 phase 5). Every module has the cog but the two that draw their first page by hand (motion sequencer, EG).
 static const struct { int n; int p[4]; } mod_hidden[MOD_TYPE_COUNT] = {
     [MOD_OSC] = {3, {MP_OC_QUAL, MP_OC_MUTE, MP_OC_HARM}},   // Harm: the MI models' third control
     [MOD_SPECTRAL] = {3, {MP_SP_HOLD, MP_SP_LO, MP_SP_HI}},   // ADR-040: Freeze's hold, the Gate band
@@ -89,8 +89,10 @@ static const struct { int n; int p[4]; } mod_hidden[MOD_TYPE_COUNT] = {
 
 int module_hidden_count(int type) { return type >= 0 && type < MOD_TYPE_COUNT ? mod_hidden[type].n : 0; }
 
+static bool type_has_cog(int type) { return type != MOD_MSEQ && type != MOD_EG; }
+
 bool page_has_cog(const rack_t *rack, const page_t *pg) {
-    return pg->slot != GLOBAL_PAGE && pg->def == 0 && module_hidden_count(rack->slot[pg->slot].type) > 0;
+    return pg->slot != GLOBAL_PAGE && pg->def == 0 && type_has_cog(rack->slot[pg->slot].type);
 }
 
 typedef struct { const char *title; graph_t graph; int count; int params[6]; } gpage_def_t;
@@ -228,11 +230,12 @@ void get_page(const synth_ui_t *ui, const rack_t *rack, int idx, page_t *out) {
         out->graph = m->graph; out->count = m->count;
         for (int i = 0; i < 6; i++) out->params[i] = m->p[i];
         const int type = rack->slot[slot].type;
-        if (def == 0 && idx == ui->cog_page && module_hidden_count(type)) {                  // its cog is open: the hidden settings instead
-            out->count = mod_hidden[type].n;
+        if (def == 0 && idx == ui->cog_page && type_has_cog(type)) {                        // its cog is open: the hidden settings instead, then Reset
+            const int n = mod_hidden[type].n;
+            out->count = n + 1;
             snprintf(out->title, sizeof out->title, m->fmt, rack_instance(rack, slot));
             strncat(out->title, " SET", sizeof out->title - strlen(out->title) - 1);
-            for (int i = 0; i < 6; i++) out->params[i] = i < 4 ? mod_hidden[type].p[i] : 0;
+            for (int i = 0; i < 6; i++) out->params[i] = i < n ? mod_hidden[type].p[i] : i == n ? PRM_RESET : 0;
         }
     }
 }
@@ -243,7 +246,7 @@ void synth_ui_init(synth_ui_t *ui, const rack_t *rack) {
     ui->rack_row = synth_type_is_rack(rack->cfg.type) ? 0 : ROW_M; ui->rack_menu = false;
     for (int l = 0; l < RACK_ROWS; l++) ui->rack_col[l] = 0;
     ui->rack_dirty = false; ui->rebuild = false; ui->in_rack = false; ui->menu_tab = 0; ui->fm_op = 0; ui->fm_pt = 0;
-    ui->view_sel = false; ui->edit_pages = 0; ui->view_last = VIEW_RACK; ui->storage_req = false;
+    ui->view_sel = false; ui->edit_pages = 0; ui->view_last = VIEW_RACK; ui->storage_req = false; ui->reset_id = 0;
     for (int v = 0; v < VIEW_COUNT; v++) ui->view_at[v] = 0;
     for (int k = 0; k < SYNTH_UI_MACROS; k++) ui->macro_pos[k] = -1;
     ui->cog_page = -1;

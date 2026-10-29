@@ -510,7 +510,7 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
     const gui_sprite_t *icon = NULL;
     if (ui->in_rack) {
         const tab_t tk = tab_kind(rack, ui->menu_tab);
-        snprintf(buf, sizeof buf, "< %s >", tab_name(tk));
+        snprintf(buf, sizeof buf, "< %s%s >", tab_name(tk), ui->rack_dirty ? "*" : "");   // "*": structural edits applied when the menu is left
         icon = ui_sprite(tab_icon(tk));
     } else {
         get_page(ui, rack, ui->page, &pg);

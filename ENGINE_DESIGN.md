@@ -1937,6 +1937,16 @@ Chosen by me while building (the user away; say if one is wrong):
 10. Not done in phase 2: the pages are not turned into element tables (the plan's "main view declarative"): the gestures are
    one set, the code keeps its page tables and hand-written handlers. The SEQUENCER page keeps its push (a note in / out, a
    tool run): a named exception.
+11. **Phase 4, Back in the menu goes up one level** (`handle_event`, `ui_input.c`): a latch, then the screen's own (RACK: its
+   cell menu), then the focus to the header, then **out of the menu** (its edits applied, as Menu does). Before, Back did
+   nothing on the list tabs and deleted the selected module on RACK; **Delete is now only the cell menu's item** (decision 5).
+   The pages' Back is unchanged but for the latch (it still closes the cog; held while recording it erases).
+12. **The pending mark**: the menu's header reads `< RACK* >` (any tab) while structural edits wait; leaving the menu applies
+   them and **a toast says "RACK / Applied"**.
+13. **The recording mark** in both headers (`rec_mark`, `app.c`; drawn by `ui_header_marks`): `REC` framed = armed (the
+   synth's Rec on and stopped, the Pads capture waiting, the Pads live record with the clock stopped), `REC` inverted =
+   recording (running, the pattern's sound being recorded, the capture), `ERS` inverted = Back held erasing. No blinking (it
+   would need timed redraws: the frame / fill difference says it).
 
 ## Known limits and ideas for later
 

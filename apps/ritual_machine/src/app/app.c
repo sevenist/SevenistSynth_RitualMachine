@@ -163,6 +163,20 @@ static void draw_keys_notice(app_t *app) {
 
 /* ---------------- one frame ---------------- */
 
+// The header's recording mark (ADR-046): the synth's notes into the pattern (armed = Rec on and stopped), its pattern into a sample, the
+// erase under the playhead; the Pads' capture and their sequencer's live record.
+static int rec_mark(const app_t *app) {
+    if (in_pads(app)) {
+        const int cs = app->ui.cap_state;
+        if (cs == CAPTURE_ST_RECORDING || cs == CAPTURE_ST_FINISHING || (app->ui.pseq_rec && app->pads_run)) return REC_MARK_ON;
+        return cs == CAPTURE_ST_ARMED || app->ui.pseq_rec ? REC_MARK_ARMED : REC_MARK_NONE;
+    }
+    if (app->ui.seq_erase) return REC_MARK_ERASE;
+    if (app->ui.seq_audio) return REC_MARK_ON;
+    if (!app->ui.seq_rec) return REC_MARK_NONE;
+    return app->seq.running ? REC_MARK_ON : REC_MARK_ARMED;
+}
+
 // One frame: the full-screen notice or the UI, the popup on top, then the buffer goes to the display.
 void app_draw_frame(app_t *app) {
     u8g2_t *g = app->display;
@@ -174,6 +188,7 @@ void app_draw_frame(app_t *app) {
     } else {
         const int layer = in_pads(app) ? -1 : app_active_layer(app);   // (the layers act in the synth section)
         app->ui.layer_held = (int8_t)layer;
+        app->ui.rec_mark = (uint8_t)rec_mark(app);
         if (app->ui.br_open) browse_ui_draw(&app->ui, g);
         else {
             if (in_pads(app)) pads_ui_draw(&app->ui, &app->rack, g, app->pads_shown, app->seq.bpm);
@@ -228,6 +243,8 @@ bool app_step(app_t *app, input_event_t e) {
     if (app->ui.rebuild) {              // the rack editor was just left: rebuild the synth from it
         app->ui.rebuild = false;
         audio_build(&app->rack, &app->params);
+        popup_info(&app->popup, "RACK", "Applied", 0, now, POPUP_INFO_MS);   // the pending "*" is gone: say so (ADR-046 rule R21)
+        app->dirty = true;
     }
 
     app_learn_poll(app, now);

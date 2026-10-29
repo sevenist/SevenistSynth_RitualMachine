@@ -138,6 +138,15 @@ int ui_header_marks(u8g2_t *g, int right, int y, int h, const synth_ui_t *ui) {
         else u8g2_DrawLine(g, x + 2, by + BATT_H - 3, x + BATT_W - 5, by + 2);   // empty: a stroke across
         x -= 2;
     }
+    if (ui->rec_mark != REC_MARK_NONE) {                                   // recording: armed (framed) or running (inverted)
+        const char *m = ui->rec_mark == REC_MARK_ERASE ? "ERS" : "REC";
+        const int w = u8g2_GetStrWidth(g, m) + 3, my = y + (h - LEGEND_LINE_H) / 2;
+        x -= w;
+        if (ui->rec_mark == REC_MARK_ARMED) u8g2_DrawFrame(g, x, my, w, LEGEND_LINE_H);
+        else u8g2_DrawBox(g, x, my, w, LEGEND_LINE_H);
+        u8g2_DrawStr(g, x + 2, my + LEGEND_LINE_H - 2, m);
+        x -= 2;
+    }
     if (ui->layer_held >= 0) {                                            // a modifier held: "S" or "M" inverted (the legend shows its layer)
         const char *m = ui->layer_held == MODL_MOD ? "M" : "S";
         const int w = u8g2_GetStrWidth(g, m) + 3, my = y + (h - LEGEND_LINE_H) / 2;

@@ -287,10 +287,10 @@ static void delete_activate(const ui_ctx_t *c) {
 }
 
 // Back: closes the menu; on a row, deletes the selected module.
+// Back closes the cell's menu; it never deletes (ADR-046 rule R10: the menu's Delete does). False: nothing to close here (the menu goes up).
 static bool back(const ui_ctx_t *c) {
-    if (c->ui->rack_menu) { menu_close(c); return true; }
-    const cell_t k = sel_cell(c);
-    if (k.kind == CELL_MODULE && rack_delete(c->rack, k.slot)) c->ui->rack_dirty = true;
+    if (!c->ui->rack_menu) return false;
+    menu_close(c);
     return true;
 }
 

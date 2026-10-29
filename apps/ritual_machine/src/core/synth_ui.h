@@ -17,6 +17,8 @@ extern "C" {
 #endif
 
 #define SYNTH_UI_MAX_PAGES (RACK_MAX * 4 + 5)
+// The header's recording mark (ADR-046 rule R18): "REC" framed = armed, inverted = recording; "ERS" inverted = the playhead erases.
+enum { REC_MARK_NONE, REC_MARK_ARMED, REC_MARK_ON, REC_MARK_ERASE };
 #define BROWSE_PAGE 12                      // the sample browser: the entries it holds at once (at least the rows it shows)
 
 // What the user interface understands. The input layer (core/bindings.c) turns hardware controls into these.
@@ -147,6 +149,7 @@ typedef struct {
     uint8_t knob_away;                          // bit k: col knob k drives a Shift / Mod target now, not its page row (set by the app): that row hides its catch arrow
     int8_t  batt_pct;                           // the battery's charge for the header, 0..100, -1 = none measured (set by the app)
     int8_t  layer_held;                         // the modifier held for the header's mark: -1 none, else MODL_SHIFT / MODL_MOD (set by the app)
+    uint8_t rec_mark;                           // the header's recording mark (set by the app): REC_MARK_*
     // MODIFIERS tab (scr_mods.c): the layer and the control shown; learn_req = a Learn button was pressed (the app closes the menu and sets
     // learn_wait: the next push on a page row assigns that row's parameter to learn_layer + learn_ctl, or, with learn_macro >= 0, adds it to
     // that macro as a destination: the MACROS tab's Learn)

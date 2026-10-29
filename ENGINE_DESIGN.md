@@ -1812,6 +1812,30 @@ Chosen by me while building (say if one is wrong):
   looked at; the HWV1 simulator was not rebuilt; Storage on the board (the restart into the card reader) not tried from the
   list; the engine tests were not run again (no engine file changed).
 
+### ADR-045: LEDs under the pots and encoder A, for the next prototype (Accepted; user choices of 2026-10-28 / 29; being built on `main`, one commit per step)
+**Why.** The user: "the leds are mapped through keys coordinates, but the next prototype will have leds under potentiometers and
+one of the encoders"; "1 under each pots, and one additional one under encoder A". **What was there:** the LED HAL already
+addresses an LED by the board control it sits under (`hal_leds.h`, `input_control_t.led`), and `controls_led` maps a role onto
+it; but no pot or encoder of any board table has `led` set, the simulator draws an LED on keys only, and the app
+(`key_leds.c`) paints the key matrix only (that loop, over key rows and columns, is the "key coordinates").
+
+**Decisions taken by the user** (two rounds of options; recorded, not to be re-litigated):
+1. **All 8 pots of the next prototype** (the simulator's panel: Volume, K1..K4, R1..R3) **and encoder A** have an LED (my
+   recommendation; the other option: not Volume).
+2. **What a pot's LED shows, configurable** (their words: "catch state using brightness, value with color saturation, and role
+   colour override, macros color matching on macro mode, show the updated color on shift or mod press (if a pots switches to a
+   macro on shift/mod press)").
+3. **A colour per macro**, a Color row in the MACROS tab (my recommendation; the others: fixed by number, one Macro role).
+4. **Encoder A: section + Rec** (my recommendation): its own role, one shade in Synth and another in Pads; blinking while a
+   recording is armed, lit while it records.
+
+**The plan, one commit per step.** (1) The panel's table gives the 8 pots and encoder A an LED; the simulator draws a ring around
+a knob or an encoder that has one. (2) New LED roles Knob, Volume and Enc A (LEDS tab, ui.cfg): a column knob shows the Knob
+role, its Idle shade until it has caught the value, its Active shade once caught (catch as brightness), the value as
+saturation (pale at 0, the full colour at the top; a Value row switches it off per role); Volume the same, always caught. (3)
+The macros' colours (MACROS tab Color row, saved with the sound): R1..R3 and any knob that plays a macro show its colour. (4)
+Shift / Mod held: every pot shows what it does in that layer. (5) Encoder A. (6) Docs.
+
 ## Known limits and ideas for later
 
 - Not hooked to the UI yet: the **Sampler** and **Granular** modules and the sample bank (stage 6 is engine-level and

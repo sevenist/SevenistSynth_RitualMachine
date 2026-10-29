@@ -87,7 +87,9 @@ item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
   pages (the dynamic ones), a jump to the page picked. To settle while building: the long-press time (~0.5 s?), what a
   Shift + Menu does now to the Synth <-> Pads switch (it moves into the list's MODES; the key function Section stays),
   `GP_*` / `tab_t` saved in `ui.cfg` by the jump slots (append, never reorder)
-- [ ] **LEDs attached to controls, for the next prototype** (from: user, 2026-10-28; decided, not built). Today the LEDs are
+- [ ] **LEDs attached to controls, for the next prototype** (from: user, 2026-10-28 / 29; ENGINE_DESIGN.md ADR-045; being
+  built on `main` from 2026-10-29, one commit per step; their answers: all 8 pots + encoder A, a Color row per macro, encoder
+  A = section + Rec). Today the LEDs are
   mapped through key coordinates; the next prototype has **an LED under each pot and one under encoder A**. The plan: a
   table of LEDs per board, each naming the control it sits under (key, pot, encoder); the app lights a control. The pot
   LEDs, **configurable** (their answer, beyond my three options): the catch state as brightness, the value as colour

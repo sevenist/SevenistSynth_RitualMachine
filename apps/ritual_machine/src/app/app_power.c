@@ -14,6 +14,8 @@ void app_power_poll(app_t *app, uint32_t now) {
     if (now - app->batt_ms < BATTERY_POLL_MS) return;
     app->batt_ms = now;
     const int pct = power_battery_percent();
+    const int shown = pct < 0 ? -1 : pct > 100 ? 100 : pct;                // the header's icon (ADR-046): redrawn when it changes
+    if (shown != app->ui.batt_pct) { app->ui.batt_pct = (int8_t)shown; app->dirty = true; }
     if (pct < 0) return;
     if (pct >= BATTERY_REARM_PCT) { app->batt_warned = 0; return; }
     const int level = pct <= BATTERY_EMPTY_PCT ? 2 : pct <= BATTERY_LOW_PCT ? 1 : 0;

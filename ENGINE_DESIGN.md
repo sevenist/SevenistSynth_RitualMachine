@@ -1905,6 +1905,26 @@ column knobs in the menu.
 view's editing model: push = Enter / latch; (4) safety: Back never deletes, the pending mark, the recording states in the
 header. Phases 3 (views and rings), 5 (the Tier 0 fallback table, the Pads Rec list) and 6 (LEDs) after.
 
+Chosen by me while building (the user away; say if one is wrong):
+1. **The legend zone** (`core/ui_legend.c`): laid out from the knobs' places in the board table (`controls_place`, new): 2 x 2
+   cells of 64 x 9 on HWV1 (21 px with the rule), 1 x 4 cells of 32 x 12 on the panel (14 px); none under 100 px of screen. A
+   cell: the knob's number (filled: it drives something; hollow and "-": nothing), what it drives, **a bar of the value** (the
+   Bar widget of Q9, used here first), and while the knob has not caught the value **a tick where the knob stands** (XOR across
+   the bar): turn from the tick to the end of the fill. The row's catch chevron stays.
+2. **Only on the screens where the knobs drive something**: the synth's pages, the CURVES tab (Pt X / Pt Y), the Pads screens
+   but the FX chains. The menu's other tabs and the FX chains keep the full height (RACK's three rows of 32 px do not fit over a
+   legend: it would show one row only). This bends rule R14 (fixed zones): the zone is fixed per screen, not on every screen.
+3. **The layer preview** (rule R11): while Shift / Mod is held the cells show the layer's targets (a parameter's short name, "M1",
+   an action's name, "-" for Default); a parameter's bar and catch as for a page row; the volume and the speaker read from the
+   setting.
+4. **Pads**: Start, End, Tune, Cut (what the knobs drive there, no catch); a module's values page: its first four values.
+5. **The header**: the page's place "3/22" at the left of the synth's pages; at the right **the battery** (a 12 x 7 icon, filled
+   as charged, a stroke across when empty; drawn only when a battery is measured; redrawn when its value changes, polled every
+   5 s) and **an "S" / "M" while a modifier is held** (both sections' headers, XOR so they read on a focused header).
+6. **The pad editor's overview shrinks** over the legend (PLAY / EDIT 24 -> 17 px, CHOP 40 -> 39 px; EDIT's rows 11 -> 10 px) so
+   every row stays on screen.
+7. `ui_dump` binds the board's table (panel, or `UI_DUMP_BOARD=hwv1`) and takes the events `pads`, `synth`, `batt:<n>`.
+
 ## Known limits and ideas for later
 
 - Not hooked to the UI yet: the **Sampler** and **Granular** modules and the sample bank (stage 6 is engine-level and

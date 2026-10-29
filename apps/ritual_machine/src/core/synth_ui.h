@@ -145,6 +145,8 @@ typedef struct {
     int     knob_val[SYNTH_UI_COL_KNOBS];       // last physical position of each col knob (0..INPUT_VALUE_MAX), -1 = not moved yet
     float   knob_norm[SYNTH_UI_COL_KNOBS];      // what each col knob drives, 0..1, as the last catch refresh measured it (-1 unknown): its LED
     uint8_t knob_away;                          // bit k: col knob k drives a Shift / Mod target now, not its page row (set by the app): that row hides its catch arrow
+    int8_t  batt_pct;                           // the battery's charge for the header, 0..100, -1 = none measured (set by the app)
+    int8_t  layer_held;                         // the modifier held for the header's mark: -1 none, else MODL_SHIFT / MODL_MOD (set by the app)
     // MODIFIERS tab (scr_mods.c): the layer and the control shown; learn_req = a Learn button was pressed (the app closes the menu and sets
     // learn_wait: the next push on a page row assigns that row's parameter to learn_layer + learn_ctl, or, with learn_macro >= 0, adds it to
     // that macro as a destination: the MACROS tab's Learn)
@@ -258,6 +260,27 @@ void synth_ui_catch_refresh(synth_ui_t *ui, synth_params_t *params, seq_t *seq, 
 // Col knob k (0..3) on its page row, for its LED (ADR-045): -1 = it drives nothing there (the menu, a row that is not a value),
 // 0 = it has not caught the value yet, 1 = caught; `norm` = that value, 0..1 of its range (-1 with nothing).
 int synth_ui_col_knob_state(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int k, float *norm);
+
+// The knob legend (ENGINE_DESIGN.md ADR-046, rules R14 / R15; core/ui_legend.c): a zone at the bottom of a tall screen naming what each
+// column knob drives, laid out like the knobs (2 x 2 on HWV1, 1 x 4 on the panel). The screens leave it free; the app fills it and draws it.
+typedef struct {
+    char   label[10];   // what the knob drives ("Cut", "M1", "Spk")
+    float  value;       // that value, 0..1 of its range: the bar (-1: no bar)
+    float  knob;        // where the knob stands, 0..1: shown while it has not caught the value (-1: not known)
+    int8_t state;       // -1 drives nothing, 0 has not caught the value yet, 1 caught (or no catch)
+} legend_cell_t;
+int  ui_legend_h(u8g2_t *g);                    // the zone's height in pixels (0: no zone: a screen under 100 px, a board without column knobs)
+// Whether the screen on show has the zone: the screens where the column knobs drive something (the synth's pages, the CURVES tab, the Pads
+// screens). The menu's other tabs and the Pads FX chains keep the full height (lists and the rack's rows; the knobs drive nothing there).
+bool ui_legend_shown(const synth_ui_t *ui, const rack_t *rack, bool pads);
+void ui_legend_draw(u8g2_t *g, const legend_cell_t cell[SYNTH_UI_COL_KNOBS]);
+void ui_legend_cell_none(legend_cell_t *c);
+// What the column knobs drive in the synth section with no modifier held: the page's rows 1..4, the SEQUENCER's step values, the CURVES
+// tab's X / Y; nothing elsewhere in the menu.
+void synth_ui_legend(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, legend_cell_t cell[SYNTH_UI_COL_KNOBS]);
+// The marks at the right end of a header (both sections): the battery (ui->batt_pct), the modifier held (ui->layer_held). Returns the
+// width they took, so the header's own right-hand text goes left of it.
+int  ui_header_marks(u8g2_t *g, int right, int y, int h, const synth_ui_t *ui);
 bool synth_ui_set_volume(synth_ui_t *ui, rack_t *rack, int value);                                              // master volume
 // Macros. macro: knob `knob` (a slot as for knob_target) plays macro k (every destination, no catch); macro_row: col knob row 1..4 plays it
 // with the catch on its first destination; macro_step: an encoder, n steps of every destination.
@@ -300,6 +323,7 @@ void pads_ui_init(synth_ui_t *ui);
 void pads_ui_fx_open(synth_ui_t *ui, bool on);   // the FX chains page (the Menu key in the Pads section), or back to the pads
 // Knob k (0..3) on a module's values page: its k-th value from 0..1; false when that page is not shown or the value is a list.
 bool pads_ui_fx_knob(synth_ui_t *ui, int k, float x, char *label, int ln, char *val, int vn);
+bool pads_ui_fx_legend(const synth_ui_t *ui, int k, char *label, int ln, float *value);   // the same, for the knob legend: its label and value 0..1
 void pads_ui_chop_refresh(synth_ui_t *ui);     // the CHOP page's cuts again (after the app changed the pad: a padded version)
 // The EDIT page's operations (the order of engine/offline/process.h ProcOp, without Pad to which the Grid chop uses): their name, and the
 // amount's text ("-0.3dB", "100ms"; "" for none).

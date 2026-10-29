@@ -120,6 +120,8 @@ void app_pseq_poll(app_t *app);                                     // every ste
 
 /* ---------------- app_lists.c (ADR-044) ---------------- */
 
+void app_layer_legend(app_t *app, int layer, legend_cell_t cell[SYNTH_UI_COL_KNOBS]);   // app_layers.c: the knob legend of the layer held
+void app_pads_legend(app_t *app, legend_cell_t cell[SYNTH_UI_COL_KNOBS]);              // app_pads.c: ... in the Pads section
 int  app_active_layer(const app_t *app);                            // app_layers.c: MODL_MOD while Mod is held, else MODL_SHIFT with Shift, else -1
 void app_list_open(app_t *app, bool advanced);                      // Shift + Menu: the page list (advanced: its ADVANCED submenu)
 void app_menu_down(app_t *app, control_id_t ctl, uint32_t now);     // Menu went down (no Shift): held MENU_LONG_MS = the jump list ...

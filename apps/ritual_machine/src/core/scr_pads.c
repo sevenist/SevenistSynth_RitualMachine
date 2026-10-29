@@ -121,11 +121,14 @@ static const el_def_t tone_elements[] = {
 #define N_TONE ((int)(sizeof tone_elements / sizeof tone_elements[0]))
 #define WAVE_H 24                                        // the sample overview across the top (3 grid rows)
 #define ROW_H  GUI_GRID                                  // 8 px rows, as on the module pages
+#define PLAY_ROWS 9
+// The overview's height: WAVE_H, less on a screen that also shows the knob legend (PLAY's 9 rows must fit under it).
+static int wave_h(gui_rect_t area) { const int h = area.h - 2 - PLAY_ROWS * ROW_H; return h > WAVE_H ? WAVE_H : h < 12 ? 12 : h; }
 
 // The overview on top, the sample row across the width, then two columns of 8 px rows.
 static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, gui_rect_t *rect) {
     (void)g; (void)st; (void)c;
-    const int y0 = area.y + WAVE_H + 2, half = area.w / 2;
+    const int y0 = area.y + wave_h(area) + 2, half = area.w / 2;
     for (int i = 0; i < N_ELEMENTS; i++) {
         const el_def_t *e = &elements[i];
         rect[i] = gui_rect(area.x + e->col * half, y0 + e->row * ROW_H, e->span * half - 1, ROW_H);
@@ -158,7 +161,7 @@ static int x_of(gui_rect_t box, uint64_t frame, uint32_t frames) { return box.x 
 // bracket along the top (from the Trim loop's start or the file's loop points) with the crossfade as a filled bar under its end.
 static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, const gui_rect_t *rect) {
     (void)st; (void)rect;
-    const gui_rect_t box = gui_rect(area.x, area.y + 1, area.w, WAVE_H);
+    const gui_rect_t box = gui_rect(area.x, area.y + 1, area.w, wave_h(area));
     const pad_t *p = cur_pad(c);
     audio_sample_info_t in;
     if (!file_info(p, &in) || in.pending || in.frames < 4) {
@@ -334,10 +337,12 @@ static const el_def_t chop_elements[] = {
 };
 #define N_CHOP ((int)(sizeof chop_elements / sizeof chop_elements[0]))
 #define CHOP_WAVE_H 40
+#define CHOP_ROWS   4
+static int chop_wave_h(gui_rect_t area) { const int h = area.h - 4 - CHOP_ROWS * 12; return h > CHOP_WAVE_H ? CHOP_WAVE_H : h < 16 ? 16 : h; }
 
 static void chop_layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, gui_rect_t *rect) {
     (void)g; (void)st; (void)c;
-    const int y0 = area.y + CHOP_WAVE_H + 4, half = area.w / 2, rh = 12;
+    const int y0 = area.y + chop_wave_h(area) + 4, half = area.w / 2, rh = 12;
     for (int i = 0; i < N_CHOP; i++) {
         const el_def_t *e = &chop_elements[i];
         rect[i] = gui_rect(area.x + e->col * half, y0 + e->row * rh, e->span * half - 1, rh - 1);
@@ -347,7 +352,7 @@ static void chop_layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui
 // The overview with the trim and the cuts (the selected one solid, the others dotted), and how many slices.
 static void chop_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, const gui_rect_t *rect) {
     (void)st; (void)rect;
-    const gui_rect_t box = gui_rect(area.x, area.y + 1, area.w, CHOP_WAVE_H);
+    const gui_rect_t box = gui_rect(area.x, area.y + 1, area.w, chop_wave_h(area));
     const pad_t *p = cur_pad(c);
     const pad_chop_t *ch = chop(c);
     audio_sample_info_t in;
@@ -516,7 +521,7 @@ static const el_def_t edit_elements[] = {
 
 static void edit_layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, gui_rect_t *rect) {
     (void)g; (void)st;
-    const int y0 = area.y + WAVE_H + 12, half = area.w / 2, rh = 11;
+    const int y0 = area.y + wave_h(area) + 12, half = area.w / 2, rh = area.h >= 102 ? 11 : 10;   // (10: over the knob legend)
     for (int i = 0; i < N_EDIT; i++) {
         const el_def_t *e = &edit_elements[i];
         int row = e->row;                                                 // the rows close up over a hidden one (the amount, Algo)
@@ -536,7 +541,7 @@ static void edit_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
     char t[48];
     if (v) snprintf(t, sizeof t, "from %.10s: %s", v->parent[0] ? pad_file_base(v->parent) : "?", v->what);
     else snprintf(t, sizeof t, p->file[0] ? "original" : "");
-    u8g2_DrawStr(g, area.x + 1, area.y + WAVE_H + 10, t);
+    u8g2_DrawStr(g, area.x + 1, area.y + wave_h(area) + 10, t);
 }
 
 static const screen_def_t edit_screen = {edit_elements, N_EDIT, false, true, edit_layout, NULL, NULL, edit_extra};
@@ -604,6 +609,14 @@ bool pads_ui_fx_knob(synth_ui_t *ui, int k, float x, char *label, int ln, char *
     if (rack_mparam_set_norm(s, k, x)) ui->rack_dirty = true;
     snprintf(label, (size_t)ln, "%s %s", rack_type_code((module_type_t)s->type), rack_mparam_label((module_type_t)s->type, k));
     rack_mparam_format(s, k, val, vn);
+    return true;
+}
+
+bool pads_ui_fx_legend(const synth_ui_t *ui, int k, char *label, int ln, float *value) {
+    const rack_slot_t *s = ui->pad_fx == 2 ? fx_slot((synth_ui_t *)ui) : NULL;
+    if (!s || k < 0 || k >= rack_fx_param_count((module_type_t)s->type) || !rack_mparam_is_continuous((module_type_t)s->type, k)) return false;
+    snprintf(label, (size_t)ln, "%s", rack_mparam_label((module_type_t)s->type, k));
+    *value = rack_mparam_norm(s, k);
     return true;
 }
 
@@ -862,12 +875,13 @@ static void draw_cell(u8g2_t *g, gui_rect_t r, int index, const pad_t *p, bool o
 
 void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t playing, int bpm) {
     gui_style_t style;
-    gui_style_init(&style, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
+    const int content_h = u8g2_GetDisplayHeight(g) - (ui_legend_shown(ui, rack, true) ? ui_legend_h(g) : 0);    // the knob legend's zone: the app draws it
+    gui_style_init(&style, u8g2_GetDisplayWidth(g), content_h);
     const gui_style_t *st = &style;
     u8g2_ClearBuffer(g);
     gui_begin(g, st);
     if (!ui->pads) return;
-    gui_rect_t screen = gui_inset(gui_screen(g), st->margin);
+    gui_rect_t screen = gui_inset(gui_rect(0, 0, u8g2_GetDisplayWidth(g), content_h), st->margin);
     const gui_rect_t bar = gui_take_top(&screen, GUI_BAR_H);
     const gui_rect_t header = gui_rect(bar.x, bar.y, bar.w, bar.h - 1);
     char t[40], l[8];
@@ -901,6 +915,7 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
     const int bw = u8g2_GetStrWidth(g, bt) + 4;
     u8g2_DrawStr(g, header.x + 1, ty, bt);
     u8g2_DrawVLine(g, header.x + bw - 2, header.y + 2, header.h - 4);
+    const int marks = ui_header_marks(g, header.x + header.w, header.y, header.h, ui);   // the battery, the modifier held
     if (ui->pad_fx || ui->pad_edit || ui->pad_steps) gui_draw_text_centered(g, gui_rect(header.x + bw, header.y, header.w - bw, header.h), t);
     else {                                                   // the grid: "BANK A", then the position at the right
         if (ui->cap_state == CAPTURE_ST_ARMED) snprintf(t, sizeof t, "REC ready");            // a recording (capture): waiting for a sound / the bar
@@ -911,12 +926,12 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
         const bool run = audio_transport(&bar_n, &beat, &frac);
         char pos[24];
         if (run) snprintf(pos, sizeof pos, "%d.%d", bar_n > 99 ? 99 : bar_n, beat); else snprintf(pos, sizeof pos, "--");
-        const int pw = u8g2_GetStrWidth(g, pos), px = header.x + header.w - 2 - pw;
+        const int pw = u8g2_GetStrWidth(g, pos), px = header.x + header.w - marks - 2 - pw;
         if (run && frac < 64) { u8g2_DrawBox(g, px - 1, header.y + 2, pw + 2, header.h - 4); u8g2_SetDrawColor(g, 0); }   // the beat flashes
         u8g2_DrawStr(g, px, ty, pos);
         u8g2_SetDrawColor(g, 1);
     }
-    if (playing & (1ull << sel)) u8g2_DrawStr(g, header.x + header.w - 6, gui_text_center(g, header, ">").y, ">");   // the selected pad sounds
+    if (playing & (1ull << sel)) u8g2_DrawStr(g, header.x + header.w - marks - 6, gui_text_center(g, header, ">").y, ">");   // the selected pad sounds
     u8g2_SetDrawColor(g, 1);
 
     if (ui->pad_fx) {                                        // the FX chains, or one module's values

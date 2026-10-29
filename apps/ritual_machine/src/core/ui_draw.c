@@ -1,5 +1,6 @@
 // The screens: the header, the parameter lists, the hand-drawn screens (sequencer, rack, effects, FM editor...) and synth_ui_draw().
 #include "core/ui_screen.h"
+#include "core/bindings.h"
 #include "hal/hal_display.h"
 #include "core/sprites.h"
 #include "core/module_sprites.h"
@@ -417,9 +418,77 @@ static void draw_module_head(u8g2_t *g, const gui_style_t *st, const synth_ui_t 
     }
 }
 
+// A page row's label, and its value as text in val (the rows of every page that is a list of values; i = 1..count).
+static const char *row_text(const synth_ui_t *ui, const synth_params_t *p, const seq_t *seq, const rack_t *rack, const page_t *pg, int row,
+                            char *val, int n) {
+    const int i = row - 1;
+    const rack_slot_t *ms = pg->slot != GLOBAL_PAGE ? &rack->slot[pg->slot] : NULL;
+    const char *label;
+    if (ms && (pg->params[i] == PRM_TGT || pg->params[i] == PRM_TPRM)) {
+        const int ti = ms->tgt_id ? rack_find(rack, ms->tgt_id) : RACK_NONE;
+        if (pg->params[i] == PRM_TGT) {
+            label = "Tgt";
+            if (ti == RACK_NONE) snprintf(val, (size_t)n, "--"); else rack_slot_name(rack, ti, val, n);
+        } else {
+            label = "Prm";
+            if (ti == RACK_NONE) snprintf(val, (size_t)n, "--");
+            else snprintf(val, (size_t)n, "%s", rack_param_name((module_type_t)rack->slot[ti].type, ms->tgt_param));
+        }
+    } else if (ms) {
+        label = rack_mparam_label((module_type_t)ms->type, pg->params[i]);
+        if (ms->type == MOD_OSC && pg->params[i] == MP_OC_PW && ms->v[MP_OC_WAVE] >= OC_FIRST_ENGINE) label = "Timb";
+        rack_mparam_format(ms, pg->params[i], val, n);
+        if (pg->params[i] == rack_depth_index((module_type_t)ms->type)) rack_depth_format(rack, pg->slot, val, n);
+        if (ms->type == MOD_SAMPLER && pg->params[i] == MP_SM_FILE) file_label((int)ms->v[MP_SM_FILE] - 1, val, n);
+    } else if (graph_is_fm(pg->graph)) {
+        label = fm_row_text(ui, rack, pg, row, val, n);
+    } else if (pg->graph == GRAPH_SEQ_PAT) {
+        label = seq_pat_row_text(ui, seq, row, val, n);
+    } else if (pg->graph == GRAPH_SEQ_CFG) {
+        label = seq_param_label((seq_param_id_t)pg->params[i]);
+        seq_param_format(seq, (seq_param_id_t)pg->params[i], val, n);
+    } else {
+        label = param_label((param_id_t)pg->params[i]);
+        param_format(p, (param_id_t)pg->params[i], val, n);
+    }
+    return label;
+}
+
+void synth_ui_legend(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, legend_cell_t cell[SYNTH_UI_COL_KNOBS]) {
+    for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) ui_legend_cell_none(&cell[k]);
+    if (ui->in_rack) {                                                    // the menu: only the CURVES tab's point (CURVES_KNOB_X / _Y)
+        if (!synth_ui_on_curves_tab(ui, rack)) return;
+        const int kx = CURVES_KNOB_X - CTL_COL_KNOB_0, ky = CURVES_KNOB_Y - CTL_COL_KNOB_0;
+        if (kx >= 0 && kx < SYNTH_UI_COL_KNOBS) { snprintf(cell[kx].label, sizeof cell[kx].label, "Pt X"); cell[kx].state = 1; }
+        if (ky >= 0 && ky < SYNTH_UI_COL_KNOBS) { snprintf(cell[ky].label, sizeof cell[ky].label, "Pt Y"); cell[ky].state = 1; }
+        return;
+    }
+    page_t pg;
+    get_page(ui, rack, ui->page, &pg);
+    if (pg.graph == GRAPH_SEQ) {                                          // the step under the cursor: each knob must move before it writes
+        static const char *const name[SYNTH_UI_COL_KNOBS] = {"Note", "Len", "Vel", "Prob"};
+        for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) {
+            snprintf(cell[k].label, sizeof cell[k].label, "%s", name[k]);
+            cell[k].state = (int8_t)(ui->seq_knob_live >> k & 1);
+        }
+        return;
+    }
+    char val[24];
+    for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) {
+        float v;
+        const int s = synth_ui_col_knob_state(ui, params, seq, rack, k, &v);
+        if (s < 0) continue;
+        snprintf(cell[k].label, sizeof cell[k].label, "%s", row_text(ui, params, seq, rack, &pg, k + 1, val, sizeof val));
+        cell[k].state = (int8_t)s;
+        cell[k].value = v;
+        cell[k].knob = ui->knob_val[k] >= 0 ? (float)ui->knob_val[k] / (float)INPUT_VALUE_MAX : -1.0f;
+    }
+}
+
 void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *seq, const rack_t *rack, u8g2_t *g) {
     gui_style_t style;
-    gui_style_init(&style, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
+    const int content_h = u8g2_GetDisplayHeight(g) - (ui_legend_shown(ui, rack, false) ? ui_legend_h(g) : 0);   // the knob legend's zone: the app draws it
+    gui_style_init(&style, u8g2_GetDisplayWidth(g), content_h);
     const gui_style_t *st = &style;
     page_t pg;
     char buf[32], val[24];
@@ -427,7 +496,7 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
     u8g2_ClearBuffer(g);
     gui_begin(g, st);
 
-    gui_rect_t screen = gui_inset(gui_screen(g), st->margin);
+    gui_rect_t screen = gui_inset(gui_rect(0, 0, u8g2_GetDisplayWidth(g), content_h), st->margin);
     int row_h = gui_row_h(g, st);
     gui_rect_t bar = gui_take_top(&screen, GUI_BAR_H);                     // the top bar: one 16 px grid row, its last pixel row is the rule
     const gui_rect_t header = gui_rect(bar.x, bar.y, bar.w, bar.h - 1);
@@ -446,10 +515,16 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
     if (ui->row == 0) { u8g2_DrawBox(g, header.x, header.y, header.w, header.h); u8g2_SetDrawColor(g, 0); }
     if (icon) gui_draw_sprite(g, icon, bar.x, bar.y);                   // drawn over the rule: keep the icon's last row transparent
     gui_draw_text_centered(g, icon ? gui_rect(header.x + icon->w, header.y, header.w - icon->w, header.h) : header, buf);
-    if (ui->joy_xy) {                            // joystick XY mode is on: 8/ui_xy.png in the last grid column of the bar (text when there is no image)
+    if (!ui->in_rack && ui->page_count > 1) {   // where the page is in the list: "3/22" at the left
+        char n[24];
+        snprintf(n, sizeof n, "%d/%d", ui->page + 1, ui->page_count);
+        u8g2_DrawStr(g, header.x + 1, gui_text_center(g, header, n).y, n);
+    }
+    const int used = ui_header_marks(g, header.x + header.w, header.y, header.h, ui);   // the battery, the modifier held
+    if (ui->joy_xy) {                            // joystick XY mode is on: 8/ui_xy.png left of the marks (text when there is no image)
         const gui_sprite_t *xy = ui_sprite("8/ui_xy");
-        if (xy) gui_draw_sprite(g, xy, header.x + header.w - xy->w, bar.y + (GUI_BAR_H - xy->h) / 2);
-        else u8g2_DrawStr(g, header.x + header.w - u8g2_GetStrWidth(g, "XY"), gui_text_center(g, header, "XY").y, "XY");
+        if (xy) gui_draw_sprite(g, xy, header.x + header.w - used - xy->w, bar.y + (GUI_BAR_H - xy->h) / 2);
+        else u8g2_DrawStr(g, header.x + header.w - used - u8g2_GetStrWidth(g, "XY"), gui_text_center(g, header, "XY").y, "XY");
     }
     u8g2_SetDrawColor(g, 1);
 
@@ -496,34 +571,7 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
     gui_rect_t row = gui_rect(list.x, list.y + row_top, list.w - 1, row_h);
     for (int i = 0; i < pg.count; i++) {
         bool sel = ui->row == i + 1;
-        const char *label;
-        if (ms && (pg.params[i] == PRM_TGT || pg.params[i] == PRM_TPRM)) {
-            const int ti = ms->tgt_id ? rack_find(rack, ms->tgt_id) : RACK_NONE;
-            if (pg.params[i] == PRM_TGT) {
-                label = "Tgt";
-                if (ti == RACK_NONE) snprintf(val, sizeof val, "--"); else rack_slot_name(rack, ti, val, sizeof val);
-            } else {
-                label = "Prm";
-                if (ti == RACK_NONE) snprintf(val, sizeof val, "--");
-                else snprintf(val, sizeof val, "%s", rack_param_name((module_type_t)rack->slot[ti].type, ms->tgt_param));
-            }
-        } else if (ms) {
-            label = rack_mparam_label((module_type_t)ms->type, pg.params[i]);
-            if (ms->type == MOD_OSC && pg.params[i] == MP_OC_PW && ms->v[MP_OC_WAVE] >= OC_FIRST_ENGINE) label = "Timb";
-            rack_mparam_format(ms, pg.params[i], val, sizeof val);
-            if (pg.params[i] == rack_depth_index((module_type_t)ms->type)) rack_depth_format(rack, pg.slot, val, sizeof val);
-            if (ms->type == MOD_SAMPLER && pg.params[i] == MP_SM_FILE) file_label((int)ms->v[MP_SM_FILE] - 1, val, sizeof val);
-        } else if (graph_is_fm(pg.graph)) {
-            label = fm_row_text(ui, rack, &pg, i + 1, val, sizeof val);
-        } else if (pg.graph == GRAPH_SEQ_PAT) {
-            label = seq_pat_row_text(ui, seq, i + 1, val, sizeof val);
-        } else if (pg.graph == GRAPH_SEQ_CFG) {
-            label = seq_param_label((seq_param_id_t)pg.params[i]);
-            seq_param_format(seq, (seq_param_id_t)pg.params[i], val, sizeof val);
-        } else {
-            label = param_label((param_id_t)pg.params[i]);
-            param_format(p, (param_id_t)pg.params[i], val, sizeof val);
-        }
+        const char *label = row_text(ui, p, seq, rack, &pg, i + 1, val, sizeof val);
         gui_draw_field(g, st, row, label, val, sel);
         // Catch indicator: a 3x2 px chevron at the right edge of the row when the col knob is not yet caught.
         // Not while a modifier sends the knob to its Shift / Mod target: the popup shows that catch state.

@@ -200,6 +200,50 @@ bool app_curves_tab_knob(app_t *app, input_event_t e) {
     return true;
 }
 
+/* ---------------- the knob legend while a modifier is held ---------------- */
+
+// What each column knob does in the layer held (ADR-046 rule R11): the legend shows it in place of the page's rows.
+void app_layer_legend(app_t *app, int layer, legend_cell_t cell[SYNTH_UI_COL_KNOBS]) {
+    for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) {
+        legend_cell_t *c = &cell[k];
+        ui_legend_cell_none(c);
+        const mod_entry_t me = modifiers_get(layer, (control_id_t)(CTL_COL_KNOB_0 + k));
+        const bool caught = app->rack.cfg.knob_mode || (app->ui.knob_val[k] >= 0 && app->ui.knob_catch_dir[k] == 0);
+        const float knob = app->ui.knob_val[k] >= 0 ? (float)app->ui.knob_val[k] / (float)INPUT_VALUE_MAX : -1.0f;
+        if (me.kind == ME_DEFAULT || (me.kind == ME_ACTION && me.act == ACT_NONE)) continue;    // drives nothing with the modifier
+        if (me.kind == ME_ACTION && (me.act == ACT_MACRO || me.act == ACT_MACRO_LEARN)) {
+            if (me.arg < 0 || me.arg >= SYNTH_UI_MACROS) continue;
+            const macro_def_t *m = &app->ui.macro[me.arg];
+            snprintf(c->label, sizeof c->label, me.act == ACT_MACRO ? "M%d" : "Lrn M%d", me.arg + 1);
+            c->state = me.act == ACT_MACRO_LEARN || caught ? 1 : 0;
+            if (me.act == ACT_MACRO && m->n) c->value = synth_ui_target_peek(&app->params, &app->seq, &app->rack, &m->dest[0].t);
+            if (c->value < 0.0f && me.act == ACT_MACRO && m->n) c->value = app->ui.knob_norm[k];
+            c->knob = knob;
+            continue;
+        }
+        if (me.kind == ME_ACTION) {                                     // a step action: its name, no catch
+            snprintf(c->label, sizeof c->label, "%s", action_name((action_id_t)me.act));
+            c->state = 1;
+            if (me.act == ACT_MASTER_VOLUME || me.act == ACT_VOLUME_STEP) c->value = app->rack.cfg.volume / 2.0f;
+            continue;
+        }
+        char name[24];                                                  // a parameter: its short name ("FL1 Cut" -> "Cut"), the catch, the value
+        if (!synth_ui_target_describe(&app->params, &app->seq, &app->rack, &me.m, name, sizeof name, NULL, 0)) {
+            snprintf(c->label, sizeof c->label, "gone");
+            c->state = 1;
+            continue;
+        }
+        const char *sp = strrchr(name, ' ');
+        snprintf(c->label, sizeof c->label, "%.9s", sp && strlen(name) >= sizeof c->label ? sp + 1 : name);
+        c->state = caught ? 1 : 0;
+        c->value = synth_ui_target_peek(&app->params, &app->seq, &app->rack, &me.m);
+        if (me.m.kind == MACRO_CFG && me.m.prm == CFGP_VOLUME)  c->value = app->rack.cfg.volume / 2.0f;    // (walked settings: read them here)
+        if (me.m.kind == MACRO_CFG && me.m.prm == CFGP_SPEAKER) c->value = app->rack.cfg.speaker / 20.0f;
+        if (c->value < 0.0f) c->value = app->ui.knob_norm[k];
+        c->knob = knob;
+    }
+}
+
 /* ---------------- the catch of the column knobs ---------------- */
 
 // Every step, before the draw: the column knobs are checked against what they drive when that may have changed.

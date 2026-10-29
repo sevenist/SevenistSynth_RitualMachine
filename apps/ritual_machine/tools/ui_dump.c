@@ -1,7 +1,7 @@
 // Renders the application's screens to ASCII from the u8g2 buffer, without SDL and without audio: drives app_step()
 // with input events and prints the 128x64 frame. Useful to check layouts and to catch drawing crashes.
 //
-//   gcc -O1 -w -Isrc -I../../framework -I../../lib/u8g2/csrc tools/ui_dump.c src/core/*.c src/app/*.c ../../framework/ui/*.c ../../lib/u8g2/csrc/*.c -lm -o build/ui_dump.exe      (in apps/ritual_machine)
+//   gcc -O1 -w -Isrc -I../../framework -I../../lib/u8g2/csrc tools/ui_dump.c src/core/*.c src/app/*.c ../../framework/ui/*.c ../../framework/boards/hwv1/hwv1_controls.c ../../framework/boards/desktop/panel_controls.c ../../lib/u8g2/csrc/*.c -lm -o build/ui_dump.exe      (in apps/ritual_machine)
 //   build/ui_dump.exe "menu right right"        (events: see ev() below)
 //   several arguments print one frame per argument (a script each, continuing the same session)
 //
@@ -16,6 +16,9 @@
 #include "hal/hal_display.h"
 #include "hal/hal_leds.h"
 #include "core/card_layout.h"
+#include "core/controls.h"
+#include "boards/hwv1/hwv1_controls.h"
+#include "boards/desktop/panel_controls.h"
 
 #include "ui_stubs.c"            // the platform stand-ins (no audio, no card), shared with the UI tests
 
@@ -36,7 +39,7 @@ static void dump(const char *title) {
 // Event names: the hardware controls, by the role they have in the default binding table.
 //   up down left right (joystick directions)  latch (joystick push)  menu (BTN 1, pressed and let go)  back (BTN 2)  play  shift / unshift (BTN 3 down / up)
 //   encA:+1  encB:-2 (encoder turns)  encAsw encBsw (encoder pushes)  knob:<ctl number>:<0..1023>  key:<row>.<col>  keyup:<row>.<col>
-//   popup:info popup:error popup:ask (raise a test popup, ui/popup.h)
+//   popup:info popup:error popup:ask (raise a test popup, ui/popup.h)  pads / synth (switch the section)  batt:<0..100> (the battery's charge)
 static input_event_t ev(const char *name) {
     input_event_t e = {CTL_NONE, IN_NONE, 0, false};
     int a = 0, b = 0, c = 0;
@@ -69,6 +72,8 @@ static void feed(app_t *app, const char *script) {
         if (!strcmp(t, "popup:info"))  { popup_info(&app->popup, "SD CARD", "Card inserted", 0, audio_millis(), 2000); app->redraw_owed = true; }
         else if (!strcmp(t, "popup:error")) { popup_error(&app->popup, NULL, "The card could not be read. Check that it is inserted.", NULL, NULL); app->redraw_owed = true; }
         else if (!strcmp(t, "popup:ask"))   { popup_ask(&app->popup, "SD CARD", "The card is not formatted. Format it?", false, NULL, NULL); app->redraw_owed = true; }
+        else if (!strcmp(t, "pads") || !strcmp(t, "synth")) { app_set_section(app, t[0] == 'p'); app->redraw_owed = true; }
+        else if (!strncmp(t, "batt:", 5)) { extern int ui_stub_battery; ui_stub_battery = atoi(t + 5); app->batt_ms -= 10000; }
         const input_event_t e = ev(t);
         app_step(app, e);
         if (e.ctl == CTL_BTN_1 && e.kind == IN_PRESS) app_step(app, (input_event_t){CTL_BTN_1, IN_RELEASE, 0, false});   // Menu acts at its release (ADR-044)
@@ -80,6 +85,9 @@ int main(int argc, char **argv) {
     if (size && !strcmp(size, "128x128")) u8g2_Setup_sh1107_128x128_f(&disp, U8G2_R0, u8x8_byte_empty, u8x8_dummy_cb);
     else u8g2_Setup_ssd1306_i2c_128x64_noname_f(&disp, U8G2_R0, u8x8_byte_empty, u8x8_dummy_cb);
     u8g2_SetFont(&disp, u8g2_font_5x7_tr);
+    const char *board = getenv("UI_DUMP_BOARD");                       // the board's table: where its knobs sit (the knob legend's layout)
+    if (board && !strcmp(board, "hwv1")) controls_bind(kHwv1Controls, HWV1_CONTROL_COUNT, controls_map_of("hwv1"));
+    else controls_bind(kPanelControls, PANEL_CONTROL_COUNT, controls_map_of("panel"));
     static app_t app;
     app_init(&app, &disp);
     if (argc > 1) {

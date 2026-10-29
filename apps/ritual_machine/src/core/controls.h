@@ -79,6 +79,7 @@ void         controls_bind(const input_control_t *table, int count, const contro
 control_id_t controls_role(int board_ctl);                              // CTL_NONE: that control has no role
 int          controls_board_ctl(control_id_t role);                     // INPUT_NO_CONTROL: no control plays that role
 bool         controls_listed(control_id_t role);                        // a control of the board plays it
+bool         controls_place(control_id_t role, int *px, int *py);       // where the control that plays it sits on the panel (the board table's px, py)
 input_event_t controls_event(input_event_t board_event);                // the board's event as the app's (kind IN_NONE: no role)
 
 /* ---------------- on the board (platform/controls_board.c; the host tests and ui_dump have their own: tools/ui_stubs.c) ---------------- */

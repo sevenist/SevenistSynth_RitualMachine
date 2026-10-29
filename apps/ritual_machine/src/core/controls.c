@@ -18,6 +18,8 @@ const control_map_t *controls_map_of(const char *board) {
 
 static uint8_t role_of[CONTROLS_BOARD_MAX];         // board control -> role (CTL_NONE: none)
 static uint8_t board_of[CTL_COUNT];                 // role -> board control + 1 (0: none)
+static const input_control_t *bound;                 // the table bound last (its places: controls_place)
+static int bound_count;
 
 static void assign(int b, int role) {
     if (b < 0 || b >= CONTROLS_BOARD_MAX || role <= CTL_NONE || role >= CTL_HW_COUNT) return;
@@ -30,6 +32,7 @@ static void assign(int b, int role) {
 void controls_bind(const input_control_t *table, int count, const control_map_t *map) {
     memset(role_of, 0, sizeof role_of);
     memset(board_of, 0, sizeof board_of);
+    bound = table; bound_count = count;
     if (!table) return;
     if (count > CONTROLS_BOARD_MAX) count = CONTROLS_BOARD_MAX;
     for (int b = 0; b < count; b++)
@@ -47,6 +50,13 @@ int controls_board_ctl(control_id_t role) {
 }
 
 bool controls_listed(control_id_t role) { return controls_board_ctl(role) != INPUT_NO_CONTROL; }
+
+bool controls_place(control_id_t role, int *px, int *py) {
+    const int b = controls_board_ctl(role);
+    if (!bound || b == INPUT_NO_CONTROL || b >= bound_count) return false;
+    *px = bound[b].px; *py = bound[b].py;
+    return true;
+}
 
 input_event_t controls_event(input_event_t e) {
     if (e.kind == IN_NONE) { e.ctl = CTL_NONE; return e; }             // nothing happened (or quit, which travels with it)

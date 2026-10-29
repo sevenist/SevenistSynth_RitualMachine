@@ -499,6 +499,14 @@ float synth_ui_target_norm(synth_params_t *params, seq_t *seq, rack_t *rack, con
     return total > 0 ? (float)cur / (float)total : 0.0f;
 }
 
+float synth_ui_target_peek(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_t *m) {
+    macro_ctx_t c;
+    drv_ctx_t fc;
+    if (!target_ctx(params, seq, rack, m, &c)) return -1.0f;
+    const knob_drv_t d = target_drv(&c, &fc);
+    return d.get ? d.get(d.ctx) : -1.0f;
+}
+
 bool synth_ui_target_describe(const synth_params_t *params, const seq_t *seq, const rack_t *rack, const macro_t *m, char *name, int nn, char *value, int nv) {
     switch (m->kind) {
         case MACRO_MODULE: {
@@ -760,11 +768,32 @@ void synth_ui_catch_refresh(synth_ui_t *ui, synth_params_t *params, seq_t *seq, 
             }
             ui->knob_cur[k] = cur;
             ui->knob_key[k] = key;
+            ui->knob_norm[k] = total > 0 ? (float)cur / (float)total : -1.0f;
         } else {
             ui->knob_cur[k] = -1;
+            ui->knob_norm[k] = -1.0f;
         }
         ui->knob_catch_dir[k] = dir;
     }
+}
+
+int synth_ui_col_knob_state(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int k, float *norm) {
+    *norm = -1.0f;
+    if (ui->in_rack || k < 0 || k >= SYNTH_UI_COL_KNOBS) return -1;
+    page_t pg;
+    get_page(ui, rack, ui->page, &pg);
+    if (k + 1 > pg.count || !row_is_knobbable(rack, &pg, k + 1)) return -1;
+    row_ctx_t rc = {ui, params, seq, rack, &pg, k + 1};
+    drv_ctx_t fc;
+    const knob_drv_t d = row_drv(&rc, &fc);
+    // Direct mode has no catch; a knob not moved yet has caught nothing. The value: read when the driver reads exactly; a walked one
+    // is never measured here (walking moves the value, and this runs every few ms): where the knob is once caught, else what the last
+    // catch refresh measured.
+    const bool caught = rack->cfg.knob_mode || (ui->knob_val[k] >= 0 && ui->knob_catch_dir[k] == 0);
+    if (d.get) *norm = d.get(d.ctx);
+    else if (caught && ui->knob_val[k] >= 0) *norm = (float)ui->knob_val[k] / (float)INPUT_VALUE_MAX;
+    else *norm = ui->knob_norm[k];
+    return caught ? 1 : 0;
 }
 
 // The macros start on the first filter's cutoff and resonance and the first LFO's rate (one destination each), when the rack has them.
@@ -781,7 +810,7 @@ void macros_default(synth_ui_t *ui, const rack_t *rack) {
     }
     if (lf != RACK_NONE) synth_ui_macro_add(ui, 2, &(macro_t){MACRO_MODULE, rack->slot[lf].id, MP_LF_RATE});
     for (int i = 0; i < SYNTH_UI_KNOBS; i++) { ui->knob_key[i] = -1; ui->knob_pos[i] = -1; }
-    for (int i = 0; i < SYNTH_UI_COL_KNOBS; i++) { ui->knob_catch_dir[i] = 127; ui->knob_val[i] = -1; ui->knob_cur[i] = -1; }   // force catch on first touch
+    for (int i = 0; i < SYNTH_UI_COL_KNOBS; i++) { ui->knob_catch_dir[i] = 127; ui->knob_val[i] = -1; ui->knob_cur[i] = -1; ui->knob_norm[i] = -1.0f; }   // force catch on first touch
 }
 
 /* ---------------- events ---------------- */

@@ -1,5 +1,7 @@
 // The LEDS tab of the menu: the colour of each key role (core/led_roles.h). Role picks a role; Idle / Active pick a named colour, the % rows
-// its brightness (Active only for the roles that have an active state); Reset puts every role back to the defaults. While this tab is on
+// its brightness (Active only for the roles that have an active state); Value (the pots' roles, Knob and Volume: ADR-045) shows the value
+// a pot drives as the colour's saturation; Reset puts every role back to the defaults. For Knob, Idle / Active read Away / Caught (before
+// and after the knob has caught the value). While this tab is on
 // screen only the keys of the role shown light (in the Idle colour on the Idle rows, else the Active one) and every other key is off, so the
 // choice can be judged on the keys themselves (key_leds.c; it reads the row numbers of `elements`).
 // On the right: the keys of the board, the ones with this role filled. Saved in ui.cfg by itself.
@@ -31,15 +33,30 @@ static bool shade_adjust(const ui_ctx_t *c, int dir) {
     return false;
 }
 
+static bool is_pot(const ui_ctx_t *c) { return led_role_is_pot(role(c)); }
+static void value_value(const ui_ctx_t *c, char *out, int n) { snprintf(out, (size_t)n, "%s", led_role(role(c))->value ? "On" : "Off"); }
+static bool value_adjust(const ui_ctx_t *c, int dir) {
+    (void)dir;
+    led_role_def_t d = *led_role(role(c));
+    d.value = !d.value;
+    led_role_set(role(c), d);
+    return false;
+}
+static const char *shade_label(const ui_ctx_t *c) {
+    static const char *const plain[4] = {"Idle", "Idle %", "Active", "Act %"}, *const knob[4] = {"Away", "Away %", "Caught", "Cgt %"};
+    return (role(c) == LR_KNOB ? knob : plain)[c->arg & 3];
+}
+
 static void reset_activate(const ui_ctx_t *c) { (void)c; led_roles_init(); }
 
 static const el_def_t elements[] = {
     {"Role",   EL_VALUE,  0, 0, 1, role_value,  role_adjust,  NULL, NULL, NULL},
-    {"Idle",   EL_VALUE,  1, 0, 1, shade_value, shade_adjust, NULL, NULL, NULL,       NULL, 0},
-    {"Idle %", EL_VALUE,  2, 0, 1, shade_value, shade_adjust, NULL, NULL, NULL,       NULL, 1},
-    {"Active", EL_VALUE,  3, 0, 1, shade_value, shade_adjust, NULL, NULL, has_active, NULL, 2},
-    {"Act %",  EL_VALUE,  4, 0, 1, shade_value, shade_adjust, NULL, NULL, has_active, NULL, 3},
-    {"Reset",  EL_BUTTON, 5, 0, 1, NULL,        NULL,         reset_activate, NULL, NULL},
+    {"Idle",   EL_VALUE,  1, 0, 1, shade_value, shade_adjust, NULL, NULL, NULL,       shade_label, 0},
+    {"Idle %", EL_VALUE,  2, 0, 1, shade_value, shade_adjust, NULL, NULL, NULL,       shade_label, 1},
+    {"Active", EL_VALUE,  3, 0, 1, shade_value, shade_adjust, NULL, NULL, has_active, shade_label, 2},
+    {"Act %",  EL_VALUE,  4, 0, 1, shade_value, shade_adjust, NULL, NULL, has_active, shade_label, 3},
+    {"Value",  EL_VALUE,  5, 0, 1, value_value, value_adjust, NULL, NULL, is_pot,     NULL, 0},
+    {"Reset",  EL_BUTTON, 6, 0, 1, NULL,        NULL,         reset_activate, NULL, NULL},
 };
 #define N_ELEMENTS ((int)(sizeof elements / sizeof elements[0]))
 
@@ -48,11 +65,17 @@ static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect
     ui_layout_column(g, st, area, N_ELEMENTS, rect);
 }
 
-// The key grid (the rows and columns the board has), the keys whose role is the one shown filled.
+// The key grid (the rows and columns the board has), the keys whose role is the one shown filled; for a pot's role, which pots.
 static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, const gui_rect_t *rect) {
     (void)area; (void)rect;
     const gui_rect_t box = ui_picture_box(st);
     u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
+    if (is_pot(c)) {
+        const int rh = gui_row_h(g, st), y = box.y + box.h / 2 - rh;
+        gui_draw_text_centered(g, gui_rect(box.x, y, box.w, rh), role(c) == LR_KNOB ? "K1..K4" : "the volume");
+        gui_draw_text_centered(g, gui_rect(box.x, y + rh, box.w, rh), role(c) == LR_KNOB ? "and macros" : "knob");
+        return;
+    }
     int cols = 0, rows = 0;
     for (int r = 0; r < KEY_ROWS; r++)
         for (int k = 0; k < KEY_COLS; k++)

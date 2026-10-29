@@ -142,6 +142,7 @@ typedef struct {
     int8_t  knob_catch_dir[SYNTH_UI_COL_KNOBS]; // catch state per col knob: 0 = caught, -1 = turn left to catch, +1 = turn right
     int     knob_cur[SYNTH_UI_COL_KNOBS];       // step of the driven parameter at the last catch refresh; -1 unknown, -2 the knob itself just set it
     int     knob_val[SYNTH_UI_COL_KNOBS];       // last physical position of each col knob (0..INPUT_VALUE_MAX), -1 = not moved yet
+    float   knob_norm[SYNTH_UI_COL_KNOBS];      // what each col knob drives, 0..1, as the last catch refresh measured it (-1 unknown): its LED
     uint8_t knob_away;                          // bit k: col knob k drives a Shift / Mod target now, not its page row (set by the app): that row hides its catch arrow
     // MODIFIERS tab (scr_mods.c): the layer and the control shown; learn_req = a Learn button was pressed (the app closes the menu and sets
     // learn_wait: the next push on a page row assigns that row's parameter to learn_layer + learn_ctl, or, with learn_macro >= 0, adds it to
@@ -241,6 +242,8 @@ bool synth_ui_knob_target(synth_ui_t *ui, synth_params_t *params, seq_t *seq, ra
 bool synth_ui_target_step(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_t *m, int n);
 // The target's value as 0..1 of its range (the macro / mapping pictures); -1 when it has none.
 float synth_ui_target_norm(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_t *m);
+// The same only when it reads exactly (-1 for a walked value: measuring one moves it); cheap, for what is polled (the pots' LEDs).
+float synth_ui_target_peek(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_t *m);
 // The target's name ("FL1 Cut", "Vol") and value text (value NULL: the name only, params / seq unused); false when it has none
 // (MACRO_NONE, or its module was deleted).
 bool synth_ui_target_describe(const synth_params_t *params, const seq_t *seq, const rack_t *rack, const macro_t *m, char *name, int nn, char *value, int nv);
@@ -251,6 +254,9 @@ bool synth_ui_target_at_cursor(const synth_ui_t *ui, const rack_t *rack, macro_t
 // page row; a macro is given as its first destination); NULL: all drive their page rows.
 #define MACRO_PAGE_ROW 0xFF
 void synth_ui_catch_refresh(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, const mapping_t *tgt);
+// Col knob k (0..3) on its page row, for its LED (ADR-045): -1 = it drives nothing there (the menu, a row that is not a value),
+// 0 = it has not caught the value yet, 1 = caught; `norm` = that value, 0..1 of its range (-1 with nothing).
+int synth_ui_col_knob_state(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int k, float *norm);
 bool synth_ui_set_volume(synth_ui_t *ui, rack_t *rack, int value);                                              // master volume
 // Macros. macro: knob `knob` (a slot as for knob_target) plays macro k (every destination, no catch); macro_row: col knob row 1..4 plays it
 // with the catch on its first destination; macro_step: an encoder, n steps of every destination.

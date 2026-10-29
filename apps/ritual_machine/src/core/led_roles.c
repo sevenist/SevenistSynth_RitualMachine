@@ -11,7 +11,7 @@ static const struct { const char *name; led_color_t rgb; } palette[LED_PALETTE] 
 };
 enum { P_OFF, P_WHITE, P_RED, P_ORANGE, P_AMBER, P_YELLOW, P_LIME, P_GREEN, P_MINT, P_TEAL, P_SKY, P_BLUE, P_INDIGO, P_VIOLET, P_PINK, P_ROSE };
 
-static const char *const role_names[LR_COUNT] = {"Note", "Sharp", "Root", "Shift", "Mod", "Menu", "Back", "Play", "Octave", "Jump", "Nav", "Pad", "Bank", "None"};
+static const char *const role_names[LR_COUNT] = {"Note", "Sharp", "Root", "Shift", "Mod", "Menu", "Back", "Play", "Octave", "Jump", "Nav", "Pad", "Bank", "Knob", "Volume", "None"};
 
 #define SH(c, p) ((led_shade_t){(c), (p)})
 // The colours of the first version as they looked on the board (dim when idle, full when active), as palette colour + brightness. That
@@ -31,6 +31,8 @@ static const led_role_def_t defaults[LR_COUNT] = {
     [LR_NAV]    = {SH(P_WHITE, 12),  SH(P_WHITE, 12)},
     [LR_PAD]    = {SH(P_WHITE, 18),  SH(P_AMBER, 100)},
     [LR_BANK]   = {SH(P_SKY, 16),    SH(P_SKY, 100)},
+    [LR_KNOB]   = {SH(P_AMBER, 15),  SH(P_AMBER, 100), 1},      // the pots (ADR-045): dim until caught, the value as saturation
+    [LR_VOLUME] = {SH(P_WHITE, 40),  SH(P_GREEN, 100), 1},
     [LR_NONE]   = {SH(P_OFF, 0),     SH(P_OFF, 0)},
 };
 
@@ -45,7 +47,7 @@ static led_shade_t clamp_shade(led_shade_t s) { return SH(s.color % LED_PALETTE,
 
 void led_role_set(int r, led_role_def_t d) {
     if (r < 0 || r >= LR_COUNT) return;
-    d.idle = clamp_shade(d.idle); d.active = clamp_shade(d.active);
+    d.idle = clamp_shade(d.idle); d.active = clamp_shade(d.active); d.value = d.value ? 1 : 0;
     if (!memcmp(&g_roles[r], &d, sizeof d)) return;
     g_roles[r] = d;
     g_rev++;
@@ -53,6 +55,7 @@ void led_role_set(int r, led_role_def_t d) {
 
 const char *led_role_name(int r) { return r >= 0 && r < LR_COUNT ? role_names[r] : "?"; }
 bool led_role_has_active(int r) { return r != LR_BACK && r != LR_NAV && r != LR_NONE; }
+bool led_role_is_pot(int r) { return r == LR_KNOB || r == LR_VOLUME; }
 
 int led_role_of(key_fn_t f) {
     switch (f.act) {
@@ -113,7 +116,8 @@ int led_roles_to_text(char *buf, int cap) {
         lower(role_names[r], rn, sizeof rn);
         lower(palette[d->idle.color].name, ic, sizeof ic);
         lower(palette[d->active.color].name, ac, sizeof ac);
-        n += snprintf(buf + n, (size_t)(cap - n), "led %s %s %d %s %d\n", rn, ic, d->idle.pct, ac, d->active.pct);
+        n += snprintf(buf + n, (size_t)(cap - n), "led %s %s %d %s %d%s\n", rn, ic, d->idle.pct, ac, d->active.pct,
+                      led_role_is_pot(r) && !d->value ? " novalue" : "");
     }
     return n < cap ? n : cap - 1;
 }
@@ -121,11 +125,12 @@ int led_roles_to_text(char *buf, int cap) {
 void led_roles_from_text_begin(void) { memcpy(g_roles, defaults, sizeof g_roles); g_rev++; }
 
 bool led_roles_from_line(const char *line) {
-    char w[8], rn[16], ic[16], ac[16];
+    char w[8], rn[16], ic[16], ac[16], opt[16] = "";
     int ip = 0, ap = 0;
-    if (sscanf(line, "%7s %15s %15s %d %15s %d", w, rn, ic, &ip, ac, &ap) != 6 || strcmp(w, "led")) return false;
+    if (sscanf(line, "%7s %15s %15s %d %15s %d %15s", w, rn, ic, &ip, ac, &ap, opt) < 6 || strcmp(w, "led")) return false;
     const int r = find_word(rn, led_role_name, LR_COUNT), i = find_word(ic, led_palette_name, LED_PALETTE), a = find_word(ac, led_palette_name, LED_PALETTE);
     if (r < 0 || i < 0 || a < 0 || ip < 0 || ap < 0) return false;
-    led_role_set(r, (led_role_def_t){SH((uint8_t)i, (uint8_t)(ip > 100 ? 100 : ip)), SH((uint8_t)a, (uint8_t)(ap > 100 ? 100 : ap))});
+    led_role_set(r, (led_role_def_t){SH((uint8_t)i, (uint8_t)(ip > 100 ? 100 : ip)), SH((uint8_t)a, (uint8_t)(ap > 100 ? 100 : ap)),
+                                     (uint8_t)(led_role_is_pot(r) && strcmp(opt, "novalue"))});
     return true;
 }

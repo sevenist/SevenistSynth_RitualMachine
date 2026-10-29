@@ -31,7 +31,57 @@ static bool key_active(const app_t *app, control_id_t ctl, key_fn_t f) {
     }
 }
 
-void key_leds_update(const app_t *app, bool input_event, uint32_t now_ms) {
+/* ---------------- the pots (ADR-045): on a board with LEDs under them ---------------- */
+
+// v 0..1: pale (white at the colour's brightness with a quarter of the colour) .. the full colour.
+static led_color_t saturate(led_color_t c, float v) {
+    const int m = c.r > c.g ? (c.r > c.b ? c.r : c.b) : (c.g > c.b ? c.g : c.b);
+    const int t = 64 + (int)((v < 0.0f ? 0.0f : v > 1.0f ? 1.0f : v) * 192.0f);
+    return mix((led_color_t){(uint8_t)m, (uint8_t)m, (uint8_t)m}, c, t);
+}
+
+// A pot of `role`: its Active shade once caught, else Idle; the value as saturation when the role says so (v < 0: no value).
+static led_color_t pot_color(int role, bool caught, float v) {
+    const led_color_t c = led_role_rgb(role, caught);
+    return led_role(role)->value && v >= 0.0f ? saturate(c, v) : c;
+}
+
+// Macro k's value: where its knob was put, else its first destination's value; -1 with no destination.
+static float macro_norm(app_t *app, int k) {
+    const macro_def_t *m = &app->ui.macro[k];
+    if (!m->n) return -1.0f;
+    const int pos = app->ui.knob_pos[SYNTH_UI_KNOB_MACRO + k];
+    if (pos >= 0) return (float)pos / (float)INPUT_VALUE_MAX;
+    return synth_ui_target_peek(&app->params, &app->seq, &app->rack, &m->dest[0].t);
+}
+
+static const control_id_t macro_knob[3] = {CTL_KNOB_R1, CTL_KNOB_R2, CTL_KNOB_R3};
+
+// The LEDS tab: the pots of the role shown light (Idle on the Idle rows), the others are off.
+static void pot_preview(const app_t *app, bool idle) {
+    const int r = app->ui.led_role;
+    const led_color_t knob = r == LR_KNOB ? led_role_rgb(LR_KNOB, !idle) : (led_color_t){0, 0, 0};
+    for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) controls_led((control_id_t)(CTL_COL_KNOB_0 + k), knob);
+    for (int k = 0; k < 3; k++) controls_led(macro_knob[k], knob);
+    controls_led(CTL_VOLUME, r == LR_VOLUME ? led_role_rgb(LR_VOLUME, !idle) : (led_color_t){0, 0, 0});
+}
+
+static void pot_leds(app_t *app) {
+    for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) {                 // the page's rows 1..4 (Pads: the editor's, not measured: caught)
+        const control_id_t ctl = (control_id_t)(CTL_COL_KNOB_0 + k);
+        if (app->section == SECTION_PADS) { controls_led(ctl, pot_color(LR_KNOB, true, -1.0f)); continue; }
+        float v;
+        const int st = synth_ui_col_knob_state(&app->ui, &app->params, &app->seq, &app->rack, k, &v);
+        controls_led(ctl, st < 0 ? (led_color_t){0, 0, 0} : pot_color(LR_KNOB, st == 1, v));
+    }
+    for (int k = 0; k < 3; k++) {                                   // the macros (no catch: a macro knob sets at once)
+        const float v = macro_norm(app, k);
+        controls_led(macro_knob[k], app->ui.macro[k].n ? pot_color(LR_KNOB, true, v) : led_role_rgb(LR_KNOB, false));
+    }
+    controls_led(CTL_VOLUME, pot_color(LR_VOLUME, true, app->rack.cfg.volume / 2.0f));      // (the master volume is 0..2)
+}
+
+void key_leds_update(app_t *app, bool input_event, uint32_t now_ms) {
     static uint32_t last_ms;
     static unsigned last_rev;
     const bool edited = led_roles_rev() != last_rev;          // a colour edited in the LEDS tab shows at once
@@ -78,5 +128,7 @@ void key_leds_update(const app_t *app, bool input_event, uint32_t now_ms) {
             }
             controls_led(ctl, led_role_rgb(role, key_active(app, ctl, f)));
         }
+    if (preview) pot_preview(app, preview_idle);
+    else pot_leds(app);
     leds_show();                                             // the driver sends only when something changed
 }

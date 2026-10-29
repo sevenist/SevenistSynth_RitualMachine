@@ -76,7 +76,7 @@ TEST(leds_tab_edits_and_previews_a_role) {
     CHECK(near_rgb(ui_stub_led[SHIFT_KEY], 43, 79, 0));
     ev_tap(CTL_BTN_1);
     ui_app.ui.menu_tab = tab_index_of(&ui_app.rack, TAB_LEDS);
-    ui_app.ui.row = 6;                                                          // Reset
+    ui_app.ui.row = 7;                                                          // Reset (after Value)
     ev_tap(CTL_JOY_SW);
     CHECK(near_rgb(led_role_rgb(LR_SHIFT, true), 140, 255, 0));
 }
@@ -92,4 +92,73 @@ TEST(leds_saved_in_ui_cfg) {
     CHECK(ui_settings_from_text(&ui_app.ui, &ui_app.rack, txt));
     CHECK(near_rgb(led_role_rgb(LR_MOD, false), 128, 0, 0));
     CHECK(near_rgb(led_role_rgb(LR_MOD, true), 140, 255, 0));
+}
+
+/* ---------------- the pots' LEDs (ADR-045): the Knob and Volume roles ---------------- */
+
+static int brightest(led_color_t c) { return c.r > c.g ? (c.r > c.b ? c.r : c.b) : (c.g > c.b ? c.g : c.b); }
+
+TEST(leds_pots_show_the_catch_as_the_shade_and_the_value_as_saturation) {
+    ui_fresh();
+    led_roles_init();
+    const control_id_t k1 = CTL_COL_KNOB_0;
+    ev_idle(5);
+    CHECK(brightest(ui_stub_led[k1]) > 0 && brightest(ui_stub_led[k1]) < 60);       // not moved yet: nothing caught, Away (dim)
+    ui_app.rack.cfg.knob_mode = 1;                                                  // Direct: every knob is caught
+    ev_knob(k1, INPUT_VALUE_MAX);
+    ev_idle(5);
+    CHECK(near_rgb(ui_stub_led[k1], 255, 150, 0));                                 // at the top: the full Amber
+    ev_knob(k1, 0);
+    ev_idle(5);
+    CHECK(near_rgb(ui_stub_led[k1], 255, 229, 191));                               // at the bottom: pale
+    led_role_def_t d = *led_role(LR_KNOB);
+    d.value = 0;                                                                     // Value off: the shade as it is
+    led_role_set(LR_KNOB, d);
+    ev_idle(5);
+    CHECK(near_rgb(ui_stub_led[k1], 255, 150, 0));
+    char buf[512];
+    led_roles_to_text(buf, (int)sizeof buf);
+    CHECK(strstr(buf, "led knob amber 15 amber 100 novalue") != NULL);            // saved, and read back
+    led_roles_from_text_begin();
+    CHECK_EQ(led_role(LR_KNOB)->value, 1);
+    CHECK(led_roles_from_line("led knob amber 15 amber 100 novalue"));
+    CHECK_EQ(led_role(LR_KNOB)->value, 0);
+    led_roles_init();
+    // the volume: always caught, its level as saturation
+    ev_knob(CTL_VOLUME, INPUT_VALUE_MAX);
+    ev_idle(5);
+    CHECK(near_rgb(ui_stub_led[CTL_VOLUME], 0, 255, 0));
+    ev_knob(CTL_VOLUME, 0);
+    ev_idle(5);
+    CHECK(ui_stub_led[CTL_VOLUME].r > 150 && ui_stub_led[CTL_VOLUME].g > 250);     // pale green
+    // the menu: the col knobs drive nothing, their LEDs are off
+    ev_tap(CTL_BTN_1);
+    ev_idle(5);
+    CHECK(near_rgb(ui_stub_led[k1], 0, 0, 0));
+    // the LEDS tab on Knob: the knobs in its colour, the volume and the keys off
+    ui_app.ui.menu_tab = tab_index_of(&ui_app.rack, TAB_LEDS);
+    ui_app.ui.row = 1;
+    ui_app.ui.led_role = LR_KNOB;
+    ev_idle(5);
+    CHECK(near_rgb(ui_stub_led[k1], 255, 150, 0));
+    CHECK(near_rgb(ui_stub_led[CTL_KNOB_R2], 255, 150, 0));
+    CHECK(near_rgb(ui_stub_led[CTL_VOLUME], 0, 0, 0));
+    CHECK(near_rgb(ui_stub_led[SHIFT_KEY], 0, 0, 0));
+    ui_app.ui.led_role = LR_SHIFT;
+    ev_idle(5);
+    CHECK(near_rgb(ui_stub_led[k1], 0, 0, 0));
+    ev_tap(CTL_BTN_1);
+}
+
+TEST(leds_pots_measuring_never_moves_a_walked_value) {
+    ui_fresh();
+    seq_t *q = &ui_app.seq;
+    const int steps = q->steps;
+    ui_app.ui.cursor = steps - 1;
+    for (int p = 0; p < ui_app.ui.page_count; p++) {                               // every page, its knobs' LEDs painted many times
+        ui_app.ui.page = p;
+        ev_idle(10);
+    }
+    CHECK_EQ(q->steps, steps);
+    CHECK_EQ(ui_app.ui.cursor, steps - 1);
 }

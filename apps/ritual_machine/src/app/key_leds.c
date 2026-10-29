@@ -77,6 +77,20 @@ static void pot_preview(const app_t *app, bool idle) {
     for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) controls_led((control_id_t)(CTL_COL_KNOB_0 + k), knob);
     for (int k = 0; k < 3; k++) controls_led(macro_knob[k], knob);
     controls_led(CTL_VOLUME, r == LR_VOLUME ? led_role_rgb(LR_VOLUME, !idle) : (led_color_t){0, 0, 0});
+    controls_led(CTL_ENC_A, r == LR_ENC ? led_role_rgb(LR_ENC, !idle) : (led_color_t){0, 0, 0});
+}
+
+// Encoder A (ADR-045): the section (Enc A's Idle shade in the synth, Active in Pads); a recording armed blinks it, one running lights
+// it, in Back's red as the Rec key: the synth's notes (armed, then with the sequencer running), the pattern's sound, the Pads' capture
+// and their sequencer's live record.
+static void enc_led(const app_t *app, uint32_t now_ms) {
+    const bool pads = app->section == SECTION_PADS;
+    const int cap = app->ui.cap_state;
+    const bool recording = (app->rec.armed && app->seq.running) || app->ui.seq_audio || cap == CAPTURE_ST_RECORDING
+                           || cap == CAPTURE_ST_FINISHING || (app->ui.pseq_rec && app->pads_run);
+    const bool armed = (app->rec.armed && !app->seq.running) || cap == CAPTURE_ST_ARMED || (app->ui.pseq_rec && !app->pads_run);
+    if (recording || (armed && (now_ms / 150) % 2)) controls_led(CTL_ENC_A, led_role_rgb(LR_BACK, true));
+    else controls_led(CTL_ENC_A, led_role_rgb(LR_ENC, pads));
 }
 
 static led_color_t macro_color(app_t *app, int k) { return macro_shade(app, k, true); }
@@ -179,6 +193,6 @@ void key_leds_update(app_t *app, bool input_event, uint32_t now_ms) {
             controls_led(ctl, led_role_rgb(role, key_active(app, ctl, f)));
         }
     if (preview) pot_preview(app, preview_idle);
-    else pot_leds(app);
+    else { pot_leds(app); enc_led(app, now_ms); }
     leds_show();                                             // the driver sends only when something changed
 }

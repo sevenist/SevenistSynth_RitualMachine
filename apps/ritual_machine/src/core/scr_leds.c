@@ -43,8 +43,9 @@ static bool value_adjust(const ui_ctx_t *c, int dir) {
     return false;
 }
 static const char *shade_label(const ui_ctx_t *c) {
-    static const char *const plain[4] = {"Idle", "Idle %", "Active", "Act %"}, *const knob[4] = {"Away", "Away %", "Caught", "Cgt %"};
-    return (role(c) == LR_KNOB ? knob : plain)[c->arg & 3];
+    static const char *const plain[4] = {"Idle", "Idle %", "Active", "Act %"}, *const knob[4] = {"Away", "Away %", "Caught", "Cgt %"},
+                             *const enc[4] = {"Synth", "Synth %", "Pads", "Pads %"};
+    return (role(c) == LR_KNOB ? knob : role(c) == LR_ENC ? enc : plain)[c->arg & 3];
 }
 
 static void reset_activate(const ui_ctx_t *c) { (void)c; led_roles_init(); }
@@ -70,6 +71,10 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
     (void)area; (void)rect;
     const gui_rect_t box = ui_picture_box(st);
     u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
+    if (role(c) == LR_ENC) {
+        gui_draw_text_centered(g, gui_rect(box.x, box.y + box.h / 2 - gui_row_h(g, st) / 2, box.w, gui_row_h(g, st)), "encoder A");
+        return;
+    }
     if (is_pot(c)) {
         const int rh = gui_row_h(g, st), y = box.y + box.h / 2 - rh;
         gui_draw_text_centered(g, gui_rect(box.x, y, box.w, rh), role(c) == LR_KNOB ? "K1..K4" : "the volume");

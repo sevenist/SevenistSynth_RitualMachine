@@ -231,3 +231,30 @@ TEST(leds_pots_show_the_layer_while_shift_or_mod_is_held) {
     modifiers_init();
     ev_idle(2);
 }
+
+void app_seq_rec_set(app_t *app, bool on);        // app/app_internal.h
+
+// Encoder A (ADR-045): the section, and a recording armed (blinking) or running (lit) in Back's red.
+TEST(leds_encoder_a_shows_the_section_and_the_recording) {
+    ui_fresh();
+    led_roles_init();
+    ev_idle(5);
+    CHECK(near_rgb(ui_stub_led[CTL_ENC_A], 36, 72, 153));                           // the synth: Sky 60 %
+    app_set_section(&ui_app, true);
+    ev_idle(5);
+    CHECK(near_rgb(ui_stub_led[CTL_ENC_A], 153, 90, 0));                            // Pads: Amber 60 %
+    app_set_section(&ui_app, false);
+    app_seq_rec_set(&ui_app, true);                                                 // the notes' Rec armed, the sequencer stopped: it blinks
+    int red = 0, other = 0;
+    for (int k = 0; k < 40; k++) {
+        ev_idle(1);
+        if (near_rgb(ui_stub_led[CTL_ENC_A], 89, 0, 0)) red++; else other++;
+    }
+    CHECK(red > 0 && other > 0);
+    ev_tap(CTL_PLAY);                                                               // running: lit
+    for (int k = 0; k < 10; k++) { ev_idle(1); CHECK(near_rgb(ui_stub_led[CTL_ENC_A], 89, 0, 0)); }
+    ev_tap(CTL_PLAY);
+    app_seq_rec_set(&ui_app, false);
+    ev_idle(2);
+    CHECK(near_rgb(ui_stub_led[CTL_ENC_A], 36, 72, 153));
+}

@@ -6,7 +6,8 @@
 // Back, Nav and None have no active state. The defaults are the colours of the first version (play feedback).
 // The pots have roles too (ADR-045; a board with LEDs under them, the next prototype): Knob (the four column knobs and the macro knobs:
 // Idle until the knob has caught the value it drives, Active once caught) and Volume (always caught); with `value` set the value they
-// drive is shown as the colour's saturation (pale at 0, the full colour at the top).
+// drive is shown as the colour's saturation (pale at 0, the full colour at the top). Enc A: the LED under encoder A, Idle in the synth,
+// Active in Pads; a recording blinks it (armed) or lights it (recording) in Back's red.
 // Saved in ui.cfg (core/ui_settings.c): "leds" then "led <role> <colour> <pct> <colour> <pct> [novalue]" for the roles that differ from
 // the defaults.
 // The LED driver applies the global brightness cap on top (HW_LED_MAX_BRIGHTNESS on the prototype).
@@ -19,7 +20,7 @@
 extern "C" {
 #endif
 
-typedef enum { LR_NOTE, LR_SHARP, LR_ROOT, LR_SHIFT, LR_MOD, LR_MENU, LR_BACK, LR_PLAY, LR_OCTAVE, LR_JUMP, LR_NAV, LR_PAD, LR_BANK, LR_KNOB, LR_VOLUME, LR_NONE, LR_COUNT } led_role_t;
+typedef enum { LR_NOTE, LR_SHARP, LR_ROOT, LR_SHIFT, LR_MOD, LR_MENU, LR_BACK, LR_PLAY, LR_OCTAVE, LR_JUMP, LR_NAV, LR_PAD, LR_BANK, LR_KNOB, LR_VOLUME, LR_ENC, LR_NONE, LR_COUNT } led_role_t;
 typedef struct { uint8_t color, pct; } led_shade_t;                 // a palette index and a brightness 0..100
 typedef struct { led_shade_t idle, active; uint8_t value; } led_role_def_t;   // value: a pot role's saturation follows the value (1)
 

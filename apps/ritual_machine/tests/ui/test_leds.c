@@ -198,3 +198,36 @@ TEST(leds_macro_knobs_show_their_macros_colour_set_in_the_macros_tab) {
     CHECK_STR(led_palette_name(ui_app.ui.macro[0].color), "Orange");
     CHECK_STR(led_palette_name(ui_app.ui.macro[1].color), "Teal");
 }
+
+extern bool app_catch_stale;                       // app/app_internal.h
+
+// Shift / Mod held (ADR-045): every pot shows what it does in that layer, at once.
+TEST(leds_pots_show_the_layer_while_shift_or_mod_is_held) {
+    ui_fresh();
+    led_roles_init();
+    ui_app.rack.cfg.knob_mode = 1;                                                  // (Direct: no catch to wait for)
+    ev_knob(CTL_COL_KNOB_2, INPUT_VALUE_MAX);
+    ev_idle(5);
+    const led_color_t k3 = ui_stub_led[CTL_COL_KNOB_2];
+    CHECK(near_rgb(k3, 255, 150, 0));                                               // its page row: Amber
+    ev_press(CTL_BTN_3);                                                            // Shift
+    ev_idle(1);
+    CHECK(near_rgb(ui_stub_led[CTL_COL_KNOB_2], 0, 0, 0));                          // K3 has no Shift entry: it drives nothing
+    CHECK(near_rgb(ui_stub_led[CTL_COL_KNOB_1], 96, 255, 96));                     // K2 + Shift = the volume (at 1 of 2): half-pale Green
+    const led_color_t r1 = ui_stub_led[CTL_KNOB_R1];                                // R1 + Shift = learn into macro 1: its Red, as pale
+    CHECK(r1.r > 250 && r1.g == r1.b && r1.g < r1.r);                               //  as macro 1's value (the first filter's cutoff)
+    ev_release(CTL_BTN_3);
+    ev_idle(1);
+    CHECK(near_rgb(ui_stub_led[CTL_COL_KNOB_2], 255, 150, 0));                     // back at once
+    // a Mod entry that plays macro 2 on K3: macro 2's colour (Teal) while Mod is held
+    modifiers_set(MODL_MOD, CTL_COL_KNOB_2, (mod_entry_t){ME_ACTION, ACT_MACRO, 1, {MACRO_NONE, 0, 0}});
+    ui_app.ui.macro[1].n = 0;
+    CHECK(synth_ui_macro_add(&ui_app.ui, 1, &(macro_t){MACRO_CFG, 0, CFGP_VOLUME}));
+    ui_app.in.mod = true;
+    app_catch_stale = true;
+    ev_idle(2);
+    CHECK(near_rgb(ui_stub_led[CTL_COL_KNOB_2], 0, 200, 255));
+    ui_app.in.mod = false;
+    modifiers_init();
+    ev_idle(2);
+}

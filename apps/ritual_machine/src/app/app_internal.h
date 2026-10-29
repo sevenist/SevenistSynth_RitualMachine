@@ -120,6 +120,7 @@ void app_pseq_poll(app_t *app);                                     // every ste
 
 /* ---------------- app_lists.c (ADR-044) ---------------- */
 
+int  app_active_layer(const app_t *app);                            // app_layers.c: MODL_MOD while Mod is held, else MODL_SHIFT with Shift, else -1
 void app_list_open(app_t *app, bool advanced);                      // Shift + Menu: the page list (advanced: its ADVANCED submenu)
 void app_menu_down(app_t *app, control_id_t ctl, uint32_t now);     // Menu went down (no Shift): held MENU_LONG_MS = the jump list ...
 void app_menu_up(app_t *app, control_id_t ctl);                     // ... a control was let go: Menu's short press acts here

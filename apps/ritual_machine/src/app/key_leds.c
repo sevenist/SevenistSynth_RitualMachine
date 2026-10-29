@@ -1,4 +1,6 @@
 #include "app/key_leds.h"
+#include "app/app_internal.h"
+#include "core/modifiers.h"
 #include "core/keymap.h"
 #include "core/led_roles.h"
 #include "core/audio.h"
@@ -57,12 +59,13 @@ static float macro_norm(app_t *app, int k) {
 
 static const control_id_t macro_knob[3] = {CTL_KNOB_R1, CTL_KNOB_R2, CTL_KNOB_R3};
 
-// A knob that plays macro k: the macro's colour at the Knob role's Caught brightness (no catch: a macro knob sets at once), its value
-// as saturation when the Knob role says so; at the Away brightness while the macro has no destination.
-static led_color_t macro_color(app_t *app, int k) {
+// A knob that plays macro k: the macro's colour at the Knob role's Caught brightness (R1..R3 have no catch: a macro knob sets at once;
+// a col knob through a layer catches its first destination), its value as saturation when the Knob role says so; at the Away
+// brightness while the macro has no destination or the knob has not caught it.
+static led_color_t macro_shade(app_t *app, int k, bool caught) {
     const macro_def_t *m = &app->ui.macro[k];
     const led_role_def_t *kr = led_role(LR_KNOB);
-    const led_color_t c = led_shade_rgb((led_shade_t){m->color, m->n ? kr->active.pct : kr->idle.pct});
+    const led_color_t c = led_shade_rgb((led_shade_t){m->color, m->n && caught ? kr->active.pct : kr->idle.pct});
     const float v = macro_norm(app, k);
     return kr->value && m->n && v >= 0.0f ? saturate(c, v) : c;
 }
@@ -76,7 +79,47 @@ static void pot_preview(const app_t *app, bool idle) {
     controls_led(CTL_VOLUME, r == LR_VOLUME ? led_role_rgb(LR_VOLUME, !idle) : (led_color_t){0, 0, 0});
 }
 
+static led_color_t macro_color(app_t *app, int k) { return macro_shade(app, k, true); }
+
+// Shift / Mod held (ADR-045): what pot `ctl` (col: its col knob index, else -1) does in that layer, in `out`. False: its plain display
+// (a Default entry on a knob that keeps its job there). A col knob's catch is already measured against its layer target (app_catch_poll).
+static bool layer_pot(app_t *app, int layer, control_id_t ctl, int col, led_color_t *out) {
+    const mod_entry_t me = modifiers_get(layer, ctl);
+    const bool caught = col < 0 || app->rack.cfg.knob_mode || (app->ui.knob_val[col] >= 0 && app->ui.knob_catch_dir[col] == 0);
+    *out = (led_color_t){0, 0, 0};
+    if (me.kind == ME_DEFAULT) return col >= 0;                      // a col knob with a modifier and no entry drives nothing: dark
+    if (me.kind == ME_ACTION && (me.act == ACT_MACRO || me.act == ACT_MACRO_LEARN)) {     // a macro (or Learn into it): its colour
+        if (me.arg >= 0 && me.arg < SYNTH_UI_MACROS) *out = macro_shade(app, me.arg, caught);
+        return true;
+    }
+    if (me.kind == ME_ACTION && me.act == ACT_NONE) return true;
+    if (me.kind == ME_ACTION) {                                     // a setting or a step action: the Knob colour (the volume: its own)
+        *out = me.act == ACT_MASTER_VOLUME || me.act == ACT_VOLUME_STEP ? pot_color(LR_VOLUME, true, app->rack.cfg.volume / 2.0f)
+                                                                         : led_role_rgb(LR_KNOB, true);
+        return true;
+    }
+    if (me.m.kind == MACRO_CFG && me.m.prm == CFGP_VOLUME) {        // the master volume as a parameter: the Volume role
+        *out = pot_color(LR_VOLUME, caught, app->rack.cfg.volume / 2.0f);
+        return true;
+    }
+    float v = synth_ui_target_peek(&app->params, &app->seq, &app->rack, &me.m);    // a parameter
+    if (v < 0.0f && col >= 0) v = app->ui.knob_norm[col];
+    *out = pot_color(LR_KNOB, caught, v);
+    return true;
+}
+
 static void pot_leds(app_t *app) {
+    const int layer = app->section == SECTION_PADS ? -1 : app_active_layer(app);
+    if (layer >= 0) {
+        led_color_t c;
+        for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) {
+            const control_id_t ctl = (control_id_t)(CTL_COL_KNOB_0 + k);
+            if (layer_pot(app, layer, ctl, k, &c)) controls_led(ctl, c);
+        }
+        for (int k = 0; k < 3; k++) controls_led(macro_knob[k], layer_pot(app, layer, macro_knob[k], -1, &c) ? c : macro_color(app, k));
+        controls_led(CTL_VOLUME, layer_pot(app, layer, CTL_VOLUME, -1, &c) ? c : pot_color(LR_VOLUME, true, app->rack.cfg.volume / 2.0f));
+        return;
+    }
     for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) {                 // the page's rows 1..4 (Pads: the editor's, not measured: caught)
         const control_id_t ctl = (control_id_t)(CTL_COL_KNOB_0 + k);
         if (app->section == SECTION_PADS) { controls_led(ctl, pot_color(LR_KNOB, true, -1.0f)); continue; }

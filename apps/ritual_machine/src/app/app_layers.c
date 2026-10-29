@@ -85,6 +85,7 @@ void app_learn_poll(app_t *app, uint32_t now) {
 /* ---------------- the Shift / Mod layers (core/modifiers.h) ---------------- */
 
 static int active_layer(const app_t *app) { return app->in.mod ? MODL_MOD : app->in.shift ? MODL_SHIFT : -1; }
+int app_active_layer(const app_t *app) { return active_layer(app); }
 
 static bool is_col_knob(control_id_t c) { return c >= CTL_COL_KNOB_0 && c <= CTL_COL_KNOB_3; }
 

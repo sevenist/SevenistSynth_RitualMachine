@@ -2,6 +2,8 @@
 #include "core/patch.h"
 #include "core/modifiers.h"
 #include "core/audio.h"
+#include "core/led_roles.h"
+#include <ctype.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -104,6 +106,14 @@ int patch_to_text(const rack_t *rack, const synth_params_t *params, const synth_
             add(buf, cap, &n, "\n");
         }
     }
+    for (int k = 0; k < SYNTH_UI_MACROS; k++) {                                  // a macro's colour (its LED, ADR-045) when not its default
+        if (ui->macro[k].color == synth_ui_macro_default_color(k)) continue;
+        char cn[16];
+        int i = 0;
+        for (const char *s = led_palette_name(ui->macro[k].color); *s && i < 15; s++) cn[i++] = (char)tolower((unsigned char)*s);
+        cn[i] = 0;
+        add(buf, cap, &n, "mcolor %d %s\n", k + 1, cn);
+    }
     for (int k = 0; k < SYNTH_UI_MACROS; k++)
         for (int i = 0; i < ui->macro[k].n && i < SYNTH_UI_MACRO_DESTS; i++) {
             char t[64];
@@ -168,6 +178,7 @@ bool patch_from_text(rack_t *rack, synth_params_t *params, synth_ui_t *ui, char 
     macro_def_t macro[SYNTH_UI_MACROS];
     mapping_t joy[2];
     memset(macro, 0, sizeof macro);
+    for (int k = 0; k < SYNTH_UI_MACROS; k++) macro[k].color = (uint8_t)synth_ui_macro_default_color(k);
     memset(joy, 0, sizeof joy);
     char from[PRESET_NAME_MAX] = "";
     int from_edited = 0;
@@ -262,6 +273,15 @@ bool patch_from_text(rack_t *rack, synth_params_t *params, synth_ui_t *ui, char 
             ln->tgt_id = (uint8_t)clampi_(c, 0, 255); ln->tgt_param = (uint8_t)clampi_(d, 0, 255);
             ln->linear = e ? 1 : 0; ln->bipolar = g ? 1 : 0; ln->depth = depth; ln->active = (uint16_t)active;
             if (floats(line + at, v, MS_STEPS) == MS_STEPS) for (int k = 0; k < MS_STEPS; k++) ln->val[k] = (uint8_t)clampi_((int)v[k], 0, 100);
+        } else if (word(line, "mcolor")) {
+            char cn[16];
+            if (sscanf(line, "mcolor %d %15s", &a, cn) != 2 || a < 1 || a > SYNTH_UI_MACROS) continue;
+            for (int c = 0; c < LED_PALETTE; c++) {                   // the palette's name, any case
+                const char *pn = led_palette_name(c);
+                int i = 0;
+                while (pn[i] && cn[i] && tolower((unsigned char)pn[i]) == tolower((unsigned char)cn[i])) i++;
+                if (!pn[i] && !cn[i]) macro[a - 1].color = (uint8_t)c;
+            }
         } else if (word(line, "macro")) {
             mapping_t mp;
             if (sscanf(line, "macro %d %n", &a, &at) != 1 || !at || a < 1 || a > SYNTH_UI_MACROS || !mapping_parse(line + at, &mp)) continue;
@@ -332,7 +352,7 @@ uint32_t patch_hash(const rack_t *rack, const synth_params_t *params, const synt
         const ms_pattern_t *m = &rack->ms[(int)s->v[MP_MS_POOL]];
         for (int l = 0; l < MS_LANES; l++) { const ms_lane_t *ln = &m->lane[l]; H(ln->val); H(ln->active); H(ln->tgt_id); H(ln->tgt_param); H(ln->linear); H(ln->bipolar); H(ln->depth); }
     }
-    for (int k = 0; k < SYNTH_UI_MACROS; k++) { H(ui->macro[k].n); h = fnv(h, ui->macro[k].dest, sizeof ui->macro[k].dest[0] * (ui->macro[k].n < SYNTH_UI_MACRO_DESTS ? ui->macro[k].n : SYNTH_UI_MACRO_DESTS)); }
+    for (int k = 0; k < SYNTH_UI_MACROS; k++) { H(ui->macro[k].n); H(ui->macro[k].color); h = fnv(h, ui->macro[k].dest, sizeof ui->macro[k].dest[0] * (ui->macro[k].n < SYNTH_UI_MACRO_DESTS ? ui->macro[k].n : SYNTH_UI_MACRO_DESTS)); }
     H(ui->joy);
     return h;
 }

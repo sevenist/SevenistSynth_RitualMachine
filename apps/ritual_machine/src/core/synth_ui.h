@@ -62,7 +62,8 @@ static inline int mapping_max(const mapping_t *m) { return 100 - m->max_off; }
 
 // A macro: one knob, up to SYNTH_UI_MACRO_DESTS parameters at once, each through its own mapping. Learn adds a destination.
 #define SYNTH_UI_MACRO_DESTS 8
-typedef struct { mapping_t dest[SYNTH_UI_MACRO_DESTS]; uint8_t n; } macro_def_t;
+typedef struct { mapping_t dest[SYNTH_UI_MACRO_DESTS]; uint8_t n; uint8_t color; } macro_def_t;   // color: its LED's, a palette index (core/led_roles.h; ADR-045)
+int synth_ui_macro_default_color(int k);    // macro k's colour when nothing chose one (every macro a different one)
 
 // A jump slot remembers WHAT it points at, not where it was: page indexes and tab positions change when the rack or the synth type changes.
 //   a module page:  mod_id (the module's rack id, stable while it exists; never reused) + mod_type (a guard against a replaced rack) + def (which of its pages)

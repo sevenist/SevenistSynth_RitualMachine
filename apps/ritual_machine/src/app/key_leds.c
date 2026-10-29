@@ -57,6 +57,16 @@ static float macro_norm(app_t *app, int k) {
 
 static const control_id_t macro_knob[3] = {CTL_KNOB_R1, CTL_KNOB_R2, CTL_KNOB_R3};
 
+// A knob that plays macro k: the macro's colour at the Knob role's Caught brightness (no catch: a macro knob sets at once), its value
+// as saturation when the Knob role says so; at the Away brightness while the macro has no destination.
+static led_color_t macro_color(app_t *app, int k) {
+    const macro_def_t *m = &app->ui.macro[k];
+    const led_role_def_t *kr = led_role(LR_KNOB);
+    const led_color_t c = led_shade_rgb((led_shade_t){m->color, m->n ? kr->active.pct : kr->idle.pct});
+    const float v = macro_norm(app, k);
+    return kr->value && m->n && v >= 0.0f ? saturate(c, v) : c;
+}
+
 // The LEDS tab: the pots of the role shown light (Idle on the Idle rows), the others are off.
 static void pot_preview(const app_t *app, bool idle) {
     const int r = app->ui.led_role;
@@ -74,10 +84,7 @@ static void pot_leds(app_t *app) {
         const int st = synth_ui_col_knob_state(&app->ui, &app->params, &app->seq, &app->rack, k, &v);
         controls_led(ctl, st < 0 ? (led_color_t){0, 0, 0} : pot_color(LR_KNOB, st == 1, v));
     }
-    for (int k = 0; k < 3; k++) {                                   // the macros (no catch: a macro knob sets at once)
-        const float v = macro_norm(app, k);
-        controls_led(macro_knob[k], app->ui.macro[k].n ? pot_color(LR_KNOB, true, v) : led_role_rgb(LR_KNOB, false));
-    }
+    for (int k = 0; k < 3; k++) controls_led(macro_knob[k], macro_color(app, k));
     controls_led(CTL_VOLUME, pot_color(LR_VOLUME, true, app->rack.cfg.volume / 2.0f));      // (the master volume is 0..2)
 }
 

@@ -155,7 +155,7 @@ TEST(macros_tab_learn_and_remove) {
     ui_app.ui.row = 1;                                                     // Macro
     ev_turn(CTL_ENC_B, 2);
     CHECK_EQ(ui_app.ui.macro_cur, 2);
-    ui_app.ui.row = 7;                                                     // Learn
+    ui_app.ui.row = 8;                                                     // Learn (after Color)
     ev_tap(CTL_JOY_SW);
     ev_idle(1);
     CHECK(!ui_app.ui.in_rack && ui_app.ui.learn_wait && ui_app.ui.learn_macro == 2);
@@ -165,13 +165,13 @@ TEST(macros_tab_learn_and_remove) {
     CHECK(!ui_app.ui.learn_wait && ui_app.ui.learn_macro == -1);
     ev_tap(CTL_BTN_1);
     ui_app.ui.menu_tab = tab_index_of(&ui_app.rack, TAB_MACROS);
-    ui_app.ui.row = 4;                                                     // Min
+    ui_app.ui.row = 5;                                                     // Min
     ev_turn(CTL_ENC_B, 3);
     CHECK_EQ(ui_app.ui.macro[2].dest[0].min, 15);
-    ui_app.ui.row = 6;                                                     // Curve
+    ui_app.ui.row = 7;                                                     // Curve
     ev_turn(CTL_ENC_B, 1);
     CHECK_EQ(ui_app.ui.macro[2].dest[0].curve, CURVE_EXP);
-    ui_app.ui.row = 8;                                                     // Remove
+    ui_app.ui.row = 9;                                                     // Remove
     ev_tap(CTL_JOY_SW);
     CHECK_EQ(ui_app.ui.macro[2].n, 0);
 }

@@ -162,3 +162,39 @@ TEST(leds_pots_measuring_never_moves_a_walked_value) {
     CHECK_EQ(q->steps, steps);
     CHECK_EQ(ui_app.ui.cursor, steps - 1);
 }
+
+#include "core/patch.h"
+
+// The macros' colours (ADR-045): one each by default, the MACROS tab's Color row, saved with the sound; R1..R3 show them.
+TEST(leds_macro_knobs_show_their_macros_colour_set_in_the_macros_tab) {
+    ui_fresh();
+    led_roles_init();
+    for (int a = 0; a < SYNTH_UI_MACROS; a++)
+        for (int b = a + 1; b < SYNTH_UI_MACROS; b++) CHECK(ui_app.ui.macro[a].color != ui_app.ui.macro[b].color);
+    CHECK_STR(led_palette_name(ui_app.ui.macro[0].color), "Red");
+    ev_knob(CTL_KNOB_R1, INPUT_VALUE_MAX);                                          // macro 1 at the top: the full Red
+    ev_idle(5);
+    CHECK(ui_app.ui.macro[0].n > 0);
+    CHECK(near_rgb(ui_stub_led[CTL_KNOB_R1], 255, 0, 0));
+    // the Color row: Red -> Orange
+    ev_tap(CTL_BTN_1);
+    ui_app.ui.menu_tab = tab_index_of(&ui_app.rack, TAB_MACROS);
+    ui_app.ui.macro_cur = 0;
+    ui_app.ui.row = 2;                                                              // Color
+    ev_turn(CTL_ENC_B, 1);
+    CHECK_STR(led_palette_name(ui_app.ui.macro[0].color), "Orange");
+    ev_tap(CTL_BTN_1);
+    ev_idle(5);
+    CHECK(near_rgb(ui_stub_led[CTL_KNOB_R1], 255, 90, 0));
+    // saved with the sound, read back; the sound's hash sees it
+    const uint32_t h = patch_hash(&ui_app.rack, &ui_app.params, &ui_app.ui);
+    static char txt[8192];
+    CHECK(patch_to_text(&ui_app.rack, &ui_app.params, &ui_app.ui, true, NULL, false, txt, (int)sizeof txt) > 0);
+    CHECK(strstr(txt, "mcolor 1 orange") != NULL);
+    CHECK(strstr(txt, "mcolor 2") == NULL);                                         // a default colour is not written
+    ui_app.ui.macro[0].color = 2;
+    CHECK(patch_hash(&ui_app.rack, &ui_app.params, &ui_app.ui) != h);
+    CHECK(patch_from_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, txt));
+    CHECK_STR(led_palette_name(ui_app.ui.macro[0].color), "Orange");
+    CHECK_STR(led_palette_name(ui_app.ui.macro[1].color), "Teal");
+}

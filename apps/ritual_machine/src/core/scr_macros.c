@@ -6,6 +6,7 @@
 // A macro is played by R1..R3 (macros 1..3) or by any knob given "Macro N" in the MODIFIERS tab. Saved in ui.cfg by itself.
 // A declarative screen (see ui_screen.h).
 #include "core/ui_screen.h"
+#include "core/led_roles.h"
 #include "core/curves.h"
 #include <stdio.h>
 
@@ -25,6 +26,13 @@ static bool macro_adjust(const ui_ctx_t *c, int dir) {
 }
 
 static bool has_dest(const ui_ctx_t *c) { return mac(c)->n > 0; }
+// Color: the macro's LED (R1..R3, and a knob that plays it through Shift / Mod; ADR-045), a palette colour (never Off).
+static void color_value(const ui_ctx_t *c, char *out, int n) { snprintf(out, (size_t)n, "%s", led_palette_name(mac(c)->color)); }
+static bool color_adjust(const ui_ctx_t *c, int dir) {
+    macro_def_t *m = mac(c);
+    m->color = (uint8_t)((m->color - 1 + dir + (LED_PALETTE - 1)) % (LED_PALETTE - 1) + 1);
+    return false;
+}
 static void dest_value(const ui_ctx_t *c, char *out, int n) {
     if (!has_dest(c)) snprintf(out, (size_t)n, "--");
     else { dest(c); snprintf(out, (size_t)n, "%d/%d", c->ui->macro_dest + 1, mac(c)->n); }
@@ -64,13 +72,14 @@ static void remove_activate(const ui_ctx_t *c) { synth_ui_macro_remove(c->ui, c-
 
 static const el_def_t elements[] = {
     {"Macro",  EL_VALUE,  0, 0, 1, macro_value, macro_adjust, NULL, NULL, NULL},
-    {"Dest",   EL_VALUE,  1, 0, 1, dest_value,  dest_adjust,  NULL, NULL, has_dest},
-    {"Tgt",    EL_VALUE,  2, 0, 1, tgt_value,   NULL,         NULL, NULL, has_dest},
-    {"Min",    EL_VALUE,  3, 0, 1, map_value,   map_adjust,   NULL, NULL, has_dest, NULL, 0},
-    {"Max",    EL_VALUE,  4, 0, 1, map_value,   map_adjust,   NULL, NULL, has_dest, NULL, 1},
-    {"Curve",  EL_VALUE,  5, 0, 1, map_value,   map_adjust,   NULL, NULL, has_dest, NULL, 2},
-    {"Learn",  EL_BUTTON, 6, 0, 1, NULL,        NULL,         learn_activate,  NULL, NULL},
-    {"Remove", EL_BUTTON, 7, 0, 1, NULL,        NULL,         remove_activate, NULL, has_dest},
+    {"Color",  EL_VALUE,  1, 0, 1, color_value, color_adjust, NULL, NULL, NULL},
+    {"Dest",   EL_VALUE,  2, 0, 1, dest_value,  dest_adjust,  NULL, NULL, has_dest},
+    {"Tgt",    EL_VALUE,  3, 0, 1, tgt_value,   NULL,         NULL, NULL, has_dest},
+    {"Min",    EL_VALUE,  4, 0, 1, map_value,   map_adjust,   NULL, NULL, has_dest, NULL, 0},
+    {"Max",    EL_VALUE,  5, 0, 1, map_value,   map_adjust,   NULL, NULL, has_dest, NULL, 1},
+    {"Curve",  EL_VALUE,  6, 0, 1, map_value,   map_adjust,   NULL, NULL, has_dest, NULL, 2},
+    {"Learn",  EL_BUTTON, 7, 0, 1, NULL,        NULL,         learn_activate,  NULL, NULL},
+    {"Remove", EL_BUTTON, 8, 0, 1, NULL,        NULL,         remove_activate, NULL, has_dest},
 };
 #define N_ELEMENTS ((int)(sizeof elements / sizeof elements[0]))
 

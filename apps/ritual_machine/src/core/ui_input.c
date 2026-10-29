@@ -797,8 +797,14 @@ int synth_ui_col_knob_state(synth_ui_t *ui, synth_params_t *params, seq_t *seq, 
 }
 
 // The macros start on the first filter's cutoff and resonance and the first LFO's rate (one destination each), when the rack has them.
+int synth_ui_macro_default_color(int k) {
+    static const uint8_t c[SYNTH_UI_MACROS] = {2, 9, 13, 5, 14, 6, 10, 3};   // Red, Teal, Violet, Yellow, Pink, Lime, Sky, Orange (led_roles.c's palette)
+    return c[(k % SYNTH_UI_MACROS + SYNTH_UI_MACROS) % SYNTH_UI_MACROS];
+}
+
 void macros_default(synth_ui_t *ui, const rack_t *rack) {
     memset(ui->macro, 0, sizeof ui->macro);
+    for (int k = 0; k < SYNTH_UI_MACROS; k++) ui->macro[k].color = (uint8_t)synth_ui_macro_default_color(k);
     int fl = RACK_NONE, lf = RACK_NONE;
     for (int i = 0; i < rack->count; i++) {
         if (rack->slot[i].type == MOD_FILTER && fl == RACK_NONE) fl = i;

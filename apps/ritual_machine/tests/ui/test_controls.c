@@ -305,3 +305,22 @@ TEST(sim_panel_of_an_empty_table_is_empty) {
     CHECK_EQ(panel.count, 0);
     CHECK(panel.width > 0 && panel.height > 0);
 }
+
+// The next prototype's LEDs (ADR-045): every key, every pot and encoder A; nothing else. HWV1: the keys only.
+TEST(controls_panel_has_an_led_under_every_key_every_pot_and_encoder_a) {
+    int keys = 0, pots = 0, other = 0;
+    for (int i = 0; i < PANEL_CONTROL_COUNT; i++) {
+        const input_control_t *c = &kPanelControls[i];
+        if (!c->led) continue;
+        if (c->kind == CK_KEY) keys++;
+        else if (c->kind == CK_KNOB) pots++;
+        else other++;
+    }
+    CHECK_EQ(keys, PANEL_KEY_ROWS * PANEL_KEY_COLS);
+    CHECK_EQ(pots, 8);
+    CHECK_EQ(other, 1);
+    CHECK_EQ(kPanelControls[PANEL_ENC_A].led, 1);
+    CHECK_EQ(kPanelControls[PANEL_ENC_B].led, 0);
+    CHECK_EQ(kPanelControls[PANEL_ENC_A_SW].led, 0);                           // (the push sits at the encoder's place: one ring)
+    for (int p = HWV1_POT_0; p <= HWV1_POT_6; p++) CHECK_EQ(kHwv1Controls[p].led, 0);
+}

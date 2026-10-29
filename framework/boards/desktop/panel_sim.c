@@ -144,8 +144,20 @@ static void draw_key(const sim_part_t *p) {
     if (key[0]) text_centered(p->x, r.y + r.h - 11, 1, key);
 }
 
+// The LED under a round part (hal_leds.h; the next prototype's pots and encoder A: ADR-045): a ring around it, 3 px wide in its
+// colour when lit, a thin grey one when dark.
+static void led_ring(const sim_part_t *p) {
+    if (!SIM_CONTROLS[p->ctl].led) return;
+    const led_color_t l = leds_sim_get(p->ctl);
+    const int r = p->hw;
+    if (!(l.r | l.g | l.b)) { color(70, 74, 82); ring(p->x, p->y, r + 3); return; }
+    color(l.r, l.g, l.b);
+    for (int k = 2; k <= 4; k++) { ring(p->x, p->y, r + k); ring(p->x + 1, p->y, r + k); }      // (twice: the dotted ring closes)
+}
+
 static void draw_knob(const sim_part_t *p) {
     const int r = p->hw;
+    led_ring(p);
     body(p, is_down(p->sw));
     color(255, 190, 60); pointer(p->x, p->y, -135.0f + 270.0f * (float)val[p->ctl] / (float)INPUT_VALUE_MAX, r / 3, r - 3);
     texts_under(p, SIM_CONTROLS[p->ctl].name);
@@ -154,6 +166,7 @@ static void draw_knob(const sim_part_t *p) {
 static void draw_encoder(const sim_part_t *p) {
     const int r = p->hw;
     const bool pressed = is_down(p->sw);
+    led_ring(p);
     body(p, pressed);
     color(pressed ? 40 : 190, pressed ? 40 : 196, pressed ? 40 : 208);
     for (int i = 0; i < 12; i++) pointer(p->x, p->y, (float)i * 30.0f + (float)angle[p->ctl] * 15.0f, r - 7, r - 2);
@@ -164,6 +177,7 @@ static void draw_encoder(const sim_part_t *p) {
 static void draw_endless(const sim_part_t *p) {
     const int r = p->hw;
     const bool pressed = is_down(p->sw);
+    led_ring(p);
     body(p, pressed);
     color(pressed ? 40 : 150, pressed ? 40 : 156, pressed ? 40 : 168); ring(p->x, p->y, r / 3);
     color(pressed ? 40 : 255, pressed ? 40 : 190, pressed ? 40 : 60);

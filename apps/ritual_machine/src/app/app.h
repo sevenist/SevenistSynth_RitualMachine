@@ -121,6 +121,10 @@ typedef struct {
     pad_render_t   render;
     pad_capture_t  capture;
     uint8_t        section;     // section_t
+    int8_t         sec_tab[2];  // each section's place among the synth's tabs when it was left (-1: none; Pads: PERFORM / SETUP over the pads) ...
+    uint8_t        sec_row[2];  // ... and its row
+    uint8_t        pads_view_last;   // the Pads section's last view other than EDIT (view_t): where Menu goes from EDIT (PAD FX at first)
+    bool           pads_edit_keep;   // the pad's editor was open when EDIT was left (it is again when EDIT comes back)
     // The pads' files and the catalog (core/audio.h: it holds the files in use, each read when asked for): lib_dirty = a pad's file may
     // not be in it yet (app_pads_resolve takes one per step), lib_missing = bit k: pad k's file is not on the card (not asked again),
     // lib_tries = steps spent waiting for an unused sample to be unloaded.

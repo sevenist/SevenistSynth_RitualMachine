@@ -42,7 +42,7 @@ static bool list_label(void *ctx, int i, char *out, int n) {
 
 // The entry of the screen on show.
 static list_entry_t entry_on_show(const app_t *app) {
-    if (in_pads(app)) return app->ui.pad_fx ? LE_RACK : app->ui.pad_steps ? LE_SEQ : LE_EDIT;
+    if (in_pads(app) && !app->ui.in_rack) return app->ui.pad_fx ? LE_RACK : app->ui.pad_steps ? LE_SEQ : LE_EDIT;
     switch (synth_ui_where(&app->ui, &app->rack)) {
         case SYNTH_GO_RACK:      return LE_RACK;
         case SYNTH_GO_PRESETS:   return LE_PRESETS;
@@ -63,8 +63,11 @@ static list_entry_t entry_on_show(const app_t *app) {
 
 static void open_list(app_t *app, bool setup, list_entry_t want);
 
-// A synth screen: the synth section first when Pads is on show.
+// A synth screen: the PERFORM and SETUP tabs open over the pads in Pads (ADR-046 phase 3); the others go to the synth section first.
 static void go_synth(app_t *app, synth_go_t where) {
+    const bool over = where == SYNTH_GO_MACROS || where == SYNTH_GO_JOY || where == SYNTH_GO_KEYS || where == SYNTH_GO_LEDS ||
+                      where == SYNTH_GO_MODS || where == SYNTH_GO_CURVES || where == SYNTH_GO_MACHINE;
+    if (in_pads(app) && over) { app_pads_tab(app, where); return; }
     if (in_pads(app)) app_set_section(app, false);
     synth_ui_go(&app->ui, &app->rack, where);
 }
@@ -83,11 +86,12 @@ void app_storage_ask(app_t *app) {
     app->dirty = true;
 }
 
-// The pads' grid: the steps and the FX chains closed.
+// The pads' grid: the editor, the steps, the FX chains and a tab over the pads closed.
 static void pads_grid(app_t *app) {
     app_set_section(app, true);
-    app_pseq_steps_set(app, false);
-    if (app->ui.pad_fx) pads_ui_fx_open(&app->ui, false);
+    app->pads_edit_keep = false;
+    app->ui.pad_edit = false;
+    app_pads_view_go(app, VIEW_EDIT);
 }
 
 static void run_entry(app_t *app, list_entry_t e) {
@@ -95,15 +99,8 @@ static void run_entry(app_t *app, list_entry_t e) {
         case LE_SYNTH:    if (in_pads(app)) app_set_section(app, false); break;   // the synth as it was left
         case LE_PADS:     pads_grid(app); break;
         case LE_EDIT:     if (in_pads(app)) pads_grid(app); else go_synth(app, SYNTH_GO_MAIN); break;
-        case LE_RACK:
-            if (!in_pads(app)) { go_synth(app, SYNTH_GO_RACK); break; }
-            app_pseq_steps_set(app, false);
-            if (!app->ui.pad_fx) pads_ui_fx_open(&app->ui, true);
-            break;
-        case LE_SEQ:
-            if (in_pads(app)) { if (app->ui.pad_fx) pads_ui_fx_open(&app->ui, false); app_pseq_steps_set(app, true); }
-            else go_synth(app, SYNTH_GO_SEQ);
-            break;
+        case LE_RACK:      if (in_pads(app)) app_pads_view_go(app, VIEW_RACK); else go_synth(app, SYNTH_GO_RACK); break;
+        case LE_SEQ:       if (in_pads(app)) app_pads_view_go(app, VIEW_SEQ); else go_synth(app, SYNTH_GO_SEQ); break;
         case LE_SEQ_SETUP: go_synth(app, SYNTH_GO_SEQ_SETUP); break;
         case LE_PATTERNS:  go_synth(app, SYNTH_GO_PATTERNS); break;
         case LE_PRESETS:   go_synth(app, SYNTH_GO_PRESETS); break;
@@ -207,6 +204,6 @@ void app_menu_up(app_t *app, control_id_t ctl) {
     if (app->menu_ctl == CTL_NONE || app->menu_ctl != (uint8_t)ctl) return;
     app->menu_ctl = CTL_NONE;
     if (app->menu_long || popup_modal(&app->popup)) return;
-    if (in_pads(app)) { pads_ui_fx_open(&app->ui, !app->ui.pad_fx); app->dirty = true; }   // Pads: the FX chains
+    if (in_pads(app)) app_pads_menu(app);                       // Pads: EDIT <-> the last other view (PAD FX at first)
     else app_ui_event(app, UI_MENU);
 }

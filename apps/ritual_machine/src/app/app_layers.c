@@ -75,7 +75,8 @@ void app_learn_poll(app_t *app, uint32_t now) {
     app->ui.learn_wait = true;
     app->ui.learn_layer = (uint8_t)app->ui.mods_layer;
     app->ui.learn_ctl = (uint8_t)app->ui.mods_ctl;
-    if (app->ui.in_rack) app_ui_event(app, UI_MENU);
+    if (in_pads(app)) app_set_section(app, false);              // (learning takes a synth page's row: the synth section)
+    if (app->ui.in_rack) { synth_ui_go(&app->ui, &app->rack, SYNTH_GO_MAIN); app->dirty = true; }   // to the pages, as Menu
     char t[24];
     if (app->ui.learn_macro >= 0) snprintf(t, sizeof t, "MACRO %d", app->ui.learn_macro + 1);
     else layer_title(app->ui.learn_layer, (control_id_t)app->ui.learn_ctl, t, sizeof t);

@@ -813,8 +813,22 @@ static bool grid_event(synth_ui_t *ui, ui_event_t e) {
     return false;
 }
 
+view_t pads_ui_view(const synth_ui_t *ui) {
+    if (ui->pad_fx) return VIEW_RACK;
+    return ui->pad_steps && !ui->pad_edit ? VIEW_SEQ : VIEW_EDIT;
+}
+
+// The focus is at the top of the Pads screen: up goes on to the view selector. The grid's and STEPS' first row, the editor's and the FX
+// pages' header.
+static bool at_top(const synth_ui_t *ui) {
+    if (ui->pad_fx) return ui->fx_row == 0 && !ui->rack_menu;
+    if (ui->pad_steps && !ui->pad_edit) { const pseq_pattern_t *p = steps_pattern(ui); return p && steps_cursor(ui, p) < 4; }
+    return ui->pad_edit ? ui->pad_row == 0 : ui->pad_cur < 4;
+}
+
 bool pads_ui_handle(synth_ui_t *ui, rack_t *rack, ui_event_t e) {
     if (!ui->pads) return false;
+    if (e == UI_NAV_UP && at_top(ui)) { ui->view_sel = true; ui->pad_latched = ui->fx_latched = false; return false; }
     if (ui->pad_fx) { fx_event(ui, e); return false; }
     if (ui->pad_steps && !ui->pad_edit) { steps_event(ui, e); return false; }
     if (!ui->pad_edit) return grid_event(ui, e);
@@ -906,17 +920,19 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
         else snprintf(t, sizeof t, "< %s %.9s >", l, p->file[0] ? pad_file_base(p->file) : "PLAY");
     }
     u8g2_DrawHLine(g, bar.x, gui_bottom(bar) - 1, bar.w);
-    const bool head_focus = ui->pad_fx ? ui->fx_row == 0 : ui->pad_edit && ui->pad_row == 0;
+    const bool head_focus = !ui->view_sel && (ui->pad_fx ? ui->fx_row == 0 : ui->pad_edit && ui->pad_row == 0);
     if (head_focus) { u8g2_DrawBox(g, header.x, header.y, header.w, header.h); u8g2_SetDrawColor(g, 0); }
-    // the tempo at the top left on every Pads screen (user, 2026-10-10: to see the BPM keys act), the bar.beat at the right of the grid
+    // the view's badge (ADR-046 phase 3), then the tempo on every Pads screen (user, 2026-10-10: to see the BPM keys act), the bar.beat at
+    // the right of the grid
+    const int vx = header.x + ui_view_badge(g, header.x, header.y, header.h, pads_ui_view(ui), ui->view_sel) + 2;
     const int ty = gui_text_center(g, header, "B").y;
     char bt[8];
     snprintf(bt, sizeof bt, "%d", bpm);
-    const int bw = u8g2_GetStrWidth(g, bt) + 4;
-    u8g2_DrawStr(g, header.x + 1, ty, bt);
+    const int bw = vx - header.x + u8g2_GetStrWidth(g, bt) + 4;
+    u8g2_DrawStr(g, vx, ty, bt);
     u8g2_DrawVLine(g, header.x + bw - 2, header.y + 2, header.h - 4);
     const int marks = ui_header_marks(g, header.x + header.w, header.y, header.h, ui);   // the battery, the modifier held
-    if (ui->pad_fx || ui->pad_edit || ui->pad_steps) gui_draw_text_centered(g, gui_rect(header.x + bw, header.y, header.w - bw, header.h), t);
+    if (ui->pad_fx || ui->pad_edit || ui->pad_steps) ui_header_title(g, gui_rect(header.x + bw, header.y, header.w - bw - marks, header.h), t, false);
     else {                                                   // the grid: "BANK A", then the position at the right
         if (ui->cap_state == CAPTURE_ST_ARMED) snprintf(t, sizeof t, "REC ready");            // a recording (capture): waiting for a sound / the bar
         else if (ui->cap_state == CAPTURE_ST_RECORDING || ui->cap_state == CAPTURE_ST_FINISHING) snprintf(t, sizeof t, "REC %d:%02d", ui->cap_secs / 60, ui->cap_secs % 60);

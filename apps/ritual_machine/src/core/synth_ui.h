@@ -333,6 +333,10 @@ bool pads_ui_tick(synth_ui_t *ui);
 // The Pads screens' starting state (no chop yet, the EDIT page's default amounts). The app calls it once.
 void pads_ui_init(synth_ui_t *ui);
 void pads_ui_fx_open(synth_ui_t *ui, bool on);   // the FX chains page (the Menu key in the Pads section), or back to the pads
+// The Pads screen's view (ADR-046 phase 3): VIEW_RACK = the FX chains, VIEW_SEQ = STEPS, VIEW_EDIT = the grid or a pad's editor. (The
+// PERFORM and SETUP views in Pads are the synth's tabs shown over the pads: the app's, app_pads.c.) Up from the top of any of them focuses
+// the header's view selector (ui->view_sel; the app steps the views).
+view_t pads_ui_view(const synth_ui_t *ui);
 // Knob k (0..3) on a module's values page: its k-th value from 0..1; false when that page is not shown or the value is a list.
 bool pads_ui_fx_knob(synth_ui_t *ui, int k, float x, char *label, int ln, char *val, int vn);
 bool pads_ui_fx_legend(const synth_ui_t *ui, int k, char *label, int ln, float *value);   // the same, for the knob legend: its label and value 0..1

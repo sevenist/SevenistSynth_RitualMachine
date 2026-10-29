@@ -54,6 +54,12 @@ void app_catch_poll(app_t *app);                                    // every ste
 void app_run_action(app_t *app, const binding_t *b, input_event_t e);
 // Gives the UI one event; pushes the sound to the audio side when a value changed.
 void app_ui_event(app_t *app, ui_event_t ev);
+// The Pads section's views (ADR-046 phase 3, app_pads.c): EDIT = the grid or a pad's editor, SEQ = STEPS, RACK = PAD FX, PERFORM and SETUP =
+// the synth's tabs shown over the pads (the section stays: the keys play the pads, the music goes on); PRESETS: none yet (skipped).
+view_t app_pads_view(const app_t *app);
+void app_pads_view_go(app_t *app, view_t v);
+void app_pads_tab(app_t *app, synth_go_t where);     // a PERFORM / SETUP tab over the pads
+void app_pads_menu(app_t *app);                      // Menu in Pads: EDIT <-> the last other view
 void app_note_off(app_t *app, control_id_t ctl);                    // the note a control started stops (not a latched one)
 
 /* ---------------- app_pads.c (app_set_section and app_pad_changed: app.h) ---------------- */

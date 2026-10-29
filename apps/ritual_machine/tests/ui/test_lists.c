@@ -95,7 +95,7 @@ TEST(map_goes_to_the_synths_screens_grouped_by_view_and_opens_on_the_one_on_show
     CHECK(!ui_app.ui.in_rack && ui_app.ui.page == page);
 }
 
-TEST(map_in_pads_has_grid_steps_pad_fx_and_takes_the_synths_tabs_to_the_synth) {
+TEST(map_in_pads_has_grid_steps_pad_fx_and_opens_perform_and_setup_over_the_pads) {
     ui_fresh();
     char t[POPUP_LABEL_LEN], all[300];
     shift_menu(); CHECK(ui_list_pick("Pads"));
@@ -117,15 +117,17 @@ TEST(map_in_pads_has_grid_steps_pad_fx_and_takes_the_synths_tabs_to_the_synth) {
     shift_menu(); CHECK(ui_list_pick("Steps"));
     shift_menu(); CHECK(ui_list_pick("Pads"));                          // MODES Pads: the grid too
     CHECK(!ui_app.ui.pad_steps && ui_app.section == SECTION_PADS);
-    shift_menu(); CHECK(ui_list_pick("Macros"));                        // a synth tab: the synth section
-    CHECK_EQ(ui_app.section, SECTION_SYNTH);
-    CHECK(on_tab(TAB_MACROS));
-    shift_menu(); CHECK(ui_list_pick("Pads"));
-    shift_menu(); CHECK(ui_list_pick("Setup >")); CHECK(ui_list_pick("LEDs"));
-    CHECK(ui_app.section == SECTION_SYNTH && on_tab(TAB_LEDS));
-    shift_menu(); CHECK(ui_list_pick("Pads"));
-    shift_menu(); CHECK(ui_list_pick("Synth"));                         // the synth as it was left: LEDS
-    CHECK(ui_app.section == SECTION_SYNTH && on_tab(TAB_LEDS));
+    shift_menu(); CHECK(ui_list_pick("Macros"));                        // PERFORM over the pads: the section stays (ADR-046 phase 3)
+    CHECK(ui_app.section == SECTION_PADS && on_tab(TAB_MACROS));
+    shift_menu();
+    focused(t, (int)sizeof t);
+    CHECK_STR(t, "Macros");
+    CHECK(ui_list_pick("Setup >")); CHECK(ui_list_pick("LEDs"));       // SETUP too
+    CHECK(ui_app.section == SECTION_PADS && on_tab(TAB_LEDS));
+    shift_menu(); CHECK(ui_list_pick("Grid"));
+    CHECK(ui_app.section == SECTION_PADS && !ui_app.ui.in_rack);
+    shift_menu(); CHECK(ui_list_pick("Synth"));                         // the synth as it was left: its EDIT view
+    CHECK(ui_app.section == SECTION_SYNTH && !ui_app.ui.in_rack);
 }
 
 TEST(map_leaving_the_rack_with_edits_rebuilds_as_menu_does) {

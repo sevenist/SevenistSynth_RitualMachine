@@ -71,8 +71,93 @@ static void chop_ask(app_t *app) {
 /* ---------------- the section's screens, keys and knobs ---------------- */
 
 // One UI event in the Pads section (scr_pads.c).
+/* ---------------- the Pads section's views (ADR-046 phase 3) ---------------- */
+
+static const view_t pads_ring[] = {VIEW_EDIT, VIEW_SEQ, VIEW_RACK, VIEW_PERFORM, VIEW_SETUP};   // (PRESETS: nothing in Pads yet)
+#define PADS_VIEWS ((int)(sizeof pads_ring / sizeof pads_ring[0]))
+
+view_t app_pads_view(const app_t *app) { return app->ui.in_rack ? synth_ui_view(&app->ui, &app->rack) : pads_ui_view(&app->ui); }
+
+// Leaves what is on show for the grid (the editor as it was kept), the steps and the FX chains closed, no tab over the pads.
+static void pads_leave(app_t *app) {
+    synth_ui_t *ui = &app->ui;
+    if (app_pads_view(app) == VIEW_EDIT && !ui->in_rack) app->pads_edit_keep = ui->pad_edit;
+    if (ui->in_rack) { ui->in_rack = false; ui->latched = false; ui->row = 0; }
+    if (ui->pad_fx) pads_ui_fx_open(ui, false);
+    ui->pad_steps = false;
+    ui->pad_edit = false;
+    ui->view_sel = false;
+}
+
+void app_pads_view_go(app_t *app, view_t v) {
+    synth_ui_t *ui = &app->ui;
+    if (app_pads_view(app) == v) return;
+    pads_leave(app);
+    switch (v) {
+        case VIEW_SEQ:  if (app->pbank.pat) { ui->pad_steps = true; ui->pseq_row = 0; } break;   // (as Select + Play: the pad keys are steps)
+        case VIEW_RACK: pads_ui_fx_open(ui, true); break;
+        case VIEW_PERFORM: case VIEW_SETUP: synth_ui_view_go(ui, &app->rack, v); ui->row = 1; break;
+        default: ui->pad_edit = app->pads_edit_keep; break;
+    }
+    const view_t now = app_pads_view(app);
+    if (now != VIEW_EDIT) app->pads_view_last = (uint8_t)now;
+    app->dirty = true;
+    app_catch_stale = true;
+}
+
+void app_pads_tab(app_t *app, synth_go_t where) {
+    pads_leave(app);
+    synth_ui_go(&app->ui, &app->rack, where);
+    app->pads_view_last = (uint8_t)app_pads_view(app);
+    app->dirty = true;
+}
+
+void app_pads_menu(app_t *app) {
+    app_pads_view_go(app, app_pads_view(app) == VIEW_EDIT ? (view_t)app->pads_view_last : VIEW_EDIT);
+}
+
+// The header's view selector in Pads (the synth's own, synth_ui.c, steps the synth's views): left / right the ring, down or Enter the view
+// itself, Back home. True when it took the event.
+static bool pads_view_sel_event(app_t *app, ui_event_t ev) {
+    synth_ui_t *ui = &app->ui;
+    int dir = 0;
+    switch (ev) {
+        case UI_NAV_LEFT: case UI_LEFT: case UI_VALUE_DEC: case UI_PAGE_PREV:  dir = -1; break;
+        case UI_NAV_RIGHT: case UI_RIGHT: case UI_VALUE_INC: case UI_PAGE_NEXT: dir = 1; break;
+        case UI_NAV_UP: return true;
+        case UI_NAV_DOWN: case UI_DOWN: case UI_LATCH: case UI_SELECT: ui->view_sel = false; return true;
+        case UI_BACK: ui->view_sel = false; app_pads_view_go(app, VIEW_EDIT); return true;
+        default: ui->view_sel = false; return false;
+    }
+    int at = 0;
+    while (at < PADS_VIEWS - 1 && pads_ring[at] != app_pads_view(app)) at++;
+    for (int k = 0; k < PADS_VIEWS; k++) {                   // (SEQ without patterns: skipped)
+        at = (at + dir + PADS_VIEWS) % PADS_VIEWS;
+        if (pads_ring[at] != VIEW_SEQ || app->pbank.pat) break;
+    }
+    app_pads_view_go(app, pads_ring[at]);
+    ui->view_sel = true;
+    if (ui->in_rack) ui->row = 0;
+    if (ui->pad_fx) ui->fx_row = 0;
+    if (ui->pad_edit) ui->pad_row = 0;
+    return true;
+}
+
+// A synth tab over the pads (PERFORM, SETUP): the synth's screen gets the event, but what would leave for the synth's own views stays in
+// Pads: Back from the header goes to the Pads' EDIT; the jump slots (the synth's places) do nothing here.
+static void pads_tab_event(app_t *app, ui_event_t ev) {
+    synth_ui_t *ui = &app->ui;
+    if (ev >= UI_JUMP_1 && ev <= UI_JUMP_8) return;
+    if (ev == UI_BACK && ui->row == 0 && !ui->latched) { app_pads_view_go(app, VIEW_EDIT); return; }
+    if (synth_ui_handle(ui, &app->params, &app->seq, &app->rack, ev)) audio_set_params(&app->rack, &app->params);   // (MACHINE: Out, Spk)
+    if (ui->storage_req) { ui->storage_req = false; app_storage_ask(app); }
+    app_catch_stale = true;
+}
+
 void app_pads_event(app_t *app, ui_event_t ev) {
     app->ui.clock_bpm = app->seq.bpm;
+    if (app->ui.view_sel && pads_view_sel_event(app, ev)) { app->dirty = true; return; }
+    if (app->ui.in_rack) { pads_tab_event(app, ev); app->dirty = true; return; }
     if (pads_ui_handle(&app->ui, &app->rack, ev)) app_pad_changed(app, pads_ui_pad(&app->ui));
     if (app->ui.br_req) { app->ui.br_req = 0; app_browse_open(app, BROWSE_PAD); }   // the sample row: the browser
     if (app->ui.rack_dirty) fx_changed(app);                // the FX pages edited the chains
@@ -91,6 +176,15 @@ void app_pads_event(app_t *app, ui_event_t ev) {
 void app_set_section(app_t *app, bool pads) {
     if (pads == in_pads(app)) return;
     if (app->ui.br_open) app_browse_close(app, false);
+    // each section keeps its own place among the synth's tabs (the synth: any; Pads: PERFORM / SETUP over the pads) and its row
+    const int was = in_pads(app) ? 1 : 0;
+    app->sec_tab[was] = (int8_t)(app->ui.in_rack ? app->ui.menu_tab : -1);
+    app->sec_row[was] = (uint8_t)(app->ui.row < 0 ? 0 : app->ui.row);
+    if (!was && app->ui.rack_dirty) synth_ui_rebuild_pages(&app->ui, &app->rack);   // the rack's edits: its pages now (the engine: on the way back)
+    app->ui.in_rack = app->sec_tab[!was] >= 0;
+    if (app->ui.in_rack) app->ui.menu_tab = app->sec_tab[!was];
+    app->ui.row = app->sec_row[!was];
+    app->ui.latched = false; app->ui.view_sel = false; app->ui.cog_page = -1;
     for (int c = 0; c < CTL_COUNT; c++) {
         if (app->in.held[c]) audio_note_off(app->in.held[c] - 1);
         app->in.held[c] = 0;

@@ -220,7 +220,7 @@ void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             snprintf(app->status, sizeof app->status, "Octave %+d", app->in.octave);
             break;
         case ACT_PAGE_KNOB:
-            if (in_pads(app)) { app_pads_knob(app, b->arg, e.value); break; }
+            if (in_pads(app) && !app->ui.in_rack) { app_pads_knob(app, b->arg, e.value); break; }   // (a tab over the pads: as in the synth)
             changed = synth_ui_knob_row(&app->ui, &app->params, &app->seq, &app->rack, b->arg, e.value);
             if (changed) { audio_set_params(&app->rack, &app->params); app->dirty = true; }
             break;

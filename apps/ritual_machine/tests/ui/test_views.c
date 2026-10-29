@@ -2,6 +2,7 @@
 // view selector above the page selector; the page rings of each view; Menu = home <-> the last other view; Back climbs to home; MACHINE.
 #include "ui_test.h"
 #include "core/ui_screen.h"
+#include "app/app_internal.h"
 
 #define MENU CTL_BTN_1
 #define BACK CTL_BTN_2
@@ -166,4 +167,94 @@ TEST(views_jump_slot_to_machine_and_back_to_a_seq_page) {
     CHECK_EQ(view(), VIEW_EDIT);
     ev_tap(MENU);
     CHECK(synth_ui_where(&ui_app.ui, &ui_app.rack) == SYNTH_GO_PATTERNS);
+}
+
+/* ---------------- the Pads section's views ---------------- */
+
+static void to_pads(void) { app_set_section(&ui_app, true); ev_idle(1); }
+
+TEST(views_pads_ring_from_the_top_of_the_grid_keeps_the_section) {
+    ui_fresh();
+    to_pads();
+    ui_app.pads_run = true;                                             // the pads' music: it goes on through every view
+    CHECK(app_pads_view(&ui_app) == VIEW_EDIT && !ui_app.ui.view_sel);
+    ui_app.ui.pad_cur = 5;
+    ev_tap(CTL_JOY_UP);                                                 // the grid's second row: up moves the pad
+    CHECK(ui_app.ui.pad_cur == 1 && !ui_app.ui.view_sel);
+    ev_tap(CTL_JOY_UP);                                                 // its first: the view selector
+    CHECK(ui_app.ui.view_sel && ui_app.ui.pad_cur == 1);
+    static const view_t ring[] = {VIEW_SEQ, VIEW_RACK, VIEW_PERFORM, VIEW_SETUP, VIEW_EDIT};
+    for (int k = 0; k < 5; k++) {
+        ev_tap(CTL_JOY_RIGHT);
+        CHECK_EQ(app_pads_view(&ui_app), ring[k]);
+        CHECK(ui_app.ui.view_sel && ui_app.section == SECTION_PADS && ui_app.pads_run);
+        ui_app.dirty = true; ev_idle(1);                                // drawn without trouble
+    }
+    CHECK(!ui_app.ui.in_rack && !ui_app.ui.pad_fx && !ui_app.ui.pad_steps);
+    ev_tap(CTL_JOY_LEFT);                                               // SETUP: a synth tab over the pads
+    CHECK(ui_app.ui.in_rack && view() == VIEW_SETUP && ui_app.section == SECTION_PADS);
+    ev_tap(CTL_JOY_DOWN);                                               // down: its page selector, then its rows
+    CHECK(!ui_app.ui.view_sel && ui_app.ui.row == 0);
+    ev_tap(CTL_JOY_RIGHT);
+    CHECK(on_tab(TAB_LEDS));
+    ev_tap(CTL_JOY_DOWN);
+    CHECK(ui_app.ui.row >= 1 && on_tab(TAB_LEDS));
+    ev_tap(BACK);                                                       // Back climbs to its header, then the Pads' home
+    CHECK(ui_app.ui.row == 0 && ui_app.ui.in_rack);
+    ev_tap(BACK);
+    CHECK(!ui_app.ui.in_rack && app_pads_view(&ui_app) == VIEW_EDIT && ui_app.section == SECTION_PADS && ui_app.pads_run);
+}
+
+TEST(views_pads_menu_toggles_home_and_the_last_other_view) {
+    ui_fresh();
+    to_pads();
+    ev_tap(MENU);                                                       // at first PAD FX, as Menu in Pads was
+    CHECK(ui_app.ui.pad_fx && app_pads_view(&ui_app) == VIEW_RACK);
+    ev_tap(MENU);
+    CHECK(!ui_app.ui.pad_fx && app_pads_view(&ui_app) == VIEW_EDIT);
+    ev_tap(CTL_JOY_UP);                                                 // (the first pad: the top row)
+    ev_tap(CTL_JOY_LEFT); ev_tap(CTL_JOY_LEFT);                         // PERFORM by the selector
+    CHECK(on_tab(TAB_MACROS) && ui_app.section == SECTION_PADS);
+    ev_tap(CTL_JOY_DOWN); ev_tap(CTL_JOY_RIGHT);                        // its JOY tab
+    CHECK(on_tab(TAB_JOY));
+    ev_tap(MENU);
+    CHECK(app_pads_view(&ui_app) == VIEW_EDIT && !ui_app.ui.in_rack);
+    ev_tap(MENU);                                                       // back to it, on JOY
+    CHECK(on_tab(TAB_JOY) && ui_app.section == SECTION_PADS);
+    ev_tap(MENU);
+    ui_app.ui.pad_edit = true;                                          // a pad's editor open: EDIT keeps it
+    ev_tap(MENU); ev_tap(MENU);
+    CHECK(ui_app.ui.pad_edit && app_pads_view(&ui_app) == VIEW_EDIT);
+}
+
+TEST(views_each_section_keeps_its_own_tab) {
+    ui_fresh();
+    synth_ui_go(&ui_app.ui, &ui_app.rack, SYNTH_GO_SOUND);              // the synth on SOUND
+    to_pads();
+    CHECK(!ui_app.ui.in_rack && app_pads_view(&ui_app) == VIEW_EDIT);  // Pads: its grid, not the synth's tab
+    app_pads_tab(&ui_app, SYNTH_GO_MACHINE);                            // MACHINE over the pads
+    CHECK(on_tab(TAB_MACHINE));
+    app_set_section(&ui_app, false);
+    CHECK(on_tab(TAB_SOUND));                                           // the synth: SOUND again
+    to_pads();
+    CHECK(on_tab(TAB_MACHINE) && ui_app.section == SECTION_PADS);       // Pads: MACHINE again
+}
+
+TEST(views_learn_from_a_tab_over_the_pads_goes_to_the_synths_pages) {
+    ui_fresh();
+    to_pads();
+    app_pads_tab(&ui_app, SYNTH_GO_MACROS);
+    ui_app.ui.learn_macro = 0;                                          // (as the MACROS tab's Learn button)
+    ui_app.ui.learn_req = true;
+    ev_idle(1);
+    CHECK(ui_app.section == SECTION_SYNTH && !ui_app.ui.in_rack && view() == VIEW_EDIT && ui_app.ui.learn_wait);
+}
+
+TEST(views_knobs_over_the_pads_leave_the_pads_alone) {
+    ui_fresh();
+    to_pads();
+    const pad_t before = ui_app.pads.pad[pads_ui_pad(&ui_app.ui)];
+    app_pads_tab(&ui_app, SYNTH_GO_KEYS);
+    for (int k = 0; k < 4; k++) ev_knob((control_id_t)(CTL_COL_KNOB_0 + k), 900);
+    CHECK(!memcmp(&before, &ui_app.pads.pad[pads_ui_pad(&ui_app.ui)], sizeof before));
 }

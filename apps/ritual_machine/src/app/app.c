@@ -63,6 +63,10 @@ void app_init(app_t *app, u8g2_t *display) {
     app->ui.history = &app->history;
     memset(&app->render, 0, sizeof app->render);
     app->section = SECTION_SYNTH;
+    app->sec_tab[0] = app->sec_tab[1] = -1;
+    app->sec_row[0] = app->sec_row[1] = 0;
+    app->pads_view_last = VIEW_RACK;
+    app->pads_edit_keep = false;
     app->pads_pending = false;
     app->pads_shown = 0;
     app->pads_run = false;
@@ -191,13 +195,14 @@ void app_draw_frame(app_t *app) {
         app->ui.rec_mark = (uint8_t)rec_mark(app);
         if (app->ui.br_open) browse_ui_draw(&app->ui, g);
         else {
-            if (in_pads(app)) pads_ui_draw(&app->ui, &app->rack, g, app->pads_shown, app->seq.bpm);
+            const bool pads_screen = in_pads(app) && !app->ui.in_rack;   // (a synth tab over the pads: the synth's screen)
+            if (pads_screen) pads_ui_draw(&app->ui, &app->rack, g, app->pads_shown, app->seq.bpm);
             else synth_ui_draw(&app->ui, &app->params, &app->seq, &app->rack, g);
             legend_cell_t cell[SYNTH_UI_COL_KNOBS];                        // the knob legend (ADR-046): what the column knobs drive now
-            if (in_pads(app)) app_pads_legend(app, cell);
+            if (pads_screen) app_pads_legend(app, cell);
             else if (layer >= 0) app_layer_legend(app, layer, cell);
             else synth_ui_legend(&app->ui, &app->params, &app->seq, &app->rack, cell);
-            if (ui_legend_shown(&app->ui, &app->rack, in_pads(app))) ui_legend_draw(g, cell);
+            if (ui_legend_shown(&app->ui, &app->rack, pads_screen)) ui_legend_draw(g, cell);
         }
         gui_style_t st;
         gui_style_init(&st, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
@@ -240,6 +245,7 @@ bool app_step(app_t *app, input_event_t e) {
         snprintf(app->status, sizeof app->status, "Keys not saved (no card)");
     app->menu_open = app->ui.in_rack;
 
+    if (app->ui.rebuild && in_pads(app)) app->ui.rebuild = false;      // (the synth is built again when its section comes back)
     if (app->ui.rebuild) {              // the rack editor was just left: rebuild the synth from it
         app->ui.rebuild = false;
         audio_build(&app->rack, &app->params);

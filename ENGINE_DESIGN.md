@@ -1870,7 +1870,7 @@ Chosen by me while building (say if one is wrong):
   runs on HWV1 too, where the LEDs do not exist: a few reads per frame); the HWV1 simulator shows no pot LEDs (its board has
   none).
 
-### ADR-046: The GUI reorganization, one UX ruleset, built for HWV1 (Accepted; user choices of 2026-10-29; phases 1, 2, 4 built on branch `gui-reorg` 2026-10-29, `bf4151f` .. the docs commit; host-tested; flashed and tried by the user the same day: "working properly"; phase 3 built the same day, `02c7a94` .. the docs commit, host-tested, NOT tried by the user)
+### ADR-046: The GUI reorganization, one UX ruleset, built for HWV1 (Accepted; user choices of 2026-10-29; phases 1, 2, 4 built on branch `gui-reorg` 2026-10-29, `bf4151f` .. the docs commit; host-tested; flashed and tried by the user the same day: "working properly"; phase 3 built the same day, `02c7a94` .. the docs commit, host-tested; flashed and tried by the user 2026-10-30: "tested, working")
 **Why.** The user, 2026-10-29: "you have the role of UX designer, create a plan to reorganize the whole GUI ... without leaving
 current features hidden or lost ... a current and future proof ruleset for creating a new UX for specific hardware". The plan
 (rules R1..R23, the views, the controls per board, where every feature goes, the phases) is
@@ -1999,7 +1999,7 @@ guide sections 4 and 9, gave the views, the focus levels and the routes; these a
 `ui_view_badge`, `ui_header_title`, `scr_machine.c`); `7c1ce95` the map and the page list (`app_lists.c`); `ba57997` the Pads'
 views (`pads_ui_view`, `at_top`, `app_pads_view*`, `pads_tab_event`, `sec_tab`). Checked: 197 UI tests (13 new in `test_views.c`,
 `test_lists.c` rewritten for the map); both simulators built; the headers, MACHINE, the map and the Pads views looked at as images
-(HWV1). **NOT tried by the user, the firmware not built by me.**
+(HWV1). **Flashed and tried by the user 2026-10-30: "tested, working"**; they try it in use and report issues.
 
 ## Known limits and ideas for later
 

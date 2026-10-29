@@ -19,8 +19,9 @@ theirs**: the XY binding moved from a plain push to a held one). Host-tested (18
 screens looked at as images. **The user then reinstalled PlatformIO Core, flashed the board and tried the new UX: "so far
 it's working properly"** (2026-10-29; the HWV1 knob places "seem correct", to double-check). **Then, at their word ("let's
 start"), phase 3 was built, one commit per step** (`02c7a94` the synth's views, `7c1ce95` the map and the page list, `ba57997`
-the Pads' views, then the docs): host-tested (197 UI tests), both simulators built, the screens looked at as images; **NOT
-tried by the user, the firmware NOT built** by me. My choices: ADR-046 "Phase 3, chosen by me" (12 points).
+the Pads' views, then the docs): host-tested (197 UI tests), both simulators built, the screens looked at as images. **The
+user flashed and tried it (2026-10-30): "tested, working"; they will try it in use and report issues.** My choices: ADR-046
+"Phase 3, chosen by me" (12 points).
 
 **Where things stood (2026-10-29):** ADR-044 flashed and tried by the user ("all good"); ADR-045 (the pot / Enc A LEDs)
 built on `main` and committed (`5ed38ed` .. `890597c`), not tried by the user. Then, at their request, **a plan to reorganize
@@ -88,7 +89,8 @@ was then asked with options (audio into a sample, a popup when arming, the desti
 item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
 21-23).
 
-- [ ] **Try phase 3, the views (branch `gui-reorg`, ADR-046 "Phase 3")** (from: user, 2026-10-29). Build and flash from VS Code
+- [ ] **Try phase 3, the views (branch `gui-reorg`, ADR-046 "Phase 3")** (from: user, 2026-10-29). **Flashed and tried by the
+  user 2026-10-30: "tested, working"; they test it in use and report issues**: wait for those. Build and flash from VS Code
   (the simulator first: `.\build.ps1 -Board hwv1`, `.\run.ps1 -Board hwv1`). **To try**: (1) the header's left badge (ED, SQ,
   RK, PF, PR, ST): from the page name push the joystick **up**: the badge fills; left / right change the view, each where you left
   it; down comes back; (2) left / right on the page name stay in the view: EDIT never reaches SEQUENCER, SEQ is SEQUENCER / SEQ

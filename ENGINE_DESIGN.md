@@ -1870,6 +1870,41 @@ Chosen by me while building (say if one is wrong):
   runs on HWV1 too, where the LEDs do not exist: a few reads per frame); the HWV1 simulator shows no pot LEDs (its board has
   none).
 
+### ADR-046: The GUI reorganization, one UX ruleset, built for HWV1 (Accepted; user choices of 2026-10-29; built on branch `gui-reorg`, in progress)
+**Why.** The user, 2026-10-29: "you have the role of UX designer, create a plan to reorganize the whole GUI ... without leaving
+current features hidden or lost ... a current and future proof ruleset for creating a new UX for specific hardware". The plan
+(rules R1..R23, the views, the controls per board, where every feature goes, the phases) is
+[docs/guides/UX_REORGANIZATION.md](docs/guides/UX_REORGANIZATION.md) and the claude.ai doc it links. The problems it solves
+(P1..P10): two editing models, push with six meanings, invisible knob targets, four routes through two maps, sound / sequencing
+/ setup mixed, Synth and Pads not parallel, a destructive Back, hidden pending state, hardware gaps solved case by case, idle
+column knobs in the menu.
+
+**Decisions taken by the user** (two rounds of options, 2026-10-29; recorded, not to be re-litigated):
+1. **Design for HWV1, the board in hand** ("we will make modifications for the next board on another app version"). The next
+   board (7 relative pots, a joystick, 2 push encoders) is out of this work; the simulator's panel stays a reference that must
+   keep working. (Q1)
+2. **Push = Enter everywhere**: the joystick push latches a value, opens or activates; never "right". (Q7, my recommendation)
+3. **JOY moves to a PERFORM view next to MACROS** (reopens ADR-044 decision 1, on the user's answer). (Q3, my recommendation)
+4. **Out, Spk, Knob move from SOUND to SETUP > MACHINE**; Vol stays in SOUND (reopens ADR-044 decision 7, on the user's
+   answer). (Q4, my recommendation)
+5. **Back never deletes**: on RACK, Back goes up; Delete stays in the cell menu. (Q2, my recommendation)
+6. **No Relative knob mode for now**: Catch / Direct stay as they are. (Q8; against my recommendation, Relative as the default
+   on endless pots. Risk: HWV1's endless pots keep the catch, a knob can still have to travel before it acts.)
+7. **Pads capture also in a Pads Rec list on Shift + Play** (next to step mode); the Rec key keeps working. (Q5, my
+   recommendation)
+8. **The extras in**: the Bar widget, Reset to default (a cog item), a macro Value field (set a macro from the MACROS page),
+   and **a battery indicator in the header** (theirs). **Out**: the latched-notes count; Enc A / B held gestures (HWV1 has no
+   encoders). (Q9)
+9. Not asked: **Q6** (colours: macro 1 off Red, a Pads hue for Enc A): ADR-045's pot LEDs are not on HWV1; to ask before the
+   LED phase.
+10. **The order of the work** (2026-10-29): phase 1 (the knob legend), then phase 2 (one editing model), then phase 4 (safety);
+   the user away for some hours: "make decisions on your own, I trust you! Make your best and be creative". One commit per
+   step on `gui-reorg`.
+
+**The plan, one commit per step** (guide section 7): (1) the knob legend zone and the header marks, the battery; (2) the main
+view's editing model: push = Enter / latch; (4) safety: Back never deletes, the pending mark, the recording states in the
+header. Phases 3 (views and rings), 5 (the Tier 0 fallback table, the Pads Rec list) and 6 (LEDs) after.
+
 ## Known limits and ideas for later
 
 - Not hooked to the UI yet: the **Sampler** and **Granular** modules and the sample bank (stage 6 is engine-level and

@@ -6,7 +6,20 @@ not: state, the latest measurements and what to do next, the user's working styl
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
 `apps/ritual_machine/tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
-## Session todo (updated 2026-10-28, second session)
+## Session todo (updated 2026-10-29, second session)
+
+**Where things stand (2026-10-29, second session):** at `/session-start` the user asked for **a new branch for the GUI
+reorganization**: `gui-reorg`, made from `main` at `890597c` (the three uncommitted docs files carried over: this file, the
+guides README, UX_REORGANIZATION.md). The claude.ai doc had no comments, no ticked questions, no edits (rev 14). **The
+decision round was held** (two rounds, answers in the first item below); not yet written as ADR-046, nothing built.
+
+**Where things stood (2026-10-29):** ADR-044 flashed and tried by the user ("all good"); ADR-045 (the pot / Enc A LEDs)
+built on `main` and committed (`5ed38ed` .. `890597c`), not tried by the user. Then, at their request, **a plan to reorganize
+the whole GUI, no code** ("you have the role of UX designer ... without leaving current features hidden or lost ... a ruleset
+for creating a new UX for specific hardware"; the next board: 7 relative pots and a joystick, plus 2 push encoders). Written
+as a claude.ai doc (<https://claude.ai/artifact/1uWHvDoWvGxJRfAgxWrMeG>), then as the repo guide
+[docs/guides/UX_REORGANIZATION.md](docs/guides/UX_REORGANIZATION.md) for the next session. **Nothing decided, nothing built.**
+The first item below is the way in.
 
 **Where things stand (2026-10-28, second session):** the board runs the normal build of `perf-pads`, now **merged into
 `main`** (fast-forward to `6742923`, after the user listened: identical). At `/session-start` the user reported the sequencer erase "not working", then, after I showed them the test,
@@ -66,6 +79,31 @@ was then asked with options (audio into a sample, a popup when arming, the desti
 item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
 21-23).
 
+- [ ] **The GUI reorganization on branch `gui-reorg`: write ADR-046, then build phase by phase, one commit per step**
+  (from: user, 2026-10-29). **Their answers (2026-10-29, second session; all my recommendations unless said):**
+  Q1 **design for HWV1, the board in hand** ("we will make modifications for the next board on another app version"): the
+  next board's map is out of this branch, the panel stays the simulator's reference; Q7 **push = Enter everywhere**; Q3 **JOY
+  moves to PERFORM** (reopens ADR-044 decision 1, on their answer); Q4 **Out, Spk, Knob move to SETUP > MACHINE**, Vol stays
+  in SOUND (reopens ADR-044 decision 7, on their answer); Q2 **Back never deletes** (RACK: Delete in the cell menu only);
+  Q8 **no Relative knob mode for now** (against my recommendation: Catch / Direct stay as they are; the HWV1 catch check
+  is no longer needed first); Q5 **a Pads Rec list on Shift + Play** with capture (the Rec key keeps working); Q9 extras
+  **in**: the Bar widget, Reset to default (a cog item), the macro Value field, and **a battery indicator in the header**
+  (theirs, new; `hal_power.h` / `app_power.c` already read the battery); **out**: the latched-notes count, Enc A / B held
+  (no encoders on HWV1). Not asked: Q6 (colours; ADR-045's pot LEDs are not on HWV1: ask before phase 6). So phase 5
+  shrinks to the Tier 0 fallback table + the Pads Rec list. Done means: the phases' gates (guide section 7) met on HWV1
+  and the simulator, the docs in step, a test list per phase for the user to flash and try.
+- [x] **The GUI reorganization: the decision round** (done 2026-10-29, answers above) (from: user, 2026-10-29; the plan:
+  [docs/guides/UX_REORGANIZATION.md](docs/guides/UX_REORGANIZATION.md), section 1 = what to do, in order). **First read the
+  claude.ai doc** (<https://claude.ai/artifact/1uWHvDoWvGxJRfAgxWrMeG>, with the Artifact tool or the docs tools): the user may
+  have edited it or left comments; their edits win over the repo copy. Then ask the open questions Q1..Q9 (guide section 8)
+  with options, pros and cons; **Q3 and Q4 reopen ADR-044 decisions 1 and 7** (recorded "not to be re-litigated": only on
+  the user's answer). **Q1 matters for ADR-045 too**: it assumed 8 pots on the next prototype, the user now says 7 relative
+  pots + 2 push encoders. Record the answers as ADR-046, then build the six phases one commit per step (ask: `main` or a
+  branch). In short, the plan: 2 sections x 5 views in the same order (EDIT, SEQ, RACK, PERFORM, PRESETS) + a SETUP overlay;
+  23 rules (verbs not controls, every verb on the smallest board, push = Enter, Back never destroys, relative pots without
+  catch); a knob legend zone naming K1..K4, laid out like the physical knobs; on the next board the encoders take Enc A / B
+  and pots P1 / P2 become macro knobs R1 / R2; a 62-row table of where every current feature goes (5 move). Not checked
+  while planning: how HWV1's endless pots behave with Catch today (guide section 10)
 - [x] **The page list on Shift + Menu, and the page jump list on a long Menu press: flashed and tried by the user on the
   prototype, every point of the 21-point list: "all good"** (done 2026-10-29). One change at their word: no jump list in
   Pads (a long press there is the FX chains, ADR-044 decision 8; host-tested, not flashed yet). The 21 points tried include the

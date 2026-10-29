@@ -108,10 +108,12 @@ static const gpage_def_t global_pages[] = {
     [GP_SEQ_PAT]    = {"PATTERNS",   GRAPH_SEQ_PAT,    PAT_ROWS, {0}},   // rows: Pat, Chain, Len, Slot, Is (see handle_seq_pat)
 };
 
-// Global pages shown after the module pages (modular synth) / the whole list (FM synth).
-static const uint8_t modular_globals[] = {GP_AMP_ENV, GP_AMP_CRV, GP_SEQ, GP_SEQ_CFG, GP_SEQ_PAT};
-static const uint8_t fm_globals[]      = {GP_FM, GP_SEQ, GP_SEQ_CFG, GP_SEQ_PAT};     // the operator pages go after GP_FM
-static const uint8_t str_globals[]     = {GP_STR_OSC, GP_STR_TONE, GP_STR_LP, GP_STR_FILTER, GP_AMP_ENV, GP_SEQ, GP_SEQ_CFG, GP_SEQ_PAT};
+// Global pages shown after the module pages (modular synth) / the whole list (FM synth). The SEQ view's pages follow every type's EDIT
+// pages, last (ADR-046 phase 3).
+static const uint8_t modular_globals[] = {GP_AMP_ENV, GP_AMP_CRV};
+static const uint8_t fm_globals[]      = {GP_FM};     // the operator pages go after GP_FM
+static const uint8_t str_globals[]     = {GP_STR_OSC, GP_STR_TONE, GP_STR_LP, GP_STR_FILTER, GP_AMP_ENV};
+static const uint8_t seq_globals[]     = {GP_SEQ, GP_SEQ_CFG, GP_SEQ_PAT};
 
 // The pages of the rack's modules, appended at n. FM / Strings: only row M's effects (their own sound has no rack, ADR-041).
 static int add_module_pages(synth_ui_t *ui, const rack_t *rack, int n) {
@@ -127,8 +129,11 @@ static int add_module_pages(synth_ui_t *ui, const rack_t *rack, int n) {
     return n;
 }
 
-// Modular: the modules' pages, then the global ones. FM / Strings: their global pages first, then row M's effects.
+// Modular: the modules' pages, then the global ones. FM / Strings: their global pages first, then row M's effects. Then the SEQ view's.
+// The page on show stays in its view (an EDIT page index past the new EDIT pages: the last of them).
 void synth_ui_rebuild_pages(synth_ui_t *ui, const rack_t *rack) {
+    const bool was_seq = ui->edit_pages > 0 && ui->page >= ui->edit_pages;
+    const int seq_at = ui->page - ui->edit_pages;
     int n = 0;
     const bool rack_type = synth_type_is_rack(rack->cfg.type);
     if (rack_type) n = add_module_pages(ui, rack, n);
@@ -145,8 +150,12 @@ void synth_ui_rebuild_pages(synth_ui_t *ui, const rack_t *rack) {
         }
     }
     if (!rack_type) n = add_module_pages(ui, rack, n);
+    ui->edit_pages = n;
+    for (int d = 0; d < (int)sizeof seq_globals && n < SYNTH_UI_MAX_PAGES; d++) { ui->pg_slot[n] = GLOBAL_PAGE; ui->pg_def[n] = seq_globals[d]; n++; }
     ui->page_count = n;
     ui->cog_page = -1;
+    if (was_seq) ui->page = ui->edit_pages + seq_at;
+    else if (ui->page >= ui->edit_pages) ui->page = ui->edit_pages - 1;
     if (ui->page >= n) ui->page = n - 1;
     if (ui->page < 0) ui->page = 0;
     synth_ui_jump_resolve(ui, rack);
@@ -234,6 +243,8 @@ void synth_ui_init(synth_ui_t *ui, const rack_t *rack) {
     ui->rack_row = synth_type_is_rack(rack->cfg.type) ? 0 : ROW_M; ui->rack_menu = false;
     for (int l = 0; l < RACK_ROWS; l++) ui->rack_col[l] = 0;
     ui->rack_dirty = false; ui->rebuild = false; ui->in_rack = false; ui->menu_tab = 0; ui->fm_op = 0; ui->fm_pt = 0;
+    ui->view_sel = false; ui->edit_pages = 0; ui->view_last = VIEW_RACK; ui->storage_req = false;
+    for (int v = 0; v < VIEW_COUNT; v++) ui->view_at[v] = 0;
     ui->cog_page = -1;
     ui->run_anim = GUI_ANIM_INVALID; ui->ms_lane = 0; ui->ms_step = 0; ui->smp_cur = 0; ui->smp_tgt = 0; ui->key_cur = KEY_COLS; ui->eg_pt = 0;
     ui->mods_layer = 0; ui->mods_ctl = CTL_COL_KNOB_0; ui->learn_req = false; ui->learn_wait = false; ui->knob_away = 0; ui->batt_pct = -1; ui->layer_held = -1;
@@ -256,7 +267,8 @@ void synth_ui_sound_loaded(synth_ui_t *ui, const rack_t *rack) {
     ui->joy_fresh = -1; ui->joy_xy = false;
     for (int a = 0; a < 2; a++) { ui->joy_rest[a] = -1.0f; ui->joy_last[a] = JOY_POS_CENTRE; }
     ui->rack_dirty = false; ui->rebuild = false;
-    if (!ui->in_rack) { ui->row = 0; ui->latched = false; }
+    ui->view_at[VIEW_EDIT] = 0;
+    if (!ui->in_rack) { ui->row = 0; ui->latched = false; ui->view_sel = false; }
     else if (ui->menu_tab >= tab_count(rack)) { ui->menu_tab = 0; ui->row = 0; ui->latched = false; }
     synth_ui_rebuild_pages(ui, rack);
 }
@@ -280,30 +292,106 @@ bool synth_ui_shows_playhead(const synth_ui_t *ui, const rack_t *rack) {
     return mod_pages[rack->slot[ui->pg_slot[ui->page]].type].defs[ui->pg_def[ui->page]].graph == GRAPH_MS_STEPS;
 }
 
-/* ---------------- menu tabs ----------------
- * Every synth type: RACK (FM, Strings: row M only, ADR-041), PRESETS, SOUND (the synth's settings, then the rack's sample (Modular) or
- * the DX7 patch's algorithm (FM): ADR-044, it was GENERAL + SAMPLES / ALGORITHM), KEYS, LEDS, MODIFIERS, MACROS, JOY, CURVES. */
+/* ---------------- menu tabs, grouped by view ----------------
+ * Every synth type, in view order (ADR-046 phase 3): RACK view: RACK (FM, Strings: row M only, ADR-041), SOUND (the synth's settings, then
+ * the rack's sample (Modular) or the DX7 patch's algorithm (FM): ADR-044); PERFORM: MACROS, JOY; PRESETS; SETUP: KEYS, LEDS, MODIFIERS,
+ * CURVES, MACHINE (Out, Spk, Knob, Storage). */
 
-#define TABS 9
+#define TABS 10
+
+static const tab_t tab_order[TABS] = {TAB_RACK, TAB_SOUND, TAB_MACROS, TAB_JOY, TAB_PRESET, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_CURVES, TAB_MACHINE};
+static const struct { uint8_t first, n; } view_tabs[VIEW_COUNT] = {
+    [VIEW_RACK] = {0, 2}, [VIEW_PERFORM] = {2, 2}, [VIEW_PRESETS] = {4, 1}, [VIEW_SETUP] = {5, 5},
+};
 
 int tab_count(const rack_t *r) { (void)r; return TABS; }
 
 tab_t tab_kind(const rack_t *r, int idx) {
-    static const tab_t tabs[TABS] = {TAB_RACK, TAB_PRESET, TAB_SOUND, TAB_KEYS, TAB_LEDS, TAB_MODS, TAB_MACROS, TAB_JOY, TAB_CURVES};
     (void)r;
-    return tabs[(idx % TABS + TABS) % TABS];
+    return tab_order[(idx % TABS + TABS) % TABS];
 }
 
 const char *tab_name(tab_t t) {
-    static const char *const n[] = {"RACK", "GENERAL", "ALGORITHM", "OPERATOR", "ENVELOPE", "FX RACK", "SAMPLES", "KEYS", "MODIFIERS", "MACROS", "CURVES", "LEDS", "JOY", "PRESETS", "SOUND"};
+    static const char *const n[] = {"RACK", "GENERAL", "ALGORITHM", "OPERATOR", "ENVELOPE", "FX RACK", "SAMPLES", "KEYS", "MODIFIERS", "MACROS", "CURVES", "LEDS", "JOY", "PRESETS", "SOUND", "MACHINE"};
     return n[t];
 }
 
 const char *tab_icon(tab_t t) {
     static const char *const n[] = {"16/tab_rack", "16/tab_general", "16/tab_algorithm", "16/tab_operator", "16/tab_envelope", "16/tab_fx",
                                     "16/tab_samples", "16/tab_keys", "16/tab_modifiers", "16/tab_macros", "16/tab_curves", "16/tab_leds", "16/tab_joy", "16/tab_presets",
-                                    "16/tab_general" /* SOUND: GENERAL's icon until one is painted */};
+                                    "16/tab_general" /* SOUND: GENERAL's icon until one is painted */, "16/tab_general" /* MACHINE: the same */};
     return n[t];
+}
+
+/* ---------------- views (ADR-046 phase 3) ---------------- */
+
+const char *synth_ui_view_name(view_t v) {
+    static const char *const n[VIEW_COUNT] = {"Edit", "Seq", "Rack", "Perform", "Presets", "Setup"};
+    return v >= 0 && v < VIEW_COUNT ? n[v] : "";
+}
+
+const char *synth_ui_view_abbr(view_t v) {
+    static const char *const n[VIEW_COUNT] = {"ED", "SQ", "RK", "PF", "PR", "ST"};
+    return v >= 0 && v < VIEW_COUNT ? n[v] : "";
+}
+
+view_t synth_ui_view(const synth_ui_t *ui, const rack_t *rack) {
+    (void)rack;
+    if (!ui->in_rack) return ui->page >= ui->edit_pages ? VIEW_SEQ : VIEW_EDIT;
+    const int t = (ui->menu_tab % TABS + TABS) % TABS;
+    for (int v = VIEW_RACK; v < VIEW_COUNT; v++) if (t >= view_tabs[v].first && t < view_tabs[v].first + view_tabs[v].n) return (view_t)v;
+    return VIEW_RACK;
+}
+
+int synth_ui_view_pages(const synth_ui_t *ui, const rack_t *rack, view_t v, int *first) {
+    (void)rack;
+    *first = 0;
+    switch (v) {
+        case VIEW_EDIT: return ui->edit_pages;
+        case VIEW_SEQ:  *first = ui->edit_pages; return ui->page_count - ui->edit_pages;
+        default:
+            if (v < 0 || v >= VIEW_COUNT) return 0;
+            *first = view_tabs[v].first;
+            return view_tabs[v].n;
+    }
+}
+
+void ui_view_note(synth_ui_t *ui, const rack_t *rack) {
+    const view_t v = synth_ui_view(ui, rack);
+    int first;
+    synth_ui_view_pages(ui, rack, v, &first);
+    ui->view_at[v] = (int16_t)((ui->in_rack ? ui->menu_tab : ui->page) - first);
+    if (v != VIEW_EDIT) ui->view_last = (uint8_t)v;
+}
+
+void ui_leave_menu(synth_ui_t *ui, const rack_t *rack) {
+    if (!ui->in_rack) return;
+    ui->in_rack = false;
+    if (ui->rack_dirty) { ui->rebuild = true; ui->rack_dirty = false; synth_ui_rebuild_pages(ui, rack); }
+}
+
+bool synth_ui_view_go(synth_ui_t *ui, const rack_t *rack, view_t v) {
+    if (v < 0 || v >= VIEW_COUNT) return false;
+    ui_view_note(ui, rack);
+    ui->latched = false; ui->cog_page = -1; ui->view_sel = false; ui->seq_knob_key = 0;
+    if (v == VIEW_EDIT || v == VIEW_SEQ) ui_leave_menu(ui, rack);       // (a rebuild may change the pages: counted after it)
+    int first;
+    const int n = synth_ui_view_pages(ui, rack, v, &first);
+    if (n <= 0) return false;
+    const int at = ui->view_at[v] < 0 ? 0 : ui->view_at[v] >= n ? n - 1 : ui->view_at[v];
+    if (v == VIEW_EDIT || v == VIEW_SEQ) ui->page = first + at;
+    else { ui->in_rack = true; ui->menu_tab = first + at; }
+    ui_view_note(ui, rack);
+    return true;
+}
+
+void synth_ui_view_step(synth_ui_t *ui, const rack_t *rack, int dir) {
+    int first;
+    const int n = synth_ui_view_pages(ui, rack, synth_ui_view(ui, rack), &first);
+    if (n <= 0) return;
+    if (ui->in_rack) ui->menu_tab = first + ((ui->menu_tab - first + dir) % n + n) % n;
+    else { ui->page = first + ((ui->page - first + dir) % n + n) % n; ui->cog_page = -1; }
+    ui_view_note(ui, rack);
 }
 
 bool fm_page_row(const synth_ui_t *ui, const page_t *pg, int row, fm_row_t *out) {
@@ -329,13 +417,11 @@ bool fm_page_row(const synth_ui_t *ui, const page_t *pg, int row, fm_row_t *out)
 }
 
 bool synth_ui_open_page(synth_ui_t *ui, const rack_t *rack, int slot, int def) {
-    if (ui->in_rack) {                                            // leaving the menu: the same as closing it with MENU
-        ui->in_rack = false;
-        if (ui->rack_dirty) { ui->rebuild = true; ui->rack_dirty = false; synth_ui_rebuild_pages(ui, rack); }
-    }
-    ui->latched = false;
+    ui_view_note(ui, rack);
+    ui_leave_menu(ui, rack);                                      // leaving the menu: the same as closing it with MENU
+    ui->latched = false; ui->view_sel = false;
     for (int p = 0; p < ui->page_count; p++)
-        if (ui->pg_slot[p] == slot && ui->pg_def[p] == def) { ui->page = p; ui->row = 1; return true; }
+        if (ui->pg_slot[p] == slot && ui->pg_def[p] == def) { ui->page = p; ui->row = 1; ui_view_note(ui, rack); return true; }
     ui->row = 0;
     return false;
 }
@@ -346,26 +432,28 @@ static const tab_t go_tab[SYNTH_GO_COUNT] = {
     [SYNTH_GO_MAIN] = NOT_A_TAB, [SYNTH_GO_RACK] = TAB_RACK, [SYNTH_GO_PRESETS] = TAB_PRESET, [SYNTH_GO_SOUND] = TAB_SOUND,
     [SYNTH_GO_SEQ] = NOT_A_TAB, [SYNTH_GO_MACROS] = TAB_MACROS, [SYNTH_GO_KEYS] = TAB_KEYS, [SYNTH_GO_LEDS] = TAB_LEDS,
     [SYNTH_GO_MODS] = TAB_MODS, [SYNTH_GO_JOY] = TAB_JOY, [SYNTH_GO_CURVES] = TAB_CURVES,
+    [SYNTH_GO_SEQ_SETUP] = NOT_A_TAB, [SYNTH_GO_PATTERNS] = NOT_A_TAB, [SYNTH_GO_MACHINE] = TAB_MACHINE,
 };
 
 bool synth_ui_go(synth_ui_t *ui, const rack_t *rack, synth_go_t where) {
     if (where < 0 || where >= SYNTH_GO_COUNT) return false;
     ui->seq_knob_key = 0;                                         // (as synth_ui_handle on a change of screen)
+    ui->view_sel = false;
     if (where == SYNTH_GO_SEQ) return synth_ui_open_page(ui, rack, GLOBAL_PAGE, GP_SEQ);
-    if (where == SYNTH_GO_MAIN) {
-        if (ui->in_rack) {                                        // the same as closing the menu with MENU
-            ui->latched = false; ui->cog_page = -1;
-            ui->in_rack = false; ui->row = 0;
-            if (ui->rack_dirty) { ui->rebuild = true; ui->rack_dirty = false; synth_ui_rebuild_pages(ui, rack); }
-        }
+    if (where == SYNTH_GO_SEQ_SETUP) return synth_ui_open_page(ui, rack, GLOBAL_PAGE, GP_SEQ_CFG);
+    if (where == SYNTH_GO_PATTERNS) return synth_ui_open_page(ui, rack, GLOBAL_PAGE, GP_SEQ_PAT);
+    if (where == SYNTH_GO_MAIN) {                                 // the EDIT view as it was left
+        if (synth_ui_view(ui, rack) != VIEW_EDIT) { synth_ui_view_go(ui, rack, VIEW_EDIT); ui->row = 0; }
         return true;
     }
     const int t = tab_index_of(rack, go_tab[where]);
     if (t < 0) return false;
     if (!ui->in_rack || ui->menu_tab != t) { ui->row = 1; ui->latched = false; }
+    ui_view_note(ui, rack);
     ui->cog_page = -1;
     ui->in_rack = true;
     ui->menu_tab = t;
+    ui_view_note(ui, rack);
     return true;
 }
 
@@ -379,17 +467,29 @@ void synth_ui_page_title(const synth_ui_t *ui, const rack_t *rack, int idx, char
 }
 
 bool synth_ui_go_page(synth_ui_t *ui, const rack_t *rack, int idx) {
-    synth_ui_go(ui, rack, SYNTH_GO_MAIN);
+    ui_view_note(ui, rack);
+    ui_leave_menu(ui, rack);
+    ui->view_sel = false;
+    ui->seq_knob_key = 0;
     if (idx < 0 || idx >= ui->page_count) return false;
     ui->page = idx;
     ui->row = 1;
     ui->latched = false;
     ui->cog_page = -1;
+    ui_view_note(ui, rack);
     return true;
 }
 
 synth_go_t synth_ui_where(const synth_ui_t *ui, const rack_t *rack) {
-    if (!ui->in_rack) return synth_ui_shows_seq(ui) ? SYNTH_GO_SEQ : SYNTH_GO_MAIN;
+    if (!ui->in_rack) {
+        if (ui->pg_slot[ui->page] != GLOBAL_PAGE) return SYNTH_GO_MAIN;
+        switch (ui->pg_def[ui->page]) {
+            case GP_SEQ:     return SYNTH_GO_SEQ;
+            case GP_SEQ_CFG: return SYNTH_GO_SEQ_SETUP;
+            case GP_SEQ_PAT: return SYNTH_GO_PATTERNS;
+            default:         return SYNTH_GO_MAIN;
+        }
+    }
     const tab_t t = tab_kind(rack, ui->menu_tab);
     for (int w = 0; w < SYNTH_GO_COUNT; w++) if (go_tab[w] == t) return (synth_go_t)w;
     return SYNTH_GO_MAIN;

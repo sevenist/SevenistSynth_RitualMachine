@@ -69,6 +69,11 @@ static void on_storage(void *ctx, bool yes) {
     if (!storage_card_reader()) popup_info(&app->popup, "STORAGE", "No card reader on this platform", 0, audio_millis(), POPUP_INFO_MS);
 }
 
+void app_storage_ask(app_t *app) {
+    popup_ask(&app->popup, "STORAGE", "Restart as a USB card reader? Back: the joystick held 2 s", false, on_storage, app);
+    app->dirty = true;
+}
+
 static void run_entry(app_t *app, list_entry_t e) {
     switch (e) {
         case LE_SYNTH:    go_synth(app, SYNTH_GO_MAIN); break;
@@ -94,7 +99,7 @@ static void run_entry(app_t *app, list_entry_t e) {
         case LE_MODS:     go_synth(app, SYNTH_GO_MODS); break;
         case LE_JOY:      go_synth(app, SYNTH_GO_JOY); break;
         case LE_CURVES:   go_synth(app, SYNTH_GO_CURVES); break;
-        case LE_STORAGE:  popup_ask(&app->popup, "STORAGE", "Restart as a USB card reader? Back: the joystick held 2 s", false, on_storage, app); break;
+        case LE_STORAGE:  app_storage_ask(app); break;
         case LE_ADVANCED: open_list(app, true, entry_on_show(app)); return;
         default: return;
     }

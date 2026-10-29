@@ -75,10 +75,10 @@ TEST(page_list_goes_to_the_synths_screens_and_opens_on_the_one_on_show) {
     shift_menu();
     ev_tap(CTL_BTN_2);
     CHECK(!popup_modal(&ui_app.popup) && on_tab(TAB_KEYS));
-    // Synth: the main view as it was left
-    const int page = ui_app.ui.page;
+    // Synth: the EDIT view as it was left (ADR-046 phase 3)
+    const int page = ui_app.ui.view_at[VIEW_EDIT];
     shift_menu(); CHECK(ui_list_pick("Synth"));
-    CHECK(!ui_app.ui.in_rack && ui_app.ui.page == page);
+    CHECK(!ui_app.ui.in_rack && ui_app.ui.page == page && synth_ui_view(&ui_app.ui, &ui_app.rack) == VIEW_EDIT);
 }
 
 TEST(page_list_in_pads_has_pad_fx_and_steps_and_takes_the_synths_tabs_to_the_synth) {
@@ -167,7 +167,7 @@ TEST(jump_list_on_a_long_menu_press_lists_the_main_views_pages) {
     ev_tap(CTL_BTN_2);
     CHECK(!popup_modal(&ui_app.popup) && ui_app.ui.page == seq);
     // from the menu: the list on the first page, a pick leaves the menu
-    ev_tap(MENU);
+    shift_menu(); CHECK(ui_list_pick("Rack"));
     CHECK(ui_app.ui.in_rack);
     menu_hold();
     CHECK_EQ(ui_app.popup.queue[0].focus, 0);
@@ -232,26 +232,27 @@ static void sound_rows(char *out, int n) {
 TEST(sound_tab_holds_the_settings_then_the_sample_or_the_algorithm_by_synth_type) {
     ui_fresh();
     char all[200];
-    CHECK_EQ(tab_count(&ui_app.rack), 9);
-    CHECK_EQ(tab_kind(&ui_app.rack, 2), TAB_SOUND);
-    CHECK_EQ(tab_index_of(&ui_app.rack, TAB_GENERAL), 2);              // a jump slot saved on GENERAL, SAMPLES or ALGORITHM lands on SOUND
-    CHECK_EQ(tab_index_of(&ui_app.rack, TAB_SAMPLES), 2);
-    CHECK_EQ(tab_index_of(&ui_app.rack, TAB_FM_ALGO), 2);
+    CHECK_EQ(tab_count(&ui_app.rack), 10);
+    CHECK_EQ(tab_kind(&ui_app.rack, 1), TAB_SOUND);                    // the RACK view's second (ADR-046 phase 3)
+    CHECK_EQ(tab_index_of(&ui_app.rack, TAB_GENERAL), 1);              // a jump slot saved on GENERAL, SAMPLES or ALGORITHM lands on SOUND
+    CHECK_EQ(tab_index_of(&ui_app.rack, TAB_SAMPLES), 1);
+    CHECK_EQ(tab_index_of(&ui_app.rack, TAB_FM_ALGO), 1);
     CHECK_STR(tab_name(TAB_SOUND), "SOUND");
     shift_menu(); CHECK(ui_list_pick("Sound"));
     CHECK(on_tab(TAB_SOUND));
     sound_rows(all, (int)sizeof all);                                   // Modular: the sample rows
-    CHECK(strstr(all, "Knob|File|Tgt|Assign") != NULL);
+    CHECK(strstr(all, "Vol|File|Tgt|Assign") != NULL);                // (Out, Spk, Knob: SETUP > MACHINE)
+    CHECK(strstr(all, "Knob") == NULL && strstr(all, "Spk") == NULL);
     CHECK(strstr(all, "Algo") == NULL);
     ui_set_type(SYNTH_FM);
     ev_tap(MENU);
     shift_menu(); CHECK(ui_list_pick("Sound"));
     sound_rows(all, (int)sizeof all);                                   // FM: the algorithm's
-    CHECK(strstr(all, "Knob|Algo|Fb|Op") != NULL);
+    CHECK(strstr(all, "Vol|Algo|Fb|Op") != NULL);
     CHECK(strstr(all, "File") == NULL);
     ui_set_type(SYNTH_STRINGS);
     sound_rows(all, (int)sizeof all);                                   // Strings: the settings only
-    CHECK(strstr(all, "Knob") != NULL && strstr(all, "File") == NULL && strstr(all, "Algo") == NULL);
+    CHECK(strstr(all, "Vol") != NULL && strstr(all, "File") == NULL && strstr(all, "Algo") == NULL);
     // the picture follows the part: drawn on each without trouble
     ui_set_type(SYNTH_MODULAR);
     for (int row = 1; row <= 12; row++) { ui_app.ui.row = row; ui_app.dirty = true; ev_idle(1); }

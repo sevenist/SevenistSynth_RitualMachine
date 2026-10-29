@@ -130,6 +130,7 @@ void app_list_open(app_t *app, bool advanced);                      // Shift + M
 void app_menu_down(app_t *app, control_id_t ctl, uint32_t now);     // Menu went down (no Shift): held MENU_LONG_MS = the jump list ...
 void app_menu_up(app_t *app, control_id_t ctl);                     // ... a control was let go: Menu's short press acts here
 void app_menu_poll(app_t *app, uint32_t now);                       // every step: the long press
+void app_storage_ask(app_t *app);                                   // Storage (the list, the MACHINE tab): asks, then restarts as the card reader
 
 /* ---------------- app_card.c ---------------- */
 

@@ -18,6 +18,7 @@ void app_ui_event(app_t *app, ui_event_t ev) {
     if (in_pads(app)) { app_pads_event(app, ev); return; }
     if (synth_ui_handle(&app->ui, &app->params, &app->seq, &app->rack, ev)) audio_set_params(&app->rack, &app->params);
     if (app->ui.br_req) { app->ui.br_req = 0; app_browse_open(app, BROWSE_RACK); }                             // the SAMPLES tab's File row
+    if (app->ui.storage_req) { app->ui.storage_req = false; app_storage_ask(app); }                            // the MACHINE tab's Storage
     if (app->ui.seq_msg[0]) {                                                                                  // a sequencer tool ran: what it did
         popup_info(&app->popup, "SEQUENCER", app->ui.seq_msg, 0, audio_millis(), POPUP_INFO_MS);
         app->ui.seq_msg[0] = 0;

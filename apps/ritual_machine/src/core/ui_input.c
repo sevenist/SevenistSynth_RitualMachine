@@ -545,9 +545,10 @@ bool synth_ui_target_describe(const synth_params_t *params, const seq_t *seq, co
 
 bool synth_ui_target_at_cursor(const synth_ui_t *ui, const rack_t *rack, macro_t *out) {
     macro_clear(out);
-    if (ui->in_rack) {                                  // the SOUND tab's synth settings: one that changes live (not Type, Voices: they rebuild)
-        if (tab_kind(rack, ui->menu_tab) != TAB_SOUND) return false;
-        const int id = scr_general_setting(ui->row);
+    if (ui->in_rack) {                                  // the SOUND / MACHINE tab's settings: one that changes live (not Type, Voices: they rebuild)
+        const tab_t t = tab_kind(rack, ui->menu_tab);
+        if (t != TAB_SOUND && t != TAB_MACHINE) return false;
+        const int id = t == TAB_SOUND ? scr_general_setting(ui->row) : scr_machine_setting(ui->row);
         if (id < 0 || id == CFGP_TYPE || id == CFGP_VOICES) return false;
         *out = (macro_t){MACRO_CFG, 0, (uint8_t)id};
         return true;
@@ -862,12 +863,48 @@ bool synth_ui_handle(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t 
     const bool menu = ui->in_rack;
     const bool changed = handle_event(ui, params, seq, rack, e);
     if (ui->page != page || ui->in_rack != menu) ui->seq_knob_key = 0;   // the SEQUENCER page was left or entered: its knobs must move again before they write
+    if (ui->row != 0) ui->view_sel = false;
+    ui_view_note(ui, rack);
     return changed;
+}
+
+// The header's view selector (ADR-046 phase 3: focus levels view > page > element > latch): left / right (and Page - / +) step through the
+// views, each shown where it was left; down or Enter go to the page selector, or to the first row when the view has one page; Back goes
+// home (EDIT). Returns true when it took the event.
+static bool view_sel_event(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, ui_event_t e) {
+    int dir = 0;
+    switch (e) {
+        case UI_NAV_LEFT: case UI_LEFT: case UI_VALUE_DEC: case UI_PAGE_PREV:  dir = -1; break;
+        case UI_NAV_RIGHT: case UI_RIGHT: case UI_VALUE_INC: case UI_PAGE_NEXT: dir = 1; break;
+        case UI_NAV_UP: return true;                                            // (nowhere further)
+        case UI_NAV_DOWN: case UI_DOWN: case UI_LATCH: case UI_SELECT: {
+            ui->view_sel = false;
+            int first;
+            if (synth_ui_view_pages(ui, rack, synth_ui_view(ui, rack), &first) <= 1) handle_event(ui, params, seq, rack, UI_NAV_DOWN);
+            return true;
+        }
+        case UI_BACK:
+            ui->view_sel = false;
+            if (synth_ui_view(ui, rack) != VIEW_EDIT) { synth_ui_view_go(ui, rack, VIEW_EDIT); ui->row = 0; }
+            return true;
+        default: ui->view_sel = false; return false;                           // anything else: as from the page selector
+    }
+    const view_t v = (view_t)((synth_ui_view(ui, rack) + dir + VIEW_COUNT) % VIEW_COUNT);
+    synth_ui_view_go(ui, rack, v);
+    ui->row = 0;
+    ui->view_sel = true;
+    return true;
 }
 
 static bool handle_event(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, ui_event_t e) {
     if (e == UI_PLAY) { seq_set_running(seq, !seq->running); return false; }
-    if (e == UI_ROW_TOP) { ui->row = 0; ui->latched = false; return false; }
+    if (e == UI_ROW_TOP) {                                       // to the page selector, then the view selector
+        ui->view_sel = ui->row == 0 && !ui->view_sel;
+        ui->row = 0; ui->latched = false;
+        return false;
+    }
+    if (ui->view_sel && ui->row == 0 && view_sel_event(ui, params, seq, rack, e)) return false;
+    if (ui->row == 0 && e == UI_NAV_UP) { ui->view_sel = true; ui->latched = false; return false; }   // up from the page selector
 
     if (e >= UI_JUMP_1 && e <= UI_JUMP_8) {
         const int slot = e - UI_JUMP_1;
@@ -879,6 +916,8 @@ static bool handle_event(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rac
         if (!synth_ui_jump_ready(ui, rack, slot)) return false;  // cleared (its module was deleted) or not shown in this synth type: stay
         ui->latched = false;
         ui->cog_page = -1;
+        ui->view_sel = false;
+        ui_view_note(ui, rack);
         ui->in_rack = j->in_rack;
         if (j->in_rack) ui->menu_tab = tab_index_of(rack, (tab_t)j->tab);
         else            ui->page = j->at;
@@ -915,6 +954,11 @@ static bool handle_event(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rac
             return changed;
         }
         if (ui->latched && e == UI_BACK) { ui->latched = false; return false; }   // Back releases first
+        if (e == UI_BACK && ui->cog_page != ui->page) {             // then climbs: a row to the header; the header of the SEQ view home (EDIT)
+            if (ui->row > 0) { ui->row = 0; return false; }
+            if (synth_ui_view(ui, rack) != VIEW_EDIT) synth_ui_view_go(ui, rack, VIEW_EDIT);
+            return false;
+        }
         switch (e) {
             case UI_NAV_UP: e = UI_UP; break;
             case UI_NAV_DOWN: e = UI_DOWN; break;
@@ -926,26 +970,21 @@ static bool handle_event(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rac
         }
         if (e == UI_UP || e == UI_DOWN) ui->latched = false;              // another row (encoder A): the latch goes
     }
-    if (e == UI_PAGE_PREV || e == UI_PAGE_NEXT) {         // change page (or menu tab) from any row, keeping the row when the new one has it
+    if (e == UI_PAGE_PREV || e == UI_PAGE_NEXT) {         // the next page (or menu tab) of the view from any row, keeping the row when the new one has it
         const int saved = ui->row;
-        ui->row = 0;
-        handle_event(ui, params, seq, rack, e == UI_PAGE_NEXT ? UI_RIGHT : UI_LEFT);
+        synth_ui_view_step(ui, rack, e == UI_PAGE_NEXT ? 1 : -1);
         const int rows = rows_on_screen(ui, rack);
         ui->row = saved > rows ? rows : saved;
         ui->latched = false;
         return false;
     }
 
-    // MENU toggles the rack editor. Closing it with edits asks the app to rebuild the synth
-    // and regenerates the pages from the new rack.
+    // MENU: home (EDIT) <-> the last other view (ADR-046 phase 3; before, the menu's tabs). Leaving the rack's tabs with edits asks the app to
+    // rebuild the synth and regenerates the pages from the new rack.
     if (e == UI_MENU) {
-        ui->latched = false;
-        ui->cog_page = -1;
-        if (!ui->in_rack) { ui->in_rack = true; ui->row = 1; if (ui->menu_tab >= tab_count(rack)) ui->menu_tab = 0; }
-        else {
-            ui->in_rack = false; ui->row = 0;
-            if (ui->rack_dirty) { ui->rebuild = true; ui->rack_dirty = false; synth_ui_rebuild_pages(ui, rack); }
-        }
+        const bool home = synth_ui_view(ui, rack) == VIEW_EDIT;
+        synth_ui_view_go(ui, rack, home ? (view_t)ui->view_last : VIEW_EDIT);
+        ui->row = home ? 1 : 0;
         return false;
     }
 
@@ -956,7 +995,9 @@ static bool handle_event(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rac
             if (ui->latched) { ui->latched = false; return false; }          // screen's own (RACK: its cell menu), the focus to the header, then
             if (s->back && s->back(&ctx)) { if (s->after_edit) s->after_edit(&ctx); return false; }   // out of the menu (its edits applied)
             if (ui->row > 0) { ui->row = 0; return false; }
-            return handle_event(ui, params, seq, rack, UI_MENU);
+            synth_ui_view_go(ui, rack, VIEW_EDIT);                   // (home, as Menu from there)
+            ui->row = 0;
+            return false;
         }
         return screen_event(s, &ctx, e);
     }
@@ -977,7 +1018,7 @@ static bool handle_event(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rac
         case UI_LEFT:
         case UI_RIGHT: {
             int dir = e == UI_RIGHT ? 1 : -1;
-            if (ui->row == 0) { ui->page = (ui->page + dir + ui->page_count) % ui->page_count; ui->cog_page = -1; }
+            if (ui->row == 0) synth_ui_view_step(ui, rack, dir);     // the page ring of the view (EDIT or SEQ)
             else if (cog && ui->row == pg.count + 1) {               // the cog (a push, left or right): open / close the hidden settings
                 ui->cog_page = ui->cog_page == ui->page ? -1 : ui->page;
                 get_page(ui, rack, ui->page, &pg);

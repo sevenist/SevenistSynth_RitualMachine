@@ -1,11 +1,10 @@
 // The SOUND tab of the menu (ENGINE_DESIGN.md ADR-044: GENERAL, SAMPLES and ALGORITHM in one screen): synth type, FM patch, voices,
-// master volume, output, speaker, knob mode; then, Modular only, a sample for the rack (File opens the browser, scr_browse.c, Tgt is
+// master volume (output, speaker and knob mode: SETUP > MACHINE since ADR-046, scr_machine.c); then, Modular only, a sample for the rack (File opens the browser, scr_browse.c, Tgt is
 // the sampler it goes to, New = a new sampler at the end of the rack, Assign does it); then, FM only, the DX7 patch's Algo and Fb and
 // the Op row (left / right pick an operator in the tree, a push opens its page in the main view: OPn, then OPn ENV; ui_pages.c,
 // fm_page_row). The picture on the right follows the part the focus is in: the info box, the file's overview, the operator tree.
 // A declarative screen (see ui_screen.h): list on the left, picture on the right; the list scrolls.
 #include "core/ui_screen.h"
-#include "hal/hal_power.h"
 #include <stdio.h>
 
 /* ---------------- the synth's settings (GENERAL) ---------------- */
@@ -73,7 +72,7 @@ static void op_value(const ui_ctx_t *c, char *out, int n) { snprintf(out, (size_
 static bool op_adjust(const ui_ctx_t *c, int dir) { c->ui->fm_op = (c->ui->fm_op + dir + DX7_OPS) % DX7_OPS; return false; }
 static void op_activate(const ui_ctx_t *c) { synth_ui_open_page(c->ui, c->rack, GLOBAL_PAGE, GP_FM_OP_BASE + c->ui->fm_op); }
 
-enum { EL_SAMPLES = 9, EL_ALGO = 12 };                        // the first element of each part (the picture follows them)
+enum { EL_SAMPLES = 6, EL_ALGO = 9 };                        // the first element of each part (the picture follows them)
 
 static const el_def_t elements[] = {
     {"Type",   EL_VALUE,  0, 0, 1, cfg_value,  cfg_adjust,  NULL, NULL, NULL,       cfg_label, CFGP_TYPE,   0},
@@ -82,15 +81,12 @@ static const el_def_t elements[] = {
     {"Glide",  EL_VALUE,  3, 0, 1, cfg_value,  cfg_adjust,  NULL, NULL, en_mono,    cfg_label, CFGP_GLIDE,  EF_HIDE_WHEN_DISABLED},
     {"Legato", EL_VALUE,  4, 0, 1, cfg_value,  cfg_adjust,  NULL, NULL, en_mono,    cfg_label, CFGP_LEGATO, EF_HIDE_WHEN_DISABLED},
     {"Vol",    EL_VALUE,  5, 0, 1, cfg_value,  cfg_adjust,  NULL, NULL, NULL,       cfg_label, CFGP_VOLUME, 0},
-    {"Out",    EL_VALUE,  6, 0, 1, cfg_value,  cfg_adjust,  NULL, NULL, NULL,       cfg_label, CFGP_OUTPUT, 0},
-    {"Spk",    EL_VALUE,  7, 0, 1, cfg_value,  cfg_adjust,  NULL, NULL, NULL,       cfg_label, CFGP_SPEAKER, 0},
-    {"Knob",   EL_VALUE,  8, 0, 1, cfg_value,  cfg_adjust,  NULL, NULL, NULL,       cfg_label, CFGP_KNOB_MODE, 0},
-    {"File",   EL_VALUE,  9, 0, 1, file_value, file_adjust, NULL, NULL, en_modular, NULL, 0, EF_HIDE_WHEN_DISABLED},
-    {"Tgt",    EL_VALUE, 10, 0, 1, tgt_value,  tgt_adjust,  NULL, NULL, en_modular, NULL, 0, EF_HIDE_WHEN_DISABLED},
-    {"Assign", EL_BUTTON,11, 0, 1, NULL,       NULL,        assign_activate, NULL, en_modular, NULL, 0, EF_HIDE_WHEN_DISABLED},
-    {"Algo",   EL_VALUE, 12, 0, 1, algo_value, algo_adjust, NULL, NULL, en_fm,      NULL, 0, EF_HIDE_WHEN_DISABLED},
-    {"Fb",     EL_VALUE, 13, 0, 1, fb_value,   fb_adjust,   NULL, NULL, en_fm,      NULL, 0, EF_HIDE_WHEN_DISABLED},
-    {"Op",     EL_DIRECT,14, 0, 1, op_value,   op_adjust,   op_activate, NULL, en_fm, NULL, 0, EF_HIDE_WHEN_DISABLED},
+    {"File",   EL_VALUE,  6, 0, 1, file_value, file_adjust, NULL, NULL, en_modular, NULL, 0, EF_HIDE_WHEN_DISABLED},
+    {"Tgt",    EL_VALUE,  7, 0, 1, tgt_value,  tgt_adjust,  NULL, NULL, en_modular, NULL, 0, EF_HIDE_WHEN_DISABLED},
+    {"Assign", EL_BUTTON, 8, 0, 1, NULL,       NULL,        assign_activate, NULL, en_modular, NULL, 0, EF_HIDE_WHEN_DISABLED},
+    {"Algo",   EL_VALUE,  9, 0, 1, algo_value, algo_adjust, NULL, NULL, en_fm,      NULL, 0, EF_HIDE_WHEN_DISABLED},
+    {"Fb",     EL_VALUE, 10, 0, 1, fb_value,   fb_adjust,   NULL, NULL, en_fm,      NULL, 0, EF_HIDE_WHEN_DISABLED},
+    {"Op",     EL_DIRECT,11, 0, 1, op_value,   op_adjust,   op_activate, NULL, en_fm, NULL, 0, EF_HIDE_WHEN_DISABLED},
 };
 #define N_ELEMENTS ((int)(sizeof elements / sizeof elements[0]))
 
@@ -132,13 +128,7 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
         return;
     }
     u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
-    draw_synth_info(g, st, box, c->rack);
-    const int pct = power_battery_percent(), rh = gui_row_h(g, st);     // the battery, at the bottom of the box when it has the room
-    if (pct < 0 || box.h < 8 * rh) return;
-    char buf[40];
-    const int mv = power_battery_mv();
-    snprintf(buf, sizeof buf, "%d.%dV %d%%", mv / 1000, mv % 1000 / 100, pct);
-    gui_draw_text_centered(g, gui_rect(box.x, box.y + box.h - rh - 2, box.w, rh), buf);
+    draw_synth_info(g, st, box, c->rack);                               // (the battery: the header, and the MACHINE tab's picture)
 }
 
 // Keep the file inside the catalog.

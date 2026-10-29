@@ -19,7 +19,11 @@ extern "C" {
 #define SYNTH_UI_MAX_PAGES (RACK_MAX * 4 + 5)
 // The header's recording mark (ADR-046 rule R18): "REC" framed = armed, inverted = recording; "ERS" inverted = the playhead erases.
 enum { REC_MARK_NONE, REC_MARK_ARMED, REC_MARK_ON, REC_MARK_ERASE };
-#define BROWSE_PAGE 12                      // the sample browser: the entries it holds at once (at least the rows it shows)
+#define BROWSE_PAGE 12
+// The views (ENGINE_DESIGN.md ADR-046 phase 3, rule R1): the synth's pages and menu tabs grouped by what they are for. EDIT (home) = the
+// patch's pages, SEQ = SEQUENCER, SEQ SETUP, PATTERNS, RACK = RACK + SOUND, PERFORM = MACROS + JOY, PRESETS, SETUP = the machine's settings
+// (KEYS, LEDS, MODIFIERS, CURVES, MACHINE). The header's left segment shows the view; up from the page selector focuses it (ui->view_sel).
+typedef enum { VIEW_EDIT, VIEW_SEQ, VIEW_RACK, VIEW_PERFORM, VIEW_PRESETS, VIEW_SETUP, VIEW_COUNT } view_t;                      // the sample browser: the entries it holds at once (at least the rows it shows)
 
 // What the user interface understands. The input layer (core/bindings.c) turns hardware controls into these.
 typedef enum {
@@ -117,7 +121,12 @@ typedef struct {
     int  smp_cur;          // SAMPLES tab: highlighted file (catalog index) and the target (0 = a new sampler, k = the k-th sampler of the rack)
     int  smp_tgt;
     int  key_cur;          // KEYS tab: the selected key (row * KEY_COLS + col)
-    int  menu_tab;         // 0 = RACK, 1 = GENERAL (tabs of the menu, row 0 switches them)
+    int  menu_tab;         // the menu tab on show (tab_kind), while in_rack
+    bool view_sel;         // with row 0: the focus is on the header's view selector (left / right change the view), not on the page selector
+    int  edit_pages;       // pages 0 .. edit_pages - 1 are the EDIT view's, the rest (SEQUENCER, SEQ SETUP, PATTERNS) the SEQ view's
+    int16_t view_at[VIEW_COUNT];   // where each view was left: its page / tab, counted from the view's first
+    uint8_t view_last;     // the last view on show other than EDIT: where Menu goes from EDIT
+    bool storage_req;      // the MACHINE tab's Storage button was pushed: the app asks, then restarts as the card reader
     bool latched;          // the focused element is latched: the joystick changes its value (declarative screens, see ui_screen.h)
     bool in_rack;          // the rack editor (special page, opened with MENU) is showing
     bool rack_dirty;       // rack edited since the synth was last built
@@ -368,12 +377,22 @@ bool synth_ui_on_keys_tab(const synth_ui_t *ui, const rack_t *rack);
 bool synth_ui_open_page(synth_ui_t *ui, const rack_t *rack, int slot, int def);
 // The synth's screens the page list (Shift + Menu, ADR-044) goes to: the main view as it was left, a menu tab, the SEQUENCER page.
 typedef enum { SYNTH_GO_MAIN, SYNTH_GO_RACK, SYNTH_GO_PRESETS, SYNTH_GO_SOUND, SYNTH_GO_SEQ, SYNTH_GO_MACROS,
-               SYNTH_GO_KEYS, SYNTH_GO_LEDS, SYNTH_GO_MODS, SYNTH_GO_JOY, SYNTH_GO_CURVES, SYNTH_GO_COUNT } synth_go_t;
+               SYNTH_GO_KEYS, SYNTH_GO_LEDS, SYNTH_GO_MODS, SYNTH_GO_JOY, SYNTH_GO_CURVES,
+               SYNTH_GO_SEQ_SETUP, SYNTH_GO_PATTERNS, SYNTH_GO_MACHINE, SYNTH_GO_COUNT } synth_go_t;
 // Shows that screen (leaving the menu as MENU does when it goes to the main view). False when this synth type has no such screen.
 bool synth_ui_go(synth_ui_t *ui, const rack_t *rack, synth_go_t where);
-// The screen on show, as one of those (any page but the SEQUENCER is the main view).
+// The screen on show, as one of those (any EDIT page is the main view).
 synth_go_t synth_ui_where(const synth_ui_t *ui, const rack_t *rack);
-// The main view's page `idx` (0 .. page_count - 1): its title; shown, row 1, leaving the menu (the jump list, a long Menu press).
+// The views (view_t). view: the one on show. view_pages: how many pages (EDIT, SEQ) or menu tabs it has, from *first (a page or tab index).
+// view_go: shows view v where it was left (leaving the menu applies the rack's edits, as Menu does); the row is the caller's. view_step: the
+// next / previous page or tab of the view on show, the row kept when the new one has it.
+view_t synth_ui_view(const synth_ui_t *ui, const rack_t *rack);
+int  synth_ui_view_pages(const synth_ui_t *ui, const rack_t *rack, view_t v, int *first);
+bool synth_ui_view_go(synth_ui_t *ui, const rack_t *rack, view_t v);
+void synth_ui_view_step(synth_ui_t *ui, const rack_t *rack, int dir);
+const char *synth_ui_view_name(view_t v);       // "Edit", "Seq" ...
+const char *synth_ui_view_abbr(view_t v);       // the header's badge: "ED", "SQ" ...
+// The main view's page `idx` (0 .. page_count - 1): its title; shown, row 1, leaving the menu (the page list, a long Menu press).
 void synth_ui_page_title(const synth_ui_t *ui, const rack_t *rack, int idx, char *out, int n);
 bool synth_ui_go_page(synth_ui_t *ui, const rack_t *rack, int idx);
 // True while the MODIFIERS tab is on screen (a key or a control then selects itself; see scr_mods.c).

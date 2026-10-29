@@ -66,7 +66,7 @@ void synth_ui_seq_view(const synth_ui_t *ui, const seq_t *q, int *first, int *lo
 #define PRM_TPRM 101
 
 // The values are saved in ui.cfg (jump slots): never reorder. TAB_FM_OP / TAB_FM_ENV are no longer shown (the operators have main-view pages).
-typedef enum { TAB_RACK, TAB_GENERAL, TAB_FM_ALGO, TAB_FM_OP, TAB_FM_ENV, TAB_FX /* removed: row M (ADR-041) */, TAB_SAMPLES, TAB_KEYS, TAB_MODS, TAB_MACROS, TAB_CURVES, TAB_LEDS, TAB_JOY, TAB_PRESET, TAB_SOUND } tab_t;   // append only: jump slots save these values (GENERAL, SAMPLES, ALGORITHM: now SOUND, ADR-044)
+typedef enum { TAB_RACK, TAB_GENERAL, TAB_FM_ALGO, TAB_FM_OP, TAB_FM_ENV, TAB_FX /* removed: row M (ADR-041) */, TAB_SAMPLES, TAB_KEYS, TAB_MODS, TAB_MACROS, TAB_CURVES, TAB_LEDS, TAB_JOY, TAB_PRESET, TAB_SOUND, TAB_MACHINE } tab_t;   // append only: jump slots save these values (GENERAL, SAMPLES, ALGORITHM: now SOUND, ADR-044)
 
 // FM pages (global pages, ui_pages.c): FM SYNTH (Patch, Algo, Fb, Vol), then per operator OPn (Lvl, Crs, Fine, Fix) and OPn ENV (Pt, Lvl, Time).
 // The page def of operator k: GP_FM_OP_BASE + k and GP_FM_ENV_BASE + k.
@@ -91,6 +91,13 @@ const char *tab_name(tab_t t);
 const char *tab_icon(tab_t t);   // the sprite name of the tab's top-bar icon ("16/tab_rack"; ui_sprite() gives NULL until the image exists)
 int tab_rows(tab_t t);
 int tab_index_of(const rack_t *r, tab_t t);       // index of the tab of that kind in the current synth type, -1 = the type has none
+void ui_leave_menu(synth_ui_t *ui, const rack_t *rack);   // to the main view, as Menu: the rack's edits applied (ui->rebuild), the pages made again
+void ui_view_note(synth_ui_t *ui, const rack_t *rack);    // remembers where the view on show is (view_at, view_last): after any move
+// The header (ui_legend.c, both sections): the view's badge at the left (two letters in a frame, filled while the view selector has the focus;
+// a painted 16/view_<name> icon replaces it); returns its width. The title centred in `room` ("< TITLE >" with arrows; tighter, then
+// without them, when it does not fit; clipped to the room).
+int  ui_view_badge(u8g2_t *g, int x, int y, int h, view_t v, bool focused);
+void ui_header_title(u8g2_t *g, gui_rect_t room, const char *title, bool arrows);
 
 /* ---- ui_input.c ---- */
 void macros_default(synth_ui_t *ui, const rack_t *rack);

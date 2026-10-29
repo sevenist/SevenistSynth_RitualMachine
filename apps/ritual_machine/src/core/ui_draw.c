@@ -496,7 +496,7 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
     gui_style_init(&style, u8g2_GetDisplayWidth(g), content_h);
     const gui_style_t *st = &style;
     page_t pg;
-    char buf[32], val[24];
+    char val[24];
 
     u8g2_ClearBuffer(g);
     gui_begin(g, st);
@@ -506,26 +506,27 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
     gui_rect_t bar = gui_take_top(&screen, GUI_BAR_H);                     // the top bar: one 16 px grid row, its last pixel row is the rule
     const gui_rect_t header = gui_rect(bar.x, bar.y, bar.w, bar.h - 1);
 
-    // header (row 0): page selector with arrows, or the menu tab while the menu is open (with its 16/tab_<name>.png icon at the left)
-    const gui_sprite_t *icon = NULL;
-    if (ui->in_rack) {
-        const tab_t tk = tab_kind(rack, ui->menu_tab);
-        snprintf(buf, sizeof buf, "< %s%s >", tab_name(tk), ui->rack_dirty ? "*" : "");   // "*": structural edits applied when the menu is left
-        icon = ui_sprite(tab_icon(tk));
-    } else {
-        get_page(ui, rack, ui->page, &pg);
-        snprintf(buf, sizeof buf, "< %s >", pg.title);
-    }
+    // header (row 0), ADR-046 phase 3: the view's badge at the left (its own focus: ui->view_sel), where the page is in the view ("3/19"),
+    // then the page selector with arrows (the page's title, or the menu tab's name), the marks at the right
+    char title[24];
+    if (ui->in_rack) snprintf(title, sizeof title, "%s%s", tab_name(tab_kind(rack, ui->menu_tab)), ui->rack_dirty ? "*" : "");   // "*": structural edits, applied when the rack's tabs are left
+    else { get_page(ui, rack, ui->page, &pg); snprintf(title, sizeof title, "%s", pg.title); }
+    const view_t view = synth_ui_view(ui, rack);
     u8g2_DrawHLine(g, bar.x, gui_bottom(bar) - 1, bar.w);
-    if (ui->row == 0) { u8g2_DrawBox(g, header.x, header.y, header.w, header.h); u8g2_SetDrawColor(g, 0); }
-    if (icon) gui_draw_sprite(g, icon, bar.x, bar.y);                   // drawn over the rule: keep the icon's last row transparent
-    gui_draw_text_centered(g, icon ? gui_rect(header.x + icon->w, header.y, header.w - icon->w, header.h) : header, buf);
-    if (!ui->in_rack && ui->page_count > 1) {   // where the page is in the list: "3/22" at the left
+    if (ui->row == 0 && !ui->view_sel) { u8g2_DrawBox(g, header.x, header.y, header.w, header.h); u8g2_SetDrawColor(g, 0); }
+    const int badge = ui_view_badge(g, header.x, header.y, header.h, view, ui->row == 0 && ui->view_sel);
+    int first;
+    const int n_pages = synth_ui_view_pages(ui, rack, view, &first);
+    int x = header.x + badge + 2;
+    if (n_pages > 1) {
         char n[24];
-        snprintf(n, sizeof n, "%d/%d", ui->page + 1, ui->page_count);
-        u8g2_DrawStr(g, header.x + 1, gui_text_center(g, header, n).y, n);
+        snprintf(n, sizeof n, "%d/%d", (ui->in_rack ? ui->menu_tab : ui->page) - first + 1, n_pages);
+        u8g2_DrawStr(g, x, gui_text_center(g, header, n).y, n);
+        x += u8g2_GetStrWidth(g, n) + 2;
     }
     const int used = ui_header_marks(g, header.x + header.w, header.y, header.h, ui);   // the battery, the modifier held
+    const gui_rect_t room = gui_rect(x, header.y, header.x + header.w - used - x, header.h);
+    ui_header_title(g, room, title, n_pages > 1);
     if (ui->joy_xy) {                            // joystick XY mode is on: 8/ui_xy.png left of the marks (text when there is no image)
         const gui_sprite_t *xy = ui_sprite("8/ui_xy");
         if (xy) gui_draw_sprite(g, xy, header.x + header.w - used - xy->w, bar.y + (GUI_BAR_H - xy->h) / 2);

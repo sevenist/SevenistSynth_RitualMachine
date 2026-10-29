@@ -89,11 +89,8 @@ static void activate_el(const screen_def_t *s, const ui_ctx_t *c, int i) {
     fix_focus(s, c);
 }
 
-// Left / right on the header: the next / previous tab of the menu.
-static void header_step(const ui_ctx_t *c, int dir) {
-    const int tabs = tab_count(c->rack);
-    c->ui->menu_tab = (c->ui->menu_tab + dir + tabs) % tabs;
-}
+// Left / right on the header: the next / previous tab of the view (ADR-046 phase 3).
+static void header_step(const ui_ctx_t *c, int dir) { synth_ui_view_step(c->ui, c->rack, dir); }
 
 bool screen_event(const screen_def_t *s, const ui_ctx_t *c, ui_event_t ev) {
     synth_ui_t *ui = c->ui;
@@ -198,6 +195,7 @@ const screen_def_t *screen_for_tab(tab_t t) {
         case TAB_LEDS:    return &scr_leds_screen;
         case TAB_JOY:     return &scr_joy_screen;
         case TAB_PRESET:  return &scr_preset_screen;
+        case TAB_MACHINE: return &scr_machine_screen;
         default:         return &scr_rack_screen;
     }
 }

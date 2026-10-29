@@ -11,6 +11,8 @@
 #include "core/synth_ui.h"
 #include "core/controls.h"
 #include "core/modifiers.h"
+#include "core/ui_sprites_gen.h"
+#include "core/ui_internal.h"
 #include "ui/gui.h"
 #include <stdio.h>
 #include <string.h>
@@ -157,4 +159,34 @@ int ui_header_marks(u8g2_t *g, int right, int y, int h, const synth_ui_t *ui) {
     }
     u8g2_SetDrawColor(g, color);
     return right - x;
+}
+
+/* ---------------- the header's view badge and title (ADR-046 phase 3) ---------------- */
+
+#define BADGE_W 16
+
+int ui_view_badge(u8g2_t *g, int x, int y, int h, view_t v, bool focused) {
+    char name[24];
+    snprintf(name, sizeof name, "16/view_%s", synth_ui_view_name(v));
+    for (char *p = name; *p; p++) if (*p >= 'A' && *p <= 'Z') *p = (char)(*p - 'A' + 'a');
+    const uint8_t color = g->draw_color;
+    if (focused) { u8g2_SetDrawColor(g, 1); u8g2_DrawBox(g, x, y, BADGE_W, h); u8g2_SetDrawColor(g, 0); }
+    const gui_sprite_t *sp = ui_sprite(name);                          // a painted icon when there is one, else the tab icons' look:
+    if (sp) gui_draw_sprite(g, sp, x, y);                              // two letters in a frame
+    else {
+        if (!focused) u8g2_DrawFrame(g, x, y, BADGE_W, h);
+        gui_draw_text_centered(g, gui_rect(x, y, BADGE_W, h), synth_ui_view_abbr(v));
+    }
+    u8g2_SetDrawColor(g, focused ? 1 : color);
+    return BADGE_W;
+}
+
+void ui_header_title(u8g2_t *g, gui_rect_t room, const char *title, bool arrows) {
+    char t[32];
+    snprintf(t, sizeof t, arrows ? "< %s >" : "%s", title);
+    if (arrows && u8g2_GetStrWidth(g, t) > room.w) snprintf(t, sizeof t, "<%s>", title);   // tighter
+    if (u8g2_GetStrWidth(g, t) > room.w) snprintf(t, sizeof t, "%s", title);
+    u8g2_SetClipWindow(g, room.x, room.y, room.x + room.w, room.y + room.h);
+    gui_draw_text_centered(g, room, t);
+    u8g2_SetMaxClipWindow(g);
 }

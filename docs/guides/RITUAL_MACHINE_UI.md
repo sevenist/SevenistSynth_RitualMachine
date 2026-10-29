@@ -258,46 +258,69 @@ menu, call `screen_event` and `screen_draw` yourself, as `scr_pads.c` does for t
 
 ## 7. The menu and its tabs
 
-Menu (Button 1, or the key function Menu) opens and closes it, **at its release** (held 0.5 s it opens the jump list instead:
-below). Closing it with structural edits regenerates the pages and asks the app to rebuild the engine. The tabs are the same
-for every synth type (`tab_kind`, `ui_pages.c`; ADR-044 merged GENERAL, SAMPLES and ALGORITHM into SOUND):
+**Views (ADR-046 phase 3, `ui_pages.c`).** The main view's pages and the menu's tabs are grouped in views (`view_t`): EDIT (the
+pages `0 .. edit_pages - 1`: the patch's), SEQ (the last three pages, `seq_globals`: SEQUENCER, SEQ SETUP, PATTERNS, appended
+after every type's own), RACK (RACK, SOUND), PERFORM (MACROS, JOY), PRESETS, SETUP (KEYS, LEDS, MODIFIERS, CURVES, MACHINE).
+`synth_ui_view` says which is on show (`in_rack` still means "a tab is on show"), `synth_ui_view_pages` its pages or tabs,
+`synth_ui_view_go` shows one where it was left (`view_at[]`, kept by `ui_view_note` after every move; leaving the tabs for a
+page applies the rack's edits: `ui_leave_menu`), `synth_ui_view_step` its next page or tab (the page selector, Page - / +).
+The header (`synth_ui_draw`) draws the view's badge (`ui_view_badge`, `ui_legend.c`: two letters in a frame, or a painted
+`16/view_<name>` sprite), "n/N" in the view, the title (`ui_header_title`: "< TITLE >", tighter when it does not fit).
+**Focus levels**: `view_sel` (with row 0) = the badge: up from the page selector, left / right step the views (`view_sel_event`,
+`ui_input.c`), down / Enter go back in (to row 1 when the view has one page), Back goes home. **Menu** (`UI_MENU`) = EDIT <->
+`view_last` (RACK at first). **Back** climbs on the pages too: a latch, the cog, a row to the header, the SEQ view's header home.
 
-RACK, PRESETS, SOUND, KEYS, LEDS, MODIFIERS, MACROS, JOY, CURVES
+Menu (Button 1, or the key function Menu) acts **at its release** (held 0.5 s it opens the page list instead: below). The tabs
+are the same for every synth type (`tab_kind`, `ui_pages.c`; ADR-044 merged GENERAL, SAMPLES and ALGORITHM into SOUND), in view
+order:
+
+RACK, SOUND | MACROS, JOY | PRESETS | KEYS, LEDS, MODIFIERS, CURVES, MACHINE
 
 `tab_t` keeps the old values (`TAB_GENERAL`, `TAB_SAMPLES`, `TAB_FM_ALGO`: the jump slots saved them) and `tab_index_of` maps
-them onto SOUND; a new tab is appended.
+them onto SOUND; a new tab is appended (`TAB_MACHINE`).
 
 | Tab | File | Elements | Picture / extra |
 | --- | --- | --- | --- |
 | RACK | `scr_rack.c` | the three rows (FM / Strings: row M only), and the push menu (below) | the rows, their links, a line describing the selection |
 | PRESETS | `scr_preset.c` | Load, Save, Save as, Init: each only raises `ui->preset_req`, the app does the work | the preset's name, `edited` or `saved` |
-| SOUND | `scr_sound.c` | Type, Patch (FM), Voices, Glide and Legato (Voices 1), Vol, Out, Spk, Knob; then Modular: File (a push opens the browser), Tgt, Assign; FM: Algo, Fb, Op (left / right pick an operator, a push opens its OPn page). The rows that do not apply are hidden; the list scrolls | the part the focus is in: the info box (`draw_synth_info`), the file's overview, or the operator tree |
+| SOUND | `scr_sound.c` | Type, Patch (FM), Voices, Glide and Legato (Voices 1), Vol; then Modular: File (a push opens the browser), Tgt, Assign; FM: Algo, Fb, Op (left / right pick an operator, a push opens its OPn page). The rows that do not apply are hidden; the list scrolls | the part the focus is in: the info box (`draw_synth_info`), the file's overview, or the operator tree |
 | KEYS | `scr_keys.c` | Layout, Key, Func, Reset | the keys with their functions |
 | LEDS | `scr_leds.c` | Role, Idle, Idle %, Active, Act %, Value (the pots' roles), Reset; for Knob the shades read Away / Caught, for Enc A Synth / Pads (ADR-045) | the keys of that role filled, or which pots / encoder A |
 | MODIFIERS | `scr_mods.c` | Layer, Ctrl, Func, Min, Max, Curve, Learn, Reset | the controls with their function in the layer |
 | MACROS | `scr_macros.c` | Macro, Color (its LED's, ADR-045), Dest, Tgt, Min, Max, Curve, Learn, Remove | the selected destination's response |
 | JOY | `scr_joy.c` | Axis, Tgt, Min, Max, Curve, Clear | the axis' response, XY mode on or off |
 | CURVES | `scr_curves.c` | Curve, New, Point, X, Y, Seg, Add, Del pt, Delete | the curve and its points |
+| MACHINE | `scr_machine.c` | Out, Spk, Knob (from SOUND, ADR-046 decision 4), Storage (raises `ui->storage_req`: the app asks, `app_storage_ask`) | the battery |
 
 All but RACK use `ui_layout_column` (a list on the left, the picture on the right) and no latch. Edits that change the
 structure (a module inserted or deleted, a target, the type, the voices, the FM patch) set `rack_dirty` or `rebuild`; edits
 that are live (volume, an effect's value, FM operator values) return `true` so the app pushes them to the engine at once.
 
-### The page list and the jump list (`app/app_lists.c`; ENGINE_DESIGN.md ADR-044)
+### The map and the page list (`app/app_lists.c`; ENGINE_DESIGN.md ADR-044, ADR-046 phase 3)
 
 Both are list popups of the drawing kit (`popup_choose_labels`, `ui/popup.h`: the labels are asked as they are drawn, a
 heading is skipped by the focus, a long list scrolls).
 
-- **Shift + Menu: the page list**, opened on the entry of the screen on show:
-  `MODES` Synth, Pads / `MAIN` Rack (Pads: Pad FX), Presets, Sound (synth only), Sequencer (Pads: Steps), Macros, Advanced >
-  / the submenu `ADVANCED`: Keys, LEDs, Modifiers, Joy, Curves, Storage (asks, saves, then `storage_card_reader`, the
-  storage HAL; Back from the submenu = the list on Advanced). A synth tab picked in Pads switches to the synth first. The
-  synth's side goes through `synth_ui_go` / `synth_ui_where` (`synth_go_t`, `ui_pages.c`).
-- **Menu held `MENU_LONG_MS` (500 ms): the jump list**, the main view's pages by title (`synth_ui_page_title`), on the page on
-  show; a pick shows it (`synth_ui_go_page`, row 1), from the menu too. **Not in Pads** (the user, ADR-044 decision 8): there
-  a long press is a short one, the FX chains. A rack edited in the menu is applied
-  first, so the list holds the pages it makes. Menu's short press therefore acts at its release (`app_menu_up`, called from
-  both release paths of `app_input.c`).
+- **Shift + Menu: the map** (title MAP), opened on the entry of the screen on show: `MODES` Synth (the synth as it was left),
+  Pads (the grid) / `EDIT` Edit (Pads: Grid) / `SEQ` Sequencer (Pads: Steps), Seq setup, Patterns / `RACK` Rack (Pads: Pad FX),
+  Sound / `PERFORM` Macros, Joy / `PRESETS` Presets / `SETUP` Setup >, the submenu Keys, LEDs, Modifiers, Curves, Machine,
+  Storage (asks, saves, then `storage_card_reader`, the storage HAL; Back from the submenu = the map on Setup >). The synth's own
+  entries (Seq setup, Patterns, Sound, Presets) are left out in Pads, an empty heading too. In Pads the PERFORM and SETUP tabs
+  open over the pads (`app_pads_tab`); the others switch to the synth first. The synth's side goes through `synth_ui_go` /
+  `synth_ui_where` (`synth_go_t`, `ui_pages.c`).
+- **Menu held `MENU_LONG_MS` (500 ms): the page list** of the view on show (title: the view's name; `synth_ui_view_page_title`
+  / `_go`): EDIT's pages, SEQ's three, a view's tabs; on the one on show; a pick shows it, row 1. **Not in Pads** (the user,
+  ADR-044 decision 8): there a long press is a short one. Menu's short press therefore acts at its release (`app_menu_up`,
+  called from both release paths of `app_input.c`).
+
+### The Pads section's views (`app/app_pads.c`)
+
+`app_pads_view`: EDIT = the grid or a pad's editor (`pads_ui_view`), SEQ = STEPS, RACK = PAD FX, PERFORM and SETUP = the synth's
+tabs shown over the pads (`ui->in_rack` in Pads: `app_draw_frame` draws `synth_ui_draw`, `app_pads_event` hands the events to
+`pads_tab_event`, which keeps Back from the header and the jump slots in Pads; the column knobs drive nothing there; Learn goes to
+the synth first). PRESETS has nothing in Pads yet: the ring skips it. Up from the top of a Pads screen (`at_top`, `scr_pads.c`)
+sets `view_sel`; `pads_view_sel_event` steps the ring. Menu = EDIT <-> `pads_view_last` (PAD FX at first: Menu's old job). Each
+section keeps its own tab (`sec_tab[]`, `sec_row[]`, `app_set_section`); EDIT keeps the editor open as it was (`pads_edit_keep`).
 
 ### The RACK tab (`scr_rack.c`)
 
@@ -479,6 +502,8 @@ From the repo root unless said otherwise.
 
 Observations about the current structure, not decisions.
 
+0. **Phase 3 as built leaves**: the jump slots save the synth's places only (a Pads view is not a slot); the page list is not
+   offered in Pads; PRESETS is empty in Pads; the 128 x 64 header (badge + counter + title) was not looked at.
 1. **The main view is not declarative.** Its pages still have hand-numbered rows and a `handle_*` far from its `draw_*`. Since
    ADR-046 its gestures are the menu's (push = Enter, a latch) and the knob legend says what the column knobs drive.
 2. **Navigation and layout are not tied together.** On a declarative screen the joystick goes by the `row` / `col` typed in

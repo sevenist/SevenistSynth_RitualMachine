@@ -1870,7 +1870,7 @@ Chosen by me while building (say if one is wrong):
   runs on HWV1 too, where the LEDs do not exist: a few reads per frame); the HWV1 simulator shows no pot LEDs (its board has
   none).
 
-### ADR-046: The GUI reorganization, one UX ruleset, built for HWV1 (Accepted; user choices of 2026-10-29; phases 1, 2, 4 built on branch `gui-reorg` 2026-10-29, `bf4151f` .. the docs commit; host-tested; flashed and tried by the user the same day: "working properly")
+### ADR-046: The GUI reorganization, one UX ruleset, built for HWV1 (Accepted; user choices of 2026-10-29; phases 1, 2, 4 built on branch `gui-reorg` 2026-10-29, `bf4151f` .. the docs commit; host-tested; flashed and tried by the user the same day: "working properly"; phase 3 built the same day, `02c7a94` .. the docs commit, host-tested, NOT tried by the user)
 **Why.** The user, 2026-10-29: "you have the role of UX designer, create a plan to reorganize the whole GUI ... without leaving
 current features hidden or lost ... a current and future proof ruleset for creating a new UX for specific hardware". The plan
 (rules R1..R23, the views, the controls per board, where every feature goes, the phases) is
@@ -1957,8 +1957,49 @@ marks, the battery from `app_power_poll`, the pad editor's overview heights); `1
   Pads editor's four pages, the latch, the header).
 - **On the board** (2026-10-29): the user flashed `gui-reorg` and tried the new UX: "so far it's working properly". No details
   reported yet on the HWV1 knob places or the held push.
-- **Not done / not checked**: the 128 x 64 screen has no legend and was not looked at; phases 3, 5, 6 and the extras Reset to default and the
+- **Not done / not checked**: the 128 x 64 screen has no legend and was not looked at; phases 5, 6 and the extras Reset to default and the
   macro Value field are not built; the menu's other tabs keep idle knobs (no "first four numeric fields" yet); Q6 not asked.
+
+**Phase 3, the views (2026-10-29, the user: "let's start"; built on `gui-reorg`, one commit per step).** Chosen by me (the plan,
+guide sections 4 and 9, gave the views, the focus levels and the routes; these are the details; say if one is wrong):
+1. **The views**: EDIT (the patch's pages: modules, AMP, FM / Strings, row M's effects), SEQ (SEQUENCER, SEQ SETUP, PATTERNS:
+   moved after every type's own pages, so EDIT's ring never reaches them), RACK (RACK, SOUND), PERFORM (MACROS, JOY: decision 3),
+   PRESETS, SETUP (KEYS, LEDS, MODIFIERS, CURVES, MACHINE). The tab order follows the views; `tab_t` only appended (`TAB_MACHINE`).
+2. **The header**: the view's **badge** at the left, two letters in a frame (ED, SQ, RK, PF, PR, ST), the look of the tab icons it
+   replaces (a painted `16/view_<name>` sprite takes its place when there is one), then "n/N" in the view, then the title, tighter
+   ("<TITLE>", then without arrows) when it does not fit; no arrows on a one-page view (PRESETS).
+3. **The view selector** is a focus of its own (`view_sel`): **up from the page selector** (encoder A's row moves skip it; the
+   key function Top goes page selector, then view selector). The badge fills; left / right / Page - / + step the views, each shown
+   where it was left (`view_at`), the focus staying on the badge; down or Enter go back in (to the first row of a one-page view);
+   Back goes home. The ring holds SETUP too (after PRESETS), so stepping reaches everything.
+4. **Up from a page's header no longer wraps to its last row** (it goes to the badge); encoder A still wraps.
+5. **Menu** = EDIT <-> the last other view (RACK at first, as the menu was). Before, Menu opened the menu from any page, the
+   SEQ pages included; now from SEQ it goes home and back.
+6. **Back on the pages climbs** (it did nothing there): a row to the header; on the SEQ view's header, home. In the menu as
+   phase 4 made it, "out of the menu" now meaning home (EDIT).
+7. **MACHINE** (SETUP): Out, Spk, Knob (decision 4) and **Storage** as a button (asks first, as the map's entry), the battery in
+   its picture (moved from SOUND's). SOUND keeps Type .. Vol and its sample / algorithm parts.
+8. **The map** (Shift + Menu, title MAP): a flat list, one heading per view (MODES, EDIT, SEQ, RACK, PERFORM, PRESETS, SETUP),
+   so every screen but the settings is 2 actions away (the settings 3: Setup > is a submenu). Not a submenu per view: Sound would
+   have needed 3 actions where it needed 2. MODES Synth in the synth moves nothing; Edit = the EDIT view as left.
+9. **The page list** (Menu held): the pages of the view on show (EDIT's, SEQ's three, a view's tabs), titled with the view.
+   Still not in Pads (ADR-044 decision 8, the user's).
+10. **Pads**: the same views, **PERFORM and SETUP as the synth's tabs shown over the pads** (the plan's "opened over Pads without
+   switching"): the section, the keys and the music stay; Back from their header goes to the Pads' EDIT; the jump slots and the
+   column knobs do nothing there; Learn (MODIFIERS, MACROS) goes to the synth section first (it takes a page row). PRESETS is
+   empty in Pads: skipped. **Up from the top** of a Pads screen (the grid's first row, STEPS' first row of steps, the editor's and
+   the FX pages' header) reaches the badge. Menu = EDIT <-> the last other view, PAD FX at first (Menu's old job in Pads). EDIT
+   comes back with the pad's editor open if it was.
+11. **Each section keeps its own tab** (`sec_tab`): the synth on SOUND, Pads on MACHINE: switching section shows each one's.
+   Leaving the synth with rack edits now regenerates its pages at once (they were left stale until the next rebuild).
+12. Not done in phase 3: Pads views are not jump slots; the "3 actions" gate was checked by the tests' routes (`test_views.c`,
+   `test_lists.c`), not by a table walk of section 9 per board; the 128 x 64 header was not looked at.
+
+**Phase 3 as built**: `02c7a94` the synth's views (`view_t`, `synth_ui_view*`, `ui_view_note`, `ui_leave_menu`, `view_sel_event`,
+`ui_view_badge`, `ui_header_title`, `scr_machine.c`); `7c1ce95` the map and the page list (`app_lists.c`); `ba57997` the Pads'
+views (`pads_ui_view`, `at_top`, `app_pads_view*`, `pads_tab_event`, `sec_tab`). Checked: 197 UI tests (13 new in `test_views.c`,
+`test_lists.c` rewritten for the map); both simulators built; the headers, MACHINE, the map and the Pads views looked at as images
+(HWV1). **NOT tried by the user, the firmware not built by me.**
 
 ## Known limits and ideas for later
 

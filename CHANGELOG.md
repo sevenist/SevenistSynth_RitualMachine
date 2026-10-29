@@ -20,6 +20,19 @@ on the hardware.
   and the next panel (4 columns, encoders).
 - **For developers:** the repo is now a library and the apps built on it. The next section is the guide to it.
 
+## 2026-10-29: the GUI reorganization, part 2: views (ADR-046 phase 3; branch `gui-reorg`)
+
+- **Views**: the screens are grouped by what they are for, in the same order in Synth and Pads: EDIT (the sound's pages; Pads:
+  the grid), SEQ (the sequencer's three pages; Pads: the steps), RACK (rack and sound; Pads: the FX chains), PERFORM (macros and
+  the joystick), PRESETS, SETUP (keys, LEDs, modifiers, curves, and the new MACHINE page). The badge at the left of the header
+  ("ED", "SQ" ...) is the view: push the joystick up from the page name to reach it, then left / right to change view.
+- **Left / right on the page name** now stays in the view: the EDIT pages no longer run into the sequencer's.
+- **Menu** goes between EDIT and the last other view (at first RACK; in Pads the FX chains, as before). **Back** climbs: from a
+  row to the header, from the header home.
+- **MACHINE** (in SETUP): Out, Spk and Knob moved here from SOUND, with Storage and the battery.
+- **In Pads, PERFORM and SETUP open over the pads**: the pads keep playing while you edit a macro or a setting.
+- **Shift + Menu** is now a map with one heading per view; **Menu held** lists the pages of the view on show.
+
 ## 2026-10-29: the GUI reorganization, part 1 (ADR-046; branch `gui-reorg`)
 
 - **A knob legend** at the bottom of the screen: what each column knob drives, laid out like the knobs (2 x 2 on the first

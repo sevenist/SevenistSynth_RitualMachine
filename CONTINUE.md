@@ -17,7 +17,10 @@ and 4 were built on `gui-reorg`, one commit per step** (`bf4151f` .. the docs co
 marks, push = Enter, safety. My choices are ADR-046 "Chosen by me while building" (13 points; **point 9 changes a design of
 theirs**: the XY binding moved from a plain push to a held one). Host-tested (184 UI tests), both simulators built, the
 screens looked at as images. **The user then reinstalled PlatformIO Core, flashed the board and tried the new UX: "so far
-it's working properly"** (2026-10-29). Next, at their word: phase 3 (views and rings).
+it's working properly"** (2026-10-29; the HWV1 knob places "seem correct", to double-check). **Then, at their word ("let's
+start"), phase 3 was built, one commit per step** (`02c7a94` the synth's views, `7c1ce95` the map and the page list, `ba57997`
+the Pads' views, then the docs): host-tested (197 UI tests), both simulators built, the screens looked at as images; **NOT
+tried by the user, the firmware NOT built** by me. My choices: ADR-046 "Phase 3, chosen by me" (12 points).
 
 **Where things stood (2026-10-29):** ADR-044 flashed and tried by the user ("all good"); ADR-045 (the pot / Enc A LEDs)
 built on `main` and committed (`5ed38ed` .. `890597c`), not tried by the user. Then, at their request, **a plan to reorganize
@@ -85,6 +88,16 @@ was then asked with options (audio into a sample, a popup when arming, the desti
 item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
 21-23).
 
+- [ ] **Try phase 3, the views (branch `gui-reorg`, ADR-046 "Phase 3")** (from: user, 2026-10-29). Build and flash from VS Code
+  (the simulator first: `.\build.ps1 -Board hwv1`, `.\run.ps1 -Board hwv1`). **To try**: (1) the header's left badge (ED, SQ,
+  RK, PF, PR, ST): from the page name push the joystick **up**: the badge fills; left / right change the view, each where you left
+  it; down comes back; (2) left / right on the page name stay in the view: EDIT never reaches SEQUENCER, SEQ is SEQUENCER / SEQ
+  SETUP / PATTERNS; "3/19" counts the view's pages; (3) **Menu** = EDIT <-> the last other view (RACK at first); (4) **Back** on
+  a page: a row to the header, then (outside EDIT) home; (5) SETUP > MACHINE: Out, Spk, Knob, Storage (SOUND lost those three);
+  (6) **Shift + Menu** = the map, one heading per view; **Menu held** = the pages of the view on show; (7) **Pads**: up from the
+  grid's top row = the badge; the views EDIT, SEQ (steps), RACK (FX), PERFORM, SETUP; **MACROS or a setting over the pads while
+  they play** (the music goes on); Menu = FX at first, as before; the synth keeps its own tab when you switch section. Say
+  what to change; then phase 5 (the Tier 0 table, the Pads Rec list).
 - [ ] **Try the GUI reorganization, phases 1, 2, 4 (branch `gui-reorg`)** (from: user, 2026-10-29; ADR-046). **Flashed and
   tried by the user 2026-10-29: "so far it's working properly"**; keep the list for what they have not reported on yet (the
   HWV1 knob places, the held push). **To try** (the simulator first: `.\build.ps1 -Board hwv1`, `.\run.ps1 -Board hwv1`):

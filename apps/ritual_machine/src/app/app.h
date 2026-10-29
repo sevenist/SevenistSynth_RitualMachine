@@ -172,6 +172,9 @@ typedef struct {
     uint8_t        menu_ctl;    // the Menu control held (CTL_NONE: none): a short press acts at its release, a long one opens the jump list ...
     bool           menu_long;   // ... the jump list opened while it is held (its release does nothing)
     uint32_t       menu_ms;     // ... when it went down
+    uint8_t        push_ctl;    // the push (Latch) held on a page's parameter row (CTL_NONE: none): Enter at its release, held PUSH_LONG_MS ...
+    bool           push_long;   // ... it binds the row to the joystick (ADR-046 phase 2: push = Enter, the XY binding moved to a hold)
+    uint32_t       push_ms;
     char           status[48];  // last control -> action, for the simulator panel / debugging ("ENC A > Row +1")
 } app_t;
 

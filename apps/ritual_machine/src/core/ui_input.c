@@ -821,6 +821,32 @@ void macros_default(synth_ui_t *ui, const rack_t *rack) {
 
 /* ---------------- events ---------------- */
 
+#define LATCH_COARSE 4                                   // a latched page row: up / down step it this many times
+
+// Rows of the pages whose push flips them (two states, or an on / off of the step shown) instead of latching them.
+static bool row_flips(const page_t *pg, int row) {
+    return (pg->graph == GRAPH_SEQ_PAT && row == PAT_ROW_CHAIN) || (pg->graph == GRAPH_MS_STEPS && row == 4) ||
+           (pg->graph == GRAPH_MS_LANE && (row == 3 || row == 4));
+}
+
+// Enter on a page (the joystick's push, encoder B's): the cog opens / closes, a two-state row flips, a value latches / is released.
+static bool page_enter(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack) {
+    if (ui->row == 0) return false;
+    page_t pg;
+    get_page(ui, rack, ui->page, &pg);
+    if (page_has_cog(rack, &pg) && ui->row == pg.count + 1) {         // the cog: the hidden settings, the focus stays on it
+        ui->latched = false;
+        ui->cog_page = ui->cog_page == ui->page ? -1 : ui->page;
+        get_page(ui, rack, ui->page, &pg);
+        ui->row = pg.count + 1;
+        return false;
+    }
+    if (ui->row > pg.count) return false;
+    if (row_flips(&pg, ui->row)) { ui->latched = false; return page_row_step(ui, params, seq, rack, &pg, ui->row, 1); }
+    ui->latched = !ui->latched;
+    return false;
+}
+
 // Number of rows of what is on screen (row 0, the page / tab selector, not counted).
 static int rows_on_screen(const synth_ui_t *ui, const rack_t *rack) {
     if (ui->in_rack) return tab_rows(tab_kind(rack, ui->menu_tab));
@@ -861,8 +887,10 @@ static bool handle_event(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rac
         return false;
     }
 
-    // Every tab of the menu is a declarative screen (ui_screen.h) and gets the events as they are. The main view (pages) is not converted yet:
-    // it understands only the old events, so the joystick moves the row / changes the value, encoder B changes the value, a push of the joystick activates.
+    // Every tab of the menu is a declarative screen (ui_screen.h) and gets the events as they are. The main view (pages) has its own handling
+    // with the same gestures (ADR-046 phase 2): the joystick moves the row and changes the value, encoder B changes the value, and a push is
+    // Enter: it latches a value (filled < >: then up / down step it by four, left / right by one; a push or Back releases it), flips a
+    // two-state row, opens the cog. A push never means "right". The SEQUENCER page keeps its push (a note in / out, a tool run).
     if (!ui->in_rack) {
         const bool seq_page = synth_ui_shows_seq(ui);
         if (seq_page && (e == UI_NAV_UP || e == UI_NAV_DOWN || e == UI_NAV_LEFT || e == UI_NAV_RIGHT) && seq_nav(ui, seq, e)) return false;
@@ -878,6 +906,15 @@ static bool handle_event(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rac
             }
             return false;
         }
+        if (e == UI_LATCH || e == UI_SELECT) return page_enter(ui, params, seq, rack);
+        if (ui->latched && ui->row > 0 && (e == UI_NAV_UP || e == UI_NAV_DOWN)) {    // latched: up / down step the value by four
+            page_t lp;
+            get_page(ui, rack, ui->page, &lp);
+            bool changed = false;
+            for (int i = 0; i < LATCH_COARSE; i++) changed |= page_row_step(ui, params, seq, rack, &lp, ui->row, e == UI_NAV_UP ? 1 : -1);
+            return changed;
+        }
+        if (ui->latched && e == UI_BACK) { ui->latched = false; return false; }   // Back releases first
         switch (e) {
             case UI_NAV_UP: e = UI_UP; break;
             case UI_NAV_DOWN: e = UI_DOWN; break;
@@ -885,10 +922,9 @@ static bool handle_event(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rac
             case UI_NAV_RIGHT: e = UI_RIGHT; break;
             case UI_VALUE_INC: e = UI_RIGHT; break;
             case UI_VALUE_DEC: e = UI_LEFT; break;
-            case UI_LATCH: e = UI_SELECT; break;
             default: break;
         }
-        if (e == UI_SELECT) { if (ui->row == 0) return false; e = UI_RIGHT; }   // push-to-activate: Insert, Delete, Run... act like Right
+        if (e == UI_UP || e == UI_DOWN) ui->latched = false;              // another row (encoder A): the latch goes
     }
     if (e == UI_PAGE_PREV || e == UI_PAGE_NEXT) {         // change page (or menu tab) from any row, keeping the row when the new one has it
         const int saved = ui->row;

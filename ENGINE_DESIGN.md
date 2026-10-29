@@ -1923,7 +1923,20 @@ Chosen by me while building (the user away; say if one is wrong):
    5 s) and **an "S" / "M" while a modifier is held** (both sections' headers, XOR so they read on a focused header).
 6. **The pad editor's overview shrinks** over the legend (PLAY / EDIT 24 -> 17 px, CHOP 40 -> 39 px; EDIT's rows 11 -> 10 px) so
    every row stays on screen.
-7. `ui_dump` binds the board's table (panel, or `UI_DUMP_BOARD=hwv1`) and takes the events `pads`, `synth`, `batt:<n>`.
+7. `ui_dump` binds the board's table (panel, or `UI_DUMP_BOARD=hwv1`) and takes the events `pads`, `synth`, `batt:<n>`, `push`.
+8. **Phase 2, push = Enter on the synth's pages** (`page_enter`, `ui_input.c`): a value row **latches** (filled `<value>`, as on
+   the latch screens); **latched, up / down step it by 4** (left / right by 1, as unlatched), so the joystick alone gives fine
+   and coarse; a push or Back releases (Back does nothing else then), encoder A's row move and a page change release too. A
+   two-state row **flips** on a push (PATTERNS Chain, MOTION On, LANE Mode / Pol); the cog opens / closes. **The focus on the
+   pages is now a frame** (it was filled), the menu's look: filled = latched only (rule R16).
+9. **The XY binding moves to a held push** (0.5 s, `app_push_down` / `_poll` / `_up`, `app_input.c`). **This changes a design
+   of the user's** (2026-10-07: a plain push on a page row bound it to the joystick), which my Q7 did not mention: push = Enter
+   (their answer) and the binding both stay, the binding behind a hold. On a parameter row the short push therefore acts at its
+   release (as Menu's). In XY mode a plain push still binds at once (the stick plays there; nothing to latch). Risk: the user's
+   habit; the other way (bind only in XY mode) is a small change if they prefer it.
+10. Not done in phase 2: the pages are not turned into element tables (the plan's "main view declarative"): the gestures are
+   one set, the code keeps its page tables and hand-written handlers. The SEQUENCER page keeps its push (a note in / out, a
+   tool run): a named exception.
 
 ## Known limits and ideas for later
 

@@ -31,7 +31,10 @@ void app_draw_frame(app_t *app);
 
 void app_input_event(app_t *app, input_event_t e, uint32_t now);    // one input event (not IN_NONE)
 void app_input_poll(app_t *app, uint32_t now);                      // every step: the joystick's repeat, the key-layout reset
-bool app_joy_bind(app_t *app);                                      // a push on a page row binds its parameter to a joystick axis
+bool app_joy_bind(app_t *app);                                      // a push held on a page row binds its parameter to a joystick axis
+void app_push_down(app_t *app, control_id_t ctl, uint32_t now);     // the push (Latch) went down: Enter, or on a parameter row at its release ...
+void app_push_up(app_t *app, control_id_t ctl);                     // ... a control was let go
+void app_push_poll(app_t *app, uint32_t now);                       // ... every step: held PUSH_LONG_MS it binds the row to the joystick
 void app_joy_mode(app_t *app, bool on);                             // the joystick: XY controller / navigation
 void app_joy_xy_off(app_t *app);                                    // leaving the synth: XY mode off
 

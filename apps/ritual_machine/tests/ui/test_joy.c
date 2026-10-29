@@ -14,7 +14,8 @@ static macro_t row_target(int row) {
     CHECK(synth_ui_target_at_cursor(&ui_app.ui, &ui_app.rack, &m));
     return m;
 }
-static void push_on(int row) { ui_app.ui.page = 0; ui_app.ui.row = row; ev_tap(CTL_JOY_SW); }
+// A push held on the row (ADR-046 phase 2: the plain push is Enter; held half a second it binds).
+static void push_on(int row) { ui_app.ui.page = 0; ui_app.ui.row = row; ev_press(CTL_JOY_SW); ev_idle(60); ev_release(CTL_JOY_SW); }
 static float norm(macro_t m) { return synth_ui_target_norm(&ui_app.params, &ui_app.seq, &ui_app.rack, &m); }
 
 TEST(joy_push_binds_x_then_y_moves_and_swaps) {

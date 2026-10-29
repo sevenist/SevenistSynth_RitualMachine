@@ -247,6 +247,11 @@ static void draw_seq_pat(u8g2_t *g, const gui_style_t *st, gui_rect_t box, const
     gui_draw_text_centered(g, gui_rect(in.x, in.y + 4 * ch + 3 + gui_row_h(g, st), in.w, gui_row_h(g, st)), t);
 }
 
+// A page row: focused = a frame, latched = filled with the value between < > (push = Enter on the pages, ADR-046 phase 2).
+static void draw_row(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const char *label, const char *val, const synth_ui_t *ui, int row) {
+    gui_draw_field_state(g, st, r, label, val, ui->row != row ? GUI_PLAIN : ui->latched ? GUI_LATCHED : GUI_FOCUSED);
+}
+
 /* ---------------- motion sequencer ---------------- */
 
 // Bars for the selected lane: one column per sequencer step (same geometry as the piano roll), a filled bar for an active step,
@@ -293,7 +298,7 @@ static void draw_ms_steps(u8g2_t *g, const gui_style_t *st, gui_rect_t area, con
     const char *label[4] = {"Lane", "Step", "Val", "On"};
     const char *value[4] = {lane, step, val, (l->active >> ui->ms_step & 1u) ? "Yes" : "No"};
     for (int i = 0; i < 4; i++)
-        gui_draw_field(g, st, gui_grid_cell(fields, 2, 2, i, st->gap), label[i], value[i], ui->row == i + 1);
+        draw_row(g, st, gui_grid_cell(fields, 2, 2, i, st->gap), label[i], value[i], ui, i + 1);
 }
 
 // Lane settings: Lane, Tgt, Mode, Pol, Dpth (five compact rows) next to the lane's curve.
@@ -310,7 +315,7 @@ static void draw_ms_lane(u8g2_t *g, const gui_style_t *st0, gui_rect_t list, gui
     const int row_h = gui_row_h(g, &st);
     gui_rect_t row = gui_rect(list.x, list.y + st.list_top, list.w - 1, row_h);
     for (int i = 0; i < 5; i++) {
-        gui_draw_field(g, &st, row, label[i], value[i], ui->row == i + 1);
+        draw_row(g, &st, row, label[i], value[i], ui, i + 1);
         row = gui_below(row, st.gap, row_h);
     }
     draw_ms_curve(g, box, l, seq_motion_steps(q));
@@ -332,7 +337,7 @@ static void draw_eg_page(u8g2_t *g, const gui_style_t *st, gui_rect_t list, gui_
     const int row_h = gui_row_h(g, st);
     gui_rect_t row = gui_rect(list.x, list.y + st->list_top, list.w - 1, row_h);
     for (int i = 0; i < 4; i++) {
-        gui_draw_field(g, st, row, label[i], value[i], ui->row == i + 1);
+        draw_row(g, st, row, label[i], value[i], ui, i + 1);
         row = gui_below(row, st->gap, row_h);
     }
     draw_eg_graph(g, box, s, ui->eg_pt);
@@ -570,9 +575,9 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
 
     gui_rect_t row = gui_rect(list.x, list.y + row_top, list.w - 1, row_h);
     for (int i = 0; i < pg.count; i++) {
-        bool sel = ui->row == i + 1;
+        const bool sel = ui->row == i + 1 && ui->latched;               // (filled: the catch chevron is drawn dark on it)
         const char *label = row_text(ui, p, seq, rack, &pg, i + 1, val, sizeof val);
-        gui_draw_field(g, st, row, label, val, sel);
+        draw_row(g, st, row, label, val, ui, i + 1);
         // Catch indicator: a 3x2 px chevron at the right edge of the row when the col knob is not yet caught.
         // Not while a modifier sends the knob to its Shift / Mod target: the popup shows that catch state.
         if (i < SYNTH_UI_COL_KNOBS && !(ui->knob_away & (1 << i))) {

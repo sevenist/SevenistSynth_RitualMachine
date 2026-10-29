@@ -122,8 +122,8 @@ void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             break;
         }
         case ACT_LATCH:
-            if (!in_pads(app) && !app->ui.in_rack && app_joy_bind(app)) break;   // the pages: a push on a parameter row binds it to a joystick axis
-            app_ui_event(app, UI_LATCH); snprintf(app->status, sizeof app->status, "%s > %s", control_name(b->ctl), app->ui.latched ? "Latched" : "Released");
+            app_push_down(app, b->ctl, audio_millis());       // Enter; on a page's parameter row at the release, held it binds the row to the joystick
+            snprintf(app->status, sizeof app->status, "%s > %s", control_name(b->ctl), app->ui.latched ? "Latched" : "Released");
             break;
         case ACT_JOY_MODE:
             if (!in_pads(app)) app_joy_mode(app, !app->ui.joy_xy);

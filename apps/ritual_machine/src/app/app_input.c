@@ -23,7 +23,7 @@ static void app_dispatch(app_t *app, input_event_t e) {
 
 // Every control but the matrix keys and the joystick axes.
 static void control_event(app_t *app, input_event_t e) {
-    if (e.kind == IN_RELEASE) { app_seq_note_up(app, e.ctl); app_seq_erase_up(app, e.ctl); app_menu_up(app, e.ctl); app_note_off(app, e.ctl); app_dispatch(app, e); return; }   // a layer may have started a note on it
+    if (e.kind == IN_RELEASE) { app_seq_note_up(app, e.ctl); app_seq_erase_up(app, e.ctl); app_menu_up(app, e.ctl); app_push_up(app, e.ctl); app_note_off(app, e.ctl); app_dispatch(app, e); return; }   // a layer may have started a note on it
     if (app_curves_tab_knob(app, e) || app_mods_tab_select(app, e) || app_layer_event(app, e)) return;
     app_dispatch(app, e);
 }
@@ -36,6 +36,7 @@ static void key_event(app_t *app, input_event_t e, uint32_t now) {
         app_seq_note_up(app, e.ctl);                        // (the key is up, whether its note is latched or not: Rec, app_seq.c)
         app_seq_erase_up(app, e.ctl);
         app_menu_up(app, e.ctl);                            // (Menu's short press acts at its release: app_lists.c)
+        app_push_up(app, e.ctl);                            // (so does the push on a page's parameter row)
         app_note_off(app, e.ctl);
         app_pad_key_up(app, e.ctl);
         const key_fn_t rf = keymap_get(key);
@@ -78,7 +79,35 @@ static void key_reset_check(app_t *app, uint32_t now) {
 
 #define JOY_INFO_MS 1500
 
-// A push on a page row: binds its parameter (the rules: synth_ui_joy_click). False when the row is not a parameter.
+#define PUSH_LONG_MS 500
+
+// The push on the synth's pages (ADR-046 phase 2): Enter (a value latches, a cog opens ...). On a parameter row it waits for the release, as
+// held PUSH_LONG_MS it binds the row to the joystick instead (the user's design of 2026-10-07, which used the plain push). In XY mode a push
+// binds at once (the stick plays: there is nothing to latch).
+void app_push_down(app_t *app, control_id_t ctl, uint32_t now) {
+    macro_t m;
+    const bool pages = !in_pads(app) && !app->ui.in_rack && !synth_ui_shows_seq(&app->ui);
+    if (pages && app->ui.joy_xy && app_joy_bind(app)) return;
+    if (pages && !app->ui.joy_xy && synth_ui_target_at_cursor(&app->ui, &app->rack, &m)) {
+        app->push_ctl = (uint8_t)ctl; app->push_long = false; app->push_ms = now;
+        return;
+    }
+    app_ui_event(app, UI_LATCH);
+}
+
+void app_push_poll(app_t *app, uint32_t now) {
+    if (app->push_ctl == CTL_NONE || app->push_long || (int32_t)(now - app->push_ms) < PUSH_LONG_MS) return;
+    app->push_long = true;
+    app_joy_bind(app);
+}
+
+void app_push_up(app_t *app, control_id_t ctl) {
+    if (app->push_ctl == CTL_NONE || app->push_ctl != (uint8_t)ctl) return;
+    app->push_ctl = CTL_NONE;
+    if (!app->push_long) app_ui_event(app, UI_LATCH);
+}
+
+// A push held on a page row: binds its parameter (the rules: synth_ui_joy_click). False when the row is not a parameter.
 bool app_joy_bind(app_t *app) {
     int axis = 0;
     const joy_click_t r = synth_ui_joy_click(&app->ui, &app->rack, &axis);
@@ -160,4 +189,5 @@ void app_input_poll(app_t *app, uint32_t now) {
     joy_repeat(app, now);
     key_reset_check(app, now);
     app_menu_poll(app, now);
+    app_push_poll(app, now);
 }

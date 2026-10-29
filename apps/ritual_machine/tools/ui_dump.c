@@ -39,7 +39,7 @@ static void dump(const char *title) {
 // Event names: the hardware controls, by the role they have in the default binding table.
 //   up down left right (joystick directions)  latch (joystick push)  menu (BTN 1, pressed and let go)  back (BTN 2)  play  shift / unshift (BTN 3 down / up)
 //   encA:+1  encB:-2 (encoder turns)  encAsw encBsw (encoder pushes)  knob:<ctl number>:<0..1023>  key:<row>.<col>  keyup:<row>.<col>
-//   popup:info popup:error popup:ask (raise a test popup, ui/popup.h)  pads / synth (switch the section)  batt:<0..100> (the battery's charge)
+//   popup:info popup:error popup:ask (raise a test popup, ui/popup.h)  pads / synth (switch the section)  push (the joystick's push, down and up)  batt:<0..100> (the battery's charge)
 static input_event_t ev(const char *name) {
     input_event_t e = {CTL_NONE, IN_NONE, 0, false};
     int a = 0, b = 0, c = 0;
@@ -73,6 +73,11 @@ static void feed(app_t *app, const char *script) {
         else if (!strcmp(t, "popup:error")) { popup_error(&app->popup, NULL, "The card could not be read. Check that it is inserted.", NULL, NULL); app->redraw_owed = true; }
         else if (!strcmp(t, "popup:ask"))   { popup_ask(&app->popup, "SD CARD", "The card is not formatted. Format it?", false, NULL, NULL); app->redraw_owed = true; }
         else if (!strcmp(t, "pads") || !strcmp(t, "synth")) { app_set_section(app, t[0] == 'p'); app->redraw_owed = true; }
+        else if (!strcmp(t, "push")) {                                  // the joystick's push, pressed and let go (a page's Enter acts at the release)
+            app_step(app, (input_event_t){CTL_JOY_SW, IN_PRESS, 0, false});
+            app_step(app, (input_event_t){CTL_JOY_SW, IN_RELEASE, 0, false});
+            continue;
+        }
         else if (!strncmp(t, "batt:", 5)) { extern int ui_stub_battery; ui_stub_battery = atoi(t + 5); app->batt_ms -= 10000; }
         const input_event_t e = ev(t);
         app_step(app, e);

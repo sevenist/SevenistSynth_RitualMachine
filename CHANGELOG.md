@@ -20,6 +20,17 @@ on the hardware.
   and the next panel (4 columns, encoders).
 - **For developers:** the repo is now a library and the apps built on it. The next section is the guide to it.
 
+## 2026-10-29: LEDs under the pots and encoder A, for the next prototype (ADR-045)
+
+- **The next prototype's pots and encoder A light up** (the simulator draws them as rings). A column knob is dim until it
+  has caught the value it drives, bright after, and its colour gets paler as the value goes down. R1..R3 show their macro's
+  colour. The volume knob shows the level. Encoder A shows the section, and blinks red while a recording is armed (lit while
+  it records).
+- **Hold Shift or Mod** and each pot shows what it does in that layer (a macro in its colour, nothing: dark).
+- **A colour per macro**: the MACROS tab's new Color row; it is saved with the sound.
+- **The LEDS tab** has three new roles, Knob, Volume and Enc A, and a Value switch for the pots' saturation.
+- The first prototype has no LED under its pots: nothing changes on it.
+
 ## 2026-10-28: a page list, a jump list, the SOUND tab (ADR-044)
 
 - **Shift + Menu opens a list of the machine's screens**: MODES (Synth, Pads), MAIN (Rack, or Pad FX in Pads; Presets;

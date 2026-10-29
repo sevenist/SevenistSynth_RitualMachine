@@ -1812,7 +1812,7 @@ Chosen by me while building (say if one is wrong):
   looked at; the HWV1 simulator was not rebuilt; Storage on the board (the restart into the card reader) not tried from the
   list; the engine tests were not run again (no engine file changed).
 
-### ADR-045: LEDs under the pots and encoder A, for the next prototype (Accepted; user choices of 2026-10-28 / 29; being built on `main`, one commit per step)
+### ADR-045: LEDs under the pots and encoder A, for the next prototype (Accepted; user choices of 2026-10-28 / 29; built on `main` 2026-10-29, `5ed38ed` .. the docs commit; host-tested and seen in the simulator, NOT on hardware: no board has these LEDs yet)
 **Why.** The user: "the leds are mapped through keys coordinates, but the next prototype will have leds under potentiometers and
 one of the encoders"; "1 under each pots, and one additional one under encoder A". **What was there:** the LED HAL already
 addresses an LED by the board control it sits under (`hal_leds.h`, `input_control_t.led`), and `controls_led` maps a role onto
@@ -1835,6 +1835,40 @@ role, its Idle shade until it has caught the value, its Active shade once caught
 saturation (pale at 0, the full colour at the top; a Value row switches it off per role); Volume the same, always caught. (3)
 The macros' colours (MACROS tab Color row, saved with the sound): R1..R3 and any knob that plays a macro show its colour. (4)
 Shift / Mod held: every pot shows what it does in that layer. (5) Encoder A. (6) Docs.
+
+Chosen by me while building (say if one is wrong):
+1. **Default colours**: Knob Amber (Away 15 %, Caught 100 %), Volume White 40 % / Green 100 %, Enc A Sky 60 % (Synth) / Amber
+   60 % (Pads); the macros Red, Teal, Violet, Yellow, Pink, Lime, Sky, Orange (all different). All editable.
+2. **Saturation**: the pale end is white at the colour's brightness with a quarter of the colour in it (never plain white).
+3. **A col knob in the menu is dark** (it drives nothing there); **in Pads it shows Caught without a value** (the pad editor's
+   values are not measured); **a knob not moved since the start is Away** (its place is not known).
+4. **A walked value is never measured for an LED**: walking moves the value (found by a test: the sequencer's cursor moved),
+   and the LEDs repaint every 20 ms. The LED reads the knob's place once it has caught, else the last catch refresh
+   (`knob_norm`, 16 bytes); exact drivers are read (`synth_ui_target_peek`). The volume is read from `cfg.volume`.
+5. **R1..R3 have no catch** (a macro knob sets at once): the Caught brightness; Away while the macro has no destination.
+6. **The layer view**: a col knob's Default entry with a modifier = dark (it drives nothing); a Default on R1..R3 or Volume =
+   their plain view; None = dark; a macro, or Learn into one (Shift + R1..R3 by default) = the macro's colour; the volume (as an
+   action or a parameter) = the Volume role; another action = the Knob colour; a parameter = Knob with its catch and value.
+7. **What counts as a recording for encoder A**: the synth's notes (armed = Rec on with the sequencer stopped, recording =
+   running), the pattern's sound, the Pads' capture (armed / recording / finishing), the Pads sequencer's live record (armed =
+   the clock stopped). Blink 150 ms, in Back's active red, as the Rec key.
+8. **The LEDS tab**: Value shows n/a for the other roles; Knob's shades are labelled Away / Caught, Enc A's Synth / Pads; the
+   picture names the pots. **The MACROS tab's Color row is the second row** (the rows below moved by one; never Off).
+9. **The simulator's LED is a ring** 3 px wide just outside the part (a thin grey ring when dark).
+
+**As built (2026-10-29), one commit per step.** (1) `panel_controls.c`: `LIT(...)` for the 8 pots and Enc A; `panel_sim.c`:
+`led_ring`. (2) `led_roles`: LR_KNOB, LR_VOLUME (+ `value`, saved as `novalue` when off); `scr_leds.c` Value row;
+`synth_ui_col_knob_state`, `synth_ui_target_peek`; `key_leds.c`: `pot_leds`, `pot_preview`. (3) `macro_def_t.color`,
+`synth_ui_macro_default_color`, `mcolor` lines in the sound (`patch.c`; the sound's hash counts it), MACROS Color row. (4)
+`layer_pot` (`app_active_layer` from `app_layers.c`). (5) LR_ENC, `enc_led`.
+- Checked: 168 UI tests (new: the panel's LED flags; the catch shade, the saturation, the Value switch saved and read, the
+  volume, the menu, the LEDS preview; measuring never moves a walked value; the macro colours, their row, saved with the sound
+  and in its hash; the layer view; encoder A in both sections and while recording); the simulator built and its panel
+  screenshot looked at (rings in the right colours); the firmware builds after every step (static RAM 154196 bytes: +48).
+- **Not done / not checked**: no hardware has these LEDs (the next prototype's LED chain order, brightness and colour
+  rendering are unknown); the user has not seen it; the ESP32's cost of painting the pots every 20 ms was not measured (it
+  runs on HWV1 too, where the LEDs do not exist: a few reads per frame); the HWV1 simulator shows no pot LEDs (its board has
+  none).
 
 ## Known limits and ideas for later
 

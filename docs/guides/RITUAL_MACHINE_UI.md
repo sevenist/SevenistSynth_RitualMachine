@@ -271,9 +271,9 @@ them onto SOUND; a new tab is appended.
 | PRESETS | `scr_preset.c` | Load, Save, Save as, Init: each only raises `ui->preset_req`, the app does the work | the preset's name, `edited` or `saved` |
 | SOUND | `scr_sound.c` | Type, Patch (FM), Voices, Glide and Legato (Voices 1), Vol, Out, Spk, Knob; then Modular: File (a push opens the browser), Tgt, Assign; FM: Algo, Fb, Op (left / right pick an operator, a push opens its OPn page). The rows that do not apply are hidden; the list scrolls | the part the focus is in: the info box (`draw_synth_info`), the file's overview, or the operator tree |
 | KEYS | `scr_keys.c` | Layout, Key, Func, Reset | the keys with their functions |
-| LEDS | `scr_leds.c` | Role, Idle, Idle %, Active, Act %, Reset | the keys of that role filled |
+| LEDS | `scr_leds.c` | Role, Idle, Idle %, Active, Act %, Value (the pots' roles), Reset; for Knob the shades read Away / Caught, for Enc A Synth / Pads (ADR-045) | the keys of that role filled, or which pots / encoder A |
 | MODIFIERS | `scr_mods.c` | Layer, Ctrl, Func, Min, Max, Curve, Learn, Reset | the controls with their function in the layer |
-| MACROS | `scr_macros.c` | Macro, Dest, Tgt, Min, Max, Curve, Learn, Remove | the selected destination's response |
+| MACROS | `scr_macros.c` | Macro, Color (its LED's, ADR-045), Dest, Tgt, Min, Max, Curve, Learn, Remove | the selected destination's response |
 | JOY | `scr_joy.c` | Axis, Tgt, Min, Max, Curve, Clear | the axis' response, XY mode on or off |
 | CURVES | `scr_curves.c` | Curve, New, Point, X, Y, Seg, Add, Del pt, Delete | the curve and its points |
 

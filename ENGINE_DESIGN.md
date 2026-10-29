@@ -1870,7 +1870,7 @@ Chosen by me while building (say if one is wrong):
   runs on HWV1 too, where the LEDs do not exist: a few reads per frame); the HWV1 simulator shows no pot LEDs (its board has
   none).
 
-### ADR-046: The GUI reorganization, one UX ruleset, built for HWV1 (Accepted; user choices of 2026-10-29; phases 1, 2, 4 built on branch `gui-reorg` 2026-10-29, `bf4151f` .. the docs commit; host-tested, NOT tried by the user, the firmware NOT built)
+### ADR-046: The GUI reorganization, one UX ruleset, built for HWV1 (Accepted; user choices of 2026-10-29; phases 1, 2, 4 built on branch `gui-reorg` 2026-10-29, `bf4151f` .. the docs commit; host-tested; flashed and tried by the user the same day: "working properly")
 **Why.** The user, 2026-10-29: "you have the role of UX designer, create a plan to reorganize the whole GUI ... without leaving
 current features hidden or lost ... a current and future proof ruleset for creating a new UX for specific hardware". The plan
 (rules R1..R23, the views, the controls per board, where every feature goes, the phases) is
@@ -1955,8 +1955,9 @@ marks, the battery from `app_power_poll`, the pad editor's overview heights); `1
 - Checked: 184 UI tests (16 new: `test_legend.c`, `test_enter.c`, `test_safety.c`; `test_joy.c`'s binding now holds the push);
   both simulators built; the screens looked at as images (`ui_dump`, HWV1 and the panel: the legend, the Shift preview, the
   Pads editor's four pages, the latch, the header).
-- **Not done / not checked**: not tried by the user; **the firmware was not built** (PlatformIO failed from the shell, see
-  CONTINUE.md); the 128 x 64 screen has no legend and was not looked at; phases 3, 5, 6 and the extras Reset to default and the
+- **On the board** (2026-10-29): the user flashed `gui-reorg` and tried the new UX: "so far it's working properly". No details
+  reported yet on the HWV1 knob places or the held push.
+- **Not done / not checked**: the 128 x 64 screen has no legend and was not looked at; phases 3, 5, 6 and the extras Reset to default and the
   macro Value field are not built; the menu's other tabs keep idle knobs (no "first four numeric fields" yet); Q6 not asked.
 
 ## Known limits and ideas for later

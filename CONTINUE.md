@@ -16,9 +16,8 @@ decision round was held** (two rounds, answers recorded as ADR-046). Then, at th
 and 4 were built on `gui-reorg`, one commit per step** (`bf4151f` .. the docs commit): the knob legend and the header's
 marks, push = Enter, safety. My choices are ADR-046 "Chosen by me while building" (13 points; **point 9 changes a design of
 theirs**: the XY binding moved from a plain push to a held one). Host-tested (184 UI tests), both simulators built, the
-screens looked at as images. **NOT tried by the user, the firmware NOT built**: my `pio run` from the shell emptied
-`C:\.platformio\penv` (see the traps); I restored its `pyvenv.cfg` so `build.ps1` works, PlatformIO Core itself is missing
-there.
+screens looked at as images. **The user then reinstalled PlatformIO Core, flashed the board and tried the new UX: "so far
+it's working properly"** (2026-10-29). Next, at their word: phase 3 (views and rings).
 
 **Where things stood (2026-10-29):** ADR-044 flashed and tried by the user ("all good"); ADR-045 (the pot / Enc A LEDs)
 built on `main` and committed (`5ed38ed` .. `890597c`), not tried by the user. Then, at their request, **a plan to reorganize
@@ -86,10 +85,9 @@ was then asked with options (audio into a sample, a popup when arming, the desti
 item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
 21-23).
 
-- [ ] **Try the GUI reorganization, phases 1, 2, 4 (branch `gui-reorg`)** (from: user, 2026-10-29; ADR-046). First restore
-  PlatformIO (open VS Code: its PlatformIO extension reinstalls the Core into `C:\.platformio\penv`; if that fails on "uv",
-  install an older Core there: `C:\.platformio\penv\Scripts\python.exe -m ensurepip` then `-m pip install "platformio<6.2"`),
-  then build and flash `gui-reorg`. **To try** (the simulator first: `.\build.ps1 -Board hwv1`, `.\run.ps1 -Board hwv1`):
+- [ ] **Try the GUI reorganization, phases 1, 2, 4 (branch `gui-reorg`)** (from: user, 2026-10-29; ADR-046). **Flashed and
+  tried by the user 2026-10-29: "so far it's working properly"**; keep the list for what they have not reported on yet (the
+  HWV1 knob places, the held push). **To try** (the simulator first: `.\build.ps1 -Board hwv1`, `.\run.ps1 -Board hwv1`):
   (1) the legend under every synth page: the four names match the pots around the joystick (K1 top left ... K4 bottom right;
   **the HWV1 places in `hwv1_controls.c` are a guess: say if the layout is mirrored**); turn K2: a tick shows where it is until
   it meets the end of the bar, then the bar follows; (2) hold Shift: the legend shows Spk, Vol, M1, M2 and an "S" in the
@@ -1037,8 +1035,11 @@ From the session todo (long-term; moved here 2026-10-11):
 - **Never run `pio` from a shell** (2026-10-29): a `pio run` from Bash / PowerShell (PlatformIO Core 6.2.0, from Python313 or
   `%USERPROFILE%\.platformio\penv`) failed on "uv installation via pip failed" and emptied `C:\.platformio\penv`, the
   environment of the VS Code extension that `build.ps1` (sprites) and the firmware use. `pyvenv.cfg` was recreated
-  (`C:\.platformio\python3\python.exe -m venv C:\.platformio\penv`); the Core must be reinstalled (above). The user builds
-  and flashes the firmware from VS Code; say "firmware not built" instead.
+  (`C:\.platformio\python3\python.exe -m venv C:\.platformio\penv`), then pip, then the Core. **PyPI's `platformio==6.2.0`
+  reports itself as `6.2.0.post1`, which the pinned platform 55.03.312 ("Core >=6.2.0") counts as older (IncompatiblePlatform)**:
+  the Core that works is GitHub master (`pip install --no-deps --force-reinstall
+  https://github.com/platformio/platformio-core/archive/master.zip` with that penv's python; the user installed it). The user
+  builds and flashes the firmware from VS Code; say "firmware not built" instead.
 
 - The user iterates with short requests, tests on the board or in the SDL window, and wants concise answers that say what was verified vs not. Windows 11, PowerShell, MSYS2 UCRT64; AZERTY keyboard; English with some French.
   For design work they want options with pros and cons at each stage; they often pick against my recommendation. **By default they flash the board themselves** (COM8). On 2026-10-10 / 11 they allowed Claude to flash and measure (asked each time: "flash and measure?"): ask again in a new session before the first flash. They sometimes say "flashed" about an older build: check (see the skill).

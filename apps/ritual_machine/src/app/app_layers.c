@@ -112,6 +112,7 @@ static void run_param(app_t *app, int layer, const mod_entry_t *me, int macro, i
     } else if (e.kind == IN_DELTA) {
         changed = macro >= 0 ? synth_ui_macro_step(&app->params, &app->seq, &app->rack, &app->ui.macro[macro], e.value)
                              : synth_ui_target_step(&app->params, &app->seq, &app->rack, &mp.t, e.value);
+        if (macro >= 0) app->ui.macro_pos[macro] = -1;      // (stepped: measured again from its first destination)
         app_catch_stale |= changed;
     }
     if (changed) audio_set_params(&app->rack, &app->params);

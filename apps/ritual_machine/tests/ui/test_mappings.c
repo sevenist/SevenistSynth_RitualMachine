@@ -155,7 +155,7 @@ TEST(macros_tab_learn_and_remove) {
     ui_app.ui.row = 1;                                                     // Macro
     ev_turn(CTL_ENC_B, 2);
     CHECK_EQ(ui_app.ui.macro_cur, 2);
-    ui_app.ui.row = 8;                                                     // Learn (after Color)
+    ui_app.ui.row = 9;                                                     // Learn (after Value, Color)
     ev_tap(CTL_JOY_SW);
     ev_idle(1);
     CHECK(!ui_app.ui.in_rack && ui_app.ui.learn_wait && ui_app.ui.learn_macro == 2);
@@ -165,13 +165,13 @@ TEST(macros_tab_learn_and_remove) {
     CHECK(!ui_app.ui.learn_wait && ui_app.ui.learn_macro == -1);
     ev_tap(CTL_BTN_1);
     ui_app.ui.menu_tab = tab_index_of(&ui_app.rack, TAB_MACROS);
-    ui_app.ui.row = 5;                                                     // Min
+    ui_app.ui.row = 6;                                                     // Min
     ev_turn(CTL_ENC_B, 3);
     CHECK_EQ(ui_app.ui.macro[2].dest[0].min, 15);
-    ui_app.ui.row = 7;                                                     // Curve
+    ui_app.ui.row = 8;                                                     // Curve
     ev_turn(CTL_ENC_B, 1);
     CHECK_EQ(ui_app.ui.macro[2].dest[0].curve, CURVE_EXP);
-    ui_app.ui.row = 9;                                                     // Remove
+    ui_app.ui.row = 10;                                                    // Remove
     ev_tap(CTL_JOY_SW);
     CHECK_EQ(ui_app.ui.macro[2].n, 0);
 }
@@ -189,5 +189,42 @@ TEST(macro_on_a_prototype_col_knob_moves_every_destination) {
     ev_release(SHIFT);
     CHECK_EQ(fm()->op[0].level, 99);
     CHECK_EQ(fm()->op[4].level, 99);
+    ui_board(false);
+}
+
+// The MACROS tab's Value (ADR-046 phase 5): a macro no knob plays (HWV1 has knobs for macros 1 and 2 only) set from the tab, by the
+// joystick alone; it starts from where the first destination is, and a knob that plays the macro moves it.
+TEST(macro_value_row_plays_the_macro_without_a_knob) {
+    ui_board(true);
+    ui_fresh();
+    ui_set_type(SYNTH_FM);
+    memset(ui_app.ui.macro, 0, sizeof ui_app.ui.macro);
+    synth_ui_macro_add(&ui_app.ui, 5, &(macro_t){MACRO_FM, 0, DXV_LEVEL});
+    synth_ui_macro_add(&ui_app.ui, 5, &(macro_t){MACRO_FM, 4, DXV_LEVEL});
+    ui_app.ui.macro[5].dest[1].min = 100; ui_app.ui.macro[5].dest[1].max_off = 100;   // the second one inverted
+    fm()->op[0].level = 40;
+    ev_tap(CTL_BTN_1);
+    ui_app.ui.menu_tab = tab_index_of(&ui_app.rack, TAB_MACROS);
+    ui_app.ui.macro_cur = 5;
+    ui_app.ui.row = 2;                                                     // Value
+    synth_ui_t *ui = &ui_app.ui;
+    CHECK(ui->macro_pos[5] == -1);
+    CHECK_EQ(synth_ui_macro_pos(ui, &ui_app.params, &ui_app.seq, &ui_app.rack, 5, false), 40);   // measured from FM op 1's level
+    ev_tap(CTL_JOY_SW);                                                    // latched: the joystick sets it, 5 % a step
+    ev_tap(CTL_JOY_RIGHT); ev_tap(CTL_JOY_RIGHT);
+    CHECK_EQ(ui->macro_pos[5], 50);
+    CHECK(fm()->op[0].level >= 48 && fm()->op[0].level <= 50);
+    CHECK(fm()->op[4].level >= 48 && fm()->op[4].level <= 51);            // (inverted: 100 - 50)
+    ev_press(SHIFT); ev_tap(CTL_JOY_LEFT); ev_release(SHIFT);              // Shift: 1 %
+    CHECK_EQ(ui->macro_pos[5], 49);
+    ui_app.dirty = true; ev_idle(1);
+    for (int k = 0; k < 30; k++) ev_tap(CTL_JOY_RIGHT);                    // held to the end: 100 %
+    CHECK(ui->macro_pos[5] == 100 && fm()->op[0].level == 99 && fm()->op[4].level == 0);
+    ev_tap(CTL_JOY_SW);
+    ui->row = 1;                                                           // macro 1 (no destination): Value is skipped
+    ev_turn(CTL_ENC_B, -5);
+    CHECK_EQ(ui->macro_cur, 0);
+    ev_tap(CTL_JOY_DOWN);
+    CHECK_EQ(ui->row, 3);                                                  // (Color)
     ui_board(false);
 }

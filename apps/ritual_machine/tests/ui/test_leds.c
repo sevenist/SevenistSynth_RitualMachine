@@ -180,7 +180,7 @@ TEST(leds_macro_knobs_show_their_macros_colour_set_in_the_macros_tab) {
     ev_tap(CTL_BTN_1);
     ui_app.ui.menu_tab = tab_index_of(&ui_app.rack, TAB_MACROS);
     ui_app.ui.macro_cur = 0;
-    ui_app.ui.row = 2;                                                              // Color
+    ui_app.ui.row = 3;                                                              // Color
     ev_turn(CTL_ENC_B, 1);
     CHECK_STR(led_palette_name(ui_app.ui.macro[0].color), "Orange");
     ev_tap(CTL_BTN_1);

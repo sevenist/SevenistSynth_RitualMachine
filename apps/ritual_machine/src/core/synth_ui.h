@@ -135,6 +135,7 @@ typedef struct {
     uint8_t pg_def[SYNTH_UI_MAX_PAGES];
     int     page_count;
     macro_def_t macro[SYNTH_UI_MACROS];    // the macros (R1..R3 play 1..3; any knob can play one through a Shift / Mod entry)
+    int8_t  macro_pos[SYNTH_UI_MACROS];    // where each was last set, 0..100 % (a knob, the MACROS tab's Value); -1 = not since the start
     int     macro_cur, macro_dest;         // MACROS tab (scr_macros.c): the macro and the destination shown
     int     curve_cur, curve_pt;           // CURVES tab (scr_curves.c): the user curve (0..7) and its selected point
     int     led_role;                      // LEDS tab (scr_leds.c): the key role shown (led_role_t)
@@ -298,6 +299,9 @@ bool synth_ui_set_volume(synth_ui_t *ui, rack_t *rack, int value);              
 // with the catch on its first destination; macro_step: an encoder, n steps of every destination.
 bool synth_ui_macro(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int knob, int k, int value);
 bool synth_ui_macro_row(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int row, int k, int value);
+// Where macro k is, 0..100 %: where it was last set (a knob, the MACROS tab's Value), else measured from its first destination (peek: only
+// when that reads exactly, for drawing); -1 = no destination or not measurable.
+int  synth_ui_macro_pos(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int k, bool peek);
 bool synth_ui_macro_step(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_def_t *m, int n);
 // learn: adds the parameter under the cursor to macro k (full range, linear); false when there is none, it is already there or the macro is full.
 bool synth_ui_macro_learn(synth_ui_t *ui, const rack_t *rack, int k);

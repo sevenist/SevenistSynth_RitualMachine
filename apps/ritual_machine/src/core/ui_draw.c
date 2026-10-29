@@ -535,7 +535,7 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
     u8g2_SetDrawColor(g, 1);
 
     if (ui->in_rack) {                           // every tab of the menu is a declarative screen (ui_screen.h)
-        const ui_ctx_t ctx = {(synth_ui_t *)ui, (rack_t *)rack, 0};         // drawing only reads
+        const ui_ctx_t ctx = {(synth_ui_t *)ui, (rack_t *)rack, 0, (synth_params_t *)p, (seq_t *)seq};   // drawing only reads
         screen_draw(screen_for_tab(tab_kind(rack, ui->menu_tab)), g, st, &ctx, screen);
         return;
     }

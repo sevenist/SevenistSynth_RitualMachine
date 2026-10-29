@@ -1,4 +1,5 @@
-// The MACROS tab of the menu: macros 1..8, each driving up to 8 parameters at once (synth_ui.h: macro_def_t). Macro picks a macro; Dest
+// The MACROS tab of the menu: macros 1..8, each driving up to 8 parameters at once (synth_ui.h: macro_def_t). Macro picks a macro; Value
+// plays it as its knob would, 5 % a step (Shift: 1 %), for a macro no knob plays (ADR-046 phase 5: HWV1 plays 1 and 2 only); Dest
 // picks one of its destinations; Tgt names it; Min / Max (% of the parameter's range, Min > Max inverts) and Curve shape how the knob's
 // travel reaches it (core/curves.h); Learn goes back to the pages and the next push on a row adds that row's parameter as a destination
 // (Shift + R knob or a "Learn M" entry does the same from the pages); Remove drops the destination.
@@ -8,6 +9,7 @@
 #include "core/ui_screen.h"
 #include "core/led_roles.h"
 #include "core/curves.h"
+#include "core/fine_step.h"
 #include <stdio.h>
 
 static macro_def_t *mac(const ui_ctx_t *c) { return &c->ui->macro[c->ui->macro_cur % SYNTH_UI_MACROS]; }
@@ -26,6 +28,20 @@ static bool macro_adjust(const ui_ctx_t *c, int dir) {
 }
 
 static bool has_dest(const ui_ctx_t *c) { return mac(c)->n > 0; }
+
+// Value: where the macro is (synth_ui_macro_pos), set like a knob at that position (every destination through its mapping).
+static void pos_value(const ui_ctx_t *c, char *out, int n) {
+    const int p = synth_ui_macro_pos(c->ui, c->params, c->seq, c->rack, c->ui->macro_cur, true);
+    if (p < 0) snprintf(out, (size_t)n, "--"); else snprintf(out, (size_t)n, "%d%%", p);
+}
+static bool pos_adjust(const ui_ctx_t *c, int dir) {
+    const int k = c->ui->macro_cur;
+    if (!c->params || !c->seq) return false;
+    int p = synth_ui_macro_pos(c->ui, c->params, c->seq, c->rack, k, false);
+    p = (p < 0 ? 50 : p) + dir * fine_int_step(5);
+    p = p < 0 ? 0 : p > 100 ? 100 : p;
+    return synth_ui_macro(c->ui, c->params, c->seq, c->rack, -1, k, (p * INPUT_VALUE_MAX + 50) / 100);
+}
 // Color: the macro's LED (R1..R3, and a knob that plays it through Shift / Mod; ADR-045), a palette colour (never Off).
 static void color_value(const ui_ctx_t *c, char *out, int n) { snprintf(out, (size_t)n, "%s", led_palette_name(mac(c)->color)); }
 static bool color_adjust(const ui_ctx_t *c, int dir) {
@@ -72,14 +88,15 @@ static void remove_activate(const ui_ctx_t *c) { synth_ui_macro_remove(c->ui, c-
 
 static const el_def_t elements[] = {
     {"Macro",  EL_VALUE,  0, 0, 1, macro_value, macro_adjust, NULL, NULL, NULL},
-    {"Color",  EL_VALUE,  1, 0, 1, color_value, color_adjust, NULL, NULL, NULL},
-    {"Dest",   EL_VALUE,  2, 0, 1, dest_value,  dest_adjust,  NULL, NULL, has_dest},
-    {"Tgt",    EL_VALUE,  3, 0, 1, tgt_value,   NULL,         NULL, NULL, has_dest},
-    {"Min",    EL_VALUE,  4, 0, 1, map_value,   map_adjust,   NULL, NULL, has_dest, NULL, 0},
-    {"Max",    EL_VALUE,  5, 0, 1, map_value,   map_adjust,   NULL, NULL, has_dest, NULL, 1},
-    {"Curve",  EL_VALUE,  6, 0, 1, map_value,   map_adjust,   NULL, NULL, has_dest, NULL, 2},
-    {"Learn",  EL_BUTTON, 7, 0, 1, NULL,        NULL,         learn_activate,  NULL, NULL},
-    {"Remove", EL_BUTTON, 8, 0, 1, NULL,        NULL,         remove_activate, NULL, has_dest},
+    {"Value",  EL_VALUE,  1, 0, 1, pos_value,   pos_adjust,   NULL, NULL, has_dest},
+    {"Color",  EL_VALUE,  2, 0, 1, color_value, color_adjust, NULL, NULL, NULL},
+    {"Dest",   EL_VALUE,  3, 0, 1, dest_value,  dest_adjust,  NULL, NULL, has_dest},
+    {"Tgt",    EL_VALUE,  4, 0, 1, tgt_value,   NULL,         NULL, NULL, has_dest},
+    {"Min",    EL_VALUE,  5, 0, 1, map_value,   map_adjust,   NULL, NULL, has_dest, NULL, 0},
+    {"Max",    EL_VALUE,  6, 0, 1, map_value,   map_adjust,   NULL, NULL, has_dest, NULL, 1},
+    {"Curve",  EL_VALUE,  7, 0, 1, map_value,   map_adjust,   NULL, NULL, has_dest, NULL, 2},
+    {"Learn",  EL_BUTTON, 8, 0, 1, NULL,        NULL,         learn_activate,  NULL, NULL},
+    {"Remove", EL_BUTTON, 9, 0, 1, NULL,        NULL,         remove_activate, NULL, has_dest},
 };
 #define N_ELEMENTS ((int)(sizeof elements / sizeof elements[0]))
 

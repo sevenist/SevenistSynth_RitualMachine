@@ -26,7 +26,8 @@ extern "C" {
 #endif
 
 // What every callback receives. `arg` is the `arg` of the element the callback belongs to (so one function can serve a family of rows).
-typedef struct { synth_ui_t *ui; rack_t *rack; int arg; } ui_ctx_t;
+// params / seq: the synth's values, for a screen that drives them (the MACROS tab's Value); NULL on the Pads FX pages.
+typedef struct { synth_ui_t *ui; rack_t *rack; int arg; synth_params_t *params; seq_t *seq; } ui_ctx_t;
 
 typedef enum {
     EL_VALUE,       // a value: joystick moves the focus, push latches, then the joystick (or encoder B at any time) changes it

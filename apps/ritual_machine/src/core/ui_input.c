@@ -3,6 +3,7 @@
 #include "core/synth_config.h"
 #include "core/curves.h"
 #include "core/controls.h"
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -580,9 +581,12 @@ static bool macro_dest_set(synth_params_t *params, seq_t *seq, rack_t *rack, con
     return true;
 }
 
+static void note_pos(synth_ui_t *ui, int k, int value) { ui->macro_pos[k] = (int8_t)((value * 100 + INPUT_VALUE_MAX / 2) / INPUT_VALUE_MAX); }
+
 bool synth_ui_macro(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int knob, int k, int value) {
     if (k < 0 || k >= SYNTH_UI_MACROS || ui->macro[k].n == 0) return false;
     if (knob >= SYNTH_UI_COL_KNOBS && knob < SYNTH_UI_KNOBS && !knob_new_position(ui, knob, 0x200000 | k, value)) return false;
+    note_pos(ui, k, value);
     bool any = false;
     for (int i = 0; i < ui->macro[k].n; i++) any |= macro_dest_set(params, seq, rack, &ui->macro[k].dest[i], (float)value / INPUT_VALUE_MAX);
     return any;
@@ -601,7 +605,24 @@ bool synth_ui_macro_row(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack
     const knob_drv_t d = target_drv(&c, &fc);
     if (!col_knob_mapped(ui, rack, kk, value, &d, &md->dest[0])) return false;    // the catch follows the first destination
     for (int i = 1; i < md->n; i++) macro_dest_set(params, seq, rack, &md->dest[i], (float)value / INPUT_VALUE_MAX);
+    note_pos(ui, k, value);
     return true;
+}
+
+int synth_ui_macro_pos(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int k, bool peek) {
+    if (k < 0 || k >= SYNTH_UI_MACROS || ui->macro[k].n == 0) return -1;
+    if (ui->macro_pos[k] >= 0) return ui->macro_pos[k];
+    if (!params || !seq) return -1;
+    const mapping_t *d = &ui->macro[k].dest[0];
+    const float v = peek ? synth_ui_target_peek(params, seq, rack, &d->t) : synth_ui_target_norm(params, seq, rack, &d->t);
+    if (v < 0) return -1;
+    int best = 0;                                                   // the position whose mapping lands nearest the value (min == max: 0)
+    float err = 2.0f;
+    for (int p = 0; p <= 100; p++) {
+        const float e = fabsf(mapping_apply(d, (float)p / 100.0f) - v);
+        if (e < err - 1e-6f) { err = e; best = p; }
+    }
+    return best;
 }
 
 bool synth_ui_macro_step(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_def_t *m, int n) {
@@ -989,7 +1010,7 @@ static bool handle_event(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rac
     }
 
     if (ui->in_rack) {
-        const ui_ctx_t ctx = {ui, rack, 0};
+        const ui_ctx_t ctx = {ui, rack, 0, params, seq};
         const screen_def_t *s = screen_for_tab(tab_kind(rack, ui->menu_tab));
         if (e == UI_BACK) {                                      // Back goes up one level and never destroys (ADR-046 rule R10): a latch, the
             if (ui->latched) { ui->latched = false; return false; }          // screen's own (RACK: its cell menu), the focus to the header, then

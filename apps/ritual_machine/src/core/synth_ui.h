@@ -391,6 +391,9 @@ int  synth_ui_view_pages(const synth_ui_t *ui, const rack_t *rack, view_t v, int
 bool synth_ui_view_go(synth_ui_t *ui, const rack_t *rack, view_t v);
 void synth_ui_view_step(synth_ui_t *ui, const rack_t *rack, int dir);
 const char *synth_ui_view_name(view_t v);       // "Edit", "Seq" ...
+// The page list (Menu held): page / tab i (0 .. view_pages - 1) of view v, its title; shown, row 1 (leaving the menu for a page).
+void synth_ui_view_page_title(const synth_ui_t *ui, const rack_t *rack, view_t v, int i, char *out, int n);
+bool synth_ui_view_page_go(synth_ui_t *ui, const rack_t *rack, view_t v, int i);
 const char *synth_ui_view_abbr(view_t v);       // the header's badge: "ED", "SQ" ...
 // The main view's page `idx` (0 .. page_count - 1): its title; shown, row 1, leaving the menu (the page list, a long Menu press).
 void synth_ui_page_title(const synth_ui_t *ui, const rack_t *rack, int idx, char *out, int n);

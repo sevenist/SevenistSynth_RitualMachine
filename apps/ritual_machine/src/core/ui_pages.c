@@ -385,6 +385,26 @@ bool synth_ui_view_go(synth_ui_t *ui, const rack_t *rack, view_t v) {
     return true;
 }
 
+void synth_ui_view_page_title(const synth_ui_t *ui, const rack_t *rack, view_t v, int i, char *out, int n) {
+    int first;
+    const int count = synth_ui_view_pages(ui, rack, v, &first);
+    if (i < 0 || i >= count) { if (n > 0) out[0] = 0; return; }
+    if (v == VIEW_EDIT || v == VIEW_SEQ) synth_ui_page_title(ui, rack, first + i, out, n);
+    else snprintf(out, (size_t)n, "%s", tab_name(tab_kind(rack, first + i)));
+}
+
+bool synth_ui_view_page_go(synth_ui_t *ui, const rack_t *rack, view_t v, int i) {
+    int first;
+    const int count = synth_ui_view_pages(ui, rack, v, &first);
+    if (i < 0 || i >= count) return false;
+    if (v == VIEW_EDIT || v == VIEW_SEQ) return synth_ui_go_page(ui, rack, first + i);
+    ui_view_note(ui, rack);
+    if (!ui->in_rack || ui->menu_tab != first + i) { ui->row = 1; ui->latched = false; }
+    ui->in_rack = true; ui->menu_tab = first + i; ui->cog_page = -1; ui->view_sel = false; ui->seq_knob_key = 0;
+    ui_view_note(ui, rack);
+    return true;
+}
+
 void synth_ui_view_step(synth_ui_t *ui, const rack_t *rack, int dir) {
     int first;
     const int n = synth_ui_view_pages(ui, rack, synth_ui_view(ui, rack), &first);

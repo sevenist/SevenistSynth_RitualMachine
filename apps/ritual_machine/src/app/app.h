@@ -167,8 +167,9 @@ typedef struct {
     uint8_t        batt_warned; // the battery warning given so far: 0 none, 1 low, 2 almost empty (hal_power.h)
     uint32_t       batt_ms;     // when the battery was last looked at
     popup_t        popup;       // popup messages over the screen (ui/popup.h); a modal one takes the input
-    uint8_t        list_ent[16];// the page list on show (Shift + Menu, app_lists.c): its entries (list_entry_t) ...
+    uint8_t        list_ent[24];// the map on show (Shift + Menu, app_lists.c): its entries (list_entry_t) ...
     uint8_t        list_n;      // ... how many
+    uint8_t        list_view;   // the page list on show (Menu held): the view it lists (view_t)
     uint8_t        menu_ctl;    // the Menu control held (CTL_NONE: none): a short press acts at its release, a long one opens the jump list ...
     bool           menu_long;   // ... the jump list opened while it is held (its release does nothing)
     uint32_t       menu_ms;     // ... when it went down

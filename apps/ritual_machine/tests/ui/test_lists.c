@@ -1,4 +1,5 @@
-// The page list on Shift + Menu (app/app_lists.c; ENGINE_DESIGN.md ADR-044): MODES, MAIN, ADVANCED >, the entries following the mode.
+// The map on Shift + Menu (app/app_lists.c; ENGINE_DESIGN.md ADR-044, ADR-046 phase 3): MODES, the views' headings, SETUP >, the entries
+// following the section; the page list on Menu held: the pages of the view on show.
 #include "ui_test.h"
 #include "core/ui_screen.h"
 
@@ -26,15 +27,17 @@ static void entries(char *out, int n) {
     }
 }
 
-TEST(page_list_goes_to_the_synths_screens_and_opens_on_the_one_on_show) {
+TEST(map_goes_to_the_synths_screens_grouped_by_view_and_opens_on_the_one_on_show) {
     ui_fresh();
-    char t[POPUP_LABEL_LEN], all[200];
+    char t[POPUP_LABEL_LEN], all[300];
     shift_menu();
     CHECK(popup_modal(&ui_app.popup));
+    CHECK_STR(ui_app.popup.queue[0].title, "MAP");
     entries(all, (int)sizeof all);
-    CHECK_STR(all, "[MODES]|Synth|Pads|[MAIN]|Rack|Presets|Sound|Sequencer|Macros|Advanced >");
+    CHECK_STR(all, "[MODES]|Synth|Pads|[EDIT]|Edit|[SEQ]|Sequencer|Seq setup|Patterns|[RACK]|Rack|Sound|[PERFORM]|Macros|Joy|"
+                   "[PRESETS]|Presets|[SETUP]|Setup >");
     focused(t, (int)sizeof t);
-    CHECK_STR(t, "Synth");                                              // a main view page is on show
+    CHECK_STR(t, "Edit");                                               // an EDIT page is on show
     CHECK(ui_list_pick("Rack"));
     CHECK(on_tab(TAB_RACK) && !popup_modal(&ui_app.popup));
     shift_menu();
@@ -44,53 +47,64 @@ TEST(page_list_goes_to_the_synths_screens_and_opens_on_the_one_on_show) {
     CHECK(on_tab(TAB_SOUND));
     shift_menu(); CHECK(ui_list_pick("Macros"));
     CHECK(on_tab(TAB_MACROS));
+    shift_menu(); CHECK(ui_list_pick("Joy"));                           // JOY: PERFORM, beside MACROS (ADR-046 decision 3)
+    CHECK(on_tab(TAB_JOY));
     shift_menu(); CHECK(ui_list_pick("Presets"));
     CHECK(on_tab(TAB_PRESET));
     shift_menu(); CHECK(ui_list_pick("Sequencer"));
     CHECK(!ui_app.ui.in_rack && synth_ui_shows_seq(&ui_app.ui));
+    shift_menu(); CHECK(ui_list_pick("Patterns"));
+    CHECK(synth_ui_where(&ui_app.ui, &ui_app.rack) == SYNTH_GO_PATTERNS);
+    shift_menu(); CHECK(ui_list_pick("Seq setup"));
+    CHECK(synth_ui_where(&ui_app.ui, &ui_app.rack) == SYNTH_GO_SEQ_SETUP);
     shift_menu();
     focused(t, (int)sizeof t);
-    CHECK_STR(t, "Sequencer");
-    // ADVANCED: a submenu; Back from it = the list again, on Advanced
-    CHECK(ui_list_pick("Advanced >"));
+    CHECK_STR(t, "Seq setup");
+    // SETUP: a submenu; Back from it = the map again, on Setup >
+    CHECK(ui_list_pick("Setup >"));
     CHECK(popup_modal(&ui_app.popup));
+    CHECK_STR(ui_app.popup.queue[0].title, "SETUP");
     entries(all, (int)sizeof all);
-    CHECK_STR(all, "Keys|LEDs|Modifiers|Joy|Curves|Storage");
+    CHECK_STR(all, "Keys|LEDs|Modifiers|Curves|Machine|Storage");
     ev_tap(CTL_BTN_2);
     CHECK(popup_modal(&ui_app.popup));
     focused(t, (int)sizeof t);
-    CHECK_STR(t, "Advanced >");
-    CHECK(ui_list_pick("Advanced >"));
+    CHECK_STR(t, "Setup >");
+    CHECK(ui_list_pick("Setup >"));
     CHECK(ui_list_pick("Curves"));
     CHECK(on_tab(TAB_CURVES) && !popup_modal(&ui_app.popup));
     shift_menu();
     focused(t, (int)sizeof t);
-    CHECK_STR(t, "Advanced >");                                         // a settings tab on show: its submenu's entry
-    CHECK(ui_list_pick("Advanced >"));
+    CHECK_STR(t, "Setup >");                                            // a setting on show: its submenu's entry
+    CHECK(ui_list_pick("Setup >"));
     focused(t, (int)sizeof t);
     CHECK_STR(t, "Curves");
-    CHECK(ui_list_pick("Keys"));
+    CHECK(ui_list_pick("Machine"));
+    CHECK(on_tab(TAB_MACHINE));
+    shift_menu(); CHECK(ui_list_pick("Setup >")); CHECK(ui_list_pick("Keys"));
     CHECK(on_tab(TAB_KEYS));
-    // Back on the list: nothing changes
+    // Back on the map: nothing changes
     shift_menu();
     ev_tap(CTL_BTN_2);
     CHECK(!popup_modal(&ui_app.popup) && on_tab(TAB_KEYS));
-    // Synth: the EDIT view as it was left (ADR-046 phase 3)
+    // Edit: the EDIT view as it was left; Synth in the synth: nothing moves
     const int page = ui_app.ui.view_at[VIEW_EDIT];
-    shift_menu(); CHECK(ui_list_pick("Synth"));
+    shift_menu(); CHECK(ui_list_pick("Edit"));
     CHECK(!ui_app.ui.in_rack && ui_app.ui.page == page && synth_ui_view(&ui_app.ui, &ui_app.rack) == VIEW_EDIT);
+    shift_menu(); CHECK(ui_list_pick("Synth"));
+    CHECK(!ui_app.ui.in_rack && ui_app.ui.page == page);
 }
 
-TEST(page_list_in_pads_has_pad_fx_and_steps_and_takes_the_synths_tabs_to_the_synth) {
+TEST(map_in_pads_has_grid_steps_pad_fx_and_takes_the_synths_tabs_to_the_synth) {
     ui_fresh();
-    char t[POPUP_LABEL_LEN], all[200];
+    char t[POPUP_LABEL_LEN], all[300];
     shift_menu(); CHECK(ui_list_pick("Pads"));
     CHECK_EQ(ui_app.section, SECTION_PADS);
     shift_menu();
     entries(all, (int)sizeof all);
-    CHECK_STR(all, "[MODES]|Synth|Pads|[MAIN]|Pad FX|Presets|Steps|Macros|Advanced >");
+    CHECK_STR(all, "[MODES]|Synth|Pads|[EDIT]|Grid|[SEQ]|Steps|[RACK]|Pad FX|[PERFORM]|Macros|Joy|[SETUP]|Setup >");   // no PRESETS heading
     focused(t, (int)sizeof t);
-    CHECK_STR(t, "Pads");
+    CHECK_STR(t, "Grid");
     CHECK(ui_list_pick("Pad FX"));
     CHECK(ui_app.ui.pad_fx && ui_app.section == SECTION_PADS);
     shift_menu(); CHECK(ui_list_pick("Steps"));
@@ -98,24 +112,28 @@ TEST(page_list_in_pads_has_pad_fx_and_steps_and_takes_the_synths_tabs_to_the_syn
     shift_menu();
     focused(t, (int)sizeof t);
     CHECK_STR(t, "Steps");
-    CHECK(ui_list_pick("Pads"));                                        // the grid: steps and FX closed
+    CHECK(ui_list_pick("Grid"));                                        // the grid: steps and FX closed
     CHECK(!ui_app.ui.pad_steps && !ui_app.ui.pad_fx && ui_app.section == SECTION_PADS);
+    shift_menu(); CHECK(ui_list_pick("Steps"));
+    shift_menu(); CHECK(ui_list_pick("Pads"));                          // MODES Pads: the grid too
+    CHECK(!ui_app.ui.pad_steps && ui_app.section == SECTION_PADS);
     shift_menu(); CHECK(ui_list_pick("Macros"));                        // a synth tab: the synth section
     CHECK_EQ(ui_app.section, SECTION_SYNTH);
     CHECK(on_tab(TAB_MACROS));
     shift_menu(); CHECK(ui_list_pick("Pads"));
-    shift_menu(); CHECK(ui_list_pick("Advanced >")); CHECK(ui_list_pick("LEDs"));
+    shift_menu(); CHECK(ui_list_pick("Setup >")); CHECK(ui_list_pick("LEDs"));
     CHECK(ui_app.section == SECTION_SYNTH && on_tab(TAB_LEDS));
-    shift_menu(); CHECK(ui_list_pick("Synth"));
-    CHECK(!ui_app.ui.in_rack);
+    shift_menu(); CHECK(ui_list_pick("Pads"));
+    shift_menu(); CHECK(ui_list_pick("Synth"));                         // the synth as it was left: LEDS
+    CHECK(ui_app.section == SECTION_SYNTH && on_tab(TAB_LEDS));
 }
 
-TEST(page_list_leaving_the_rack_with_edits_rebuilds_as_menu_does) {
+TEST(map_leaving_the_rack_with_edits_rebuilds_as_menu_does) {
     ui_fresh();
     shift_menu(); CHECK(ui_list_pick("Rack"));
     ui_app.ui.rack_dirty = true;                                        // (as an insert would)
     ev_idle(1);
-    shift_menu(); CHECK(ui_list_pick("Synth"));
+    shift_menu(); CHECK(ui_list_pick("Edit"));
     CHECK(!ui_app.ui.in_rack && !ui_app.ui.rack_dirty);
     shift_menu(); CHECK(ui_list_pick("Rack"));
     ui_app.ui.rack_dirty = true;
@@ -123,19 +141,19 @@ TEST(page_list_leaving_the_rack_with_edits_rebuilds_as_menu_does) {
     CHECK(!ui_app.ui.in_rack && !ui_app.ui.rack_dirty && synth_ui_shows_seq(&ui_app.ui));
 }
 
-/* ---------------- the jump list: Menu held ---------------- */
+/* ---------------- the page list: Menu held ---------------- */
 
-// Menu held until the jump list is up (or 200 steps); the release follows.
+// Menu held until the page list is up (or 200 steps); the release follows.
 static void menu_hold(void) {
     ev_press(MENU);
     for (int k = 0; k < 200 && !popup_modal(&ui_app.popup); k++) ev_idle(1);
     ev_release(MENU);
 }
 
-TEST(jump_list_on_a_long_menu_press_lists_the_main_views_pages) {
+TEST(page_list_on_a_long_menu_press_lists_the_pages_of_the_view_on_show) {
     ui_fresh();
     char t[POPUP_LABEL_LEN], want[24];
-    ev_tap(MENU);                                                       // a short press: the menu, at the release
+    ev_tap(MENU);                                                       // a short press: the last other view (RACK), at the release
     CHECK(ui_app.ui.in_rack && !popup_modal(&ui_app.popup));
     ev_tap(MENU);
     CHECK(!ui_app.ui.in_rack);
@@ -146,34 +164,45 @@ TEST(jump_list_on_a_long_menu_press_lists_the_main_views_pages) {
     CHECK(ui_app.ui.in_rack);
     ev_tap(MENU);
     ui_app.ui.page = 2;
-    menu_hold();
+    menu_hold();                                                        // EDIT: its pages, none of SEQ's
     CHECK(popup_modal(&ui_app.popup) && !ui_app.ui.in_rack);           // the release after the list did nothing
-    CHECK_STR(ui_app.popup.queue[0].title, "MAIN VIEW");
-    CHECK_EQ(ui_app.popup.queue[0].n_options, ui_app.ui.page_count);
+    CHECK_STR(ui_app.popup.queue[0].title, "EDIT");
+    CHECK_EQ(ui_app.popup.queue[0].n_options, ui_app.ui.edit_pages);
     CHECK_EQ(ui_app.popup.queue[0].focus, 2);                           // on the page on show
     focused(t, (int)sizeof t);
     synth_ui_page_title(&ui_app.ui, &ui_app.rack, 2, want, (int)sizeof want);
     CHECK_STR(t, want);
-    int seq = -1;                                                       // the SEQUENCER page (GP_SEQ is ui_pages.c's)
-    for (int p = 0; p < ui_app.ui.page_count; p++) {
-        synth_ui_page_title(&ui_app.ui, &ui_app.rack, p, want, (int)sizeof want);
-        if (!strcmp(want, "SEQUENCER")) seq = p;
-    }
-    CHECK(seq > 2);
-    CHECK(ui_list_pick("SEQUENCER"));
-    CHECK(!popup_modal(&ui_app.popup) && ui_app.ui.page == seq && ui_app.ui.row == 1);
+    CHECK(!ui_list_pick("SEQUENCER"));
+    CHECK(ui_list_pick("AMP ENV"));
+    CHECK(!popup_modal(&ui_app.popup) && ui_app.ui.row == 1);
+    ui_page_title(t, (int)sizeof t);
+    CHECK_STR(t, "AMP ENV");
     // Back: nothing changes
+    const int page = ui_app.ui.page;
     menu_hold();
     ev_tap(CTL_BTN_2);
-    CHECK(!popup_modal(&ui_app.popup) && ui_app.ui.page == seq);
-    // from the menu: the list on the first page, a pick leaves the menu
-    shift_menu(); CHECK(ui_list_pick("Rack"));
-    CHECK(ui_app.ui.in_rack);
+    CHECK(!popup_modal(&ui_app.popup) && ui_app.ui.page == page);
+    // SEQ: its three pages
+    shift_menu(); CHECK(ui_list_pick("Sequencer"));
     menu_hold();
+    CHECK_STR(ui_app.popup.queue[0].title, "SEQ");
+    CHECK_EQ(ui_app.popup.queue[0].n_options, 3);
+    CHECK(ui_list_pick("PATTERNS"));
+    CHECK(synth_ui_where(&ui_app.ui, &ui_app.rack) == SYNTH_GO_PATTERNS);
+    // a view of tabs: its tabs, the pick stays in it
+    shift_menu(); CHECK(ui_list_pick("Rack"));
+    menu_hold();
+    CHECK_STR(ui_app.popup.queue[0].title, "RACK");
+    CHECK_EQ(ui_app.popup.queue[0].n_options, 2);
     CHECK_EQ(ui_app.popup.queue[0].focus, 0);
-    synth_ui_page_title(&ui_app.ui, &ui_app.rack, 1, want, (int)sizeof want);
-    CHECK(ui_list_pick(want));
-    CHECK(!ui_app.ui.in_rack && ui_app.ui.page == 1);
+    CHECK(ui_list_pick("SOUND"));
+    CHECK(on_tab(TAB_SOUND) && ui_app.ui.row == 1);
+    shift_menu(); CHECK(ui_list_pick("Setup >")); CHECK(ui_list_pick("Keys"));
+    menu_hold();
+    CHECK_STR(ui_app.popup.queue[0].title, "SETUP");
+    CHECK_EQ(ui_app.popup.queue[0].n_options, 5);
+    CHECK(ui_list_pick("MACHINE"));
+    CHECK(on_tab(TAB_MACHINE));
 }
 
 // In Pads there is no jump list: a long press is a short one, the FX chains (user, 2026-10-29: "the long press on menu shouldn't
@@ -194,15 +223,15 @@ TEST(no_jump_list_in_pads_a_long_press_is_the_fx_as_a_short_one) {
 
 extern int ui_stub_card_reader;
 
-TEST(page_list_storage_asks_then_saves_and_restarts_as_the_card_reader) {
+TEST(map_storage_asks_then_saves_and_restarts_as_the_card_reader) {
     ui_fresh();
     const int calls = ui_stub_card_reader;
-    shift_menu(); CHECK(ui_list_pick("Advanced >")); CHECK(ui_list_pick("Storage"));
+    shift_menu(); CHECK(ui_list_pick("Setup >")); CHECK(ui_list_pick("Storage"));
     CHECK(popup_modal(&ui_app.popup) && ui_app.popup.queue[0].kind == POPUP_ASK && !ui_app.popup.queue[0].yes);   // asked, No first
     ev_tap(CTL_JOY_SW);
     CHECK(!popup_modal(&ui_app.popup));
     CHECK_EQ(ui_stub_card_reader, calls);                              // No: nothing
-    shift_menu(); CHECK(ui_list_pick("Advanced >")); CHECK(ui_list_pick("Storage"));
+    shift_menu(); CHECK(ui_list_pick("Setup >")); CHECK(ui_list_pick("Storage"));
     ev_tap(CTL_JOY_LEFT);                                               // Yes
     ev_tap(CTL_JOY_SW);
     CHECK_EQ(ui_stub_card_reader, calls + 1);

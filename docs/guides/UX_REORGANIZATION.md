@@ -6,8 +6,9 @@ list, the extras Bar / Reset / macro Value / **battery in the header**). **Being
 2, then 4. Where this file and ADR-046 disagree, ADR-046 wins. **Phases 1, 2 and 4 are built** (2026-10-29: the knob legend
 and the header's marks; push = Enter with the XY binding on a held push; Back never deletes, the "*", the REC mark), **and phase 3**
 (the same day: the views in both sections, the view selector, the map and the page list, SETUP > MACHINE, PERFORM / SETUP over
-the pads; flashed and tried by the user 2026-10-30: "working"); **next:** phase 5 (the Tier 0 table, the Pads Rec list), 6 (LEDs, after Q6), the extras Reset and macro
-Value. The original status line follows.
+the pads; flashed and tried by the user 2026-10-30: "working"), **and phase 5** (2026-10-30: the Pads Rec list, the macro Value
+row, Reset (cog and action), the fallback table below, tested by `test_fallbacks.c`); **next:** 6 (LEDs, after Q6), the extra Bar widget. The
+original status line follows.
 
 **Status (2026-10-29): a proposal. Nothing is decided by the user and nothing is built.** Written at the user's request ("you
 have the role of UX designer, create a plan to reorganize the whole GUI ... without leaving current features hidden or lost
@@ -160,9 +161,17 @@ encoders**. The encoders take Enc A / Enc B from pots P1 / P2, which become macr
 | PLAY / REC | Play key / Shift + Play | same | same | same |
 | XY mode | Shift + joystick push | same | same | same |
 | CONTEXT KNOBS | P3..P6 | P3..P6 | K1..K4 | focus + ADJUST |
-| MACROS | Shift + K3 / K4 = macro 1 / 2 | R1, R2; macro 3 on a layer | R1..R3 | a Value field on MACROS (proposed) |
+| MACROS | Shift + K3 / K4 = macro 1 / 2; any macro: MACROS > Value | R1, R2; macro 3 on a layer | R1..R3 | MACROS > Value (built) |
 | LEARN | Shift + Mod + turn; Learn button | same; Shift + R1 / R2 | Shift + R1..R3 | Learn button |
-| RESET TO DEFAULT (proposed) | - | Enc B held | Enc B held | a Reset item in the cog |
+| RESET TO DEFAULT | Shift + push on a latched value; the action Reset on any key / layer entry; a module: its cog's Reset | (Enc B held: not built) | same as HWV1 | the same (built) |
+| CLICK / TAP / BPM | the Pads right block's keys; Click in both Rec lists; any layer entry (Tap, BPM +-1 / +-5; Tempo on a knob) | same | Click in the Rec lists; layer entries | same |
+| PADS: BANK | P2, Bank keys | Enc B | Enc B, Page | Shift + joystick left / right on the grid |
+| PADS: CAPTURE, LENGTH, PATTERN REC, STEPS | Rec, Shift + Rec, Select + Rec / Play; the Pads Rec list | same | the Pads Rec list (Shift + Play) | the Pads Rec list |
+| PADS: SELECT, MUTE, STOP ALL | Select / Mute keys; Shift + pad; Shift + Back | same | Shift + pad; the editor's Mute; Shift + Back | the grid's push (editor), Mute row, Shift + Back |
+
+**As built (phase 5, 2026-10-30)**: every verb above has its HWV1 gesture and its Tier 0 one; `tests/ui/test_fallbacks.c` walks
+them all with only the joystick, its push and the 4 function keys (plus two note keys for a mapped Tap / BPM). The next board's
+column is the plan's, not built (decision 1).
 
 **Relative knob mode (R12, Q8)**: a third value of `cfg.knob_mode` (today 0 = Catch, 1 = Direct; append 2 = Relative), the
 default on endless pots: each detent steps the parameter from its current value with acceleration, no catch, no wedge; the

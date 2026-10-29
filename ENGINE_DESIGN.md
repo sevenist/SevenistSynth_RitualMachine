@@ -1870,7 +1870,7 @@ Chosen by me while building (say if one is wrong):
   runs on HWV1 too, where the LEDs do not exist: a few reads per frame); the HWV1 simulator shows no pot LEDs (its board has
   none).
 
-### ADR-046: The GUI reorganization, one UX ruleset, built for HWV1 (Accepted; user choices of 2026-10-29; phases 1, 2, 4 built on branch `gui-reorg` 2026-10-29, `bf4151f` .. the docs commit; host-tested; flashed and tried by the user the same day: "working properly"; phase 3 built the same day, `02c7a94` .. the docs commit, host-tested; flashed and tried by the user 2026-10-30: "tested, working")
+### ADR-046: The GUI reorganization, one UX ruleset, built for HWV1 (Accepted; user choices of 2026-10-29; phases 1, 2, 4 built on branch `gui-reorg` 2026-10-29, `bf4151f` .. the docs commit; host-tested; flashed and tried by the user the same day: "working properly"; phase 3 built the same day, `02c7a94` .. the docs commit, host-tested; flashed and tried by the user 2026-10-30: "tested, working"; phase 5 built 2026-10-30, `59f5635` .. the docs commit, host-tested, NOT tried by the user)
 **Why.** The user, 2026-10-29: "you have the role of UX designer, create a plan to reorganize the whole GUI ... without leaving
 current features hidden or lost ... a current and future proof ruleset for creating a new UX for specific hardware". The plan
 (rules R1..R23, the views, the controls per board, where every feature goes, the phases) is
@@ -1957,8 +1957,8 @@ marks, the battery from `app_power_poll`, the pad editor's overview heights); `1
   Pads editor's four pages, the latch, the header).
 - **On the board** (2026-10-29): the user flashed `gui-reorg` and tried the new UX: "so far it's working properly". No details
   reported yet on the HWV1 knob places or the held push.
-- **Not done / not checked**: the 128 x 64 screen has no legend and was not looked at; phases 5, 6 and the extras Reset to default and the
-  macro Value field are not built; the menu's other tabs keep idle knobs (no "first four numeric fields" yet); Q6 not asked.
+- **Not done / not checked**: the 128 x 64 screen has no legend and was not looked at; phase 6 and the Bar widget are not built
+  (phase 5, Reset to default and the macro Value: "Phase 5" below); the menu's other tabs keep idle knobs (no "first four numeric fields" yet); Q6 not asked.
 
 **Phase 3, the views (2026-10-29, the user: "let's start"; built on `gui-reorg`, one commit per step).** Chosen by me (the plan,
 guide sections 4 and 9, gave the views, the focus levels and the routes; these are the details; say if one is wrong):
@@ -2000,6 +2000,44 @@ guide sections 4 and 9, gave the views, the focus levels and the routes; these a
 views (`pads_ui_view`, `at_top`, `app_pads_view*`, `pads_tab_event`, `sec_tab`). Checked: 197 UI tests (13 new in `test_views.c`,
 `test_lists.c` rewritten for the map); both simulators built; the headers, MACHINE, the map and the Pads views looked at as images
 (HWV1). **Flashed and tried by the user 2026-10-30: "tested, working"**; they try it in use and report issues.
+
+**Phase 5, the fallbacks (2026-10-30, the user: "you can start now phase 5").** Their answers (a round of options; recorded):
+1. **Click, Tap, BPM** without the right block: **Click in the Rec lists** (both sections), and the actions **mappable on the
+   Shift / Mod layers** (the user: "put it in the rec list and add the action to mappable modifier keys"). The layers already took
+   every key function (Click, Tap, BPM +-1 / +-5, Rec) and Tempo on a knob: checked by a test, nothing to add.
+2. **The pad bank without encoder B: Shift + joystick left / right** on the grid (my recommendation). It already worked: fine
+   steps send Value +- and the grid takes them as the bank; now a test and the table say so.
+3. **The extras the table needs are built in phase 5** (my recommendation): the macro Value row and Reset.
+4. **Reset: both** (the cog held a Reset only on the two modules with a cog): **a cog on every module** (but the motion sequencer
+   and the EG, whose first page is drawn by hand) whose last row Reset puts every value of the module back to its default,
+   asked first (No focused; the sampler's File and the motion sequencer's pool kept), **and one value**: Shift + push while a
+   value is latched. The user then asked whether the reset used the modifier system or was hard-coded: it was a branch in
+   the Joy XY action; it is now **an action of its own, Reset** (`ACT_VALUE_RESET`, the key function word `reset`), mappable on
+   any key or layer entry (the focused value, latched or not); Shift + push's default calls it while a value is latched.
+
+Chosen by me (say if one is wrong):
+1. **The Pads Rec list** (Shift + Play in Pads; decision 7): Capture (until Shift + Play or Rec again), Capture 1 / 2 / 4 / 8
+   bars (sets Shift + Rec's length), Pattern rec (Select + Rec), Steps on / off (Select + Play), Click: Off / On. It opens on the
+   option chosen last (Click excepted). **Shift + Play no longer toggles step mode at once in Pads** (one press more; Select +
+   Play and the SEQ view still do). While a capture or the pattern's record runs, Shift + Play stops it, no list.
+2. **The synth's Rec list** gets Click: Off / On as its last option (not remembered).
+3. **The macro Value row** (MACROS, after Macro): where the macro is, 0..100 %, 5 % a step, Shift 1 %; set like a knob at that
+   position (every destination through its mapping). The position is where it was last set (a knob, the row); until then it
+   is measured from the first destination (the nearest position on its mapping), so the first step does not jump. An encoder
+   that steps a macro forgets the position (measured again). Hidden while the macro has no destination. The MACROS rows after
+   Macro moved down by one.
+4. **The cog's Reset row** reads "Reset All"; a push asks "Every value of FL1 back to its default?". The single-value reset
+   shows "Default: <value>" titled with the parameter, or "No default here" (the sequencer's, SETUP's and FM's values have no
+   default table: not covered).
+5. The screens' context (`ui_ctx_t`) carries the synth's values (`params`, `seq`) so a menu screen can drive them (Value).
+6. Not done: Enc B held (no encoder on HWV1); Reset of the sequencer's, the settings' and FM's values; pad parameters' Reset;
+   the Bar widget (an extra, still to do).
+
+**Phase 5 as built**: `59f5635` the Pads Rec list (`app_capture_pads_list`, `capture_arm`, `app_click_toggle`); `dc7f25e` the
+macro Value (`scr_macros.c`, `synth_ui_macro_pos`, `macro_pos[]`); `4eed3ce` defaults (`rack_mparam_reset`, `rack_slot_reset`,
+`param_reset`, `synth_ui_target_reset`, `PRM_RESET`, `type_has_cog`, `ACT_VALUE_RESET`, `app_module_reset_ask`); then the fallback
+test (`test_fallbacks.c`) and the docs. Checked: 204 UI tests; both simulators built; the Rec lists, MACROS and a cog's Reset
+looked at as images (HWV1). **NOT tried by the user, the firmware not built by me.**
 
 ## Known limits and ideas for later
 

@@ -21,7 +21,11 @@ it's working properly"** (2026-10-29; the HWV1 knob places "seem correct", to do
 start"), phase 3 was built, one commit per step** (`02c7a94` the synth's views, `7c1ce95` the map and the page list, `ba57997`
 the Pads' views, then the docs): host-tested (197 UI tests), both simulators built, the screens looked at as images. **The
 user flashed and tried it (2026-10-30): "tested, working"; they will try it in use and report issues.** My choices: ADR-046
-"Phase 3, chosen by me" (12 points).
+"Phase 3, chosen by me" (12 points). **Then, at their word ("you can start now phase 5"), phase 5 was built, one commit per
+step** (`59f5635` the Pads Rec list, `dc7f25e` the macro Value, `4eed3ce` Reset, then the fallback test and the docs), after a
+round of options (ADR-046 "Phase 5": Click in the Rec lists and on the layers, Shift + joystick = bank, the extras in, Reset
+both ways and as a mappable action): host-tested (204 UI tests), both simulators built, the screens looked at as images;
+**NOT tried by the user, the firmware NOT built** by me.
 
 **Where things stood (2026-10-29):** ADR-044 flashed and tried by the user ("all good"); ADR-045 (the pot / Enc A LEDs)
 built on `main` and committed (`5ed38ed` .. `890597c`), not tried by the user. Then, at their request, **a plan to reorganize
@@ -89,6 +93,15 @@ was then asked with options (audio into a sample, a popup when arming, the desti
 item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
 21-23).
 
+- [ ] **Try phase 5, the fallbacks (branch `gui-reorg`, ADR-046 "Phase 5")** (from: user, 2026-10-30). Build and flash from VS
+  Code (the simulator first: `.\build.ps1 -Board hwv1`, `.\run.ps1 -Board hwv1`). **To try**: (1) Pads, **Shift + Play**: the
+  Rec list (Capture, Capture 1 / 2 / 4 / 8 bars, Pattern rec, Steps on / off, Click); a capture armed from it, then Shift + Play
+  stops it; **step mode is now one entry of it** (Select + Play still toggles at once); (2) the synth's Rec list ends with
+  Click; (3) PERFORM > MACROS: the **Value** row under Macro: a macro with no knob (3..8) set from the screen; (4) a value
+  latched, **Shift + push** = its default ("Default: ..."); not latched, Shift + push is XY mode as before; (5) **every module's
+  first page has a cog**: open it, the last row Reset asks, Yes = the module's defaults; (6) Pads grid: Shift + joystick left /
+  right = the bank; (7) MODIFIERS: put Reset, Tap or BPM +1 on a Shift / Mod entry. Say what to change; then phase 6 (LEDs, after
+  Q6) or the Bar widget.
 - [ ] **Try phase 3, the views (branch `gui-reorg`, ADR-046 "Phase 3")** (from: user, 2026-10-29). **Flashed and tried by the
   user 2026-10-30: "tested, working"; they test it in use and report issues**: wait for those. Build and flash from VS Code
   (the simulator first: `.\build.ps1 -Board hwv1`, `.\run.ps1 -Board hwv1`). **To try**: (1) the header's left badge (ED, SQ,

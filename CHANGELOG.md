@@ -20,6 +20,18 @@ on the hardware.
   and the next panel (4 columns, encoders).
 - **For developers:** the repo is now a library and the apps built on it. The next section is the guide to it.
 
+## 2026-10-30: the GUI reorganization, part 3: nothing out of reach (ADR-046 phase 5; branch `gui-reorg`)
+
+- **Shift + Play in Pads opens a Rec list**: Capture (until you stop it), Capture 1, 2, 4 or 8 bars, Pattern rec, Steps on / off
+  and Click. A board without the Rec, Select or Click keys can now do all of it. While something records, Shift + Play stops it.
+- **Click (the metronome)** is also the last entry of the synth's Rec list.
+- **MACROS has a Value row**: play any macro from the screen, including the ones no knob plays (macros 3 to 8 on the first
+  prototype). 5 % a step, Shift for 1 %.
+- **Reset to default**: with a value latched, **Shift + push** puts it back to its default. "Reset" is also an action you can put
+  on any key or Shift / Mod entry. **Every module now has a cog**; its last row, Reset, puts the whole module back to its
+  defaults after asking.
+- In Pads, **Shift + joystick left / right** on the grid changes the bank. Tap and BPM can go on any Shift / Mod entry.
+
 ## 2026-10-29: the GUI reorganization, part 2: views (ADR-046 phase 3; branch `gui-reorg`)
 
 - **Views**: the screens are grouped by what they are for, in the same order in Synth and Pads: EDIT (the sound's pages; Pads:

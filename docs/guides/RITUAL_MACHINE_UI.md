@@ -144,9 +144,14 @@ slot). Both `synth_ui_handle` and `synth_ui_draw` call it, which is how the two 
 
 - **Pseudo indexes**: `PRM_TGT` and `PRM_TPRM` are a modulator's target module and parameter (the `... DEST` pages): they
   live in the slot, not in `slot.v[]`. `page_row_step` (editing) and `synth_ui_draw` (display) both test for them.
-- **The cog**: a module with rarely used settings (`mod_hidden[]`: the oscillator's Qual / Mute / Harm, Spectral's
-  Hold / Lo / Hi) has a cog on its first page. It is the row after the last one; a push, left or right on it opens the hidden
-  settings in place of the page's rows (`ui->cog_page`, the title gets " SET"), Back closes them.
+- **The cog**: every module's first page has one (`type_has_cog`: not the motion sequencer's nor the EG's, drawn by hand). It is
+  the row after the last one; a push, left or right on it opens the hidden settings in place of the page's rows
+  (`ui->cog_page`, the title gets " SET"), Back closes them. They are the rarely used settings (`mod_hidden[]`: the oscillator's
+  Qual / Mute / Harm, Spectral's Hold / Lo / Hi), then **Reset** (`PRM_RESET`, ADR-046 phase 5): a push sets `ui->reset_id`, the
+  app asks (`app_module_reset_ask`), then `rack_slot_reset` puts every value back to its default (the sampler's File kept).
+- **One value's default**: the action Reset (`ACT_VALUE_RESET`, a key function and a layer entry; Shift + push while a value is
+  latched) = `synth_ui_target_reset` on `synth_ui_target_at_cursor`: a module's value (`rack_mparam_reset`) or a global one
+  (`param_reset`); the sequencer's, the settings' and FM's values have none.
 
 ### How a main-view page is drawn (`synth_ui_draw`, `ui_draw.c`)
 
@@ -287,7 +292,7 @@ them onto SOUND; a new tab is appended (`TAB_MACHINE`).
 | KEYS | `scr_keys.c` | Layout, Key, Func, Reset | the keys with their functions |
 | LEDS | `scr_leds.c` | Role, Idle, Idle %, Active, Act %, Value (the pots' roles), Reset; for Knob the shades read Away / Caught, for Enc A Synth / Pads (ADR-045) | the keys of that role filled, or which pots / encoder A |
 | MODIFIERS | `scr_mods.c` | Layer, Ctrl, Func, Min, Max, Curve, Learn, Reset | the controls with their function in the layer |
-| MACROS | `scr_macros.c` | Macro, Color (its LED's, ADR-045), Dest, Tgt, Min, Max, Curve, Learn, Remove | the selected destination's response |
+| MACROS | `scr_macros.c` | Macro, Value (the macro played from the tab: `synth_ui_macro_pos`, `macro_pos[]`; ADR-046 phase 5), Color (its LED's, ADR-045), Dest, Tgt, Min, Max, Curve, Learn, Remove | the selected destination's response |
 | JOY | `scr_joy.c` | Axis, Tgt, Min, Max, Curve, Clear | the axis' response, XY mode on or off |
 | CURVES | `scr_curves.c` | Curve, New, Point, X, Y, Seg, Add, Del pt, Delete | the curve and its points |
 | MACHINE | `scr_machine.c` | Out, Spk, Knob (from SOUND, ADR-046 decision 4), Storage (raises `ui->storage_req`: the app asks, `app_storage_ask`) | the battery |

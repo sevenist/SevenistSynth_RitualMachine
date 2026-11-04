@@ -20,6 +20,13 @@ on the hardware.
   and the next panel (4 columns, encoders).
 - **For developers:** the repo is now a library and the apps built on it. The next section is the guide to it.
 
+## 2026-11-04: the GUI reorganization, part 4: LED colours (ADR-046 phase 6; branch `gui-reorg`)
+
+For boards with LEDs under the pots and encoder A:
+
+- **Macro 1 is Blue by default**, because red means recording. A colour you chose in the MACROS tab stays.
+- **Encoder A is Mint in Pads**, because Amber is the column knobs' colour. It can be changed in the LEDS tab.
+
 ## 2026-10-30: the GUI reorganization, part 3: nothing out of reach (ADR-046 phase 5; branch `gui-reorg`)
 
 - **Shift + Play in Pads opens a Rec list**: Capture (until you stop it), Capture 1, 2, 4 or 8 bars, Pattern rec, Steps on / off

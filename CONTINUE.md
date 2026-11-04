@@ -25,7 +25,9 @@ user flashed and tried it (2026-10-30): "tested, working"; they will try it in u
 step** (`59f5635` the Pads Rec list, `dc7f25e` the macro Value, `4eed3ce` Reset, then the fallback test and the docs), after a
 round of options (ADR-046 "Phase 5": Click in the Rec lists and on the layers, Shift + joystick = bank, the extras in, Reset
 both ways and as a mappable action): host-tested (204 UI tests), both simulators built, the screens looked at as images;
-**NOT tried by the user, the firmware NOT built** by me.
+**NOT tried by the user, the firmware NOT built** by me. **Phase 6 was built 2026-11-04** at their word, while they prepare the
+second prototype (Q6: macro 1 Blue, encoder A Mint in Pads; ADR-046 "Phase 6"): host-tested (205 UI tests), both simulators
+built; **not seen on an LED**: HWV1 has none under its pots or encoder A.
 
 **Where things stood (2026-10-29):** ADR-044 flashed and tried by the user ("all good"); ADR-045 (the pot / Enc A LEDs)
 built on `main` and committed (`5ed38ed` .. `890597c`), not tried by the user. Then, at their request, **a plan to reorganize
@@ -100,8 +102,9 @@ item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
   Click; (3) PERFORM > MACROS: the **Value** row under Macro: a macro with no knob (3..8) set from the screen; (4) a value
   latched, **Shift + push** = its default ("Default: ..."); not latched, Shift + push is XY mode as before; (5) **every module's
   first page has a cog**: open it, the last row Reset asks, Yes = the module's defaults; (6) Pads grid: Shift + joystick left /
-  right = the bank; (7) MODIFIERS: put Reset, Tap or BPM +1 on a Shift / Mod entry. Say what to change; then phase 6 (LEDs, after
-  Q6) or the Bar widget.
+  right = the bank; (7) MODIFIERS: put Reset, Tap or BPM +1 on a Shift / Mod entry. Say what to change.
+- [ ] **See phase 6's colours (ADR-046 "Phase 6")** (from: user, 2026-11-04): macro 1 Blue, encoder A Mint in Pads, on the simulator's
+  panel (`.\build.ps1`, `.\run.ps1`: its rings) or on GRV-mini once it has a board folder. Then the extra Bar widget, at their word.
 - [ ] **Try phase 3, the views (branch `gui-reorg`, ADR-046 "Phase 3")** (from: user, 2026-10-29). **Flashed and tried by the
   user 2026-10-30: "tested, working"; they test it in use and report issues**: wait for those. Build and flash from VS Code
   (the simulator first: `.\build.ps1 -Board hwv1`, `.\run.ps1 -Board hwv1`). **To try**: (1) the header's left badge (ED, SQ,

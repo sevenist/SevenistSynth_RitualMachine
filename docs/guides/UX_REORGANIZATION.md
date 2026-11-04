@@ -7,7 +7,7 @@ list, the extras Bar / Reset / macro Value / **battery in the header**). **Being
 and the header's marks; push = Enter with the XY binding on a held push; Back never deletes, the "*", the REC mark), **and phase 3**
 (the same day: the views in both sections, the view selector, the map and the page list, SETUP > MACHINE, PERFORM / SETUP over
 the pads; flashed and tried by the user 2026-10-30: "working"), **and phase 5** (2026-10-30: the Pads Rec list, the macro Value
-row, Reset (cog and action), the fallback table below, tested by `test_fallbacks.c`); **next:** 6 (LEDs, after Q6), the extra Bar widget. The
+row, Reset (cog and action), the fallback table below, tested by `test_fallbacks.c`); **and phase 6** (2026-11-04: macro 1 Blue, encoder A Mint in Pads); **next:** the extra Bar widget. The
 original status line follows.
 
 **Status (2026-10-29): a proposal. Nothing is decided by the user and nothing is built.** Written at the user's request ("you
@@ -195,9 +195,9 @@ EG points), T-Full list (browser, map, page list).
 **Widgets**: Field, Selector (`< value >`), Button, Cell, Cog as today; **Bar** (proposed: a thin value bar under a
 continuous value; answers RITUAL_MACHINE_UI.md 14.4).
 
-**LED language** (defaults from ADR-045, two proposed changes, Q6): Amber dim / bright = context knob away / caught; White /
-Green = Volume; one colour per macro; Sky = Synth on Enc A; **a Pads hue other than Amber** (Amber is the Knob role's); red
-blinking 150 ms = armed, red steady = recording / destructive; saturation = value; dark = drives nothing. **Macro 1 off Red**
+**LED language** (defaults from ADR-045, two changes, Q6, built in phase 6): Amber dim / bright = context knob away / caught; White /
+Green = Volume; one colour per macro; Sky = Synth on Enc A; **Mint = Pads on Enc A** (Amber is the Knob role's); red
+blinking 150 ms = armed, red steady = recording / destructive; saturation = value; dark = drives nothing. **Macro 1 is Blue**
 (red reserved).
 
 **Interaction patterns**
@@ -237,7 +237,7 @@ Each phase is usable on HWV1 alone. Gates are what to show before the next phase
   macros, or empty until pads have macros?
 - **Q4** Out, Spk, Knob move from SOUND to SETUP > MACHINE, Vol stays (**reopens ADR-044 decision 7**).
 - **Q5** Pads capture without a Rec key (the panel's 4 columns have none): a Pads Rec list on Shift + Play next to step mode?
-- **Q6** Colours: macro 1 off Red; a Pads hue for Enc A other than Amber.
+- **Q6** Colours: macro 1 off Red; a Pads hue for Enc A other than Amber. **Answered 2026-11-04: Blue, Mint** (ADR-046 "Phase 6").
 - **Q7** Push = latch on the synth's pages replaces push = "right" (a habit change on the user's board).
 - **Q8** Relative as the default knob mode on endless pots; the acceleration.
 - **Q9** The extras: the Bar widget, Enc B held = reset to default, Enc A held = page list, a macro Value field (Tier 0), a

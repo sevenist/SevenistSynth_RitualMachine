@@ -1838,7 +1838,8 @@ Shift / Mod held: every pot shows what it does in that layer. (5) Encoder A. (6)
 
 Chosen by me while building (say if one is wrong):
 1. **Default colours**: Knob Amber (Away 15 %, Caught 100 %), Volume White 40 % / Green 100 %, Enc A Sky 60 % (Synth) / Amber
-   60 % (Pads); the macros Red, Teal, Violet, Yellow, Pink, Lime, Sky, Orange (all different). All editable.
+   60 % (Pads); the macros Red, Teal, Violet, Yellow, Pink, Lime, Sky, Orange (all different). All editable. (ADR-046 phase 6 made
+   macro 1 Blue and encoder A Mint in Pads.)
 2. **Saturation**: the pale end is white at the colour's brightness with a quarter of the colour in it (never plain white).
 3. **A col knob in the menu is dark** (it drives nothing there); **in Pads it shows Caught without a value** (the pad editor's
    values are not measured); **a knob not moved since the start is Away** (its place is not known).
@@ -1870,7 +1871,7 @@ Chosen by me while building (say if one is wrong):
   runs on HWV1 too, where the LEDs do not exist: a few reads per frame); the HWV1 simulator shows no pot LEDs (its board has
   none).
 
-### ADR-046: The GUI reorganization, one UX ruleset, built for HWV1 (Accepted; user choices of 2026-10-29; phases 1, 2, 4 built on branch `gui-reorg` 2026-10-29, `bf4151f` .. the docs commit; host-tested; flashed and tried by the user the same day: "working properly"; phase 3 built the same day, `02c7a94` .. the docs commit, host-tested; flashed and tried by the user 2026-10-30: "tested, working"; phase 5 built 2026-10-30, `59f5635` .. the docs commit, host-tested, NOT tried by the user)
+### ADR-046: The GUI reorganization, one UX ruleset, built for HWV1 (Accepted; user choices of 2026-10-29; phases 1, 2, 4 built on branch `gui-reorg` 2026-10-29, `bf4151f` .. the docs commit; host-tested; flashed and tried by the user the same day: "working properly"; phase 3 built the same day, `02c7a94` .. the docs commit, host-tested; flashed and tried by the user 2026-10-30: "tested, working"; phase 5 built 2026-10-30, `59f5635` .. the docs commit, host-tested, NOT tried by the user; phase 6 built 2026-11-04, host-tested, NOT seen on an LED)
 **Why.** The user, 2026-10-29: "you have the role of UX designer, create a plan to reorganize the whole GUI ... without leaving
 current features hidden or lost ... a current and future proof ruleset for creating a new UX for specific hardware". The plan
 (rules R1..R23, the views, the controls per board, where every feature goes, the phases) is
@@ -1895,7 +1896,7 @@ column knobs in the menu.
 8. **The extras in**: the Bar widget, Reset to default (a cog item), a macro Value field (set a macro from the MACROS page),
    and **a battery indicator in the header** (theirs). **Out**: the latched-notes count; Enc A / B held gestures (HWV1 has no
    encoders). (Q9)
-9. Not asked: **Q6** (colours: macro 1 off Red, a Pads hue for Enc A): ADR-045's pot LEDs are not on HWV1; to ask before the
+9. Asked on 2026-11-04 ("Phase 6" below): **Q6** (colours: macro 1 off Red, a Pads hue for Enc A): ADR-045's pot LEDs are not on HWV1; to ask before the
    LED phase.
 10. **The order of the work** (2026-10-29): phase 1 (the knob legend), then phase 2 (one editing model), then phase 4 (safety);
    the user away for some hours: "make decisions on your own, I trust you! Make your best and be creative". One commit per
@@ -1957,8 +1958,8 @@ marks, the battery from `app_power_poll`, the pad editor's overview heights); `1
   Pads editor's four pages, the latch, the header).
 - **On the board** (2026-10-29): the user flashed `gui-reorg` and tried the new UX: "so far it's working properly". No details
   reported yet on the HWV1 knob places or the held push.
-- **Not done / not checked**: the 128 x 64 screen has no legend and was not looked at; phase 6 and the Bar widget are not built
-  (phase 5, Reset to default and the macro Value: "Phase 5" below); the menu's other tabs keep idle knobs (no "first four numeric fields" yet); Q6 not asked.
+- **Not done / not checked**: the 128 x 64 screen has no legend and was not looked at; the Bar widget is not built
+  (phase 5, Reset to default and the macro Value: "Phase 5" below; Q6: "Phase 6" below); the menu's other tabs keep idle knobs (no "first four numeric fields" yet).
 
 **Phase 3, the views (2026-10-29, the user: "let's start"; built on `gui-reorg`, one commit per step).** Chosen by me (the plan,
 guide sections 4 and 9, gave the views, the focus levels and the routes; these are the details; say if one is wrong):
@@ -2038,6 +2039,22 @@ macro Value (`scr_macros.c`, `synth_ui_macro_pos`, `macro_pos[]`); `4eed3ce` def
 `param_reset`, `synth_ui_target_reset`, `PRM_RESET`, `type_has_cog`, `ACT_VALUE_RESET`, `app_module_reset_ask`); then the fallback
 test (`test_fallbacks.c`) and the docs. Checked: 204 UI tests; both simulators built; the Rec lists, MACROS and a cog's Reset
 looked at as images (HWV1). **NOT tried by the user, the firmware not built by me.**
+
+**Phase 6, the LED language (2026-11-04, the user: "we can start the phase 6", while they prepare the second prototype).** Their
+answers to Q6 (my recommendations): **macro 1 is Blue by default** (Red means recording / destructive), **encoder A is Mint in
+Pads** (Amber is the column knobs'). Only defaults: a colour chosen in the MACROS or LEDS tab stays, and neither is written to a
+file while it is the default, so a preset that never chose macro 1's colour shows Blue. A macro 1 set to Red by hand before this
+was not written either, so it turns Blue too.
+Chosen by me (say if one is wrong):
+1. **The gate "no colour with two meanings" is read over the pots and encoder A only.** The keys already reuse colours across
+   roles (Blue: Sharp and Menu; Mint: Mod; Amber: a pushed pad): they are another part of the panel and were not changed.
+2. **One exception left**: encoder A's Synth Sky is also macro 7's, which shows only on a knob mapped to it. Told to the user.
+3. Near neighbours stay (Yellow, Orange and Amber; Mint and Teal): different colours by the palette, not checked on real LEDs.
+
+**Phase 6 as built**: the first value of `synth_ui_macro_default_color`, `LR_ENC`'s active shade in `led_roles.c`,
+`leds_a_pots_default_colour_has_one_meaning` in `test_leds.c`. Checked: 205 UI tests; both simulators built. **NOT seen on an LED:
+HWV1 has none under its pots or encoder A, and the simulator's panel rings were not looked at by me; which LED, if any, GRV-mini has
+under encoder A was not checked.**
 
 ## Known limits and ideas for later
 

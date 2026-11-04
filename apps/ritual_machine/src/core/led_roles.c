@@ -33,7 +33,7 @@ static const led_role_def_t defaults[LR_COUNT] = {
     [LR_BANK]   = {SH(P_SKY, 16),    SH(P_SKY, 100)},
     [LR_KNOB]   = {SH(P_AMBER, 15),  SH(P_AMBER, 100), 1},      // the pots (ADR-045): dim until caught, the value as saturation
     [LR_VOLUME] = {SH(P_WHITE, 40),  SH(P_GREEN, 100), 1},
-    [LR_ENC]    = {SH(P_SKY, 60),    SH(P_AMBER, 60)},         // encoder A: the synth / Pads (ADR-045)
+    [LR_ENC]    = {SH(P_SKY, 60),    SH(P_MINT, 60)},          // encoder A: the synth / Pads (ADR-045; Pads not Amber, the Knob's: ADR-046 phase 6)
     [LR_NONE]   = {SH(P_OFF, 0),     SH(P_OFF, 0)},
 };
 

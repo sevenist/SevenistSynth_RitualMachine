@@ -171,32 +171,47 @@ TEST(leds_macro_knobs_show_their_macros_colour_set_in_the_macros_tab) {
     led_roles_init();
     for (int a = 0; a < SYNTH_UI_MACROS; a++)
         for (int b = a + 1; b < SYNTH_UI_MACROS; b++) CHECK(ui_app.ui.macro[a].color != ui_app.ui.macro[b].color);
-    CHECK_STR(led_palette_name(ui_app.ui.macro[0].color), "Red");
-    ev_knob(CTL_KNOB_R1, INPUT_VALUE_MAX);                                          // macro 1 at the top: the full Red
+    CHECK_STR(led_palette_name(ui_app.ui.macro[0].color), "Blue");
+    ev_knob(CTL_KNOB_R1, INPUT_VALUE_MAX);                                          // macro 1 at the top: the full Blue
     ev_idle(5);
     CHECK(ui_app.ui.macro[0].n > 0);
-    CHECK(near_rgb(ui_stub_led[CTL_KNOB_R1], 255, 0, 0));
-    // the Color row: Red -> Orange
+    CHECK(near_rgb(ui_stub_led[CTL_KNOB_R1], 0, 0, 255));
+    // the Color row: Blue -> Indigo
     ev_tap(CTL_BTN_1);
     ui_app.ui.menu_tab = tab_index_of(&ui_app.rack, TAB_MACROS);
     ui_app.ui.macro_cur = 0;
     ui_app.ui.row = 3;                                                              // Color
     ev_turn(CTL_ENC_B, 1);
-    CHECK_STR(led_palette_name(ui_app.ui.macro[0].color), "Orange");
+    CHECK_STR(led_palette_name(ui_app.ui.macro[0].color), "Indigo");
     ev_tap(CTL_BTN_1);
     ev_idle(5);
-    CHECK(near_rgb(ui_stub_led[CTL_KNOB_R1], 255, 90, 0));
+    CHECK(near_rgb(ui_stub_led[CTL_KNOB_R1], 80, 0, 255));
     // saved with the sound, read back; the sound's hash sees it
     const uint32_t h = patch_hash(&ui_app.rack, &ui_app.params, &ui_app.ui);
     static char txt[8192];
     CHECK(patch_to_text(&ui_app.rack, &ui_app.params, &ui_app.ui, true, NULL, false, txt, (int)sizeof txt) > 0);
-    CHECK(strstr(txt, "mcolor 1 orange") != NULL);
+    CHECK(strstr(txt, "mcolor 1 indigo") != NULL);
     CHECK(strstr(txt, "mcolor 2") == NULL);                                         // a default colour is not written
     ui_app.ui.macro[0].color = 2;
     CHECK(patch_hash(&ui_app.rack, &ui_app.params, &ui_app.ui) != h);
     CHECK(patch_from_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, txt));
-    CHECK_STR(led_palette_name(ui_app.ui.macro[0].color), "Orange");
+    CHECK_STR(led_palette_name(ui_app.ui.macro[0].color), "Indigo");
     CHECK_STR(led_palette_name(ui_app.ui.macro[1].color), "Teal");
+}
+
+// The LED language (ADR-046 phase 6): among the pots and encoder A a default colour has one meaning. Red is recording; Amber the column
+// knobs; Volume its own; no macro takes one of those, and encoder A's Pads colour is nobody else's. (Encoder A's Synth Sky is also macro 7's,
+// left as it is: that macro shows only on a knob mapped to it.)
+TEST(leds_a_pots_default_colour_has_one_meaning) {
+    led_roles_init();
+    const int knob = led_role(LR_KNOB)->active.color, vol_idle = led_role(LR_VOLUME)->idle.color, vol = led_role(LR_VOLUME)->active.color;
+    const int rec = led_role(LR_BACK)->active.color, enc_pads = led_role(LR_ENC)->active.color;
+    CHECK_STR(led_palette_name(rec), "Red");
+    CHECK(enc_pads != knob && enc_pads != rec && enc_pads != vol && enc_pads != vol_idle && enc_pads != led_role(LR_ENC)->idle.color);
+    for (int k = 0; k < SYNTH_UI_MACROS; k++) {
+        const int c = synth_ui_macro_default_color(k);
+        CHECK(c != rec && c != knob && c != vol && c != vol_idle && c != enc_pads);
+    }
 }
 
 extern bool app_catch_stale;                       // app/app_internal.h
@@ -214,8 +229,8 @@ TEST(leds_pots_show_the_layer_while_shift_or_mod_is_held) {
     ev_idle(1);
     CHECK(near_rgb(ui_stub_led[CTL_COL_KNOB_2], 0, 0, 0));                          // K3 has no Shift entry: it drives nothing
     CHECK(near_rgb(ui_stub_led[CTL_COL_KNOB_1], 96, 255, 96));                     // K2 + Shift = the volume (at 1 of 2): half-pale Green
-    const led_color_t r1 = ui_stub_led[CTL_KNOB_R1];                                // R1 + Shift = learn into macro 1: its Red, as pale
-    CHECK(r1.r > 250 && r1.g == r1.b && r1.g < r1.r);                               //  as macro 1's value (the first filter's cutoff)
+    const led_color_t r1 = ui_stub_led[CTL_KNOB_R1];                                // R1 + Shift = learn into macro 1: its Blue, as pale
+    CHECK(r1.b > 250 && r1.r == r1.g && r1.r < r1.b);                               //  as macro 1's value (the first filter's cutoff)
     ev_release(CTL_BTN_3);
     ev_idle(1);
     CHECK(near_rgb(ui_stub_led[CTL_COL_KNOB_2], 255, 150, 0));                     // back at once
@@ -242,7 +257,7 @@ TEST(leds_encoder_a_shows_the_section_and_the_recording) {
     CHECK(near_rgb(ui_stub_led[CTL_ENC_A], 36, 72, 153));                           // the synth: Sky 60 %
     app_set_section(&ui_app, true);
     ev_idle(5);
-    CHECK(near_rgb(ui_stub_led[CTL_ENC_A], 153, 90, 0));                            // Pads: Amber 60 %
+    CHECK(near_rgb(ui_stub_led[CTL_ENC_A], 0, 153, 114));                           // Pads: Mint 60 %
     app_set_section(&ui_app, false);
     app_seq_rec_set(&ui_app, true);                                                 // the notes' Rec armed, the sequencer stopped: it blinks
     int red = 0, other = 0;

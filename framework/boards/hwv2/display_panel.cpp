@@ -1,6 +1,7 @@
-// The second prototype's panel (boards/esp32/display_panel.h): a 1.77" 128 x 160 TFT, ST7735S family, on SPI (pins in board_pins.h). The
-// application draws in 1 bit with u8g2 as on any board; this file paints its pixels in two colours. A DMA transfer: the display task sleeps
-// through it, so the UI loop on its core keeps running. A full frame is 41 KB, about 22 ms at this clock (the first prototype's OLED: 120 ms).
+// The second prototype's panel (boards/esp32/display_panel.h): a 1.77" 128 x 160 TFT, ST7735S family, on SPI (pins in board_pins.h). An
+// application that draws in 1 bit with u8g2 (as on any board) has its pixels painted in two colours; one that draws in colour (ui/canvas.h,
+// display_send_rgb565) has its frame sent as it is. A DMA transfer: the display task sleeps through it, so the UI loop on its core keeps
+// running. A full frame is 41 KB, about 22 ms at this clock (the first prototype's OLED: 120 ms). Only the changed tiles are sent.
 //
 // CS is tied low on rev A and, without PIN_LCD_RST, nothing can reset the panel but a power cycle: a stray clock edge during the ESP32's start would
 // put it out of step for good, which shows as a blank or garbled screen until the power goes off (REV-B-NOTES.md).
@@ -39,19 +40,43 @@ void command(uint8_t c, const uint8_t *data = nullptr, size_t bytes = 0) {
     if (bytes) send(data, bytes);
 }
 
-// `count` tiles of the row of tiles `ty`, from tile `tx`.
-void send_tiles(const uint8_t *frame, int tx, int ty, int count) {
+// The panel's write window: `count` tiles of the row of tiles `ty`, from tile `tx`; the pixels come next.
+void window(int tx, int ty, int count) {
     const int x0 = tx * 8 + kOffsetX, x1 = x0 + count * 8 - 1, y0 = ty * 8 + kOffsetY, y1 = y0 + 7;
     const uint8_t columns[4] = {(uint8_t)(x0 >> 8), (uint8_t)x0, (uint8_t)(x1 >> 8), (uint8_t)x1};
     const uint8_t rows[4] = {(uint8_t)(y0 >> 8), (uint8_t)y0, (uint8_t)(y1 >> 8), (uint8_t)y1};
     command(0x2A, columns, 4);                  // CASET
     command(0x2B, rows, 4);                     // RASET
     command(0x2C);                              // RAMWR
+}
+
+// `count` tiles of the row of tiles `ty`, from tile `tx`.
+void send_tiles(const uint8_t *frame, int tx, int ty, int count) {
+    window(tx, ty, count);
     const uint8_t *src = frame + ty * DISPLAY_WIDTH + tx * 8;
     uint16_t *out = pixels;
     for (int bit = 0; bit < 8; bit++)
         for (int x = 0; x < count * 8; x++) *out++ = (src[x] >> bit) & 1 ? kColorOn : kColorOff;
     send(pixels, (size_t)(count * 8 * 8) * sizeof pixels[0]);
+}
+
+// The same from a colour frame: its rows copied into `pixels` (internal RAM, what the DMA reads), high byte first as the controller reads them.
+void send_tiles_rgb565(const uint16_t *frame, int tx, int ty, int count) {
+    window(tx, ty, count);
+    uint16_t *out = pixels;
+    for (int r = 0; r < 8; r++) {
+        const uint16_t *src = frame + (ty * 8 + r) * DISPLAY_WIDTH + tx * 8;
+        for (int x = 0; x < count * 8; x++) *out++ = __builtin_bswap16(src[x]);
+    }
+    send(pixels, (size_t)(count * 8 * 8) * sizeof pixels[0]);
+}
+
+bool tile_same_rgb565(const uint16_t *a, const uint16_t *b, int tx, int ty) {
+    for (int r = 0; r < 8; r++) {
+        const int at = (ty * 8 + r) * DISPLAY_WIDTH + tx * 8;
+        if (memcmp(a + at, b + at, 8 * sizeof(uint16_t))) return false;
+    }
+    return true;
 }
 
 uint8_t display_cb(u8x8_t *u8x8, uint8_t msg, uint8_t, void *) {
@@ -125,6 +150,21 @@ void display_panel_show(const uint8_t *frame, const uint8_t *shown) {
             while (end < kTilesX && (memcmp(row + end * 8, old + end * 8, 8) ||
                                      (end + 1 < kTilesX && memcmp(row + (end + 1) * 8, old + (end + 1) * 8, 8)))) end++;
             send_tiles(frame, tx, ty, end - tx);
+            tx = end;
+        }
+    }
+}
+void display_panel_show_rgb565(const uint16_t *frame, const uint16_t *shown) {
+    if (!lcd) return;
+    for (int ty = 0; ty < kTilesY; ty++) {
+        if (!shown) { send_tiles_rgb565(frame, 0, ty, kTilesX); continue; }
+        int tx = 0;
+        while (tx < kTilesX) {
+            if (tile_same_rgb565(frame, shown, tx, ty)) { tx++; continue; }
+            int end = tx + 1;                   // a run of changed tiles, a single unchanged one inside it sent too (as display_panel_show)
+            while (end < kTilesX && (!tile_same_rgb565(frame, shown, end, ty) ||
+                                     (end + 1 < kTilesX && !tile_same_rgb565(frame, shown, end + 1, ty)))) end++;
+            send_tiles_rgb565(frame, tx, ty, end - tx);
             tx = end;
         }
     }

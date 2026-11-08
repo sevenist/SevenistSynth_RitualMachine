@@ -4,12 +4,22 @@
 // arriving meanwhile was handled up to 120 ms late (late notes, steppy cutoff sweeps). Now display_send() only copies the frame and wakes the display
 // task, which sends the tiles (8 x 8 pixels) that differ from the last frame it sent. The task alone uses the bus after init; the application keeps
 // drawing into the u8g2 buffer. If frames come faster than the bus, the task skips to the newest one.
+//
+// Colour frames (display_send_rgb565, hal_display.h) go the same way on a board with a colour screen (HW_DISPLAY_RGB565 in board_pins.h): three
+// frames of 41 KB (128 x 160) in PSRAM, the newest, the one being sent and what the panel shows; the panel compares tiles and sends the
+// changed ones through its own small DMA buffer in internal RAM (display_panel_show_rgb565). Elsewhere a colour frame is made one-colour
+// here (a pixel is lit when it is bright) and shown as any other.
 #if defined(ARDUINO_ARCH_ESP32)
 #include <Arduino.h>
 #include <esp_heap_caps.h>
 #include "hal/hal_display.h"
 #include "boards/esp32/board_esp32.h"
+#include "boards/esp32/board_pins.h"
 #include "boards/esp32/display_panel.h"
+
+#ifndef HW_DISPLAY_RGB565
+#define HW_DISPLAY_RGB565 0            // (board_pins.h: 1 on a board with a colour screen)
+#endif
 
 namespace {
 constexpr int kTilesX = DISPLAY_WIDTH / 8, kTilesY = DISPLAY_HEIGHT / 8, kBytes = kTilesX * kTilesY * 8;
@@ -19,17 +29,69 @@ SemaphoreHandle_t mtx;
 TaskHandle_t task;
 volatile bool have_frame = false;              // the application has sent a frame
 volatile bool boot_playing = false;            // the boot task owns the panel (and `work`, `sent`): the display task waits
+bool sent_valid = true;                        // `sent` is what the panel shows (false after colour frames: the next one-colour frame goes whole)
 
 // Sends the tiles of `work` that differ from what the panel shows.
 void show_work() {
+    if (!sent_valid) {                         // every tile differs from `work`: all of it is sent
+        for (int i = 0; i < kBytes; i++) sent[i] = (uint8_t)~work[i];
+        sent_valid = true;
+    }
     display_panel_show(work, sent);
     memcpy(sent, work, kBytes);
+}
+
+#if HW_DISPLAY_RGB565
+constexpr size_t kColorBytes = (size_t)DISPLAY_WIDTH * DISPLAY_HEIGHT * sizeof(uint16_t);
+uint16_t *pending565 = nullptr, *work565 = nullptr, *sent565 = nullptr;   // PSRAM; made at the first colour frame (none: frames go one-colour)
+volatile bool color_frame = false;             // the newest frame the application sent is a colour one (guarded by mtx with pending565)
+bool sent565_valid = false;                    // `sent565` is what the panel shows (false: the next colour frame goes whole)
+
+bool color_buffers() {
+    if (pending565) return true;
+    uint16_t *b[3];
+    for (uint16_t *&p : b) p = static_cast<uint16_t *>(heap_caps_malloc_prefer(kColorBytes, 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT));
+    if (!b[0] || !b[1] || !b[2]) {
+        for (uint16_t *p : b) heap_caps_free(p);
+        return false;
+    }
+    work565 = b[1];
+    sent565 = b[2];
+    pending565 = b[0];                         // (last: the task looks at it, under the mutex, only once color_frame is set)
+    return true;
+}
+#endif
+
+// A colour frame made one-colour, into a buffer of u8g2's layout: a pixel is lit when it is bright (the boards without a colour screen).
+void color_to_mono(const uint16_t *frame, uint8_t *out) {
+    memset(out, 0, kBytes);
+    for (int y = 0; y < DISPLAY_HEIGHT; y++)
+        for (int x = 0; x < DISPLAY_WIDTH; x++) {
+            const uint16_t v = frame[y * DISPLAY_WIDTH + x];
+            const int luma = ((v >> 11) * 2 * 77 + ((v >> 5) & 0x3F) * 150 + (v & 0x1F) * 2 * 29) >> 8;   // 0..63
+            if (luma >= 24) out[(y / 8) * DISPLAY_WIDTH + x] |= (uint8_t)(1 << (y & 7));
+        }
 }
 
 void display_task(void *) {
     for (;;) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);                  // pdTRUE: several frames sent meanwhile = one wake-up, the newest frame
         if (boot_playing || !have_frame) continue;                // (the boot task wakes this one when it is done)
+#if HW_DISPLAY_RGB565
+        if (color_frame) {
+            xSemaphoreTake(mtx, portMAX_DELAY);
+            memcpy(work565, pending565, kColorBytes);
+            xSemaphoreGive(mtx);
+            display_panel_show_rgb565(work565, sent565_valid ? sent565 : nullptr);
+            uint16_t *const shown = work565;                      // what the panel shows now: no copy, the two frames swap
+            work565 = sent565;
+            sent565 = shown;
+            sent565_valid = true;
+            sent_valid = false;
+            continue;
+        }
+        sent565_valid = false;
+#endif
         xSemaphoreTake(mtx, portMAX_DELAY);
         memcpy(work, pending, kBytes);
         xSemaphoreGive(mtx);
@@ -157,6 +219,32 @@ extern "C" u8g2_t *display_init(void) {
 extern "C" void display_send(u8g2_t *g) {
     xSemaphoreTake(mtx, portMAX_DELAY);
     memcpy(pending, u8g2_GetBufferPtr(g), kBytes);
+    xSemaphoreGive(mtx);
+    have_frame = true;
+#if HW_DISPLAY_RGB565
+    color_frame = false;
+#endif
+    xTaskNotifyGive(task);
+}
+
+extern "C" void display_send_rgb565(const uint16_t *frame) {
+    if (!frame) return;
+#if HW_DISPLAY_RGB565
+    if (color_buffers()) {
+        xSemaphoreTake(mtx, portMAX_DELAY);
+        memcpy(pending565, frame, kColorBytes);
+        color_frame = true;
+        xSemaphoreGive(mtx);
+        have_frame = true;
+        xTaskNotifyGive(task);
+        return;
+    }
+#endif
+    xSemaphoreTake(mtx, portMAX_DELAY);
+    color_to_mono(frame, pending);
+#if HW_DISPLAY_RGB565
+    color_frame = false;
+#endif
     xSemaphoreGive(mtx);
     have_frame = true;
     xTaskNotifyGive(task);

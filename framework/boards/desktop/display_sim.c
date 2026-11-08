@@ -97,6 +97,24 @@ static uint8_t sim_display(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, void *arg
 }
 
 void display_send(u8g2_t *g) { u8g2_SendBuffer(g); }
+
+// A colour frame (hal_display.h): painted straight into the window, each pixel a square of u8g_sdl_multiple. RGB565 widened to 8 bits a
+// channel by repeating the top bits, so white stays white. The window exists once display_init has run.
+void display_send_rgb565(const uint16_t *frame) {
+    if (!u8g_sdl_screen || !frame) return;
+    const int m = u8g_sdl_multiple, bpp = u8g_sdl_screen->format->BytesPerPixel, stride = u8g_sdl_width * m;
+    for (int y = 0; y < DISPLAY_HEIGHT && y < u8g_sdl_height; y++)
+        for (int x = 0; x < DISPLAY_WIDTH && x < u8g_sdl_width; x++) {
+            const uint16_t v = frame[y * DISPLAY_WIDTH + x];
+            const uint8_t r5 = (uint8_t)(v >> 11), g6 = (uint8_t)((v >> 5) & 0x3F), b5 = (uint8_t)(v & 0x1F);
+            const uint32_t c = SDL_MapRGB(u8g_sdl_screen->format, (uint8_t)(r5 << 3 | r5 >> 2), (uint8_t)(g6 << 2 | g6 >> 4), (uint8_t)(b5 << 3 | b5 >> 2));
+            for (int i = 0; i < m; i++) {
+                uint8_t *row = (uint8_t *)u8g_sdl_screen->pixels + (size_t)((y * m + i) * stride + x * m) * (size_t)bpp;
+                for (int j = 0; j < m; j++) memcpy(row + (size_t)j * (size_t)bpp, &c, sizeof c < (size_t)bpp ? sizeof c : (size_t)bpp);
+            }
+        }
+    SDL_UpdateWindowSurface(u8g_sdl_window);
+}
 void display_boot_config(const display_boot_t *boot) { (void)boot; }   // (no animation of the board's own here)
 void display_boot_end(void) {}              // (the simulator's boot animation is the application's: app_boot_animation)
 void display_boot_progress(int percent) { (void)percent; }

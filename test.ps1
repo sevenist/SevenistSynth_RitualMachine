@@ -24,6 +24,11 @@ if ($Filter) { & (Join-Path $PSScriptRoot "apps/ritual_machine/tools/build_ui_te
 else { & (Join-Path $PSScriptRoot "apps/ritual_machine/tools/build_ui_tests.ps1") }
 if ($LASTEXITCODE -ne 0) { $failed += "ritual_machine UI" }
 
+Write-Host "##### TechnoGen (apps/technogen/tests)" -ForegroundColor Cyan
+if ($Filter) { & (Join-Path $PSScriptRoot "apps/technogen/tools/build_tests.ps1") -Filter $Filter }
+else { & (Join-Path $PSScriptRoot "apps/technogen/tools/build_tests.ps1") }
+if ($LASTEXITCODE -ne 0) { $failed += "technogen" }
+
 if ($failed.Count) { Write-Host "FAILED: $($failed -join ', ')" -ForegroundColor Red; exit 1 }
 Write-Host "All test runs passed" -ForegroundColor Green
 exit 0

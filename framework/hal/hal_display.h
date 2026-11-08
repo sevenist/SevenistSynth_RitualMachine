@@ -37,6 +37,12 @@ u8g2_t *display_init(void);
 // task (the prototype: only the changed tiles, so a slow bus never holds up notes and knobs); the caller may draw the next frame at once.
 void display_send(u8g2_t *g);
 
+// Shows a colour frame (in place of display_send): DISPLAY_WIDTH x DISPLAY_HEIGHT pixels in RGB565, row by row from the top left, in the
+// processor's own byte order (ui/canvas.h draws one with u8g2). The platform copies it, as display_send does, so the caller may draw the
+// next one at once. A board with a colour screen shows it as it is; a board with a one-colour screen lights the pixels that are bright.
+// The two kinds of frame may follow each other: the first of the other kind is sent whole.
+void display_send_rgb565(const uint16_t *frame);
+
 // The application has finished starting (the card was read, its settings and the pads' samples are in). A platform that plays a boot
 // animation of its own until then (display_boot_config; the prototype loops it back and forth in a task) lets it end and then shows
 // the newest frame sent; the frames sent before are kept, not shown. Called once; nothing to do elsewhere.

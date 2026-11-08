@@ -335,6 +335,7 @@ void ui_stub_display_setup(u8g2_t *g) {
 
 int ui_stub_frames;                                                     // frames sent to the display (the UI tests read it)
 void display_send(u8g2_t *g) { (void)g; ui_stub_frames++; }
+void display_send_rgb565(const uint16_t *frame) { (void)frame; ui_stub_frames++; }   // (the colour canvas of the library, ui/canvas.c: not used by this app)
 int ui_stub_boot_ends;                       // the application said its start is over (hal_display.h)
 void display_boot_end(void) { ui_stub_boot_ends++; }
 int ui_stub_boot_progress = -1, ui_stub_boot_progress_back;   // the last progress reported, and how often it went back

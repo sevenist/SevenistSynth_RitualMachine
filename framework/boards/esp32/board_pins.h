@@ -120,6 +120,7 @@
 #define PIN_LCD_SDA   41
 #define PIN_LCD_DC    1
 #define PIN_LCD_RST   -1
+#define HW_DISPLAY_RGB565 1            // a colour screen: display_send_rgb565 frames go to it as they are (display_panel_show_rgb565)
 
 // Analog multiplexer, 16 channels: the 8 pots, the joystick, the 4 buttons, the power sense. Rev A wires MuxCOM to GP38, which has no ADC: this needs
 // the wire of REV-B-NOTES.md, bodge 4, from TP_muxCom1 to TP_bck2 (GP9).

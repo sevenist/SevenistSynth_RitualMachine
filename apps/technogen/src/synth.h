@@ -22,6 +22,11 @@ void synth_render(int16_t *stereo, int frames);
 void synth_update();                                    // call it often: frees what the engine no longer uses
 void synth_set_track(int t, const tg::Track &tr);       // its seven values and its level (muted: silent)
 void synth_set_steps(const tg::Pattern &p);             // every track's steps, as the sequencer's hits (the muted tracks' left out)
+// The steps of the pattern to go on to at the end of the playing one (its last step), with an id; synth_taken() then changes to
+// (a count << 8 | that id). The application sets the new pattern's values when it sees it (synth_set_track): one block late at most.
+void synth_queue_steps(const tg::Pattern &p, int id);
+uint32_t synth_taken();
+void synth_set_volume(int percent);                     // the master volume, 0..100
 void synth_set_transport(int bpm, bool running);
 int  synth_step();                                      // the step that plays, -1 when stopped
 int  synth_hits();                                      // hits in the sequencer's pattern now (at most synth_max_hits)

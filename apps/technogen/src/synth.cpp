@@ -91,9 +91,9 @@ void synth_set_track(int t, const tg::Track &tr) {
     eng.set_param(N_TRACK0 + t, tg::TP_LEVEL, tr.muted ? 0 : tr.level);
 }
 
-void synth_set_steps(const tg::Pattern &p) {
-    if (!ready) return;
-    static PadHit hits[kPadSeqHits];
+namespace {
+// The pattern's hits: the muted tracks left out; if the pattern is too full, the last tracks lose theirs. Returns how many.
+int pattern_hits(const tg::Pattern &p, PadHit *hits) {
     int n = 0;
     for (int t = 0; t < tg::kTracks; t++) {         // track by track: if the pattern is too full, the last tracks lose their hits
         const tg::Track &tr = p.track[t];
@@ -113,21 +113,56 @@ void synth_set_steps(const tg::Pattern &p) {
                 hits[n++] = h;
             }
     }
-    for (int first = 0; first < n || first == 0; first += kPadSeqChunk) {
-        const int count = n - first < kPadSeqChunk ? n - first : kPadSeqChunk;
-        eng.pseq_hits(first, count, hits + first, n);
-        if (n == 0) break;
-    }
-    n_hits = n;
+    return n;
 }
 
-void synth_set_transport(int bpm, bool running) {
-    if (!ready) return;
+void send_hits(const PadHit *hits, int n, bool queue) {
+    for (int first = 0; first < n || first == 0; first += kPadSeqChunk) {
+        const int count = n - first < kPadSeqChunk ? n - first : kPadSeqChunk;
+        eng.pseq_hits(first, count, hits + first, n, queue);
+        if (n == 0) break;
+    }
+}
+
+SeqSetup setup(bool running) {
     SeqSetup s;
     s.run = running ? 1 : 0;
     s.steps = tg::kSteps;
     s.rate = SEQ_RATE_16;
-    eng.pseq_setup(s, N_TRACK0);                    // (its node is not used: the hits are routed)
+    return s;
+}
+bool g_running = false;
+}  // namespace
+
+void synth_set_steps(const tg::Pattern &p) {
+    if (!ready) return;
+    static PadHit hits[kPadSeqHits];
+    n_hits = pattern_hits(p, hits);
+    send_hits(hits, n_hits, false);
+}
+
+void synth_queue_steps(const tg::Pattern &p, int id) {
+    if (!ready) return;
+    static PadHit hits[kPadSeqHits];
+    send_hits(hits, pattern_hits(p, hits), true);
+    SeqSetup s = setup(g_running);
+    s.queue = SEQ_QUEUE;
+    s.id = static_cast<uint8_t>(id);
+    eng.pseq_setup(s, N_TRACK0);
+}
+
+uint32_t synth_taken() { return ready ? eng.pseq_taken() : 0; }
+
+void synth_set_volume(int percent) {
+    if (!ready) return;
+    const int p = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
+    eng.set_param(N_MASTER, 0, p * p * kUnity / 10000);                  // (squared: the knob's travel feels even in loudness)
+}
+
+void synth_set_transport(int bpm, bool running) {
+    if (!ready) return;
+    g_running = running;
+    eng.pseq_setup(setup(running), N_TRACK0);       // (its node is not used: the hits are routed)
     eng.set_transport(bpm, running, false);
 }
 

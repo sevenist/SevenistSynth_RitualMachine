@@ -65,6 +65,10 @@ public:
     // push at a level, or the pad let go). pseq_hits sends hits first .. first + count - 1 of a pattern of `total` hits.
     bool pseq_setup(const SeqSetup &s, int node);
     bool pseq_hits(int first, int count, const PadHit *hits, int total, bool queue = false);
+    // [CONTROL] the pads' sequencer plays to several modules instead of one Pads module: pad p of a hit goes to node nodes[p / 8] as its
+    // lane p % 8 (Module::hit; kPadSeqGroups groups, a node < 0 drops its group). TechnoGen's tracks: a track is a group, its lanes are
+    // its pads. The node of pseq_setup is then not used; nodes == nullptr goes back to it.
+    bool pseq_route(const int8_t *nodes);
     int pseq_step() const { return pseq_step_.load(std::memory_order_relaxed); }
     uint32_t pseq_taken() const { return pseq_taken_.load(std::memory_order_relaxed); }
     bool pseq_where(int *step, int *frac, uint32_t *count) const {
@@ -144,6 +148,8 @@ private:
     std::atomic<uint32_t> seq_halts_{0};
     PadSequencer pseq_;                                 // audio thread
     int pseq_node_ = -1;                                // the Pads module its events go to
+    bool pseq_routed_ = false;                          // ... or the modules of pseq_route_, one per group (audio thread)
+    int8_t pseq_route_[kPadSeqGroups] = {};
     std::atomic<int> pseq_step_{-1};
     std::atomic<uint32_t> pseq_taken_{0};
     std::atomic<uint64_t> pseq_where_{0};

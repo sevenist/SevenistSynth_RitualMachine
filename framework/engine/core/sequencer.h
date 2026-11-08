@@ -26,6 +26,7 @@
 // is let go, halts() counts it, and it does not start again by itself: a setup with run = 0 (the application saw it stop) clears that.
 #include <cstdint>
 #include "engine/core/command_queue.h"
+#include "engine/dsp/config.h"
 #include "engine/core/module.h"
 
 namespace sc {
@@ -71,7 +72,8 @@ static_assert(sizeof(SeqChunk) <= kCmdBlobMax, "a chunk of steps must fit in one
 struct SeqEvent { uint8_t on, note, vel; };
 
 // The pads' pattern: its hits, in any order.
-constexpr int kPadSeqHits = 160;        // hits of one pattern
+constexpr int kPadSeqHits = ENGINE_PADSEQ_HITS;   // hits of one pattern (dsp/config.h; 160 by default)
+constexpr int kPadSeqGroups = 8;        // a routed pattern (Engine::pseq_route): pad p is lane p % 8 of group p / 8, one module a group
 constexpr int kPadSeqChunk = 60;        // hits per PadHitChunk
 constexpr int kPadSeqHeld = 16;         // pads waiting to be let go
 constexpr int kPadSeqRatchets = 8;      // pads ratcheting at once

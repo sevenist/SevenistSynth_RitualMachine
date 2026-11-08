@@ -20,7 +20,7 @@ try {
     $cppSrc = @(Get-EngineSources) + @(Get-ChildItem src/*.cpp)        # (the firmware's files compile to nothing here: they are guarded)
     # the library's drawing kit and its desktop board (the display and panel windows, the PC keyboard as the keys, SDL audio), and u8g2
     $cSrc = @(Get-UiSources) + @(Get-DesktopBoardSources) + $simBoard.Sources + @(Get-ChildItem $u8g2/csrc/*.c) + @(Get-ChildItem $u8g2/sys/sdl/common/*.c)
-    $flags = @("-O2", "-DPLATFORM_SIM", "-Isrc", "-I$fw", "-I$u8g2/csrc", "-IC:/msys64/ucrt64/include/SDL2") + $simBoard.Flags
+    $flags = @("-O2", "-DPLATFORM_SIM", "-DENGINE_PADSEQ_HITS=255", "-Isrc", "-I$fw", "-I$u8g2/csrc", "-IC:/msys64/ucrt64/include/SDL2") + $simBoard.Flags
     if ($Defs) { $flags += @($Defs -split '\s+' | Where-Object { $_ }) }
     if (-not (Invoke-SimBuild -CSources $cSrc -CppSources $cppSrc -Flags $flags -ObjDir $objDir -Out "build/$name$($simBoard.Suffix).exe")) { exit 1 }
     exit 0

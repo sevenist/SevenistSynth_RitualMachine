@@ -37,6 +37,11 @@
 
 // Entries of the control -> audio command ring (a power of two). Each entry is about 270 bytes (it can carry a 256 byte blob), so the
 // default of 512 costs 137 KB, taken from the engine's bulk heap at init (PSRAM on the ESP32, whose build uses 128).
+#ifndef ENGINE_PADSEQ_HITS
+#define ENGINE_PADSEQ_HITS 160    // hits of one pattern of the pads' sequencer (sequencer.h), at most 255: 8 bytes each in the Engine object
+#endif
+static_assert(ENGINE_PADSEQ_HITS > 0 && ENGINE_PADSEQ_HITS <= 255, "ENGINE_PADSEQ_HITS: 1..255 (a chunk counts its pattern's hits in a byte)");
+
 #ifndef ENGINE_CMD_RING
 #define ENGINE_CMD_RING 512
 #endif

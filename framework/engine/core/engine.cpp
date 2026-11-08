@@ -45,6 +45,12 @@ bool Engine::init(Memory mem, int nvoices) {
     seq_halts_.store(0, std::memory_order_relaxed);
     pseq_.clear();
     pseq_node_ = -1;
+    pseq_routed_ = false;
+    tr_ = Transport{};                          // the clock stopped at beat 0: an engine started again starts its run on the one
+    click_on_ = false;
+    click_env_ = 0;
+    tr_beat_.store(0, std::memory_order_relaxed);
+    tr_run_.store(false, std::memory_order_relaxed);
     pseq_step_.store(-1, std::memory_order_relaxed);
     pseq_taken_.store(0, std::memory_order_relaxed);
     pseq_where_.store(0, std::memory_order_relaxed);
@@ -333,6 +339,14 @@ bool Engine::pseq_setup(const SeqSetup &s, int node) {
     return cmd_.push(c);
 }
 
+bool Engine::pseq_route(const int8_t *nodes) {
+    Command c;
+    c.type = Cmd::PadSeqRoute;
+    c.size = nodes ? kPadSeqGroups : 0;
+    if (nodes) std::memcpy(c.blob, nodes, kPadSeqGroups);
+    return cmd_.push(c);
+}
+
 bool Engine::pseq_hits(int first, int count, const PadHit *hits, int total, bool queue) {
     if (first < 0 || count < 0 || count > kPadSeqChunk || first + count > kPadSeqHits || total > kPadSeqHits) return false;
     PadHitChunk k;
@@ -385,6 +399,7 @@ void Engine::apply(const Command &c) {
     case Cmd::SeqRecord: seq_.record_pass(c.value, c.idx != 0); break;
     case Cmd::PadSeqSetup: { SeqSetup s; std::memcpy(&s, c.blob, sizeof s); pseq_.setup(s); pseq_node_ = c.node; break; }
     case Cmd::PadSeqHits: { PadHitChunk k; std::memcpy(&k, c.blob, sizeof k); pseq_.chunk(k); break; }
+    case Cmd::PadSeqRoute: pseq_routed_ = c.size == kPadSeqGroups; if (pseq_routed_) std::memcpy(pseq_route_, c.blob, kPadSeqGroups); break;
     case Cmd::NoteOn: do_note_on(c.note, c.value); break;
     case Cmd::NoteOff: do_note_off(c.note); break;
     case Cmd::AllNotesOff: for (auto &v : voices_) v = VoiceState{}; stack_n_ = 0; break;
@@ -512,10 +527,21 @@ void Engine::render(q15 *l, q15 *r) {
         PadSeqEvent ev[kPadSeqEvents];
         const int n = pseq_.advance(tr_, kBlock, ev, kPadSeqEvents);
         const Plan *pp = n ? active_.load(std::memory_order_acquire) : nullptr;
-        Module *pads = nullptr;
-        for (int k = 0; pp && k < pp->n_nodes && !pads; k++) if (pp->node_id[k] == pseq_node_) pads = pp->inst(k, 0);
-        if (pads && std::strcmp(pads->info().name, "Pads") != 0) pads = nullptr;     // (another graph was loaded since: that id is not the pads player)
-        for (int i = 0; pads && i < n; i++) pads->set_blob(&ev[i], sizeof ev[i]);
+        if (pseq_routed_) {                                                      // a group per module: the hits to Module::hit
+            Module *to[kPadSeqGroups] = {};
+            for (int k = 0; pp && k < pp->n_nodes; k++)
+                for (int g = 0; g < kPadSeqGroups; g++)
+                    if (pseq_route_[g] >= 0 && pp->node_id[k] == pseq_route_[g]) to[g] = pp->inst(k, 0);
+            for (int i = 0; pp && i < n; i++) {
+                Module *const m = to[(ev[i].pad / 8) % kPadSeqGroups];
+                if (m) m->hit(ev[i].pad % 8, ev[i].level, ev[i].release != 0);
+            }
+        } else {
+            Module *pads = nullptr;
+            for (int k = 0; pp && k < pp->n_nodes && !pads; k++) if (pp->node_id[k] == pseq_node_) pads = pp->inst(k, 0);
+            if (pads && std::strcmp(pads->info().name, "Pads") != 0) pads = nullptr;     // (another graph was loaded since: that id is not the pads player)
+            for (int i = 0; pads && i < n; i++) pads->set_blob(&ev[i], sizeof ev[i]);
+        }
         const int st = pseq_.step();
         pseq_step_.store(st, std::memory_order_relaxed);
         pseq_taken_.store(pseq_.taken(), std::memory_order_relaxed);

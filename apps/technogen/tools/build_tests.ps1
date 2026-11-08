@@ -18,7 +18,7 @@ try {
     $appSrc = @(Get-ChildItem src/*.cpp | Where-Object { $_.Name -notlike "main_*" })
     $cppSrc = @(Get-ChildItem tests/*.cpp) + $appSrc + @(Get-EngineSources)
     $cSrc = @(Get-UiSources) + @(Get-Item "$fw/boards/hwv2/hwv2_controls.c") + @(Get-ChildItem $u8g2/csrc/*.c)
-    $flags = @("-O1", "-DPLATFORM_SIM", "-DPLATFORM_TEST", "-DDISPLAY_HEIGHT=160", "-Isrc", "-I.", "-I$fw", "-I$u8g2/csrc")
+    $flags = @("-O1", "-DPLATFORM_SIM", "-DPLATFORM_TEST", "-DDISPLAY_HEIGHT=160", "-DENGINE_PADSEQ_HITS=255", "-Isrc", "-I.", "-I$fw", "-I$u8g2/csrc")
     if (-not (Invoke-SimBuild -CSources $cSrc -CppSources $cppSrc -Flags $flags -ObjDir $objDir -Out "build/tests.exe" -Libs @("-lm"))) { exit 2 }
     $exe = Get-ChildItem "build/tests.exe", "build/tests_new.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
     if ($Filter) { & $exe.FullName $Filter } else { & $exe.FullName }

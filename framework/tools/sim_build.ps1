@@ -76,6 +76,15 @@ function Invoke-SimBuild {
         [string[]]$Libs = @("-LC:/msys64/ucrt64/lib", "-lSDL2", "-lm", "-lole32", "-lwinmm")
     )
     New-Item -ItemType Directory -Force $ObjDir | Out-Null
+    # Objects built with other flags are stale even when no file changed (a flag that sizes a struct links two layouts of it): the flags
+    # of the last build are kept in the folder, and a change rebuilds everything.
+    $flagText = (@($Flags) + @("|") + @($CFlags) + @("|") + @($CppFlags)) -join " "
+    $flagFile = Join-Path $ObjDir "build_flags.txt"
+    if ((Test-Path -LiteralPath $flagFile) -and ((Get-Content -LiteralPath $flagFile -Raw) -ne $flagText)) {
+        Write-Host "The build flags changed: every file is compiled again" -ForegroundColor Yellow
+        Get-ChildItem -LiteralPath $ObjDir -Include *.o, *.d -Recurse | Remove-Item -ErrorAction SilentlyContinue
+    }
+    Set-Content -LiteralPath $flagFile -Value $flagText -NoNewline
     $common = $Flags + @("-MMD")
     $jobs = @()
     $expected = @{}     # objects that belong to a source file that still exists

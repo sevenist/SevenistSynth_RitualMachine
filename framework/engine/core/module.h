@@ -124,6 +124,9 @@ public:
     virtual void reset() {}                                  // [CONTROL] clear state (voice start / new instance)
     virtual void set_param(int /*idx*/, int32_t /*value*/) {}   // [CONTROL]
     virtual void set_blob(const void * /*data*/, size_t /*bytes*/) {}   // [AUDIO via the command queue] structured settings (e.g. a whole FM patch)
+    // [AUDIO] a hit of the pads' sequencer routed to this module (Engine::pseq_route): `lane` 0..7 struck at `level` 0..15, or let go
+    // (release: the hit's length is over). Modules that play no hits ignore it.
+    virtual void hit(int /*lane*/, int /*level*/, bool /*release*/) {}
     virtual void process(const ProcessCtx &ctx, const Ports &p) = 0;   // [AUDIO]
 };
 

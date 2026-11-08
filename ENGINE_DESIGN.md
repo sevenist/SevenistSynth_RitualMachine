@@ -2094,6 +2094,12 @@ Chosen by me (say if one is wrong):
 four decisions; a turned row reads back), the app's 118 engine tests, the simulator built. **NOT flashed** (the firmware is built
 from VS Code); GRV-mini is the first board where the pot LEDs can be seen.
 
+**Fixed after (2026-11-08, the user: "the knob position indicator on knob legends updates very slowly")**: a column knob that has not
+caught its row changes no value, so it never asked for a redraw, and the legend's tick moved only when something else redrew (a bug
+since ADR-046 phase 1, not from the resolver). `ACT_PAGE_KNOB` (`app_actions.c`) now redraws on each uncaught move while the legend is
+shown on a screen with a legend zone, the same rate as a caught knob. A layer's knob already redrew, and Pads has no tick. Checked: 216 UI
+tests at 128 and 160 px (`legend_tick_follows_a_knob_that_has_not_caught` counts the frames sent, `ui_stub_frames`); NOT flashed.
+
 ## Known limits and ideas for later
 
 - Not hooked to the UI yet: the **Sampler** and **Granular** modules and the sample bank (stage 6 is engine-level and

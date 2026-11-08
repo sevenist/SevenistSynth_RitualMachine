@@ -271,8 +271,15 @@ void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             break;
         case ACT_PAGE_KNOB:
             if (in_pads(app) && !app->ui.in_rack) { app_pads_knob(app, b->arg, e.value); break; }   // (a tab over the pads: as in the synth)
-            changed = synth_ui_knob_row(&app->ui, &app->params, &app->seq, &app->rack, b->arg, e.value);
-            if (changed) { audio_set_params(&app->rack, &app->params); app->dirty = true; }
+            {
+                const int k = b->arg - 1;
+                changed = synth_ui_knob_row(&app->ui, &app->params, &app->seq, &app->rack, b->arg, e.value);
+                if (changed) { audio_set_params(&app->rack, &app->params); app->dirty = true; }
+                // Not caught yet, the value does not move but the legend's tick does (where the knob stands): it is redrawn too.
+                else if (k >= 0 && k < SYNTH_UI_COL_KNOBS && app->ui.knob_catch_dir[k] != 0 && ui_legend_shown(&app->ui, &app->rack, false)
+                         && ui_legend_h(app->display) > 0)
+                    app->dirty = true;
+            }
             break;
         case ACT_JUMP: {
             const int slot = b->arg;

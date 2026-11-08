@@ -333,7 +333,8 @@ void ui_stub_display_setup(u8g2_t *g) {
     u8g2_SetupBuffer(g, buf, DISPLAY_HEIGHT / 8, u8g2_ll_hvline_vertical_top_lsb, &u8g2_cb_r0);
 }
 
-void display_send(u8g2_t *g) { (void)g; }
+int ui_stub_frames;                                                     // frames sent to the display (the UI tests read it)
+void display_send(u8g2_t *g) { (void)g; ui_stub_frames++; }
 int ui_stub_boot_ends;                       // the application said its start is over (hal_display.h)
 void display_boot_end(void) { ui_stub_boot_ends++; }
 int ui_stub_boot_progress = -1, ui_stub_boot_progress_back;   // the last progress reported, and how often it went back

@@ -26,6 +26,8 @@ on the hardware.
   header's "S" / "M" show it.
 - **The pot LEDs follow the legend everywhere**: on the SEQUENCER and the CURVES tab they light; in Pads they show the pad's
   value; behind PERFORM or SETUP over the pads, where the knobs do nothing, they go dark.
+- **The legend's tick follows the knob at once**, before the knob has caught the value. Until now it moved only when something
+  else redrew the screen.
 - For developers: one module, `app/app_knobs.c`, says what every pot drives now; the legend, the LEDs and the catch read it.
 
 ## 2026-11-08: the second prototype (GRV-mini) runs the Ritual Machine

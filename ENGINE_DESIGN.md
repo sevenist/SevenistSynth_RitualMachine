@@ -2056,6 +2056,44 @@ Chosen by me (say if one is wrong):
 HWV1 has none under its pots or encoder A, and the simulator's panel rings were not looked at by me. GRV-mini (2026-11-08) has an LED
 under each of its 8 pots, and one near encoder A that stays off for now (the user's choice): macro 1's Blue can be seen there, Mint not yet.**
 
+### ADR-047: The knob resolver, one answer to "what does this pot drive now" (Accepted; user choices of 2026-11-08; built on `gui-reorg`, host-tested, NOT flashed)
+**Why.** An architecture review (2026-11-08, the user: "let start refactoring then!") found the question answered in 10+ places:
+the legend (`synth_ui_legend`, `app_layer_legend`, `app_pads_legend`), the pots' LEDs (`synth_ui_col_knob_state`, `layer_pot`, the
+Pads branch of `pot_leds`), the catch (`app_catch_poll`), each redoing the case analysis (3 contexts x 4 readers; the "caught" rule,
+the Pads knob table and the sample-length lookup copied), and nothing checking they agreed. A probe showed they did not: in Pads
+Shift + K2 set the master volume while the legend and the LEDs showed the pad's End; the SEQUENCER's and CURVES' pots were dark while
+the legend named them; Pads pots had no value; PERFORM / SETUP over the pads left the pots lit while the knobs did nothing.
+
+**The module.** `app/app_knobs.c`: `app_knobs_resolve(app, pot[APP_POTS])` describes the 8 pots (K1..K4, R1..R3, the volume knob):
+the legend's cell (label, value, knob place, state), a macro whose colour the LED takes, or the LED's role. The legend (`app_draw_frame`),
+the LEDs (`pot_leds`: dark / role shade / macro colour from the description) and the catch (`app_catch_poll`, moved there) read it.
+`app_layer_legend`, `app_pads_legend`, `layer_pot` and `macro_color` are gone; the Pads cell (`app_pads_knob_cell`) sits next to the
+Pads knobs' action and shares its table; `pad_param_norm` (core/pads.c) is `pad_param_set_norm`'s inverse.
+
+**Decisions taken by the user** (a round of options, 2026-11-08; recorded, not to be re-litigated):
+1. **The Shift / Mod layers act in Pads too** (against my recommendation: the knobs keep the pad there), and the legend, the LEDs and
+   the header's "S" / "M" show the layer held in Pads as in the synth.
+2. **The SEQUENCER's and the CURVES tab's pots light** as the legend names them (Knob role; the SEQUENCER's Away until the knob moved
+   for that step). (my recommendation)
+3. **Pads pots show the pad's value as saturation** (the Knob role's Value switch), as on the synth's pages. (my recommendation)
+4. **PERFORM / SETUP over the pads: the column knobs' pots are dark** (the knobs drive nothing there); CURVES over the pads lights its
+   two. (my recommendation)
+
+Chosen by me (say if one is wrong):
+1. **Learn into a macro has no catch** on the LED either (the legend's answer); its value is the macro's, on the legend too (a bar under
+   "Lrn M1").
+2. **A column knob playing a macro through a layer** shows the macro's first destination (what its catch is measured against), not the
+   macro's last knob position; R1..R3 keep the position.
+3. **The speaker as a layer parameter** reads the setting on the LED too (it read the walked value, -1 most of the time).
+4. **The knob's action is not routed through the resolver**: it already followed these rules (`app_layer_event`, then the binding
+   table); `test_knobs.c` turns pots in each context and checks the resolver's answer followed (a second step if the paths drift).
+
+**As built**: `app/app_knobs.c` (new), `app_layers.c` (the legend and the catch out), `app_pads.c` (`pad_frames`, `app_pads_knob_cell`),
+`key_leds.c` (`pot_led`), `app.c` (the legend, `layer_held` in both sections), `synth_ui_col_knob_state` moved to `ui_internal.h`,
+`pad_param_norm`. Checked: 215 UI tests (6 new, `test_knobs.c`: every screen and layer, LED dark exactly when nothing is driven; the
+four decisions; a turned row reads back), the app's 118 engine tests, the simulator built. **NOT flashed** (the firmware is built
+from VS Code); GRV-mini is the first board where the pot LEDs can be seen.
+
 ## Known limits and ideas for later
 
 - Not hooked to the UI yet: the **Sampler** and **Granular** modules and the sample bank (stage 6 is engine-level and

@@ -20,6 +20,10 @@ CH32V006's firmware) stays. Committed on `gui-reorg` (the code, then the docs). 
 - [ ] **The joystick push also acts as Shift** on the user's board: a fault between U2's pins 4 and 5 (B3 / JOYS). They repair the board or wait for rev B.
 - [ ] **HWV1 not tried since its input and power code moved to the shared files** (the user: "untested on hwv1"). Flash the default environment and try the keys, pots, switch-off.
 - [ ] **Once a battery stays in HWV2:** `-DHWV2_USB_STORAGE=1`, and check `HW_BATT_FULL_SCALE_MV` (computed, 11065) with `power` against a meter.
+- [ ] **The knob resolver (ADR-047)**, from an architecture review (2026-11-08): built on `gui-reorg`, host-tested (215 UI tests), NOT
+  flashed. To try: Shift / Mod held in Pads (the knobs, the legend, the "S"); on GRV-mini the pot LEDs on the SEQUENCER, CURVES, Pads
+  (the value), PERFORM / SETUP over the pads (dark). Other candidates of the review, not started: one screen navigator for both
+  sections, one recorder for the four recordings, an effects port for the UI's request flags, a held-control tracker.
 
 **Where things stood (2026-10-29, second session):** at `/session-start` the user asked for **a new branch for the GUI
 reorganization**: `gui-reorg`, made from `main` at `890597c` (the three uncommitted docs files carried over: this file, the

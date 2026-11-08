@@ -492,10 +492,12 @@ From the repo root unless said otherwise.
   places in the board table (`controls_place`). `ui_legend_shown(ui, rack, pads)` says whether the screen on show has it: the
   synth's pages, the CURVES tab, the Pads screens but the FX chains. `synth_ui_draw` and `pads_ui_draw` leave it free (their
   content and `gui_style_init` get the height above it); `app_draw_frame` fills the cells and draws it (`ui_legend_draw`).
-- **The cells** (`legend_cell_t`: label, value 0..1 for the bar, the knob's place for the catch tick, the state): the synth
-  section `synth_ui_legend` (`ui_draw.c`: the page's rows through `row_text`, the SEQUENCER's Note Len Vel Prob, the CURVES
-  point), a modifier held `app_layer_legend` (`app_layers.c`), Pads `app_pads_legend` (`app_pads.c`; a module's values page:
-  `pads_ui_fx_legend`).
+- **The cells** (`legend_cell_t`: label, value 0..1 for the bar, the knob's place for the catch tick, the state) come from
+  **the knob resolver** (`app_knobs_resolve`, `app/app_knobs.c`, ADR-047), the one answer to "what does each pot drive now",
+  which the pots' LEDs (`key_leds.c`) and the catch (`app_catch_poll`) read too: a modifier held, its layer's entries (both
+  sections); else the synth's screen `synth_ui_legend` (`ui_draw.c`: the page's rows through `row_text`, the SEQUENCER's Note
+  Len Vel Prob, the CURVES point, nothing on the other menu tabs, over the pads too), Pads `app_pads_knob_cell` (`app_pads.c`,
+  next to the knobs' action; a module's values page: `pads_ui_fx_legend`).
 - **The header's marks** at its right end (`ui_header_marks`, both sections, XOR): the battery (`ui->batt_pct`, set by
   `app_power_poll`), the recording mark (`ui->rec_mark`, `REC_MARK_*`, set by `rec_mark` in `app.c`), "S" / "M" while a
   modifier is held (`ui->layer_held`). The synth's pages also show their place ("3/22") at the left; the menu's header reads

@@ -228,7 +228,8 @@ apps/ritual_machine/
    │  ├─ app.c/.h           app_t, the start, one frame, and the step the main loop calls (it owns the redraw policy)
    │  ├─ app_internal.h     PRIVATE: what the files of this folder share, and the list of them
    │  ├─ app_input.c        where an input event goes: the matrix keys (key layout), the other controls (binding table), the joystick as buttons or XY
-   │  ├─ app_layers.c       the Shift / Mod layers, Learn, the catch of the column knobs
+   │  ├─ app_layers.c       the Shift / Mod layers, Learn
+   │  ├─ app_knobs.c        the knob resolver: what every pot drives now, read by the legend, the pots' LEDs and the catch (ADR-047)
    │  ├─ app_actions.c      `app_run_action`: what an action does; UI events, the keyboard's notes (octave, latch), the tempo
    │  ├─ app_pads.c         the Pads section: the switch Synth <-> Pads, the pad keys, its knobs, the chop to pads
    │  ├─ app_library.c      the samples in use (the catalog) and the sample browser
@@ -466,7 +467,7 @@ Recipes:
   parameter appears. Rows that select or cycle (targets, sample file, step editors) are not driven by knobs (`row_is_knobbable`).
   *Catch* (`knob_check_catch`, `synth_ui_catch_refresh` in `ui_input.c`): `knob_catch_dir[k]` is 0 = caught, -1 / +1 = the way to turn (drawn as a 4 px wedge by `ui_draw.c`), 127 = not
   measured yet. A blocked knob is released when it crosses the value (a fast turn skips the exact step). The app sets `app_catch_stale` after manual changes and Shift, and calls
-  `synth_ui_catch_refresh` before drawing (`app_catch_poll`, `app/app_layers.c`); `knob_cur[k] == -2` marks "the knob set this value itself" (walking can measure the step one off). The Catch / Direct choice is `cfg.knob_mode`.
+  `synth_ui_catch_refresh` before drawing (`app_catch_poll`, `app/app_knobs.c`); `knob_cur[k] == -2` marks "the knob set this value itself" (walking can measure the step one off). The Catch / Direct choice is `cfg.knob_mode`.
   The Shift targets are `ui->knob_shift[]` (`macro_t`, today only `MACRO_GLOBAL` + `cfg_param_id_t`).
 - *Test without the window*: `apps/ritual_machine/tools/ui_dump.c` takes control events (`encA:+1`, `shift`, `knob:27:900`, `key:4.0`...), see the top of the file.
 

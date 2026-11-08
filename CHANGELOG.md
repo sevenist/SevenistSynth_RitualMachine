@@ -20,6 +20,14 @@ on the hardware.
   and the next panel (4 columns, encoders).
 - **For developers:** the repo is now a library and the apps built on it. The next section is the guide to it.
 
+## 2026-11-08: the pots say what they do (ADR-047; branch `gui-reorg`)
+
+- **Shift and Mod work in Pads too**: holding one, the knobs do what its layer says, and the legend, the pot LEDs and the
+  header's "S" / "M" show it.
+- **The pot LEDs follow the legend everywhere**: on the SEQUENCER and the CURVES tab they light; in Pads they show the pad's
+  value; behind PERFORM or SETUP over the pads, where the knobs do nothing, they go dark.
+- For developers: one module, `app/app_knobs.c`, says what every pot drives now; the legend, the LEDs and the catch read it.
+
 ## 2026-11-08: the second prototype (GRV-mini) runs the Ritual Machine
 
 - **The firmware runs on the second prototype**, with the controls of the simulator's panel: its 128 x 160 colour screen (the UI as on the

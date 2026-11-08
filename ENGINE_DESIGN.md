@@ -2053,8 +2053,8 @@ Chosen by me (say if one is wrong):
 
 **Phase 6 as built**: the first value of `synth_ui_macro_default_color`, `LR_ENC`'s active shade in `led_roles.c`,
 `leds_a_pots_default_colour_has_one_meaning` in `test_leds.c`. Checked: 205 UI tests; both simulators built. **NOT seen on an LED:
-HWV1 has none under its pots or encoder A, and the simulator's panel rings were not looked at by me; which LED, if any, GRV-mini has
-under encoder A was not checked.**
+HWV1 has none under its pots or encoder A, and the simulator's panel rings were not looked at by me. GRV-mini (2026-11-08) has an LED
+under each of its 8 pots, and one near encoder A that stays off for now (the user's choice): macro 1's Blue can be seen there, Mint not yet.**
 
 ## Known limits and ideas for later
 

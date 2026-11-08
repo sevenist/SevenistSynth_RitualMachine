@@ -17,8 +17,12 @@ oled_sim/
 │  ├─ hal/                  what a board gives an app: display, controls, key LEDs, the card's small files, power, large memory,
 │  │                        and the audio output (the app hands over its render function). Headers only. "hal/..."
 │  ├─ ui/                   the drawing kit over u8g2: style, layout, text, sprites, animations (gui), popups. "ui/..."
-│  ├─ boards/hwv1/          the first prototype: pins, display, key matrix, knobs, joystick, LEDs, card driver and card task,
-│  │                        power, I2S output. "boards/hwv1/..."
+│  ├─ boards/esp32/         what the ESP32 boards share: the pin blocks of every revision, the board services' interface, the display
+│  │                        task and boot animation, the LED driver, the I2S output, the mux, the input queue, the soft power and the
+│  │                        battery, the card's interface, the card task and the sample storage on it. "boards/esp32/..."
+│  ├─ boards/hwv1/          the first prototype: its panel, key matrix, knobs, joystick, LED order, card driver, power. "boards/hwv1/..."
+│  ├─ boards/hwv2/          the second prototype (GRV-mini): its screen, control table and scan, LED order and VU meter, SDMMC card,
+│  │                        how its power switch reads. "boards/hwv2/..."
 │  ├─ boards/desktop/       the desktop: the display and panel windows, the PC keyboard and mouse as controls, SDL audio,
 │  │                        the card as the folder sdcard/. "boards/desktop/..."
 │  ├─ host/                 desktop-only helpers (a slow-card model for tests and simulators, the .wav / .mp3 converter). "host/..."
@@ -27,7 +31,8 @@ oled_sim/
 ├─ apps/
 │  ├─ ritual_machine/       THE RITUAL MACHINE: this guide. Its own src/ (core, app, platform), tests/, tools/, assets/,
 │  │                        build.ps1, platformio.ini, and the simulator's card (sdcard/, samples/, samples_src/)
-│  └─ template/             the starter app: a four-voice synth with a screen and the board's keys, desktop + first prototype (its README.md)
+│  ├─ template/             the starter app: a four-voice synth with a screen and the board's keys, desktop + first prototype (its README.md)
+│  └─ HWV2_scanner/         the second prototype's key scanner: the firmware of its CH32V006 (not an app of the library)
 ├─ tools/new_project.ps1    .\tools\new_project.ps1 my_synth  ->  apps/my_synth, a copy of the template under its own name
 ├─ docs/guides/             task guides (README.md lists them): DRAWING_KIT.md (the library's ui/, for any app),
 │                           RITUAL_MACHINE_UI.md (how this app's screens are built), SERIAL_COMMANDS.md (the dev commands on the board)
@@ -548,8 +553,9 @@ Screens, in `apps/ritual_machine`: `gcc -O1 -w -Isrc -I../../lib/u8g2/csrc tools
 
 The firmware runs on the first prototype ("HWV1": Waveshare ESP32-S3-Pico module, 16 MB flash, 2 MB PSRAM) and was brought up and optimized on the real board. The hardware equals the
 SynthBox repository (github.com/clement-chupin/SynthBox, `HWConfig.h`): a 4 x 8 + 4 Fn key keyboard on a TCA8418 over I2C, 7 relative (quadrature) knobs behind a 16-channel analog mux, a joystick,
-an SH1107 128 x 128 OLED, a PCM5102A DAC + an LM4871 speaker amplifier (analog, mono, on the DAC's left channel; shutdown on GPIO 5, active high) and WS2812 LEDs. The new prototype will have different controls (the ones the simulator's panel has). Each board
-lists its own (`hwv1_controls.h`; the wiring behind them: `hwv1_layout.h`), and the Ritual Machine maps them onto its roles in `core/boards/map_hwv1.h`.
+an SH1107 128 x 128 OLED, a PCM5102A DAC + an LM4871 speaker amplifier (analog, mono, on the DAC's left channel; shutdown on GPIO 5, active high) and WS2812 LEDs. The second prototype
+("HWV2", GRV-mini: its section below) has the controls of the simulator's panel. Each board lists its own (`hwv1_controls.h`, `hwv2_controls.h`; the wiring behind
+them: `hwv1_layout.h`, `hwv2_layout.h`), and the Ritual Machine maps them onto its roles in `core/boards/map_hwv1.h`, `map_hwv2.h`.
 
 ```powershell
 C:\.platformio\penv\Scripts\pio.exe run -d apps/ritual_machine                  # build (use this pio: another Python's pio recreates the penv and breaks it)
@@ -569,9 +575,9 @@ In VS Code: PlatformIO's own Upload button only appears with the app's folder op
 > `C:\.platformio\penv\Scripts\python.exe -m pip install platformio` (or reopen VS Code and let the extension reinstall it). The bundled `C:\.platformio\python3`
 > (3.11.7) and the toolchains in `C:\.platformio\packages` / `platforms` are not touched by this failure.
 
-### Files (the board: `framework/boards/hwv1/`; the app's side: `apps/ritual_machine/src/platform/esp32/`)
+### Files (the board: `framework/boards/hwv1/`; what the ESP32 boards share: `framework/boards/esp32/`; the app's side: `apps/ritual_machine/src/platform/esp32/`)
 
-The app's own: `main_esp32.cpp`, `audio_esp32.cpp`, `samples_esp32.*`, `serial_cmd_esp32.*`, `bench_esp32.*`, `usb_storage_esp32.cpp`. The rest is the board's.
+The app's own: `main_esp32.cpp`, `audio_esp32.cpp`, `samples_esp32.*`, `serial_cmd_esp32.*`, `bench_esp32.*`, `usb_storage_esp32.cpp`. In `boards/esp32`: `board_pins.h`, `board_esp32.h`, `display_esp32.cpp` (a board gives it its panel: `display_panel.h`), `leds_esp32.*` (a board gives it its chain's order: `board_led_of_control`), `audio_out_esp32.cpp`, `mux_esp32.*`, `power_esp32.*` (a board gives it how its switch and joystick read: `power_esp32.h`), `sd_card.h`, `card_task.*`, `storage_sd.*`. The rest is the first prototype's; the second prototype (`.\upload.ps1 -Env hwv2`; the default environment's pins do not fit it) has its own `boards/hwv2`. The debug flags keep their `HWV1_` names (`HWV1_DEBUG_AUDIO`, `HWV1_SD_BENCH`...) in the shared files too.
 
 | File | What |
 | --- | --- |
@@ -581,7 +587,7 @@ The app's own: `main_esp32.cpp`, `audio_esp32.cpp`, `samples_esp32.*`, `serial_c
 | `hwv1_layout.h` | the wiring behind the table: the key controller's orientation (flip flags), each pot's direction (`kHwv1KnobSign`), counts per revolution and the noise thresholds, the joystick's levels, the mux's two other channels. Which role a control plays is the app's (`core/boards/map_hwv1.h`) |
 | `kbd_tca8418.*`, `mux_esp32.*`, `input_esp32.cpp` | keyboard (Adafruit TCA8418 on Wire1, config watchdog, bus recovery), mux reads, and the scan task on core 0 that turns them into events with the board's ids (quadrature decode with hysteresis, joystick). A pot reports steps, or a position once the app asked for it (`input_control_mode`, before `input_esp32_init`) |
 | `display_esp32.cpp` | `U8G2_SH1107_128X128_F_HW_I2C`, 400 kHz (a full frame takes ~120 ms). `display_send()` (HAL, in place of `u8g2_SendBuffer`) copies the frame and wakes the `display` task, which sends only the changed 8 x 8 tiles; this panel's column offset (96) wraps, so a run starting at tile x is sent with the offset moved to (96 + 8x) mod 128. `app_step` also puts a redraw off while input is queued (`input_pending()`) |
-| `board_esp32.*` | power hold (PWR_ON_EN), amplifier / DAC enable (XSMT; the LM4871's SPK_SD driven LOW = on, HIGH = shutdown: at Spk Off, at power-off and in the card reader; read floating once at the start for the `[BOARD]` line). **The power button** is a latching switch, down = on, read on PWR_SENSE (`HW_PWR_SENSE_ON`, `board_power_button_on`); the USB cable feeds the board whatever it says, so a board that still runs after the latch was let go with the button up is on the cable (`board_power_started_off` at the start, `board_power_poll` / `board_power_off` later): on the battery the board stops, on the cable it restarts into the card reader (`board_card_reader`: `esp_ota_set_boot_partition` on the second slot, then a restart; with no firmware there the synth goes on). The joystick held at such a start keeps the synth (the button is ignored until it is next used). `board_usb_host`: a computer on the cable (the USB-Serial/JTAG port sees its frames). **The battery** (`hal_power.h`): mux channel 1 through a divider, millivolts on the pin x `HW_BATT_FULL_SCALE_MV` / 3300, smoothed, 6.0 .. 8.4 V = 0 .. 100 %, under 4 V = no battery; read by the input task every 100 ms with the mux's spare channel 0 (`HWV1_MUX_AUX`, kept as a button state, not a control yet). Serial (dev): `power`, `storage` |
+| `power_esp32.*`, `board_esp32.*` | `power_esp32.cpp` is shared by both prototypes (the logic below, the battery's smoothing); each board's `board_esp32.cpp` gives it its switch, joystick and audio resume (`power_esp32.h`). On the second prototype the switch has no pin: it is read with the battery on mux channel 7 (switched off or no battery = 0 V), so with no battery it cannot tell off from on, hence `HWV2_USB_STORAGE` = 0 by default. Power hold (PWR_ON_EN), amplifier / DAC enable (XSMT; the LM4871's SPK_SD driven LOW = on, HIGH = shutdown: at Spk Off, at power-off and in the card reader; read floating once at the start for the `[BOARD]` line). **The power button** is a latching switch, down = on, read on PWR_SENSE (`HW_PWR_SENSE_ON`, `board_power_button_on`); the USB cable feeds the board whatever it says, so a board that still runs after the latch was let go with the button up is on the cable (`board_power_started_off` at the start, `board_power_poll` / `board_power_off` later): on the battery the board stops, on the cable it restarts into the card reader (`board_card_reader`: `esp_ota_set_boot_partition` on the second slot, then a restart; with no firmware there the synth goes on). The joystick held at such a start keeps the synth (the button is ignored until it is next used). `board_usb_host`: a computer on the cable (the USB-Serial/JTAG port sees its frames). **The battery** (`hal_power.h`): mux channel 1 through a divider, millivolts on the pin x `HW_BATT_FULL_SCALE_MV` / 3300, smoothed, 6.0 .. 8.4 V = 0 .. 100 %, under 4 V = no battery; read by the input task every 100 ms with the mux's spare channel 0 (`HWV1_MUX_AUX`, kept as a button state, not a control yet). Serial (dev): `power`, `storage` |
 | `usb_storage_esp32.cpp` | **the card reader, a second firmware** (`[env:card_reader]`, built with `HWV1_CARD_READER` from this file, `board_esp32`, `display_esp32`, `mux_esp32` and the card driver; 540 KB, in the second application slot at 0x650000; `pio run -d apps/ritual_machine -e card_reader -t upload`, once). With the power button up on the cable the TF card is a USB drive on the computer: TinyUSB mass storage over the card driver's raw sector access (`sd_card_raw_*`), its own screen, the USB transceiver taken from the serial console and given back before it restarts into the synth (the power button down, or the joystick held 2 s and kept held). Its first act is to point the bootloader back at the synth. Why not a mode of the synth: TinyUSB takes 23 KB of static internal RAM whether it runs or not (measured: the synth's link failed by 10 KB). `HWV1_USB_STORAGE=0` (synth) never starts it. On the board (2026-10-11): the drive mounts and reads at 543 KB/s (full-speed USB); writing and the way back to the synth not tried yet |
 | `leds_esp32.cpp` | LED HAL (`hal_leds.h`): FastLED 3.10.6 (pinned; its first RMT channel uses DMA on the S3), SK6812 colour order RGB, key -> chain map (physical columns, checked on the board), brightness capped at `HW_LED_MAX_BRIGHTNESS` = 20 % (power: the user's limit), sends only when the frame changed. Serial (dev): `leds N` (chain LED N red for 5 s), `leds all`, `leds off` / `leds on` (stop / resume every transfer). What the keys show: `app/key_leds.c` (play feedback, called at the end of `app_step`) |
 | `audio_out_esp32.cpp` | the audio output (`hal_audio_out.h`): I2S (MSB format, no MCLK) and the audio task on core 1, which calls the app's render function for every 64 frames; applies `DEV_OUTPUT_GAIN_PCT`, the speaker channel's level (`board_speaker_level`), the gate that stays closed until the loading screen has ended; with `HWV1_DEBUG_AUDIO` it measures and calls the app's report once a second |
@@ -591,12 +597,42 @@ The app's own: `main_esp32.cpp`, `audio_esp32.cpp`, `samples_esp32.*`, `serial_c
 | `sd_card.*`, `sd_card_spi.cpp`, `storage_sd.*`, `samples_esp32.*` | the TF card: `sd_card.h` is the interface (mount as FAT at `/sdcard`, probe the read time, alive / identity check); `sd_card_spi.cpp` is HWV1's own small SPI-mode driver (reads with the data CRC16 checked and a bad block read again, `[SD] data CRC errors` in the log; single-block writes for the settings files, each checked with CMD13; the data token is polled `HWV1_SD_PROBE` (8) bytes per SPI call; above 25 MHz only after a CMD6 switch to high-speed mode, which the prototype's SL32G card does not have, so it runs at 25 MHz unless `-DHWV1_SD_OVERCLOCK=1`; `-DHWV1_SD_BENCH` prints raw, scattered and file read times at boot; registered with FATFS; ESP-IDF's sdspi host spent 40 ms before every command on this board); a new prototype with an SDMMC slot replaces that one file. The card is polled once a second (no card-detect pin): inserted -> a timed read test and a check of the folders of `STORAGE_FOLDERS` -> a card event (`storage_poll_event`, hal_storage.h) that the app shows as popups: "Card inserted", "SD CARD TOO SLOW" (slower than 15 ms per sector: not used for samples; the synth runs as if there were no card), and an ASK when folders are missing: Yes runs `storage_make_folders` on the card task (the old layout's `/samples` and `/keys.cfg` move into `/system`, then the missing folders are made, then a rescan); removed -> "Card removed"; removed or swapped -> the catalog is reset, `SdStorage` is the sampler's `StorageDevice`, `samples_esp32` is the I/O task (core 0, priority 5, see "Tasks and priorities"): mount, list `/sdcard/system/samples/*.smp` into the catalog (the header of each file carries the amplitude overview, so a scan reads one block per file), run the loader, and the settings-file jobs of `hal_storage.h` (`storage_read` / `storage_write` post a job and wait up to 1.5 s; the task runs it between loader reads; a write goes to `<name>.tmp`, then replaces the file). Cook files on the PC (`samples_src/` + build.ps1); there is no .wav / .mp3 import on the board. `SdStorage` reads through an 8 KB internal DMA-capable bounce buffer (a PSRAM destination would make the SD driver issue one command per 512 bytes) |
 | `serial_cmd_esp32.*` | dev commands over the serial port (`DEV_SERIAL_CMD`) |
 
+### The second prototype (HWV2, GRV-mini)
+
+The KiCad project is outside the repo (`D:\PRODUCT DESIGN\PCBWORK\IN PROGRESS\GRV-mini`; its `REV-B-NOTES.md` lists the rev A faults and bodges). Its files
+are KiCad 10: read the wiring from `GRV-mini.kicad_pcb` (the pads' nets), as KiCad 9's `kicad-cli` cannot load them. The mux nets `i0..i15` are not the channel
+numbers: `hwv2_layout.h` has the channels by U2's pins. The default environment is the first prototype's, whose pins do not fit this board:
+
+```powershell
+.\upload.ps1 -Env hwv2 -Port COM12                 # the synth (the module's CH343 port; its log prints on the native USB port, COM13 here)
+.\upload.ps1 -Env hwv2_card_reader                 # its card reader, in the second slot, once (the synth running, the serial monitor closed)
+.\upload.ps1 -App HWV2_scanner                     # the CH32V006's scanner, through a WCH-LinkE in RV mode on SWIO
+.\build.ps1 -Board hwv2; .\run.ps1 -Board hwv2     # the simulator with this board's table (the same as the panel); the UI tests at its height: tools\build_ui_tests.ps1 -Height 160
+```
+
+| File (`boards/hwv2/`) | What |
+| --- | --- |
+| `hwv2_controls.*`, `hwv2_layout.h` | the table (the panel's controls, in its order) and the wiring: the scanner's bits, the mux channels, the pots reversed on rev A (`HWV2_KNOBS_REVERSED`), the joystick's axes inverted (`HWV2_JOY_INVERT_X / _Y`), the encoders' signs and 4 counts a click, the VU meter's levels, the scan periods |
+| `input_esp32.cpp` | the scan task on core 0: the CH32V006 on I2C (0x42, an 8-byte frame with a check byte: the 20 keys, the encoders and their pushes; `apps/HWV2_scanner/src/main.c` describes it), the 8 pots, the joystick and the 4 buttons on the mux, the switch and the battery every 100 ms. A button that reads pushed at the start is ignored until it is seen up (rev A's bodge 1) |
+| `display_panel.cpp` | the GMT177-10 (128 x 160, ST7735S family) on SPI with DMA at 15 MHz: the app's 1-bit frame turned into RGB565, changed tiles only. No reset line on rev A (a software reset at the start) |
+| `hwv2_leds.cpp` | the chain's order (35 LEDs: the pots, the VU meter, the indicator, the function row, the 4 x 4 as a serpentine) and the VU meter (LEDs 5..10, the board's own: the engine's peak, so it plays without the codec). LED 11 (the indicator) stays off |
+| `board_esp32.cpp` | the power switch, read with the battery on mux channel 7 (switched off, or no battery: 0 V), the joystick for the shared soft power (`boards/esp32/power_esp32.cpp`), the LM4871's shutdown pin, what the card reader reads |
+| `sd_card.cpp` | the TF card on the 4-bit SDMMC host at 20 MHz (`HWV2_SD_FREQ_KHZ`) |
+
+**Rev A, as of 2026-11-08:** the mux's common pin needs the wire to GP9 (bodge 4: GP38 has no ADC). The ES8388 codec and the MPU-6050 are not fitted, so
+there is no sound yet (the audio runs on I2S all the same). Without a battery the switch reads off on either side, hence `HWV2_USB_STORAGE` = 0 (below).
+**Known fault:** on the user's board the joystick's push also acts as B3 (Shift): most likely a bridge or a floating line between U2's pins 4 and 5
+(B3's and the joystick push's channels, 4 and 5). It is the board's, not the code's; `DEV_SERIAL_CMD` builds log every button's raw reading at each change.
+
 ### Build flags (`platformio.ini`)
 
 | Flag | Meaning | Before a release |
 | --- | --- | --- |
 | `HWV1` | selects the pin block and drivers of the first prototype | keep for this board |
+| `HWV2` | selects the pin block and drivers of the second prototype (`[env:hwv2]`, with `DISPLAY_HEIGHT=160`) | keep for this board |
+| `HWV2_KNOBS_REVERSED=0`, `HWV2_JOY_INVERT_X=0`, `HWV2_JOY_INVERT_Y=0`, `HWV2_ENC_A_SIGN=-1`, `HWV2_ENC_B_SIGN=-1` | (not set: 1, 1, 1, 1, 1) the second prototype's pots, joystick axes and encoders the other way: a board wired or mounted differently (rev B swaps the pots' pins) | per board |
 | `HWV1_USB_STORAGE=0` | (not set: 1) the synth never starts the card reader's firmware: with the power button up on the cable the synth runs, as before 2026-10-11 | leave unset |
+| `HWV2_USB_STORAGE=1` | (not set: 0) the second prototype, switched off on the cable, starts the card reader as the first does. 0 while no battery is connected: without one it reads switched off either way | set to 1 once a battery is in |
 | `HWV1_CARD_READER` | set by `[env:card_reader]` only: this build is the card reader's firmware (`usb_storage_esp32.cpp`) | keep there |
 
 **A release** (`apps/ritual_machine/tools/make_release.ps1 -Version beta-1.1`, into `build/release`; the version shown at start is `BOOT_VERSION` in `app/app.h`): `[env:release]` is the synth without `DEV_SERIAL_CMD` and with the output at

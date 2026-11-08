@@ -56,7 +56,7 @@ next to yours.
 | `hal/hal_audio_out.h` | The audio output: you hand it `synth_render`, the board calls it for every buffer. |
 | `hal/hal_leds.h`, `hal/hal_storage.h`, `hal/hal_power.h` | The key LEDs, small files on the card, the battery. Not used by this app. |
 | `ui/gui.h`, `ui/popup.h` | The drawing kit: rectangles to lay a screen out, text, fields, sprites, popups. Its guide: `docs/guides/DRAWING_KIT.md` at the repo root. |
-| `boards/hwv1`, `boards/desktop` | The two boards behind those headers. |
+| `boards/hwv1`, `boards/desktop` | The two boards behind those headers. `boards/esp32` is what the ESP32 boards share. |
 
 ## Where to change things
 

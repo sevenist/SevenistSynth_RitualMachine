@@ -6,9 +6,22 @@ not: state, the latest measurements and what to do next, the user's working styl
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
 `apps/ritual_machine/tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
-## Session todo (updated 2026-10-29, second session)
+## Session todo (updated 2026-11-08)
 
-**Where things stand (2026-10-29, second session):** at `/session-start` the user asked for **a new branch for the GUI
+**Where things stand (2026-11-08):** the user brought up the second prototype (GRV-mini, "HWV2") and, at their request, **the firmware was
+ported to it in the board layer only** (`framework/boards/esp32` for what the boards share, `framework/boards/hwv2`; outside it: `map_hwv2.h`, a line in
+`core/controls.c`, the include paths of the app's ESP32 files, the card reader and serial commands made board-agnostic, the UI tests at 160 px). Flashed and tried by the user, one phase at a time: the screen and LEDs, the controls ("the
+firmware works"; both joystick axes inverted since), the power switch and battery ("tested and working"), then the shared soft power and the
+LEDs dark at power-off ("tested and working"). The bring-up app `apps/HWV2_tests` was deleted at their word; `apps/HWV2_scanner` (the
+CH32V006's firmware) stays. Committed on `gui-reorg` (the code, then the docs). **Open:**
+- [ ] **The SD card and the card reader on HWV2** (`[env:hwv2_card_reader]`, SDMMC 4-bit): written, not reported on by the user.
+- [ ] **The VU meter** (LEDs 5..10, the engine's peak): written as a placeholder, not reported on; tune its levels (`hwv2_layout.h`) once there is sound.
+- [ ] **The codec** (ES8388) when the parts arrive: its I2C setup in the board layer; then the CPU numbers on this board.
+- [ ] **The joystick push also acts as Shift** on the user's board: a fault between U2's pins 4 and 5 (B3 / JOYS). They repair the board or wait for rev B.
+- [ ] **HWV1 not tried since its input and power code moved to the shared files** (the user: "untested on hwv1"). Flash the default environment and try the keys, pots, switch-off.
+- [ ] **Once a battery stays in HWV2:** `-DHWV2_USB_STORAGE=1`, and check `HW_BATT_FULL_SCALE_MV` (computed, 11065) with `power` against a meter.
+
+**Where things stood (2026-10-29, second session):** at `/session-start` the user asked for **a new branch for the GUI
 reorganization**: `gui-reorg`, made from `main` at `890597c` (the three uncommitted docs files carried over: this file, the
 guides README, UX_REORGANIZATION.md). The claude.ai doc had no comments, no ticked questions, no edits (rev 14). **The
 decision round was held** (two rounds, answers recorded as ADR-046). Then, at their choice ("Start with A, then C and B, skip D
@@ -104,7 +117,7 @@ item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
   first page has a cog**: open it, the last row Reset asks, Yes = the module's defaults; (6) Pads grid: Shift + joystick left /
   right = the bank; (7) MODIFIERS: put Reset, Tap or BPM +1 on a Shift / Mod entry. Say what to change.
 - [ ] **See phase 6's colours (ADR-046 "Phase 6")** (from: user, 2026-11-04): macro 1 Blue, encoder A Mint in Pads, on the simulator's
-  panel (`.\build.ps1`, `.\run.ps1`: its rings) or on GRV-mini once it has a board folder. Then the extra Bar widget, at their word.
+  panel (`.\build.ps1`, `.\run.ps1`: its rings) or on GRV-mini (`.\upload.ps1 -Env hwv2`: its pots have LEDs, encoder A's is kept off for now). Then the extra Bar widget, at their word.
 - [ ] **Try phase 3, the views (branch `gui-reorg`, ADR-046 "Phase 3")** (from: user, 2026-10-29). **Flashed and tried by the
   user 2026-10-30: "tested, working"; they test it in use and report issues**: wait for those. Build and flash from VS Code
   (the simulator first: `.\build.ps1 -Board hwv1`, `.\run.ps1 -Board hwv1`). **To try**: (1) the header's left badge (ED, SQ,

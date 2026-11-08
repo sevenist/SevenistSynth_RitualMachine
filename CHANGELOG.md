@@ -20,6 +20,17 @@ on the hardware.
   and the next panel (4 columns, encoders).
 - **For developers:** the repo is now a library and the apps built on it. The next section is the guide to it.
 
+## 2026-11-08: the second prototype (GRV-mini) runs the Ritual Machine
+
+- **The firmware runs on the second prototype**, with the controls of the simulator's panel: its 128 x 160 colour screen (the UI as on the
+  first board, at its height), the 4 x 4 keys and the function row, the 8 pots with their LEDs, the two push encoders, the joystick and the
+  four buttons. Flash it with `.\upload.ps1 -Env hwv2`.
+- **The power switch turns it off** on the battery, after saving. On USB the synth goes on; once a battery is in, it can become the card reader
+  as on the first board.
+- **The LEDs go dark when the power goes**, so they start dark too.
+- **A VU meter** on its six LEDs follows what the synth plays (a first version: the codec is not fitted yet, so there is no sound).
+- The first prototype is still built and supported: both boards now share their ESP32 code.
+
 ## 2026-11-04: the GUI reorganization, part 4: LED colours (ADR-046 phase 6; branch `gui-reorg`)
 
 For boards with LEDs under the pots and encoder A:

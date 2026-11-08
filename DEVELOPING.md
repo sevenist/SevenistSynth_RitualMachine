@@ -16,7 +16,8 @@ oled_sim/
 │  ├─ engine/               the DSP engine (C++17; includes nothing from an app). Included as "engine/..."
 │  ├─ hal/                  what a board gives an app: display, controls, key LEDs, the card's small files, power, large memory,
 │  │                        and the audio output (the app hands over its render function). Headers only. "hal/..."
-│  ├─ ui/                   the drawing kit over u8g2: style, layout, text, sprites, animations (gui), popups. "ui/..."
+│  ├─ ui/                   the drawing kit over u8g2: style, layout, text, sprites, animations (gui), popups, and the colour canvas
+│  │                        (canvas: u8g2 and the kit painting RGB565, display_send_rgb565; ENGINE_DESIGN.md ADR-048). "ui/..."
 │  ├─ boards/esp32/         what the ESP32 boards share: the pin blocks of every revision, the board services' interface, the display
 │  │                        task and boot animation, the LED driver, the I2S output, the mux, the input queue, the soft power and the
 │  │                        battery, the card's interface, the card task and the sample storage on it. "boards/esp32/..."
@@ -32,13 +33,14 @@ oled_sim/
 │  ├─ ritual_machine/       THE RITUAL MACHINE: this guide. Its own src/ (core, app, platform), tests/, tools/, assets/,
 │  │                        build.ps1, platformio.ini, and the simulator's card (sdcard/, samples/, samples_src/)
 │  ├─ template/             the starter app: a four-voice synth with a screen and the board's keys, desktop + first prototype (its README.md)
+│  ├─ technogen/            TECHNOGEN: a techno loop generator for the second prototype, seven tracks and a dice, in colour (its README.md, ADR-048)
 │  └─ HWV2_scanner/         the second prototype's key scanner: the firmware of its CH32V006 (not an app of the library)
 ├─ tools/new_project.ps1    .\tools\new_project.ps1 my_synth  ->  apps/my_synth, a copy of the template under its own name
 ├─ docs/guides/             task guides (README.md lists them): DRAWING_KIT.md (the library's ui/, for any app),
 │                           RITUAL_MACHINE_UI.md (how this app's screens are built), SERIAL_COMMANDS.md (the dev commands on the board)
 ├─ docs/images/             the pictures of the repo's README.md
 ├─ build.ps1, run.ps1       build / run an app's desktop program from here (-App name; default: ritual_machine)
-├─ test.ps1                 every host test: the library's, then the Ritual Machine's engine and UI tests
+├─ test.ps1                 every host test: the library's, then the Ritual Machine's engine and UI tests, then TechnoGen's
 └─ lib/                     third-party code for the desktop builds (u8g2, minimp3, amy; not versioned)
 ```
 
@@ -615,7 +617,7 @@ numbers: `hwv2_layout.h` has the channels by U2's pins. The default environment 
 | --- | --- |
 | `hwv2_controls.*`, `hwv2_layout.h` | the table (the panel's controls, in its order) and the wiring: the scanner's bits, the mux channels, the pots reversed on rev A (`HWV2_KNOBS_REVERSED`), the joystick's axes inverted (`HWV2_JOY_INVERT_X / _Y`), the encoders' signs and 4 counts a click, the VU meter's levels, the scan periods |
 | `input_esp32.cpp` | the scan task on core 0: the CH32V006 on I2C (0x42, an 8-byte frame with a check byte: the 20 keys, the encoders and their pushes; `apps/HWV2_scanner/src/main.c` describes it), the 8 pots, the joystick and the 4 buttons on the mux, the switch and the battery every 100 ms. A button that reads pushed at the start is ignored until it is seen up (rev A's bodge 1) |
-| `display_panel.cpp` | the GMT177-10 (128 x 160, ST7735S family) on SPI with DMA at 15 MHz: the app's 1-bit frame turned into RGB565, changed tiles only. No reset line on rev A (a software reset at the start) |
+| `display_panel.cpp` | the GMT177-10 (128 x 160, ST7735S family) on SPI with DMA at 15 MHz: the app's 1-bit frame turned into RGB565, or its colour frame (`display_send_rgb565`, from PSRAM, through the 2 KB DMA buffer) as it is; changed tiles only. No reset line on rev A (a software reset at the start) |
 | `hwv2_leds.cpp` | the chain's order (35 LEDs: the pots, the VU meter, the indicator, the function row, the 4 x 4 as a serpentine) and the VU meter (LEDs 5..10, the board's own: the engine's peak, so it plays without the codec). LED 11 (the indicator) stays off |
 | `board_esp32.cpp` | the power switch, read with the battery on mux channel 7 (switched off, or no battery: 0 V), the joystick for the shared soft power (`boards/esp32/power_esp32.cpp`), the LM4871's shutdown pin, what the card reader reads |
 | `sd_card.cpp` | the TF card on the 4-bit SDMMC host at 20 MHz (`HWV2_SD_FREQ_KHZ`) |
@@ -624,6 +626,10 @@ numbers: `hwv2_layout.h` has the channels by U2's pins. The default environment 
 there is no sound yet (the audio runs on I2S all the same). Without a battery the switch reads off on either side, hence `HWV2_USB_STORAGE` = 0 (below).
 **Known fault:** on the user's board the joystick's push also acts as B3 (Shift): most likely a bridge or a floating line between U2's pins 4 and 5
 (B3's and the joystick push's channels, 4 and 5). It is the board's, not the code's; `DEV_SERIAL_CMD` builds log every button's raw reading at each change.
+
+**The second app on it, TechnoGen** (`apps/technogen`, branch `technogen`, ENGINE_DESIGN.md ADR-048): `.\build.ps1 -App technogen` and `.\run.ps1 -App technogen`
+(its default board is hwv2), its tests `apps\technogen\tools\build_tests.ps1`; its firmware has the one environment `hwv2`. It draws in colour on the
+library's canvas, and plays its seven tracks through the pads' sequencer routed to its own track modules (`Engine::pseq_route`).
 
 ### Build flags (`platformio.ini`)
 

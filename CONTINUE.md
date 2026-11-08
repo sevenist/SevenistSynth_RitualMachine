@@ -8,6 +8,22 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
 
 ## Session todo (updated 2026-11-08)
 
+**Where things stand (2026-11-08, second session: TechnoGen):** the user started **a new app from the library: TechnoGen**, a techno loop
+generator groovebox for HWV2, from their design canvas ("TechnoGen Firmware Design": the 7-track main view, the signal and core map, the ideas;
+outside the repo). After a round of options (ENGINE_DESIGN.md ADR-048: a colour first version in the simulator; `gui-reorg` fast-forwarded into
+`main`, local, not pushed; one commit per step), **the first version was built on the new branch `technogen`**, `f3bde8d` .. the docs commit:
+the app, the library's colour canvas, the dice and the track model, the engine's routed pad sequencer with placeholder track modules, the
+main and engine views with every control. Host-tested (TechnoGen 33, every other run unchanged), the simulator run; the changed ESP32 files
+compile with the xtensa compiler; **the firmware was NOT built with PlatformIO, NOT flashed**. My 13 choices: ADR-048 "Chosen by me". The
+user's uncommitted edits (the deleted `apps/HWV2_scanner`, `HWV2_USB_STORAGE=1` in the Ritual Machine's `hwv2`, `board_reader_joystick`'s 4
+reads, `usb_storage_esp32.cpp`) were left out of every commit. **Open:**
+- [ ] **Try TechnoGen in the simulator** (`.\build.ps1 -App technogen`, `.\run.ps1 -App technogen`; its README lists the controls): the screens,
+  the dice, the patterns at the bar, the knobs' catch. Say what to change; the sounds are placeholders.
+- [ ] **Flash TechnoGen on HWV2** (VS Code, folder `technogen`, env `hwv2`): the first colour frames on the real screen (byte order, the
+  changed tiles from PSRAM), the LEDs. No sound until the ES8388 is fitted.
+- [ ] **Next phases (ADR-048 "Next")**: (2) the budget test on HWV2, before any real engine; (3) the engines, KICK first; (4) the knob
+  legend, PERF, the joystick; (5) the master chain; (6) saving; (7) the codec's input, MIDI.
+
 **Where things stand (2026-11-08):** the user brought up the second prototype (GRV-mini, "HWV2") and, at their request, **the firmware was
 ported to it in the board layer only** (`framework/boards/esp32` for what the boards share, `framework/boards/hwv2`; outside it: `map_hwv2.h`, a line in
 `core/controls.c`, the include paths of the app's ESP32 files, the card reader and serial commands made board-agnostic, the UI tests at 160 px). Flashed and tried by the user, one phase at a time: the screen and LEDs, the controls ("the

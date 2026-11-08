@@ -1,11 +1,16 @@
 # Runs an app's desktop program from the repo root, in the app's own folder (its card is the folder sdcard/ there):
 #   .\run.ps1                        the Ritual Machine's simulator
 #   .\run.ps1 -App template          another app of apps/
-#   .\run.ps1 -Board hwv1            the program built for another board (.\build.ps1 -Board hwv1; default: panel)
+#   .\run.ps1 -Board hwv1            the program built for another board (.\build.ps1 -Board hwv1; default: the app's own, the -Board
+#                                    default of its build.ps1: panel for most apps, hwv2 for TechnoGen)
 # Build first with .\build.ps1 (same -App, same -Board). If the build found the program running it wrote <name>_new.exe: the newer of
 # the two runs.
-param([string]$App = "ritual_machine", [string]$Board = "panel")
+param([string]$App = "ritual_machine", [string]$Board = "")
 $dir = Join-Path $PSScriptRoot "apps/$App"
+if (-not $Board) {                                  # the board the app's build.ps1 builds when it is given none
+    $m = [regex]::Match([string](Get-Content "$dir/build.ps1" -Raw -ErrorAction SilentlyContinue), '\[string\]\$Board\s*=\s*"(\w*)"')
+    $Board = if ($m.Success -and $m.Groups[1].Value) { $m.Groups[1].Value } else { "panel" }
+}
 $base = if ($App -eq "ritual_machine") { "oled_sim" } else { $App }        # (the Ritual Machine's program keeps its first name)
 $name = if ($Board -and $Board -ne "panel") { "${base}_$Board" } else { $base }     # (each board is a program of its own: framework/tools/sim_build.ps1)
 $exe = Get-ChildItem "$dir/build/$name.exe", "$dir/build/${name}_new.exe" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1

@@ -13,13 +13,13 @@
 #include "core/ui_settings.h"
 #include "core/pads.h"
 #include "platform/esp32/serial_cmd_esp32.h"
-#include "boards/hwv1/sd_card.h"
-#include "boards/hwv1/board_esp32.h"
-#include "boards/hwv1/card_task.h"
+#include "boards/esp32/sd_card.h"
+#include "boards/esp32/board_esp32.h"
+#include "boards/esp32/card_task.h"
 #include "hal/hal_power.h"
 #include "engine/offline/process.h"
-#ifdef HWV1
-#include "boards/hwv1/leds_esp32.h"
+#if defined(HWV1) || defined(HWV2)
+#include "boards/esp32/leds_esp32.h"
 #endif
 
 extern "C" void audio_dev_dump(int n);
@@ -477,7 +477,7 @@ void run(char *line) {
         Serial.printf("[CMD] fx %s in row M\n", desc);
         return;
     }
-#ifdef HWV1
+#if defined(HWV1) || defined(HWV2)
     if (!strcmp(line, "power")) {                         // power: the power button, the USB cable, the battery (raw count, pin, result) and the mux's spare input
         int raw = 0, pin = 0;
         board_battery_debug(&raw, &pin);

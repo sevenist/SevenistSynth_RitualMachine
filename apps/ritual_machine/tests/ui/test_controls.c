@@ -5,11 +5,72 @@
 #include "ui_test.h"
 #include "core/controls.h"
 #include "boards/hwv1/hwv1_controls.h"
+#include "boards/hwv2/hwv2_controls.h"
+#include "boards/hwv2/hwv2_layout.h"
 #include "boards/desktop/panel_controls.h"
 #include "boards/desktop/sim_board.h"
 
 static void bind_hwv1(void)  { controls_bind(kHwv1Controls, HWV1_CONTROL_COUNT, controls_map_of("hwv1")); }
 static void bind_panel(void) { controls_bind(kPanelControls, PANEL_CONTROL_COUNT, controls_map_of("panel")); }
+
+// The second prototype is the simulator's panel in hardware: the same parts, the same order, the same places (the user, 2026-11-04: "it should look
+// like the sim panel"). Only encoder A's LED differs: that LED stays off for now.
+TEST(controls_hwv2_is_the_panel) {
+    CHECK_EQ(HWV2_CONTROL_COUNT, PANEL_CONTROL_COUNT);
+    for (int i = 0; i < HWV2_CONTROL_COUNT; i++) {
+        const input_control_t *a = &kHwv2Controls[i], *b = &kPanelControls[i];
+        CHECK_STR(a->name, b->name);
+        CHECK_EQ(a->kind, b->kind);
+        CHECK_EQ(a->row, b->row);
+        CHECK_EQ(a->col, b->col);
+        CHECK_EQ(a->px, b->px);
+        CHECK_EQ(a->py, b->py);
+        if (i != HWV2_ENC_A) CHECK_EQ(a->led, b->led);
+    }
+    CHECK_EQ(kHwv2Controls[HWV2_ENC_A].led, 0);
+    controls_bind(kHwv2Controls, HWV2_CONTROL_COUNT, controls_map_of("hwv2"));
+    CHECK_EQ(controls_role(HWV2_PLAY), CTL_PLAY);
+    CHECK_EQ(controls_role(HWV2_BTN_3), CTL_BTN_3);
+    CHECK_EQ(controls_role(HWV2_ENC_A_SW), CTL_ENC_A_SW);
+    CHECK_EQ(controls_role(HWV2_COL_KNOB_3), CTL_COL_KNOB_3);
+    CHECK_EQ(controls_role(HWV2_KEY(0, 3)), CTL_KEY(0, 3));
+    CHECK_EQ(controls_role(HWV2_KEY(4, 0)), CTL_KEY(4, 0));
+    CHECK_EQ(controls_board_ctl(CTL_KEY(1, 4)), INPUT_NO_CONTROL);              // the columns the board does not have
+    for (int i = 0; i < HWV2_CONTROL_COUNT; i++) CHECK(controls_role(i) != CTL_NONE);
+}
+
+// The scanner's frame counts the schematic's rows (r1..r4, the 4 x 4 from the top, then r5, the top row); the table's row 0 is that top row.
+TEST(controls_hwv2_scanner_bits_are_the_tables_keys) {
+    CHECK_EQ(hwv2_scanner_control(0), HWV2_KEY(1, 0));                          // r1 c1: SW1, the 4 x 4's top left
+    CHECK_EQ(hwv2_scanner_control(3), HWV2_KEY(1, 3));
+    CHECK_EQ(hwv2_scanner_control(15), HWV2_KEY(4, 3));                         // r4 c4: SW16, its bottom right
+    CHECK_EQ(hwv2_scanner_control(16), HWV2_KEY(0, 0));                         // r5 c1: SW17, the top row's left
+    CHECK_EQ(hwv2_scanner_control(19), HWV2_KEY(0, 3));
+    CHECK_EQ(hwv2_scanner_control(20), HWV2_ENC_A_SW);
+    CHECK_EQ(hwv2_scanner_control(21), HWV2_ENC_B_SW);
+    CHECK_EQ(hwv2_scanner_control(22), INPUT_NO_CONTROL);
+    int seen[HWV2_CONTROL_COUNT] = {0};
+    for (int bit = 0; bit < HWV2_SCANNER_INPUTS; bit++) seen[hwv2_scanner_control(bit)]++;
+    for (int r = 0; r < HWV2_KEY_ROWS; r++) for (int c = 0; c < HWV2_KEY_COLS; c++) CHECK_EQ(seen[HWV2_KEY(r, c)], 1);
+}
+
+TEST(controls_hwv2_vu_lights_from_the_bottom_with_the_level) {
+    CHECK_EQ(hwv2_vu_lit(0), 0);
+    CHECK_EQ(hwv2_vu_lit(518), 0);                                              // below -36 dB
+    CHECK_EQ(hwv2_vu_lit(519), 1);
+    CHECK_EQ(hwv2_vu_lit(32768), HWV2_VU_COUNT);                                // full scale
+    for (int p = 0; p < 32768; p += 64) CHECK(hwv2_vu_lit(p + 64) >= hwv2_vu_lit(p));
+}
+
+// Rev A's pots read reversed, and both ends of the travel are reached.
+TEST(controls_hwv2_knob_value_is_reversed_and_reaches_its_ends) {
+    CHECK_EQ(hwv2_knob_value(4095), 0);
+    CHECK_EQ(hwv2_knob_value(4095 - HWV2_KNOB_MARGIN), 0);
+    CHECK_EQ(hwv2_knob_value(0), INPUT_VALUE_MAX);
+    CHECK_EQ(hwv2_knob_value(HWV2_KNOB_MARGIN), INPUT_VALUE_MAX);
+    CHECK(hwv2_knob_value(2048) > 500 && hwv2_knob_value(2048) < 524);
+    for (int raw = 100; raw < 4000; raw += 100) CHECK(hwv2_knob_value(raw) > hwv2_knob_value(raw + 100));
+}
 
 TEST(controls_board_tables_are_in_id_order) {
     for (int r = 0; r < HWV1_KEY_ROWS; r++)

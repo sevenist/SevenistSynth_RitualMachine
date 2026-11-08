@@ -1,11 +1,12 @@
 #pragma once
-// HWV1 analog multiplexer: 16 channels, 4 select lines, one shared ADC input (pins in board_pins.h).
+// The analog multiplexer: 16 channels, 4 select lines, one shared ADC input (pins in board_pins.h).
 // Not thread-safe: only the input task uses it.
-#if defined(ARDUINO_ARCH_ESP32) && defined(HWV1)
+#if defined(ARDUINO_ARCH_ESP32)
 #include <stdint.h>
 
 void     mux_init(void);
 uint16_t mux_read(uint8_t channel);        // 12 bit raw ADC value (0..4095) of channel 0..15
 bool     mux_read_digital(uint8_t channel);
+uint16_t mux_read_settled(uint8_t channel, int reads);   // as mux_read, averaging `reads`, with the first read after the switch thrown away (a board whose sources are slower than the ADC's sample capacitor)
 uint16_t mux_read_mv(uint8_t channel);     // the channel's voltage in millivolts (the ADC's calibration applied), for a slow source such as a divider
 #endif

@@ -1,10 +1,10 @@
-// First prototype: the card task (card_task.h) and the storage HAL on it (hal/hal_storage.h). One task on core 0 at low priority does
+// The card task (card_task.h) and the storage HAL on it (hal/hal_storage.h). One task on core 0 at low priority does
 // everything that touches the card: mount, the small files, the folders, and an app's own card work through its hooks (a sample
 // library, the loader of its streams), so the audio task never waits for the card. The card driver has no locks, so nothing else may
 // touch the card. The task also watches the card: inserted, too slow (then it is left alone, apart from its small files), removed or
 // swapped, and queues those as card events for the UI (hal_storage.h) with the result of its two checks: the read speed and the
 // folders the app listed (made on request, storage_make_folders).
-#if defined(ARDUINO_ARCH_ESP32) && defined(HWV1)
+#if defined(ARDUINO_ARCH_ESP32)
 #include <Arduino.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -13,9 +13,9 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include "hal/hal_storage.h"
-#include "boards/hwv1/card_task.h"
-#include "boards/hwv1/board_esp32.h"
-#include "boards/hwv1/sd_card.h"
+#include "boards/esp32/card_task.h"
+#include "boards/esp32/board_esp32.h"
+#include "boards/esp32/sd_card.h"
 
 extern "C" bool display_boot_playing(void);       // display_esp32.cpp: the boot animation still covers the UI
 
@@ -53,7 +53,7 @@ const storage_move_t *g_moves = nullptr;
 int g_move_count = 0;
 
 // ---- the card's life: inserted, too slow, removed ----
-// HWV1 has no card-detect pin, so the card is polled: a mount attempt once a second while there is none, a status command once a second while there is one.
+// No card-detect pin is read, so the card is polled: a mount attempt once a second while there is none, a status command once a second while there is one.
 constexpr uint32_t kSlowReadUs = 15000;           // a single sector read above this: the card cannot stream samples (healthy cards: 300-2000 us)
 constexpr uint32_t kPollMs = 1000, kPollSlowMs = 2000;
 volatile card_state_t g_state = CARD_NONE;
@@ -358,4 +358,4 @@ extern "C" bool storage_card_reader(void) {
     board_card_reader();                            // (returns only when this build has no card reader's firmware)
     return false;
 }
-#endif  // ARDUINO_ARCH_ESP32 && HWV1
+#endif  // ARDUINO_ARCH_ESP32

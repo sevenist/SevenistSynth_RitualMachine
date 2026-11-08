@@ -318,6 +318,21 @@ int ui_stub_card_reader;                            // storage_card_reader calls
 bool storage_card_reader(void) { ui_stub_card_reader++; return false; }
 void storage_set_folders(const char *const *folders, int count) { (void)folders; (void)count; }
 void storage_set_moves(const storage_move_t *moves, int count) { (void)moves; (void)count; }
+// A display of the size the program is built for (DISPLAY_WIDTH x DISPLAY_HEIGHT, hal_display.h), with the buffer layout of the boards'.
+static const u8x8_display_info_t ui_stub_display_info = {
+    0, 1, 0, 0, 0, 0, 0, 0, 4000000UL, 1, 0, 0, 0, DISPLAY_WIDTH / 8, DISPLAY_HEIGHT / 8, 0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT
+};
+static uint8_t ui_stub_display_cb(u8x8_t *u8x8, uint8_t msg, uint8_t arg, void *ptr) {
+    (void)arg; (void)ptr;
+    if (msg == U8X8_MSG_DISPLAY_SETUP_MEMORY) u8x8_d_helper_display_setup_memory(u8x8, &ui_stub_display_info);
+    return 1;
+}
+void ui_stub_display_setup(u8g2_t *g) {
+    static uint8_t buf[DISPLAY_WIDTH * (DISPLAY_HEIGHT / 8)];
+    u8g2_SetupDisplay(g, ui_stub_display_cb, u8x8_cad_empty, u8x8_byte_empty, u8x8_dummy_cb);
+    u8g2_SetupBuffer(g, buf, DISPLAY_HEIGHT / 8, u8g2_ll_hvline_vertical_top_lsb, &u8g2_cb_r0);
+}
+
 void display_send(u8g2_t *g) { (void)g; }
 int ui_stub_boot_ends;                       // the application said its start is over (hal_display.h)
 void display_boot_end(void) { ui_stub_boot_ends++; }

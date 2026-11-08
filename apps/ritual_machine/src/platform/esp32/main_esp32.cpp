@@ -9,7 +9,7 @@
 #include "hal/hal_display.h"
 #include "core/controls.h"
 #include "hal/hal_leds.h"
-#include "boards/hwv1/board_esp32.h"
+#include "boards/esp32/board_esp32.h"
 #include "platform/esp32/serial_cmd_esp32.h"
 
 static app_t app;

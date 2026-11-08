@@ -2,47 +2,24 @@
 //
 // HWV1 (old prototype): a scan task on core 0 reads the TCA8418 keyboard (kbd_tca8418.cpp), the 7 relative knobs through the analog
 // mux (mux_esp32.cpp) and the joystick, turns them into the controls of the board's table (hwv1_controls.h, the wiring: hwv1_layout.h)
-// and pushes events into a ring buffer. input_poll() pops one event per call, so a slow screen refresh in loop() never delays the scan. The task also reads the
+// and pushes events into a queue. input_poll() pops one event per call, so a slow screen refresh in loop() never delays the scan. The task also reads the
 // mux's two other channels now and then: the battery and a spare input (scan_sensors).
 //
-// Other revisions: add an #elif block with their own driver; until then input_poll() reports nothing.
+// Each board has its own driver; input_poll() and the queue are shared (boards/esp32/input_queue.h).
 #if defined(ARDUINO_ARCH_ESP32)
 #include "hal/hal_input.h"
-#include "boards/hwv1/board_esp32.h"
+#include "boards/esp32/board_esp32.h"
 
 #if defined(HWV1)
 #include <Arduino.h>
 #include <math.h>
-#include "boards/hwv1/board_pins.h"
+#include "boards/esp32/board_pins.h"
 #include "boards/hwv1/hwv1_layout.h"
+#include "boards/esp32/input_queue.h"
 #include "boards/hwv1/kbd_tca8418.h"
-#include "boards/hwv1/mux_esp32.h"
+#include "boards/esp32/mux_esp32.h"
 
 namespace {
-// ---- event ring buffer (one producer: the scan task, one consumer: input_poll) ----
-// Pending IN_VALUE events of a control are overwritten and pending IN_DELTA events are summed, so a stalled UI (a screen refresh takes tens of
-// ms) never builds a backlog of stale knob positions: it gets the latest value / the total turn once. Presses and releases are never merged.
-constexpr int kRing = 64;
-input_event_t ring[kRing];
-uint8_t head = 0, tail = 0;                    // guarded by lock
-portMUX_TYPE lock = portMUX_INITIALIZER_UNLOCKED;
-
-void push(int ctl, input_kind_t kind, int value) {
-    portENTER_CRITICAL(&lock);
-    bool merged = false;
-    if (kind == IN_VALUE || kind == IN_DELTA) {
-        for (uint8_t i = tail; i != head; i = (i + 1) % kRing) {
-            if (ring[i].ctl != ctl || ring[i].kind != kind) continue;
-            if (kind == IN_VALUE) ring[i].value = value; else ring[i].value += value;
-            merged = true;
-            break;
-        }
-    }
-    const uint8_t next = (head + 1) % kRing;
-    if (!merged && next != tail) { ring[head] = input_event_t{ctl, kind, value, false}; head = next; }   // full: drop
-    portEXIT_CRITICAL(&lock);
-}
-
 // ---- keyboard ----
 void scan_keys() {
     kbd_event_t ev[8];
@@ -56,7 +33,7 @@ void scan_keys() {
 #ifdef HWV1_DEBUG_INPUT
         Serial.printf("[KEY] tca r%d c%d %s -> ctl %d\n", ev[i].row, ev[i].col, ev[i].pressed ? "down" : "up", (int)ctl);
 #endif
-        if (ctl != INPUT_NO_CONTROL) push(ctl, ev[i].pressed ? IN_PRESS : IN_RELEASE, 0);
+        if (ctl != INPUT_NO_CONTROL) input_queue_push(ctl, ev[i].pressed ? IN_PRESS : IN_RELEASE, 0);
     }
 }
 
@@ -99,7 +76,7 @@ void scan_knobs() {
             const int n = (int)(k.moved / kEncoderQuantum);    // whole quanta, truncated towards zero
             if (!n) continue;
             k.moved -= (float)n * kEncoderQuantum;
-            push(HWV1_POT_0 + i, IN_DELTA, n);
+            input_queue_push(HWV1_POT_0 + i, IN_DELTA, n);
             continue;
         }
         // A position: fine steps while the knob keeps turning one way, a larger threshold from rest or to reverse (noise stays under it).
@@ -115,7 +92,7 @@ void scan_knobs() {
         if (v > INPUT_VALUE_MAX) v = INPUT_VALUE_MAX;
         if (v == k.value) { k.moved = 0; continue; }       // at an end stop: do not wind up, the way back starts at once
         k.value = v;
-        push(HWV1_POT_0 + i, IN_VALUE, v);
+        input_queue_push(HWV1_POT_0 + i, IN_VALUE, v);
     }
 }
 
@@ -123,7 +100,6 @@ void scan_knobs() {
 int joy_centre[2] = {2048, 2048};
 int joy_last[2] = {INPUT_AXIS_CENTER, INPUT_AXIS_CENTER};
 constexpr int kJoyMinStep = 12;                // axis counts (0..1023) before a new value is reported
-constexpr int kJoySnap = 16;                   // within this of the centre the axis reports exactly the centre
 
 int read_axis(int pin) {
     int sum = 0;
@@ -147,29 +123,20 @@ void joystick_init() {
     }
 }
 
-int scale_axis(int raw, int centre, bool invert) {
-    int v = raw <= centre ? INPUT_AXIS_CENTER - (centre - raw) * INPUT_AXIS_CENTER / centre
-                          : INPUT_AXIS_CENTER + (raw - centre) * (INPUT_VALUE_MAX - INPUT_AXIS_CENTER) / (4095 - centre);
-    if (v < 0) v = 0;
-    if (v > INPUT_VALUE_MAX) v = INPUT_VALUE_MAX;
-    if (abs(v - INPUT_AXIS_CENTER) <= kJoySnap) v = INPUT_AXIS_CENTER;
-    return invert ? INPUT_VALUE_MAX - v : v;
-}
-
 void scan_joystick() {
     static const int pins[2] = {PIN_JOY_X, PIN_JOY_Y};
     static const int ctl[2] = {HWV1_JOY_X, HWV1_JOY_Y};
     const bool inv[2] = {HWV1_JOY_INVERT_X != 0, HWV1_JOY_INVERT_Y != 0};
     for (int a = 0; a < 2; a++) {
-        const int v = scale_axis(read_axis(pins[a]), joy_centre[a], inv[a]);
+        const int v = input_axis_value(read_axis(pins[a]), joy_centre[a], inv[a]);
         const bool centred = v == INPUT_AXIS_CENTER && joy_last[a] != INPUT_AXIS_CENTER;
-        if (abs(v - joy_last[a]) >= kJoyMinStep || centred) { joy_last[a] = v; push(ctl[a], IN_VALUE, v); }
+        if (abs(v - joy_last[a]) >= kJoyMinStep || centred) { joy_last[a] = v; input_queue_push(ctl[a], IN_VALUE, v); }
     }
     static bool sw = false;
     static uint8_t stable = 0;
     const bool now = digitalRead(PIN_JOY_SW) == (HWV1_JOY_SW_PUSHED ? HIGH : LOW);
     if (now == sw) stable = 0;
-    else if (++stable >= 2) { sw = now; stable = 0; push(HWV1_JOY_SW, sw ? IN_PRESS : IN_RELEASE, 0); }   // 2 scans of the new level
+    else if (++stable >= 2) { sw = now; stable = 0; input_queue_push(HWV1_JOY_SW, sw ? IN_PRESS : IN_RELEASE, 0); }   // 2 scans of the new level
 }
 
 // ---- the mux's two other channels: the battery (board_esp32.cpp keeps its level) and a spare input, read as a button ----
@@ -219,26 +186,5 @@ extern "C" void input_control_mode(int ctl, input_kind_t reading, int start) {
     knob_position[i] = reading == IN_VALUE;
 }
 extern "C" bool input_boot_reset(void) { return false; }   // the power-on key read was reverted (2026-10-07): the app's own check (F1 within 4 s of start, held 2 s) is the reset
-
-extern "C" bool input_pending(void) { return head != tail; }   // a racy read is fine: a hint for the redraw
-
-extern "C" input_event_t input_poll(void) {
-    input_event_t e{INPUT_NO_CONTROL, IN_NONE, 0, false};
-    portENTER_CRITICAL(&lock);
-    if (head != tail) { e = ring[tail]; tail = (tail + 1) % kRing; }
-    portEXIT_CRITICAL(&lock);
-    return e;
-}
-
-#else  // another hardware revision: no driver yet
-void input_esp32_init(void) {}
-int input_esp32_aux_raw(void) { return 0; }
-bool input_esp32_aux_pushed(void) { return false; }
-extern "C" input_event_t input_poll(void) { return input_event_t{INPUT_NO_CONTROL, IN_NONE, 0, false}; }
-extern "C" bool input_pending(void) { return false; }
-extern "C" const input_control_t *input_controls(int *count) { if (count) *count = 0; return nullptr; }
-extern "C" const char *input_board_name(void) { return "none"; }
-extern "C" void input_control_mode(int, input_kind_t, int) {}
-extern "C" bool input_boot_reset(void) { return false; }
 #endif // HWV1
 #endif // ARDUINO_ARCH_ESP32

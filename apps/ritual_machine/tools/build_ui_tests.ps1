@@ -1,8 +1,9 @@
 # Build and run the UI tests (tests/ui: the application and its core on the platform stubs of tools/ui_stubs.c; no SDL, no audio). Run it from anywhere:
 #   .\tools\build_ui_tests.ps1               every test
 #   .\tools\build_ui_tests.ps1 -Filter fm    only the tests whose name contains the text
-# From bash, in apps/ritual_machine: gcc -O1 -Wall -Wno-unused-function -Isrc -I../../framework -I../../lib/u8g2/csrc tests/ui/*.c tools/ui_stubs.c src/core/*.c src/app/*.c ../../framework/ui/*.c ../../framework/boards/hwv1/hwv1_controls.c ../../framework/boards/desktop/panel_controls.c ../../framework/boards/desktop/sim_board.c ../../lib/u8g2/csrc/*.c -lm -o build/ui_tests.exe
-param([string]$Filter = "")
+#   .\tools\build_ui_tests.ps1 -Height 160   on a screen of that height (default 128; a multiple of 8)
+# From bash, in apps/ritual_machine: gcc -O1 -Wall -Wno-unused-function -Isrc -I../../framework -I../../lib/u8g2/csrc tests/ui/*.c tools/ui_stubs.c src/core/*.c src/app/*.c ../../framework/ui/*.c ../../framework/boards/hwv1/hwv1_controls.c ../../framework/boards/hwv2/hwv2_controls.c ../../framework/boards/desktop/panel_controls.c ../../framework/boards/desktop/sim_board.c ../../lib/u8g2/csrc/*.c -lm -o build/ui_tests.exe
+param([string]$Filter = "", [int]$Height = 128)
 $ErrorActionPreference = "Continue"
 $env:PATH = "C:\msys64\ucrt64\bin;" + $env:PATH
 $u8g2 = "../../lib/u8g2"                # third-party, at the repo root (not versioned)
@@ -12,13 +13,13 @@ try {
 New-Item -ItemType Directory -Force build | Out-Null
 
 # (the two control tables and the simulator's panel layout: plain data and plain code, read by tests/ui/test_controls.c)
-$boards = @("$fw/boards/hwv1/hwv1_controls.c", "$fw/boards/desktop/panel_controls.c", "$fw/boards/desktop/sim_board.c")
+$boards = @("$fw/boards/hwv1/hwv1_controls.c", "$fw/boards/hwv2/hwv2_controls.c", "$fw/boards/desktop/panel_controls.c", "$fw/boards/desktop/sim_board.c")
 # (paths relative to the app's folder: no folder name on the command line, so the repo can move and the line stays short)
 $src = @(Get-ChildItem tests/ui/*.c | Resolve-Path -Relative) + @("tools/ui_stubs.c") + @(Get-ChildItem src/core/*.c, src/app/*.c, $fw/ui/*.c | Resolve-Path -Relative) + $boards + @(Get-ChildItem $u8g2/csrc/*.c | Resolve-Path -Relative)
 $out = "build/ui_tests.exe"
 if (Test-Path $out) { Remove-Item $out }
 $log = Join-Path $env:TEMP "ui_tests_build.log"
-$args = @("-std=gnu11", "-O1", "-Wall", "-Wno-unused-function", "-Isrc", "-I$fw", "-I$u8g2/csrc") + $src + @("-lm", "-o", $out)
+$args = @("-std=gnu11", "-O1", "-Wall", "-Wno-unused-function", "-Isrc", "-I$fw", "-I$u8g2/csrc", "-DDISPLAY_HEIGHT=$Height") + $src + @("-lm", "-o", $out)
 $args = @($args | ForEach-Object { if ("$_" -match '\s') { '"' + "$_" + '"' } else { "$_" } })     # (Start-Process quotes nothing: the repo in a folder with a space)
 $p = Start-Process gcc -ArgumentList $args -NoNewWindow -PassThru -Wait -RedirectStandardError $log -RedirectStandardOutput "$log.out"
 if ($p.ExitCode -ne 0 -or -not (Test-Path $out)) {

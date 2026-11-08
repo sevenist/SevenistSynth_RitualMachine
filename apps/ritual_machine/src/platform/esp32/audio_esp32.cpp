@@ -15,7 +15,7 @@
 #include "engine/dsp/config.h"
 #include "platform/esp32/bench_esp32.h"
 #include "platform/esp32/samples_esp32.h"
-#include "boards/hwv1/board_esp32.h"
+#include "boards/esp32/board_esp32.h"
 #include <atomic>
 
 namespace {

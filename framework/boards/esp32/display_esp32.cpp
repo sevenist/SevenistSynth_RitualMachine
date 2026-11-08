@@ -1,21 +1,15 @@
-// ESP32 display driver. HWV1: SH1107 128x128 OLED on I2C (Wire0, pins in board_pins.h), same panel setup as the SynthBox firmware
-// (github.com/clement-chupin/SynthBox, src/oled.cpp; see board_pins.h).
+// ESP32 display driver: what every panel shares. The panel itself is the board's (boards/esp32/display_panel.h).
 //
-// A full frame takes about 120 ms on this bus (measured, 400 kHz), and the UI loop used to wait for it: a key or a knob turn arriving meanwhile
-// was handled up to 120 ms late (late notes, steppy cutoff sweeps). Now display_send() only copies the frame (2 KB) and wakes the display task,
-// which sends the tiles (8 x 8 pixels) that differ from the last frame it sent. The task alone uses the bus after init; the application keeps
+// A full frame takes about 120 ms on the first prototype's I2C bus (measured, 400 kHz), and the UI loop used to wait for it: a key or a knob turn
+// arriving meanwhile was handled up to 120 ms late (late notes, steppy cutoff sweeps). Now display_send() only copies the frame and wakes the display
+// task, which sends the tiles (8 x 8 pixels) that differ from the last frame it sent. The task alone uses the bus after init; the application keeps
 // drawing into the u8g2 buffer. If frames come faster than the bus, the task skips to the newest one.
-#if defined(ARDUINO_ARCH_ESP32) && defined(HWV1)
+#if defined(ARDUINO_ARCH_ESP32)
 #include <Arduino.h>
-#include <Wire.h>
-#include <U8g2lib.h>
 #include <esp_heap_caps.h>
 #include "hal/hal_display.h"
-#include "boards/hwv1/board_esp32.h"
-#include "boards/hwv1/board_pins.h"
-
-// U8g2 constructor order for HW I2C with explicit pins: (rotation, reset, clock, data).
-static U8G2_SH1107_128X128_F_HW_I2C oled(U8G2_R0, U8X8_PIN_NONE, PIN_OLED_SCL, PIN_OLED_SDA);
+#include "boards/esp32/board_esp32.h"
+#include "boards/esp32/display_panel.h"
 
 namespace {
 constexpr int kTilesX = DISPLAY_WIDTH / 8, kTilesY = DISPLAY_HEIGHT / 8, kBytes = kTilesX * kTilesY * 8;
@@ -26,27 +20,9 @@ TaskHandle_t task;
 volatile bool have_frame = false;              // the application has sent a frame
 volatile bool boot_playing = false;            // the boot task owns the panel (and `work`, `sent`): the display task waits
 
-// Sends the tiles (8 x 8 pixels) of `work` that differ from what the panel shows.
+// Sends the tiles of `work` that differ from what the panel shows.
 void show_work() {
-    u8x8_t *u8x8 = u8g2_GetU8x8(oled.getU8g2());
-    // This panel's columns start at an offset (96): u8g2 sends column 96 + 8 x tile, which only works for a whole row (the panel's column
-    // counter wraps from 127 to 0). A run starting at tile tx is sent as "tile 0" with the offset moved to (96 + 8 tx) mod 128, so it wraps
-    // the same way (sending at tile tx directly gave columns past 127: garbage on the screen).
-    const uint8_t base = u8x8->x_offset;
-    for (int ty = 0; ty < kTilesY; ty++) {
-        const uint8_t *row = work + ty * kTilesX * 8, *old = sent + ty * kTilesX * 8;
-        int tx = 0;
-        while (tx < kTilesX) {
-            if (!memcmp(row + tx * 8, old + tx * 8, 8)) { tx++; continue; }
-            int end = tx + 1;                                     // a run of changed tiles; a single unchanged tile inside it is sent too
-            while (end < kTilesX && (memcmp(row + end * 8, old + end * 8, 8) ||          // (one more tile costs less than a new command)
-                                     (end + 1 < kTilesX && memcmp(row + (end + 1) * 8, old + (end + 1) * 8, 8)))) end++;
-            u8x8->x_offset = (uint8_t)((base + tx * 8) & 127);
-            u8x8_DrawTile(u8x8, 0, (uint8_t)ty, (uint8_t)(end - tx), const_cast<uint8_t *>(row + tx * 8));
-            tx = end;
-        }
-    }
-    u8x8->x_offset = base;
+    display_panel_show(work, sent);
     memcpy(sent, work, kBytes);
 }
 
@@ -158,11 +134,7 @@ void boot_task(void *arg) {
 }  // namespace
 
 extern "C" u8g2_t *display_init(void) {
-    oled.begin();
-    Wire.setClock(400000);                  // 400 kHz (SH1107 limit); about 120 ms per full frame measured
-    oled.sendF("ca", 0xD3, -32);            // display offset, required by this panel (see SynthBox HWLayout.h)
-    oled.clearBuffer();
-    oled.sendBuffer();
+    u8g2_t *const g = display_panel_init();
     memset(sent, 0, kBytes);                // the panel is blank
     mtx = xSemaphoreCreateMutex();
     xTaskCreatePinnedToCore(display_task, "display", 4096, nullptr, 1, &task, 0);   // core 0 with the UI; the I2C waits let the UI loop run
@@ -171,15 +143,15 @@ extern "C" u8g2_t *display_init(void) {
     if (boot && boot->frames && boot->frame_ms && boot->w <= DISPLAY_WIDTH && boot->h <= DISPLAY_HEIGHT) {
         if (boot->draw_text) boot_text = static_cast<uint8_t *>(heap_caps_malloc_prefer(kBytes, 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT));
         if (boot_text) {
-            boot->draw_text(oled.getU8g2());     // (into the application's buffer, which is blank again below)
-            memcpy(boot_text, oled.getBufferPtr(), kBytes);
-            oled.clearBuffer();
+            boot->draw_text(g);                  // (into the application's buffer, which is blank again below)
+            memcpy(boot_text, u8g2_GetBufferPtr(g), kBytes);
+            u8g2_ClearBuffer(g);
         }
         boot_playing = true;
         if (xTaskCreatePinnedToCore(boot_task, "boot", 3072, const_cast<display_boot_t *>(boot), kBootPriority, nullptr, 0) != pdPASS) boot_playing = false;
     }
 #endif
-    return oled.getU8g2();
+    return g;
 }
 
 extern "C" void display_send(u8g2_t *g) {
@@ -203,4 +175,4 @@ void display_esp32_boot_stage(int percent) {                         // setup():
     boot_setup_pct = (percent < 0 ? 0 : percent > 100 ? 100 : percent) * kBootSetupPct / 100;
 }
 #endif // !HWV1_CARD_READER
-#endif // ARDUINO_ARCH_ESP32 && HWV1
+#endif // ARDUINO_ARCH_ESP32

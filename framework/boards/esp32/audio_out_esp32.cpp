@@ -1,6 +1,6 @@
-// First prototype, the audio output (hal/hal_audio_out.h): a task of its own on core 1 asks the app for sound and streams it to the
+// The audio output (hal/hal_audio_out.h): a task of its own on core 1 asks the app for sound and streams it to the
 // I2S DAC. Pins are in board_pins.h. Whatever uses the controls and the screen runs on core 0 and never waits for this task.
-#if defined(ARDUINO_ARCH_ESP32) && defined(HWV1)
+#if defined(ARDUINO_ARCH_ESP32)
 #include <Arduino.h>
 #include <driver/i2s_std.h>
 #include <esp_heap_caps.h>
@@ -8,8 +8,8 @@
 #include <atomic>
 #include "hal/hal_audio_out.h"
 #include "hal/hal_mem.h"
-#include "boards/hwv1/board_esp32.h"
-#include "boards/hwv1/board_pins.h"
+#include "boards/esp32/board_esp32.h"
+#include "boards/esp32/board_pins.h"
 
 namespace {
 // Dev output attenuation, in percent of full scale (build flag DEV_OUTPUT_GAIN_PCT, 0..100): the first prototype's output stage has a very low
@@ -38,6 +38,9 @@ int g_spk_pct = -1;                                // UI side: the last level ap
 // The output is closed while the machine starts (user, 2026-10-11: no sound before the loading screen has ended): the app renders,
 // zeros go to the DAC and the amplifier. audio_esp32_open lets it through, faded in over one buffer.
 std::atomic<bool> g_out_open{false};
+#ifdef HW_HAS_VU
+std::atomic<int32_t> g_peak{0};                    // written by the audio task, read and cleared by the LEDs' side
+#endif
 
 void audio_task_main(void *) {
     static int16_t buf[kFrames * 2];
@@ -59,6 +62,16 @@ void audio_task_main(void *) {
         }
 #else
         g_render(buf, kFrames);
+#endif
+#ifdef HW_HAS_VU
+        {   // what the engine makes, before the dev gain and the output's gate: a meter that needs no converter
+            int32_t peak = 0;
+            for (int i = 0; i < kFrames * 2; i++) {
+                const int32_t v = buf[i] < 0 ? -(int32_t)buf[i] : buf[i];
+                if (v > peak) peak = v;
+            }
+            if (peak > g_peak.load(std::memory_order_relaxed)) g_peak.store(peak, std::memory_order_relaxed);
+        }
 #endif
 #ifdef HWV1_DEBUG_AUDIO
         const uint32_t dt = micros() - t0;
@@ -106,6 +119,10 @@ void audio_task_main(void *) {
 }  // namespace
 
 void audio_esp32_open(void) { g_out_open.store(true, std::memory_order_relaxed); }
+
+#ifdef HW_HAS_VU
+int board_audio_peak(void) { return g_peak.exchange(0, std::memory_order_relaxed); }
+#endif
 
 // The loudspeaker's level, 0..100 (0 = off). Off is a zero gain on the speaker channel and the LM4871 shut down (its pin HIGH; until
 // 2026-10-22 the pin was pulled LOW, which is its "on": that alone did not silence the speaker on 2026-10-05). The headphones did
@@ -166,4 +183,4 @@ extern "C" void *mem_bulk_alloc(size_t bytes) {
     void *p = heap_caps_calloc(1, bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     return p ? p : calloc(1, bytes);
 }
-#endif // ARDUINO_ARCH_ESP32 && HWV1
+#endif // ARDUINO_ARCH_ESP32

@@ -31,8 +31,9 @@ function Get-SimBoard([string]$Board = "panel") {
     switch ($Board) {
         { $_ -in "", "panel" } { return @{ Name = "panel"; Flags = @(); Sources = @(); Suffix = "" } }
         "hwv1" { return @{ Name = "hwv1"; Flags = @("-DSIM_BOARD_HWV1"); Sources = @(Get-Item "$boards/hwv1/hwv1_controls.c"); Suffix = "_hwv1" } }
+        "hwv2" { return @{ Name = "hwv2"; Flags = @("-DSIM_BOARD_HWV2", "-DDISPLAY_HEIGHT=160"); Sources = @(Get-Item "$boards/hwv2/hwv2_controls.c"); Suffix = "_hwv2" } }
     }
-    Write-Host "No board '$Board' for the desktop build (known: panel, hwv1)" -ForegroundColor Red
+    Write-Host "No board '$Board' for the desktop build (known: panel, hwv1, hwv2)" -ForegroundColor Red
     return $null
 }
 

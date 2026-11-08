@@ -1,7 +1,7 @@
-#if defined(ARDUINO_ARCH_ESP32) && defined(HWV1)
+#if defined(ARDUINO_ARCH_ESP32)
 #include <Arduino.h>
-#include "boards/hwv1/mux_esp32.h"
-#include "boards/hwv1/board_pins.h"
+#include "boards/esp32/mux_esp32.h"
+#include "boards/esp32/board_pins.h"
 
 namespace {
 const uint8_t kSelect[4] = {PIN_MUX_S0, PIN_MUX_S1, PIN_MUX_S2, PIN_MUX_S3};
@@ -33,6 +33,14 @@ uint16_t mux_read_mv(uint8_t channel) {
     uint32_t sum = 0;
     for (int i = 0; i < 4; i++) sum += analogReadMilliVolts(PIN_MUX_ADC);
     return (uint16_t)(sum / 4);
+}
+
+uint16_t mux_read_settled(uint8_t channel, int reads) {
+    select(channel & 15);
+    analogRead(PIN_MUX_ADC);
+    int sum = 0;
+    for (int i = 0; i < reads; i++) sum += analogRead(PIN_MUX_ADC);
+    return (uint16_t)(sum / reads);
 }
 
 bool mux_read_digital(uint8_t channel) {

@@ -1,11 +1,12 @@
 // Renders the application's screens to ASCII from the u8g2 buffer, without SDL and without audio: drives app_step()
 // with input events and prints the 128x64 frame. Useful to check layouts and to catch drawing crashes.
 //
-//   gcc -O1 -w -Isrc -I../../framework -I../../lib/u8g2/csrc tools/ui_dump.c src/core/*.c src/app/*.c ../../framework/ui/*.c ../../framework/boards/hwv1/hwv1_controls.c ../../framework/boards/desktop/panel_controls.c ../../lib/u8g2/csrc/*.c -lm -o build/ui_dump.exe      (in apps/ritual_machine)
+//   gcc -O1 -w -Isrc -I../../framework -I../../lib/u8g2/csrc tools/ui_dump.c src/core/*.c src/app/*.c ../../framework/ui/*.c ../../framework/boards/hwv1/hwv1_controls.c ../../framework/boards/hwv2/hwv2_controls.c ../../framework/boards/desktop/panel_controls.c ../../lib/u8g2/csrc/*.c -lm -o build/ui_dump.exe      (in apps/ritual_machine)
 //   build/ui_dump.exe "menu right right"        (events: see ev() below)
 //   several arguments print one frame per argument (a script each, continuing the same session)
 //
-// UI_DUMP_SIZE=128x128 in the environment renders on a 128 x 128 screen (the width is fixed at 128 here).
+// UI_DUMP_SIZE=128x128 in the environment renders on a 128 x 128 screen (the width is fixed at 128 here); UI_DUMP_SIZE=built on the
+// size this program was built for (add -DDISPLAY_HEIGHT=160 to the gcc line: the second prototype's screen).
 //
 // With no argument it shows the main view, then every menu tab of the modular synth and of the FM synth.
 #include <stdio.h>
@@ -87,7 +88,8 @@ static void feed(app_t *app, const char *script) {
 
 int main(int argc, char **argv) {
     const char *size = getenv("UI_DUMP_SIZE");                         // "128x128" renders on a taller screen
-    if (size && !strcmp(size, "128x128")) u8g2_Setup_sh1107_128x128_f(&disp, U8G2_R0, u8x8_byte_empty, u8x8_dummy_cb);
+    if (size && !strcmp(size, "built")) ui_stub_display_setup(&disp);
+    else if (size && !strcmp(size, "128x128")) u8g2_Setup_sh1107_128x128_f(&disp, U8G2_R0, u8x8_byte_empty, u8x8_dummy_cb);
     else u8g2_Setup_ssd1306_i2c_128x64_noname_f(&disp, U8G2_R0, u8x8_byte_empty, u8x8_dummy_cb);
     u8g2_SetFont(&disp, u8g2_font_5x7_tr);
     const char *board = getenv("UI_DUMP_BOARD");                       // the board's table: where its knobs sit (the knob legend's layout)

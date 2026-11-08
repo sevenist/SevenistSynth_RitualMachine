@@ -1,104 +1,50 @@
 #if defined(ARDUINO_ARCH_ESP32)
 #include <Arduino.h>
 #include "hal/hal_power.h"
-#include "boards/hwv1/board_esp32.h"
-#include "boards/hwv1/board_pins.h"
+#include "boards/esp32/board_esp32.h"
+#include "boards/esp32/board_pins.h"
 
 #if defined(HWV1)
-#include <esp_ota_ops.h>
+#include "boards/esp32/mux_esp32.h"
+#include "boards/esp32/power_esp32.h"
 #include "boards/hwv1/hwv1_layout.h"
 
-// 1 = a board that runs with its power button up (so: fed by the USB cable) starts the card reader (usb_storage_esp32.cpp).
-// 0 = it runs the synth, as before 2026-10-11.
-#ifndef HWV1_USB_STORAGE
-#define HWV1_USB_STORAGE 1
-#endif
+// The first prototype's board services (boards/esp32/board_esp32.h): how its power button and joystick are read for the shared soft power
+// (boards/esp32/power_esp32.cpp), the DAC's mute and the speaker's amplifier, what the card reader reads.
 
 namespace {
-bool g_button_ignored = false;                 // the synth runs with the button up (on the cable): the button counts again once it was seen down
 bool g_speaker_on = true;                      // what board_speaker_on was last told (board_audio_off does not change it)
 bool g_audio_open = false;                     // board_audio_open was called: the start is over, the DAC is unmuted
-constexpr int kOffSettleMs = 300;              // after the latch was let go: a board on the battery alone has stopped by then
+}  // namespace
 
-bool joystick_held() {
+// ---- the power button, for power_esp32.cpp: a latching switch whose position reads on PWR_SENSE (board_pins.h) ----
+void power_switch_init(void) { pinMode(PIN_PWR_SENSE, INPUT); }
+bool power_switch_direct(void) { return digitalRead(PIN_PWR_SENSE) == (HW_PWR_SENSE_ON ? HIGH : LOW); }
+bool board_power_button_on(void) { return power_switch_direct(); }
+void power_sense_sample(int) {}                 // the button has its own pin: the battery's channel says nothing about it
+
+bool power_joystick_held(void) {
     pinMode(PIN_JOY_SW, INPUT_PULLUP);
     delay(2);
     return digitalRead(PIN_JOY_SW) == (HWV1_JOY_SW_PUSHED ? HIGH : LOW);
 }
-}  // namespace
 
-// Soft power: PWR_ON_EN HIGH holds the supply on. The power button is a latching switch whose position reads on PWR_SENSE (board_pins.h).
-void board_power_init(void) {
-    pinMode(PIN_PWR_ON_EN, OUTPUT);
-    digitalWrite(PIN_PWR_ON_EN, HIGH);
-    pinMode(PIN_PWR_SENSE, INPUT);
-}
-
-bool board_power_button_on(void) { return digitalRead(PIN_PWR_SENSE) == (HW_PWR_SENSE_ON ? HIGH : LOW); }
-
-// The serial console is the chip's USB-Serial/JTAG port, which counts the frames a host sends every millisecond.
-bool board_usb_host(void) {
-#if ARDUINO_USB_MODE
-    return HWCDC::isPlugged();
-#else
-    return false;
-#endif
-}
-
-bool board_power_started_off(void) {
-    for (int i = 0; i < 25; i++) {             // up for 50 ms without a bounce
-        if (board_power_button_on()) return false;
-        delay(2);
-    }
-    digitalWrite(PIN_PWR_ON_EN, LOW);          // the machine is off: on the battery alone the board stops here
-    delay(kOffSettleMs);
-    if (HWV1_USB_STORAGE && !joystick_held()) return true;   // still alive: on the cable
-    g_button_ignored = true;                   // the joystick held at the start: the synth all the same
-    return false;
-}
-
-bool board_power_poll(void) {
-    static uint32_t last = 0;
-    static bool told = false;
-    const uint32_t now = millis();
-    if (now - last < 500) return false;
-    last = now;
-    if (board_power_button_on()) {
-        if (g_button_ignored) { g_button_ignored = false; digitalWrite(PIN_PWR_ON_EN, HIGH); }   // used again: it counts from here
-        told = false;
-        return false;
-    }
-    if (g_button_ignored || told) return false;
-    delay(50);
-    if (board_power_button_on()) return false;
-    told = true;
-    return true;
-}
-
-void board_power_hold(bool on) { digitalWrite(PIN_PWR_ON_EN, on ? HIGH : LOW); }
-
-void board_power_off(void) {
-    board_audio_off();                         // no thump in the speaker
-    digitalWrite(PIN_PWR_ON_EN, LOW);
-    delay(kOffSettleMs);
-#if HWV1_USB_STORAGE
-    board_card_reader();                       // still alive: the cable feeds the board
-#endif
-    g_button_ignored = true;                   // no card reader: the synth goes on until the button is used again
+void power_audio_resume(void) {
     if (g_audio_open) digitalWrite(PIN_I2S_XSMT, HIGH);
     board_speaker_on(g_speaker_on);
 }
 
-bool board_boot_slot(bool card_reader) {
-    const esp_partition_t *p =
-        esp_partition_find_first(ESP_PARTITION_TYPE_APP, card_reader ? ESP_PARTITION_SUBTYPE_APP_OTA_1 : ESP_PARTITION_SUBTYPE_APP_OTA_0, nullptr);
-    return p && esp_ota_set_boot_partition(p) == ESP_OK;      // (it checks the image first: an empty slot is refused)
+// ---- the card reader (a firmware of its own: no input task) ----
+void board_reader_init(void) {
+    mux_init();
+    pinMode(PIN_JOY_SW, INPUT_PULLUP);
 }
 
-void board_card_reader(void) {
-    if (board_boot_slot(true)) ESP.restart();
-    Serial.println("[BOARD] no card reader firmware in the second slot (pio run -e card_reader -t upload): the synth goes on");
-    g_button_ignored = true;
+bool board_reader_joystick(void) { return digitalRead(PIN_JOY_SW) == (HWV1_JOY_SW_PUSHED ? HIGH : LOW); }
+
+void board_reader_sensors(void) {               // the battery, as the input task reads it in the synth
+    const uint16_t mv = mux_read_mv(HWV1_MUX_BATTERY);
+    board_battery_sample(mux_read(HWV1_MUX_BATTERY), mv);
 }
 
 // The speaker's amplifier is an LM4871 (user, 2026-10-22; these comments first described a MAX98357A, which the board does not have):
@@ -147,51 +93,5 @@ void board_speaker_on(bool on) {
     g_speaker_on = on;
     speaker_pin(on ? kSpkOn : kSpkShutdown);
 }
-
-// ---- battery (hal/hal_power.h): the divider's voltage, smoothed over about 1.6 s (a sample every HWV1_SENSOR_PERIOD_MS) ----
-namespace {
-constexpr int kBattSettle = 8;                 // readings before a level is reported
-volatile int g_batt_mv = 0, g_batt_raw = 0, g_batt_pin_mv = 0;
-volatile int g_batt_n = 0;
-}  // namespace
-
-void board_battery_sample(int raw, int pin_mv) {
-    static int acc = 0;                        // 16 x the smoothed millivolts
-    const int mv = pin_mv * HW_BATT_FULL_SCALE_MV / 3300;
-    g_batt_raw = raw;
-    g_batt_pin_mv = pin_mv;
-    if (g_batt_n == 0) acc = mv * 16; else acc += mv - acc / 16;
-    g_batt_mv = acc / 16;
-    if (g_batt_n < kBattSettle) g_batt_n = g_batt_n + 1;
-}
-
-void board_battery_debug(int *raw, int *pin_mv) { *raw = g_batt_raw; *pin_mv = g_batt_pin_mv; }
-
-extern "C" int power_battery_mv(void) { return g_batt_n >= kBattSettle && g_batt_mv >= HW_BATT_PRESENT_MV ? g_batt_mv : 0; }
-
-extern "C" int power_battery_percent(void) {
-    const int mv = power_battery_mv();
-    if (!mv) return -1;
-    const int pct = (mv - HW_BATT_EMPTY_MV) * 100 / (HW_BATT_FULL_MV - HW_BATT_EMPTY_MV);
-    return pct < 0 ? 0 : pct > 100 ? 100 : pct;
-}
-#else
-void board_power_init(void) {}
-void board_audio_enable(void) {}
-void board_audio_open(void) {}
-void board_audio_off(void) {}
-void board_speaker_on(bool) {}
-bool board_power_button_on(void) { return true; }
-bool board_usb_host(void) { return false; }
-bool board_power_started_off(void) { return false; }
-bool board_power_poll(void) { return false; }
-void board_power_hold(bool) {}
-void board_power_off(void) {}
-bool board_boot_slot(bool) { return false; }
-void board_card_reader(void) {}
-void board_battery_sample(int, int) {}
-void board_battery_debug(int *raw, int *pin_mv) { *raw = 0; *pin_mv = 0; }
-extern "C" int power_battery_mv(void) { return 0; }
-extern "C" int power_battery_percent(void) { return -1; }
-#endif
+#endif // HWV1
 #endif // ARDUINO_ARCH_ESP32

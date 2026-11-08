@@ -7,7 +7,7 @@
 #include <Arduino.h>
 #include <esp_heap_caps.h>
 #include "app.h"
-#include "boards/hwv1/board_esp32.h"
+#include "boards/esp32/board_esp32.h"
 #include "hal/hal_audio_out.h"
 #include "synth.h"
 

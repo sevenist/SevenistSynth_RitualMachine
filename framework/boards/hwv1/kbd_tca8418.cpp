@@ -8,7 +8,7 @@
 #include <Wire.h>
 #include <Adafruit_TCA8418.h>
 #include "boards/hwv1/kbd_tca8418.h"
-#include "boards/hwv1/board_pins.h"
+#include "boards/esp32/board_pins.h"
 
 namespace {
 constexpr uint8_t REG_CFG = 0x01, REG_INT_STAT = 0x02;

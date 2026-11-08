@@ -1,5 +1,5 @@
 #if defined(ARDUINO_ARCH_ESP32)
-#include "boards/hwv1/storage_sd.h"
+#include "boards/esp32/storage_sd.h"
 #include <esp_heap_caps.h>
 #include <esp_memory_utils.h>
 #include <esp_timer.h>
@@ -8,7 +8,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include "boards/hwv1/sd_card.h"
+#include "boards/esp32/sd_card.h"
 
 sc::FileHandle SdStorage::open(const char *name) {
     char path[sizeof(File::path)];

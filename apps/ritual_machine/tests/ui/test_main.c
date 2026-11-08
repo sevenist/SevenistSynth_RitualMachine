@@ -66,8 +66,10 @@ bool ui_list_pick(const char *name) {
     return false;
 }
 
+void ui_stub_display_setup(u8g2_t *g);   // tools/ui_stubs.c: the size the tests are built for
+
 int main(int argc, char **argv) {
-    u8g2_Setup_sh1107_128x128_f(&disp, U8G2_R0, u8x8_byte_empty, u8x8_dummy_cb);
+    ui_stub_display_setup(&disp);
     u8g2_SetFont(&disp, u8g2_font_5x7_tr);
     int run = 0, failed_tests = 0;
     for (int i = 0; i < n_tests; i++) {

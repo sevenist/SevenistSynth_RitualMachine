@@ -3,11 +3,13 @@
 #include "core/controls.h"
 #include <string.h>
 #include "core/boards/map_hwv1.h"
+#include "core/boards/map_hwv2.h"
 #include "core/boards/map_panel.h"
 
 #define ROWS(a) a, (int)(sizeof a / sizeof a[0])
 static const control_map_t maps[] = {
     {"hwv1",  ROWS(kMapHwv1Rows)},
+    {"hwv2",  ROWS(kMapHwv2Rows)},
     {"panel", ROWS(kMapPanelRows)},
 };
 

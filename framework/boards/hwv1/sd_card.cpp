@@ -1,7 +1,7 @@
 #if defined(ARDUINO_ARCH_ESP32)
 #include <Arduino.h>
-#include "boards/hwv1/sd_card.h"
-#include "boards/hwv1/board_pins.h"
+#include "boards/esp32/sd_card.h"
+#include "boards/esp32/board_pins.h"
 
 #if defined(HWV1) && defined(HWV1_SD_IDF)
 // ESP-IDF's sdspi host, kept for comparison (build flag HWV1_SD_IDF). On the first prototype it spends about 40 ms before EVERY command (a CMD13 status

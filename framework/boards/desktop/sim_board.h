@@ -16,6 +16,12 @@
 #define SIM_CONTROLS        kHwv1Controls
 #define SIM_CONTROL_COUNT   HWV1_CONTROL_COUNT
 #define SIM_TURN_KEYS_FIRST HWV1_POT_1, HWV1_POT_2      // the top centre and top right pots (pot 0, top left, comes third)
+#elif defined(SIM_BOARD_HWV2)
+#include "boards/hwv2/hwv2_controls.h"
+#define SIM_BOARD_NAME      "hwv2"
+#define SIM_CONTROLS        kHwv2Controls
+#define SIM_CONTROL_COUNT   HWV2_CONTROL_COUNT
+#define SIM_TURN_KEYS_FIRST HWV2_ENC_A, HWV2_ENC_B
 #else
 #include "boards/desktop/panel_controls.h"
 #define SIM_BOARD_NAME      "panel"

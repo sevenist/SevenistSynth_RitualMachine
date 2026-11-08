@@ -1,6 +1,6 @@
 // The Ritual Machine's sample library on the first prototype: the .smp files below SD_SAMPLE_DIR of the TF card, in folders of any depth
 // (cook them on the PC with tools/wav2smp.py; there is no .wav / .mp3 import on the board). Everything that touches the card runs on
-// the library's card task (boards/hwv1/card_task.h), which mounts and watches the card and serves the small files of hal_storage.h;
+// the library's card task (boards/esp32/card_task.h), which mounts and watches the card and serves the small files of hal_storage.h;
 // this file is the app's own card work, run there through the task's hooks: a sample's header when a file is asked for by name
 // (nothing is scanned at start: the engine's catalog holds the files in use), a folder's list for the browser, the loader of the
 // streams (engine_synth_io_pump, ADR-022), a recording's and a sample job's chunks. The audio task never waits for the card.
@@ -20,9 +20,9 @@
 #include "core/card_layout.h"
 #include "platform/engine/engine_synth.h"
 #include "platform/engine/sample_catalog.h"
-#include "boards/hwv1/card_task.h"
-#include "boards/hwv1/sd_card.h"
-#include "boards/hwv1/storage_sd.h"
+#include "boards/esp32/card_task.h"
+#include "boards/esp32/sd_card.h"
+#include "boards/esp32/storage_sd.h"
 #include "platform/esp32/samples_esp32.h"
 
 #define SD_SAMPLE_DIR SD_MOUNT_POINT "/" STORAGE_DIR_SAMPLES     // the *.smp files of the sample library

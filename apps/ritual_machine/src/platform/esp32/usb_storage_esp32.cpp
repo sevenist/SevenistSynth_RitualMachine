@@ -1,4 +1,4 @@
-// The card reader (HWV1): the machine is off (its power button is up) and the USB cable feeds it, so it shows its TF card to the
+// The card reader: the machine is off (its power button is up) and the USB cable feeds it, so it shows its TF card to the
 // computer as a drive (USB mass storage) and nothing else runs: no synth, no audio, no keys.
 //
 // A firmware of its own (platformio.ini env:card_reader, built with HWV1_CARD_READER from this file and the few drivers it needs),
@@ -23,7 +23,7 @@
 // On the board (2026-10-11): the synth's firmware started this one, the computer mounted the 32 GB card as a drive and read a 25 MB
 // file at 543 KB/s (the port is full-speed USB: about 1 MB/s at best). Not tried yet: writing, the way back to the synth and its
 // serial console, a card pulled out while the computer has it.
-#if defined(ARDUINO_ARCH_ESP32) && defined(HWV1) && defined(HWV1_CARD_READER)
+#if defined(ARDUINO_ARCH_ESP32) && defined(HWV1_CARD_READER)
 #include <Arduino.h>
 #include <USB.h>
 #include <USBMSC.h>
@@ -32,11 +32,8 @@
 #include "hal/hal_power.h"
 #include "app/app.h"                          // BOOT_TITLE, BOOT_VERSION
 #include "core/ui_sprites_gen.h"
-#include "boards/hwv1/board_esp32.h"
-#include "boards/hwv1/board_pins.h"
-#include "boards/hwv1/hwv1_layout.h"
-#include "boards/hwv1/mux_esp32.h"
-#include "boards/hwv1/sd_card.h"
+#include "boards/esp32/board_esp32.h"
+#include "boards/esp32/sd_card.h"
 
 namespace {
 constexpr uint32_t kSector = 512;
@@ -44,6 +41,7 @@ constexpr int kMaxErrors = 3;                  // failed transfers in a row befo
 constexpr uint32_t kQuietMs = 500;             // no transfer for this long: the computer is done for now
 constexpr uint32_t kLeaveWaitMs = 3000;        // ... waited for at most this long when leaving
 constexpr uint32_t kJoyHoldMs = 2000;
+constexpr uint32_t kSensorMs = 100;
 
 USBMSC msc;
 volatile bool g_card = false;                  // the computer may use the card
@@ -146,8 +144,7 @@ void setup() {
     if (board_power_button_on() && esp_reset_reason() != ESP_RST_SW) ESP.restart();
     board_audio_off();
     u8g2_t *const g = display_init();
-    mux_init();
-    pinMode(PIN_JOY_SW, INPUT_PULLUP);
+    board_reader_init();
 
     msc.vendorID("Sevenist");
     msc.productID("Ritual Machine");
@@ -171,17 +168,16 @@ void setup() {
         if (on && !was_on) leave();
         was_on = on;
         board_power_hold(on);
-        const bool joy = digitalRead(PIN_JOY_SW) == (HWV1_JOY_SW_PUSHED ? HIGH : LOW);
+        const bool joy = board_reader_joystick();
         if (!joy) joy_since = 0;
         else if (!joy_since) joy_since = now ? now : 1;
         else if (now - joy_since >= kJoyHoldMs) leave();
 
         if (g_card && g_errors >= kMaxErrors) card_close();              // pulled out (or dead): the computer sees an empty reader
         if (!g_card && now - card_try_ms >= 1000) { card_try_ms = now; card_open(); }
-        if (now - sensor_ms >= HWV1_SENSOR_PERIOD_MS) {                  // the battery, as the input task reads it in the synth
+        if (now - sensor_ms >= kSensorMs) {
             sensor_ms = now;
-            const uint16_t mv = mux_read_mv(HWV1_MUX_BATTERY);
-            board_battery_sample(mux_read(HWV1_MUX_BATTERY), mv);
+            board_reader_sensors();
         }
         const uint32_t state = (g_card ? 1u : 0u) | static_cast<uint32_t>(power_battery_percent() + 1) << 8;
         if (state != shown) { shown = state; draw(g); }
@@ -190,4 +186,4 @@ void setup() {
 }
 
 void loop() {}
-#endif // ARDUINO_ARCH_ESP32 && HWV1 && HWV1_CARD_READER
+#endif // ARDUINO_ARCH_ESP32 && HWV1_CARD_READER

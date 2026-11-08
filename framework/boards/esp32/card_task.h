@@ -1,10 +1,10 @@
 #pragma once
-// First prototype: the card task. One task on core 0 does everything that touches the TF card (the card driver has no locks): it
+// The card task. One task on core 0 does everything that touches the TF card (the card driver has no locks): it
 // mounts and watches the card, reads and writes the small files of hal/hal_storage.h, makes the folders an app lists, and runs what
 // an app adds through its hooks (a sample library's reads, its streams). Without hooks it serves hal_storage.h alone.
 #if defined(ARDUINO_ARCH_ESP32)
 #include <stdint.h>
-#include "boards/hwv1/storage_sd.h"
+#include "boards/esp32/storage_sd.h"
 
 // An app's own card work. Every function is called on the card task and may be null. The order in one turn of the task's loop:
 // the card's poll (card_seen / card_ready / card_gone), calm work, a small file, the folders, always, idle, the streams (pump).

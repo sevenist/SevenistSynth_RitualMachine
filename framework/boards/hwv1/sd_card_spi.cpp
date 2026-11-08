@@ -20,8 +20,8 @@
 #include <esp_vfs_fat.h>
 #include <ff.h>
 #include <string.h>
-#include "boards/hwv1/board_pins.h"
-#include "boards/hwv1/sd_card.h"
+#include "boards/esp32/board_pins.h"
+#include "boards/esp32/sd_card.h"
 
 // SPI clock of the card in kHz once it is initialised (initialisation itself runs at 400 kHz, as the SD spec requires). Above 25 MHz the card
 // must be in high-speed mode (CMD6, specified to 50 MHz); a card that refuses the switch runs at 25 MHz. Measured on the prototype (SL32G):

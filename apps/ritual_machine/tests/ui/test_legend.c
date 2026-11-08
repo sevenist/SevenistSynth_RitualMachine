@@ -54,7 +54,7 @@ TEST(legend_names_the_page_rows_with_their_values) {
     CHECK_EQ(c[1].state, 0);
     CHECK(c[1].knob > 0.15f && c[1].knob < 0.25f);
     app_draw_frame(&ui_app);
-    for (int x = 0; x < 128; x += 8) CHECK(px(x, 128 - 21));            // the zone's rule across the screen
+    for (int x = 0; x < 128; x += 8) CHECK(px(x, DISPLAY_HEIGHT - 21));            // the zone's rule across the screen
 }
 
 TEST(legend_shows_the_sequencer_step_and_the_curve_point) {

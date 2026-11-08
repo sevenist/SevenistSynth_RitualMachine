@@ -1,6 +1,6 @@
 #pragma once
-// The TF card as a FAT volume mounted at SD_MOUNT_POINT. This is the only place that knows how the card is wired: HWV1 uses an SPI
-// card (ESP-IDF sdspi host); a prototype with a 4-bit SDMMC slot replaces the body of sd_card_mount() and nothing else.
+// The TF card as a FAT volume mounted at SD_MOUNT_POINT. Each board implements this with how its card is wired: HWV1 in boards/hwv1
+// (an SPI card); a board with a 4-bit SDMMC slot has an implementation of its own.
 #define SD_MOUNT_POINT "/sdcard"
 
 bool sd_card_mount();           // idempotent; false when there is no card (or no wiring on this board)

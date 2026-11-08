@@ -9,6 +9,9 @@ bool display_esp32_loading(void); // the loading screen is still up (the key LED
 void board_audio_off(void);       // DAC muted, speaker amplifier in shutdown (before the power goes, and in the card reader)
 void board_speaker_on(bool on);   // false = speaker amplifier in shutdown (the DAC / headphone output is not affected)
 void board_speaker_level(int pct);    // the built-in loudspeaker's level, 0..100 (0 = off): a gain on its channel of the output (audio_out_esp32.cpp)
+int  board_led_of_control(int ctl);   // where the LED under a control of the board's table sits in the chain, -1 = it has none
+void board_leds_refresh(void);        // called before each show of the chain: the LEDs that are the board's own (HW_LED_NOT_APP), through leds_esp32_put
+int  board_audio_peak(void);          // a board with HW_HAS_VU: the highest sample the engine has rendered since the last call, 0..32768
 void input_esp32_init(void);      // starts the input scan (keyboard, knobs, joystick); see input_esp32.cpp
 void display_esp32_boot_stage(int percent);   // setup() says how far it is (0..100): its part of the boot animation's loading bar (display_esp32.cpp)
 
@@ -31,6 +34,10 @@ void board_card_reader(void);     // restarts into the card reader; returns only
 // on the pin; hal/hal_power.h reports the smoothed result. board_battery_debug: the last reading as it came, for the serial command `power`.
 void board_battery_sample(int raw, int pin_mv);
 void board_battery_debug(int *raw, int *pin_mv);
-int  input_esp32_aux_raw(void);   // the mux's spare input (hwv1_layout.h HWV1_MUX_AUX): its last raw count ...
+// What the USB card reader (a firmware of its own: no input task) reads by itself: the mux set up, the joystick's push, and the battery, every 100 ms or so.
+void board_reader_init(void);
+bool board_reader_joystick(void);
+void board_reader_sensors(void);
+int  input_esp32_aux_raw(void);   // the mux's spare input (HWV1_MUX_AUX in hwv1_layout.h): its last raw count ...
 bool input_esp32_aux_pushed(void);    // ... and read as a button
 #endif

@@ -104,6 +104,9 @@ void ui_header_title(u8g2_t *g, gui_rect_t room, const char *title, bool arrows)
 void macros_default(synth_ui_t *ui, const rack_t *rack);
 int sampler_count(const rack_t *r);                 // samplers in the rack
 int sampler_slot(const rack_t *r, int k);           // slot of the k-th sampler (k from 1)
+// Col knob k (0..3) on its page row (for synth_ui_legend, read by the app's knob resolver): -1 = it drives nothing there (the menu, a row
+// that is not a value), 0 = it has not caught the value yet, 1 = caught; `norm` = that value, 0..1 of its range (-1 with nothing).
+int synth_ui_col_knob_state(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int k, float *norm);
 
 /* ---- ui_graphs.c: pictures for the graph box ---- */
 void draw_wave(u8g2_t *g, gui_rect_t box, int wave, float pulse_width, float cycles);                 // cycles: gui_style_t.wave_cycles

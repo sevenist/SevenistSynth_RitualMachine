@@ -16,11 +16,10 @@ static bool px(int x, int y) {
     return (b[(y / 8) * u8g2_GetDisplayWidth(ui_app.display) + x] >> (y % 8)) & 1;
 }
 
-static void cells(legend_cell_t c[SYNTH_UI_COL_KNOBS]) {
-    const int layer = app_active_layer(&ui_app);
-    if (ui_app.section == SECTION_PADS) app_pads_legend(&ui_app, c);
-    else if (layer >= 0) app_layer_legend(&ui_app, layer, c);
-    else synth_ui_legend(&ui_app.ui, &ui_app.params, &ui_app.seq, &ui_app.rack, c);
+static void cells(legend_cell_t c[SYNTH_UI_COL_KNOBS]) {           // what app_draw_frame draws (the knob resolver, app_knobs.c)
+    knob_drive_t pot[APP_POTS];
+    app_knobs_resolve(&ui_app, pot);
+    for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) c[k] = pot[k].cell;
 }
 
 TEST(legend_takes_the_layout_of_the_knobs) {

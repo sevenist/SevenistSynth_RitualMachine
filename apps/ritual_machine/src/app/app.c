@@ -190,19 +190,20 @@ void app_draw_frame(app_t *app) {
         gui_anim_draw_centered(g, app->boot_anim, gui_rect(0, 0, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g)));
         app_boot_draw_text(g);
     } else {
-        const int layer = in_pads(app) ? -1 : app_active_layer(app);   // (the layers act in the synth section)
-        app->ui.layer_held = (int8_t)layer;
+        app->ui.layer_held = (int8_t)app_active_layer(app);             // (the layers act in both sections)
         app->ui.rec_mark = (uint8_t)rec_mark(app);
         if (app->ui.br_open) browse_ui_draw(&app->ui, g);
         else {
             const bool pads_screen = in_pads(app) && !app->ui.in_rack;   // (a synth tab over the pads: the synth's screen)
             if (pads_screen) pads_ui_draw(&app->ui, &app->rack, g, app->pads_shown, app->seq.bpm);
             else synth_ui_draw(&app->ui, &app->params, &app->seq, &app->rack, g);
-            legend_cell_t cell[SYNTH_UI_COL_KNOBS];                        // the knob legend (ADR-046): what the column knobs drive now
-            if (pads_screen) app_pads_legend(app, cell);
-            else if (layer >= 0) app_layer_legend(app, layer, cell);
-            else synth_ui_legend(&app->ui, &app->params, &app->seq, &app->rack, cell);
-            if (ui_legend_shown(&app->ui, &app->rack, pads_screen)) ui_legend_draw(g, cell);
+            if (ui_legend_shown(&app->ui, &app->rack, pads_screen)) {      // the knob legend (ADR-046): what the column knobs drive now
+                knob_drive_t pot[APP_POTS];
+                legend_cell_t cell[SYNTH_UI_COL_KNOBS];
+                app_knobs_resolve(app, pot);
+                for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) cell[k] = pot[k].cell;
+                ui_legend_draw(g, cell);
+            }
         }
         gui_style_t st;
         gui_style_init(&st, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));

@@ -250,8 +250,22 @@ void app_pad_key_up(app_t *app, control_id_t ctl) {
 }
 
 // The column knobs in the Pads section: Start, End, Tune and Cut of the selected pad, over their whole range.
+static const pad_param_t pad_knob[SYNTH_UI_COL_KNOBS] = {PADP_START, PADP_END, PADP_TUNE, PADP_CUT};
+
+// The length of the pad's sample in frames, and its rate (0: unknown, or not read yet): the trim needs it.
+static uint32_t pad_frames(const pad_t *p, uint32_t *rate) {
+    audio_sample_info_t in;
+    if (rate) *rate = 0;
+    for (int i = 0; p->file[0] && i < audio_sample_count(); i++)
+        if (audio_sample_info(i, &in) && !strcmp(in.name, p->file)) {
+            if (in.pending) return 0;
+            if (rate) *rate = in.rate;
+            return in.frames;
+        }
+    return 0;
+}
+
 void app_pads_knob(app_t *app, int row, int value) {
-    static const pad_param_t knob[SYNTH_UI_COL_KNOBS] = {PADP_START, PADP_END, PADP_TUNE, PADP_CUT};
     if (row < 1 || row > SYNTH_UI_COL_KNOBS) return;
     char fl[24], fv[16];
     if (pads_ui_fx_knob(&app->ui, row - 1, (float)value / INPUT_VALUE_MAX, fl, sizeof fl, fv, sizeof fv)) {   // a module's values page: its first four
@@ -262,11 +276,9 @@ void app_pads_knob(app_t *app, int row, int value) {
     }
     const int pad = pads_ui_pad(&app->ui);
     pad_t *p = &app->pads.pad[pad];
-    const pad_param_t k = knob[row - 1];
-    audio_sample_info_t in;                                 // the trim needs the sample's length
-    uint32_t frames = 0, rate = 0;
-    for (int i = 0; p->file[0] && i < audio_sample_count(); i++)
-        if (audio_sample_info(i, &in) && !strcmp(in.name, p->file)) { if (!in.pending) { frames = in.frames; rate = in.rate; } break; }
+    const pad_param_t k = pad_knob[row - 1];
+    uint32_t rate;
+    const uint32_t frames = pad_frames(p, &rate);
     app->ui.clock_bpm = app->seq.bpm;
     const bool trim = k == PADP_START || k == PADP_END || k == PADP_LSTART;
     if (trim ? pads_ui_trim(&app->ui, pad, k, 0, (float)value / INPUT_VALUE_MAX) : pad_param_set_norm(p, k, (float)value / INPUT_VALUE_MAX, frames))
@@ -279,30 +291,16 @@ void app_pads_knob(app_t *app, int row, int value) {
     app->dirty = true;
 }
 
-// The knob legend in the Pads section: a module's values page shows its first four values, else Start, End, Tune, Cut of the selected pad
-// (no catch: the pad knobs set at once).
-void app_pads_legend(app_t *app, legend_cell_t cell[SYNTH_UI_COL_KNOBS]) {
-    static const pad_param_t knob[SYNTH_UI_COL_KNOBS] = {PADP_START, PADP_END, PADP_TUNE, PADP_CUT};
-    for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) {
-        legend_cell_t *c = &cell[k];
-        ui_legend_cell_none(c);
-        if (pads_ui_fx_legend(&app->ui, k, c->label, sizeof c->label, &c->value)) { c->state = 1; continue; }
-        if (app->ui.pad_fx == 2) continue;                              // a module's values page: a knob past its values drives nothing
-        const pad_t *p = &app->pads.pad[pads_ui_pad(&app->ui)];
-        snprintf(c->label, sizeof c->label, "%s", pad_param_label(knob[k]));
-        c->state = 1;
-        uint32_t frames = 0;
-        audio_sample_info_t in;
-        for (int i = 0; (knob[k] == PADP_START || knob[k] == PADP_END) && p->file[0] && i < audio_sample_count(); i++)
-            if (audio_sample_info(i, &in) && !strcmp(in.name, p->file)) { if (!in.pending) frames = in.frames; break; }
-        switch (knob[k]) {
-            case PADP_START: if (frames) c->value = (float)p->start / (float)frames; break;
-            case PADP_END:   if (frames) c->value = p->end ? (float)p->end / (float)frames : 1.0f; break;
-            case PADP_TUNE:  c->value = (float)(p->tune + 24) / 48.0f; break;
-            case PADP_CUT:   c->value = (float)p->cut / 100.0f; break;
-            default: break;
-        }
-    }
+// What app_pads_knob does with knob k: a module's values page, its values (a knob past them drives nothing); else the selected pad's.
+void app_pads_knob_cell(app_t *app, int k, legend_cell_t *c) {
+    ui_legend_cell_none(c);
+    if (k < 0 || k >= SYNTH_UI_COL_KNOBS) return;
+    if (pads_ui_fx_legend(&app->ui, k, c->label, sizeof c->label, &c->value)) { c->state = 1; return; }
+    if (app->ui.pad_fx == 2) return;
+    const pad_t *p = &app->pads.pad[pads_ui_pad(&app->ui)];
+    snprintf(c->label, sizeof c->label, "%s", pad_param_label(pad_knob[k]));
+    c->state = 1;
+    c->value = pad_param_norm(p, pad_knob[k], pad_frames(p, NULL));
 }
 
 // Every step in the Pads section: its jobs go on; the grid shows which pads sound and the header the clock, so a change of either

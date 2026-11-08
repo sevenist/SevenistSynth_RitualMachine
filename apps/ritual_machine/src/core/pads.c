@@ -198,6 +198,23 @@ bool pad_param_set_norm(pad_t *p, pad_param_t k, float x, uint32_t frames) {
     return memcmp(&old, p, sizeof old) != 0;
 }
 
+float pad_param_norm(const pad_t *p, pad_param_t k, uint32_t frames) {
+    switch (k) {
+        case PADP_START:  return frames ? (float)p->start / (float)frames : -1.0f;
+        case PADP_END:    return frames ? (p->end ? (float)p->end / (float)frames : 1.0f) : -1.0f;      // (0: the file's end)
+        case PADP_LSTART: return frames ? (float)p->lstart / (float)frames : -1.0f;
+        case PADP_XFADE:  return sqrtf((float)p->xfade_ms / 2000.0f);
+        case PADP_TAIL:   return sqrtf((float)p->tail_ms / 2000.0f);
+        case PADP_TUNE:   return (float)(p->tune + 24) / 48.0f;
+        case PADP_FINE:   return (float)(p->fine + 50) / 100.0f;
+        case PADP_LEVEL:  return (float)p->level / 100.0f;
+        case PADP_PAN:    return (float)(p->pan + 50) / 100.0f;
+        case PADP_CUT:    return (float)p->cut / 100.0f;
+        case PADP_RES:    return (float)p->res / 100.0f;
+        default:          return -1.0f;
+    }
+}
+
 /* ---------------- snap ---------------- */
 
 uint32_t pad_snap_origin(const pad_t *p, pad_param_t k, uint32_t frames) {

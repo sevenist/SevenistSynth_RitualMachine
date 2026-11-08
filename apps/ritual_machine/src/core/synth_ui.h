@@ -273,10 +273,6 @@ bool synth_ui_target_at_cursor(const synth_ui_t *ui, const rack_t *rack, macro_t
 // page row; a macro is given as its first destination); NULL: all drive their page rows.
 #define MACRO_PAGE_ROW 0xFF
 void synth_ui_catch_refresh(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, const mapping_t *tgt);
-// Col knob k (0..3) on its page row, for its LED (ADR-045): -1 = it drives nothing there (the menu, a row that is not a value),
-// 0 = it has not caught the value yet, 1 = caught; `norm` = that value, 0..1 of its range (-1 with nothing).
-int synth_ui_col_knob_state(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int k, float *norm);
-
 // The knob legend (ENGINE_DESIGN.md ADR-046, rules R14 / R15; core/ui_legend.c): a zone at the bottom of a tall screen naming what each
 // column knob drives, laid out like the knobs (2 x 2 on HWV1, 1 x 4 on the panel). The screens leave it free; the app fills it and draws it.
 typedef struct {
@@ -291,8 +287,8 @@ int  ui_legend_h(u8g2_t *g);                    // the zone's height in pixels (
 bool ui_legend_shown(const synth_ui_t *ui, const rack_t *rack, bool pads);
 void ui_legend_draw(u8g2_t *g, const legend_cell_t cell[SYNTH_UI_COL_KNOBS]);
 void ui_legend_cell_none(legend_cell_t *c);
-// What the column knobs drive in the synth section with no modifier held: the page's rows 1..4, the SEQUENCER's step values, the CURVES
-// tab's X / Y; nothing elsewhere in the menu.
+// What the column knobs drive on the synth's screen with no modifier held: the page's rows 1..4, the SEQUENCER's step values, the CURVES
+// tab's X / Y; nothing elsewhere in the menu. The app's knob resolver (app_knobs.c) reads it for the legend and the pots' LEDs.
 void synth_ui_legend(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, legend_cell_t cell[SYNTH_UI_COL_KNOBS]);
 // The marks at the right end of a header (both sections): the battery (ui->batt_pct), the modifier held (ui->layer_held). Returns the
 // width they took, so the header's own right-hand text goes left of it.

@@ -3,7 +3,8 @@
 //
 //   app.c           the start (app_init, the boot animation), one frame, the step (app_step: what runs at every pass of the main loop)
 //   app_input.c     where an input event goes: the matrix keys, the other controls, the binding table, the joystick (buttons or XY)
-//   app_layers.c    the Shift / Mod layers, Learn, the catch of the column knobs
+//   app_layers.c    the Shift / Mod layers, Learn
+//   app_knobs.c     the knob resolver: what every pot drives now (the legend, the pots' LEDs, the catch of the column knobs)
 //   app_actions.c   what an action does (app_run_action), UI events, the keyboard's notes, the tempo
 //   app_pads.c      the Pads section: the switch Synth <-> Pads, the pad keys, its knobs, its screens' events, the chop to pads
 //   app_library.c   the samples in use (the catalog) and the sample browser
@@ -40,12 +41,28 @@ void app_joy_xy_off(app_t *app);                                    // leaving t
 
 /* ---------------- app_layers.c ---------------- */
 
-extern bool app_catch_stale;                                        // the column knobs are to be checked against what they drive
 bool app_layer_event(app_t *app, input_event_t e);                  // Shift / Mod + a control; false: the base handles the event
 bool app_mods_tab_select(app_t *app, input_event_t e);              // the MODIFIERS tab: a control selects itself in the tab
 bool app_curves_tab_knob(app_t *app, input_event_t e);              // the CURVES tab: the X / Y knobs move the selected point
 bool app_learn_push(app_t *app, action_id_t act);                   // while a Learn button waits: the push that assigns, or Back
 void app_learn_poll(app_t *app, uint32_t now);                      // every step: a Learn button was pushed
+int  app_active_layer(const app_t *app);                            // MODL_MOD while Mod is held, else MODL_SHIFT with Shift, else -1 (both sections)
+
+/* ---------------- app_knobs.c: the knob resolver ---------------- */
+
+// What every pot drives now, one answer for the knob legend (the column knobs' cells), the pots' LEDs and the catch, in both sections:
+// the Shift / Mod layer held (its entry; a Default entry: a column knob drives nothing, the other pots keep their job), else the screen
+// on show (the synth's page rows, the SEQUENCER's step, the CURVES point, the pad's Start / End / Tune / Cut or a module's values in Pads,
+// nothing on the other menu tabs, PERFORM / SETUP over the pads included), R1..R3 their macros, the volume knob the master volume.
+#define APP_POTS 8                       // the column knobs 1..4, R1..R3, the volume knob, in that order
+typedef struct {
+    control_id_t  ctl;
+    legend_cell_t cell;                  // what it drives (label, value 0..1, the knob's place, state: -1 nothing, 0 not caught, 1 caught / no catch)
+    int8_t        macro;                 // >= 0: it plays (or learns into) this macro: its LED takes the macro's colour
+    uint8_t       role;                  // else its LED's role (core/led_roles.h): LR_KNOB, or LR_VOLUME for the master volume
+} knob_drive_t;
+void app_knobs_resolve(app_t *app, knob_drive_t pot[APP_POTS]);
+extern bool app_catch_stale;                                        // the column knobs are to be checked against what they drive
 void app_catch_poll(app_t *app);                                    // every step: the knobs' catch, measured again when stale
 
 /* ---------------- app_actions.c ---------------- */
@@ -70,6 +87,7 @@ void app_pads_event(app_t *app, ui_event_t ev);                     // one UI ev
 void app_pad_key_down(app_t *app, control_id_t ctl, int k);         // a pad key, k = 0..15 of the bank shown
 void app_pad_key_up(app_t *app, control_id_t ctl);
 void app_pads_knob(app_t *app, int row, int value);                 // a column knob in the Pads section
+void app_pads_knob_cell(app_t *app, int k, legend_cell_t *c);       // ... what column knob k (0..3) drives there (no catch: set at once)
 void app_pads_poll(app_t *app, uint32_t now);                       // every step in the Pads section
 
 /* ---------------- app_library.c ---------------- */
@@ -132,9 +150,6 @@ void app_pseq_poll(app_t *app);                                     // every ste
 
 /* ---------------- app_lists.c (ADR-044) ---------------- */
 
-void app_layer_legend(app_t *app, int layer, legend_cell_t cell[SYNTH_UI_COL_KNOBS]);   // app_layers.c: the knob legend of the layer held
-void app_pads_legend(app_t *app, legend_cell_t cell[SYNTH_UI_COL_KNOBS]);              // app_pads.c: ... in the Pads section
-int  app_active_layer(const app_t *app);                            // app_layers.c: MODL_MOD while Mod is held, else MODL_SHIFT with Shift, else -1
 void app_list_open(app_t *app, bool setup);                         // Shift + Menu: the map (setup: its SETUP submenu)
 void app_menu_down(app_t *app, control_id_t ctl, uint32_t now);     // Menu went down (no Shift): held MENU_LONG_MS = the jump list ...
 void app_menu_up(app_t *app, control_id_t ctl);                     // ... a control was let go: Menu's short press acts here

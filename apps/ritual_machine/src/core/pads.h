@@ -104,6 +104,9 @@ void pad_param_format(const pad_t *p, pad_param_t k, uint32_t frames, uint32_t r
 bool pad_param_adjust(pad_t *p, pad_param_t k, int dir, uint32_t frames);
 // A setting from 0..1 (a knob's travel; Mode, Loop, Choke, Mute go by steps). True when it changed.
 bool pad_param_set_norm(pad_t *p, pad_param_t k, float x, uint32_t frames);
+// Its inverse for the continuous settings (the trim, Xfade, Tail, Tune, Fine, Level, Pan, Cut, Res): where on 0..1 the value is. -1 for
+// the others, and for the trim while the sample's length `frames` is unknown (0).
+float pad_param_norm(const pad_t *p, pad_param_t k, uint32_t frames);
 // The trim as the engine plays it, for a file of `frames` frames: start < end <= frames, start <= loop start < end - 1.
 uint32_t pad_end(const pad_t *p, uint32_t frames);
 uint32_t pad_lstart(const pad_t *p, uint32_t frames);

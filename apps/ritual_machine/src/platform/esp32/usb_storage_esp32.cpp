@@ -18,6 +18,7 @@
 //
 // Leaving: the power button goes down (the machine is switched on), or the joystick is held pushed for 2 s and kept held until the
 // synth's boot screen shows (the synth with the button up, for work on the cable: board_power_started_off looks at the joystick).
+// The joystick counts only once it has been seen released here: held since the synth, or stuck on, it never leaves.
 // Files the computer has not finished writing are lost then: eject the drive first.
 //
 // On the board (2026-10-11): the synth's firmware started this one, the computer mounted the 32 GB card as a drive and read a 25 MB
@@ -161,6 +162,7 @@ void setup() {
     USB.begin();
 
     bool was_on = board_power_button_on();     // (down already: the synth's serial command `storage` asked for this)
+    bool joy_seen_up = false;                  // the joystick counts once it was seen released: one held since the synth, or a push stuck on (a board fault), never leaves
     uint32_t joy_since = 0, card_try_ms = millis(), sensor_ms = 0, shown = ~0u;
     for (;;) {
         const uint32_t now = millis();
@@ -169,7 +171,8 @@ void setup() {
         was_on = on;
         board_power_hold(on);
         const bool joy = board_reader_joystick();
-        if (!joy) joy_since = 0;
+        if (!joy) { joy_since = 0; joy_seen_up = true; }
+        else if (!joy_seen_up) {}
         else if (!joy_since) joy_since = now ? now : 1;
         else if (now - joy_since >= kJoyHoldMs) leave();
 

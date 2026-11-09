@@ -65,7 +65,7 @@ void power_audio_resume(void) { board_speaker_on(g_speaker_on); }
 
 // ---- the card reader (a firmware of its own: no input task) ----
 void board_reader_init(void) { mux_ready(); }
-bool board_reader_joystick(void) { return mux_read_settled(HWV2_MUX_JOY_SW, 1) > 2048; }
+bool board_reader_joystick(void) { return mux_read_settled(HWV2_MUX_JOY_SW, 4) > 2048; }   // (4 reads: a line that floats must not flicker into a release)
 
 void board_reader_sensors(void) {               // the switch and the battery, as the input task reads them in the synth
     const uint16_t mv = mux_read_mv(HWV2_MUX_PWR);

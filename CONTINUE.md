@@ -191,7 +191,7 @@ item). Uncommitted too, with `ENGINE_DESIGN.md` (ADR-042 decisions
   Pads (a long press there is the FX chains, ADR-044 decision 8; host-tested, not flashed yet). The 21 points tried include the
   old ones: the sequencer's Undo after an erase, the roll past step 16, the pattern recorded as a sample.
   (from: user, design round 2026-10-28; ENGINE_DESIGN.md ADR-044). **Built 2026-10-28 on `main` (6 commits).** **To try**
-  (simulator: `.uild.ps1`, `.un.ps1`; the board after a flash): Shift + Menu (it opens on the screen you are on), Rack,
+  (simulator: `.\build.ps1`, `.\run.ps1`; the board after a flash): Shift + Menu (it opens on the screen you are on), Rack,
   Sound (Modular: the sample rows at the end; FM: Algo / Fb / Op), Sequencer, Macros, Advanced > Curves, Back from the
   submenu; Pads, then Shift + Menu: Pad FX, Steps, Pads, Presets (back to the synth); Menu held 0.5 s on a page, in the menu,
   in Pads: the pages, one picked; a short Menu still opens the menu (at the release now: say if it feels late); on the board,

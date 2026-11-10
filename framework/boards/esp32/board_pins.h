@@ -130,7 +130,7 @@
 #define PIN_MUX_S3    39
 #define PIN_MUX_ADC   9
 
-// The I2C bus: the key scanner (U14, apps/HWV2_scanner), the ES8388 at 0x10, the MPU-6050
+// The I2C bus: the key scanner (U14, a CH32V006 at 0x42), the ES8388 at 0x10, the MPU-6050
 #define PIN_I2C_SDA   13
 #define PIN_I2C_SCL   14
 #define HW_I2C_HZ     400000

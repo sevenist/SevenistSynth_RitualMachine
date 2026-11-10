@@ -3,7 +3,14 @@
 // control does is not here: an app decides. Plain data and plain functions: the host tests read them too.
 #include "boards/hwv2/hwv2_controls.h"
 
-// ---- the scanner (U14, apps/HWV2_scanner/src/main.c describes its frame) ------------------------------------------------------
+// ---- the scanner (U14, a CH32V006 on I2C at 0x42; its firmware is not in this repo) ----------------------------------------
+// A read returns HWV2_SCANNER_FRAME bytes:
+//   0..2  the inputs, little endian, 1 = pressed (debounced): bit row * 4 + col = a key (rows 0..3 = r1..r4, the 4 x 4; row 4 = r5, the top
+//         row; cols 0..3 = c1..c4, left to right); bit 20 / 21 = the push of encoder A / B.
+//   3, 4  encoder A / B: a free running count of quarter steps (4 a click); the reader takes the difference as an int8_t.
+//   5     flags (0x01: PD7, column 3, is still the scanner's reset pin)
+//   6     a free running scan count (it changes while the scanner runs)
+//   7     check: 0xA5 xor bytes 0..6
 #define HWV2_SCANNER_FRAME 8
 #define HWV2_SCANNER_INPUTS 22          // 20 keys, then the 2 encoders' pushes
 #define HWV2_ENC_COUNTS_PER_DETENT 4    // quarter steps a click (seen on the board)

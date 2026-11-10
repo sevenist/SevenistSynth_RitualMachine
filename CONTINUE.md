@@ -6,7 +6,11 @@ not: state, the latest measurements and what to do next, the user's working styl
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
 `apps/ritual_machine/tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
-## Session todo (updated 2026-11-08)
+## Session todo (updated 2026-11-10)
+
+**Since (2026-11-09 / 10):** the user committed the HWV2 card reader in the `hwv2` build (`63e034d`), removed `apps/HWV2_scanner` (the
+CH32V006's firmware is no longer in this repo; the frame it sends is described in `framework/boards/hwv2/hwv2_layout.h`) and added the
+guide `docs/guides/BUILDING.md` (building any app's desktop program) and the project skill `improve-codebase-architecture`.
 
 **Where things stand (2026-11-08, second session: TechnoGen):** the user started **a new app from the library: TechnoGen**, a techno loop
 generator groovebox for HWV2, from their design canvas ("TechnoGen Firmware Design": the 7-track main view, the signal and core map, the ideas;
@@ -16,7 +20,7 @@ the app, the library's colour canvas, the dice and the track model, the engine's
 main and engine views with every control. Host-tested (TechnoGen 33, every other run unchanged), the simulator run; the changed ESP32 files
 compile with the xtensa compiler; **the firmware was NOT built with PlatformIO, NOT flashed**. My 13 choices: ADR-048 "Chosen by me". The
 user's uncommitted edits (the deleted `apps/HWV2_scanner`, `HWV2_USB_STORAGE=1` in the Ritual Machine's `hwv2`, `board_reader_joystick`'s 4
-reads, `usb_storage_esp32.cpp`) were left out of every commit. **Open:**
+reads, `usb_storage_esp32.cpp`) were left out of every commit (the user committed them since, `63e034d`, and removed the scanner). **Open:**
 - [ ] **Try TechnoGen in the simulator** (`.\build.ps1 -App technogen`, `.\run.ps1 -App technogen`; its README lists the controls): the screens,
   the dice, the patterns at the bar, the knobs' catch. Say what to change; the sounds are placeholders.
 - [ ] **Flash TechnoGen on HWV2** (VS Code, folder `technogen`, env `hwv2`): the first colour frames on the real screen (byte order, the
@@ -29,15 +33,15 @@ ported to it in the board layer only** (`framework/boards/esp32` for what the bo
 `core/controls.c`, the include paths of the app's ESP32 files, the card reader and serial commands made board-agnostic, the UI tests at 160 px). Flashed and tried by the user, one phase at a time: the screen and LEDs, the controls ("the
 firmware works"; both joystick axes inverted since), the power switch and battery ("tested and working"), then the shared soft power and the
 LEDs dark at power-off ("tested and working"). The bring-up app `apps/HWV2_tests` was deleted at their word; `apps/HWV2_scanner` (the
-CH32V006's firmware) stays. Committed on `gui-reorg` (the code, then the docs). **Open:**
+CH32V006's firmware) stayed, until the user removed it on 2026-11-10. Committed on `gui-reorg` (the code, then the docs). **Open:**
 - [ ] **The SD card and the card reader on HWV2** (`[env:hwv2_card_reader]`, SDMMC 4-bit): written, not reported on by the user.
 - [ ] **The VU meter** (LEDs 5..10, the engine's peak): written as a placeholder, not reported on; tune its levels (`hwv2_layout.h`) once there is sound.
 - [ ] **The codec** (ES8388) when the parts arrive: its I2C setup in the board layer; then the CPU numbers on this board.
 - [ ] **The joystick push also acts as Shift** on the user's board: a fault between U2's pins 4 and 5 (B3 / JOYS). They repair the board or wait for rev B.
 - [ ] **HWV1 not tried since its input and power code moved to the shared files** (the user: "untested on hwv1"). Flash the default environment and try the keys, pots, switch-off.
-- [ ] **Once a battery stays in HWV2:** `-DHWV2_USB_STORAGE=1`, and check `HW_BATT_FULL_SCALE_MV` (computed, 11065) with `power` against a meter.
-- [ ] **The knob resolver (ADR-047)**, from an architecture review (2026-11-08): built on `gui-reorg`, host-tested (215 UI tests), NOT
-  flashed. To try: Shift / Mod held in Pads (the knobs, the legend, the "S"); on GRV-mini the pot LEDs on the SEQUENCER, CURVES, Pads
+- [ ] **Once a battery stays in HWV2:** the card reader is on in the `hwv2` build since `63e034d` (`HWV2_USB_STORAGE=1`); check `HW_BATT_FULL_SCALE_MV` (computed, 11065) with `power` against a meter.
+- [ ] **The knob resolver (ADR-047)**, from an architecture review (2026-11-08): built on `gui-reorg`, now in `main`, host-tested (216 UI tests with
+  the legend tick's fix, `cb56f41`: the tick follows a knob that has not caught), NOT flashed. To try: Shift / Mod held in Pads (the knobs, the legend, the "S"); on GRV-mini the pot LEDs on the SEQUENCER, CURVES, Pads
   (the value), PERFORM / SETUP over the pads (dark). Other candidates of the review, not started: one screen navigator for both
   sections, one recorder for the four recordings, an effects port for the UI's request flags, a held-control tracker.
 

@@ -33,11 +33,10 @@ oled_sim/
 │  ├─ ritual_machine/       THE RITUAL MACHINE: this guide. Its own src/ (core, app, platform), tests/, tools/, assets/,
 │  │                        build.ps1, platformio.ini, and the simulator's card (sdcard/, samples/, samples_src/)
 │  ├─ template/             the starter app: a four-voice synth with a screen and the board's keys, desktop + first prototype (its README.md)
-│  ├─ technogen/            TECHNOGEN: a techno loop generator for the second prototype, seven tracks and a dice, in colour (its README.md, ADR-048)
-│  └─ HWV2_scanner/         the second prototype's key scanner: the firmware of its CH32V006 (not an app of the library)
+│  └─ technogen/            TECHNOGEN: a techno loop generator for the second prototype, seven tracks and a dice, in colour (its README.md, ADR-048)
 ├─ tools/new_project.ps1    .\tools\new_project.ps1 my_synth  ->  apps/my_synth, a copy of the template under its own name
-├─ docs/guides/             task guides (README.md lists them): DRAWING_KIT.md (the library's ui/, for any app),
-│                           RITUAL_MACHINE_UI.md (how this app's screens are built), SERIAL_COMMANDS.md (the dev commands on the board)
+├─ docs/guides/             task guides (README.md lists them): BUILDING.md (build.ps1 / run.ps1 for any app and board),
+│                           DRAWING_KIT.md (the library's ui/, for any app), RITUAL_MACHINE_UI.md (how this app's screens are built), SERIAL_COMMANDS.md (the dev commands on the board)
 ├─ docs/images/             the pictures of the repo's README.md
 ├─ build.ps1, run.ps1       build / run an app's desktop program from here (-App name; default: ritual_machine)
 ├─ test.ps1                 every host test: the library's, then the Ritual Machine's engine and UI tests, then TechnoGen's
@@ -609,14 +608,13 @@ numbers: `hwv2_layout.h` has the channels by U2's pins. The default environment 
 ```powershell
 .\upload.ps1 -Env hwv2 -Port COM12                 # the synth (the module's CH343 port; its log prints on the native USB port, COM13 here)
 .\upload.ps1 -Env hwv2_card_reader                 # its card reader, in the second slot, once (the synth running, the serial monitor closed)
-.\upload.ps1 -App HWV2_scanner                     # the CH32V006's scanner, through a WCH-LinkE in RV mode on SWIO
 .\build.ps1 -Board hwv2; .\run.ps1 -Board hwv2     # the simulator with this board's table (the same as the panel); the UI tests at its height: tools\build_ui_tests.ps1 -Height 160
 ```
 
 | File (`boards/hwv2/`) | What |
 | --- | --- |
 | `hwv2_controls.*`, `hwv2_layout.h` | the table (the panel's controls, in its order) and the wiring: the scanner's bits, the mux channels, the pots reversed on rev A (`HWV2_KNOBS_REVERSED`), the joystick's axes inverted (`HWV2_JOY_INVERT_X / _Y`), the encoders' signs and 4 counts a click, the VU meter's levels, the scan periods |
-| `input_esp32.cpp` | the scan task on core 0: the CH32V006 on I2C (0x42, an 8-byte frame with a check byte: the 20 keys, the encoders and their pushes; `apps/HWV2_scanner/src/main.c` describes it), the 8 pots, the joystick and the 4 buttons on the mux, the switch and the battery every 100 ms. A button that reads pushed at the start is ignored until it is seen up (rev A's bodge 1) |
+| `input_esp32.cpp` | the scan task on core 0: the CH32V006 on I2C (0x42, an 8-byte frame with a check byte: the 20 keys, the encoders and their pushes; `hwv2_layout.h` describes it; the CH32V006's own firmware is no longer in this repo), the 8 pots, the joystick and the 4 buttons on the mux, the switch and the battery every 100 ms. A button that reads pushed at the start is ignored until it is seen up (rev A's bodge 1) |
 | `display_panel.cpp` | the GMT177-10 (128 x 160, ST7735S family) on SPI with DMA at 15 MHz: the app's 1-bit frame turned into RGB565, or its colour frame (`display_send_rgb565`, from PSRAM, through the 2 KB DMA buffer) as it is; changed tiles only. No reset line on rev A (a software reset at the start) |
 | `hwv2_leds.cpp` | the chain's order (35 LEDs: the pots, the VU meter, the indicator, the function row, the 4 x 4 as a serpentine) and the VU meter (LEDs 5..10, the board's own: the engine's peak, so it plays without the codec). LED 11 (the indicator) stays off |
 | `board_esp32.cpp` | the power switch, read with the battery on mux channel 7 (switched off, or no battery: 0 V), the joystick for the shared soft power (`boards/esp32/power_esp32.cpp`), the LM4871's shutdown pin, what the card reader reads |

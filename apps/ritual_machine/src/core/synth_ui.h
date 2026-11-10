@@ -20,7 +20,7 @@ extern "C" {
 // The header's recording mark (ADR-046 rule R18): "REC" framed = armed, inverted = recording; "ERS" inverted = the playhead erases.
 enum { REC_MARK_NONE, REC_MARK_ARMED, REC_MARK_ON, REC_MARK_ERASE };
 #define BROWSE_PAGE 12
-// The views (ENGINE_DESIGN.md ADR-046 phase 3, rule R1): the synth's pages and menu tabs grouped by what they are for. EDIT (home) = the
+// The views (apps/ritual_machine/docs/DESIGN.md ADR-046 phase 3, rule R1): the synth's pages and menu tabs grouped by what they are for. EDIT (home) = the
 // patch's pages, SEQ = SEQUENCER, SEQ SETUP, PATTERNS, RACK = RACK + SOUND, PERFORM = MACROS + JOY, PRESETS, SETUP = the machine's settings
 // (KEYS, LEDS, MODIFIERS, CURVES, MACHINE). The header's left segment shows the view; up from the page selector focuses it (ui->view_sel).
 typedef enum { VIEW_EDIT, VIEW_SEQ, VIEW_RACK, VIEW_PERFORM, VIEW_PRESETS, VIEW_SETUP, VIEW_COUNT } view_t;                      // the sample browser: the entries it holds at once (at least the rows it shows)
@@ -273,7 +273,7 @@ bool synth_ui_target_at_cursor(const synth_ui_t *ui, const rack_t *rack, macro_t
 // page row; a macro is given as its first destination); NULL: all drive their page rows.
 #define MACRO_PAGE_ROW 0xFF
 void synth_ui_catch_refresh(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, const mapping_t *tgt);
-// The knob legend (ENGINE_DESIGN.md ADR-046, rules R14 / R15; core/ui_legend.c): a zone at the bottom of a tall screen naming what each
+// The knob legend (apps/ritual_machine/docs/DESIGN.md ADR-046, rules R14 / R15; core/ui_legend.c): a zone at the bottom of a tall screen naming what each
 // column knob drives, laid out like the knobs (2 x 2 on HWV1, 1 x 4 on the panel). The screens leave it free; the app fills it and draws it.
 typedef struct {
     char   label[10];   // what the knob drives ("Cut", "M1", "Spk")

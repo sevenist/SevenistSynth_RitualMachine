@@ -1,6 +1,6 @@
 # The GUI reorganization: plan and handoff
 
-**Status (2026-10-29, second session): decided** (the user's answers to Q1..Q9 are ENGINE_DESIGN.md **ADR-046**: design for
+**Status (2026-10-29, second session): decided** (the user's answers to Q1..Q9 are [DESIGN.md](DESIGN.md) **ADR-046**: design for
 HWV1, push = Enter, JOY to PERFORM, Out / Spk / Knob to SETUP > MACHINE, Back never deletes, **no Relative mode**, a Pads Rec
 list, the extras Bar / Reset / macro Value / **battery in the header**). **Being built on branch `gui-reorg`**: phase 1, then
 2, then 4. Where this file and ADR-046 disagree, ADR-046 wins. **Phases 1, 2 and 4 are built** (2026-10-29: the knob legend
@@ -19,8 +19,8 @@ The plan was first written as a claude.ai doc, which the user may have edited or
 repo copy, with what a developer needs on top (code pointers, traps, what was not checked). When the two disagree, the
 user's edits in the doc win: read it first (section 1).
 
-Sources the plan was built from: [RITUAL_MACHINE_UI.md](RITUAL_MACHINE_UI.md) (the code of the screens, its section 14 "What
-is still open"), [DEVELOPING.md](../../DEVELOPING.md) ("Quick start": the controls table; "Screens"), ENGINE_DESIGN.md
+Sources the plan was built from: [UI.md](UI.md) (the code of the screens, its section 14 "What
+is still open"), [DEVELOPING.md](DEVELOPING.md) ("Quick start": the controls table; "Screens"), DESIGN.md
 ADR-041 / 042 / 044 / 045, `core/bindings.c`, `core/keymap.c`, `core/boards/map_hwv1.h`.
 
 ## 1. What to do next, in order
@@ -30,14 +30,14 @@ ADR-041 / 042 / 044 / 045, `core/bindings.c`, `core/keymap.c`, `core/boards/map_
 2. **A decision round on the open questions** (section 8), in the user's way: options with pros and cons, a recommendation,
    one round at a time (they often pick against the recommendation). Several questions reopen decisions of ADR-044 that are
    recorded as "not to be re-litigated": ask, never assume.
-3. **Record the answers as a new ADR** in ENGINE_DESIGN.md (the next number, ADR-046 at the time of writing), in the format of
+3. **Record the answers as a new ADR** in framework/docs/DESIGN.md (the next number, ADR-046 at the time of writing), in the format of
    ADR-044 / 045: Why, "Decisions taken by the user", the plan one commit per step, "Chosen by me while building", "As built",
    "Not done / not checked".
 4. **Build phase by phase** (section 7), one commit per step (the user's wish since ADR-044: "commit per step so commit tree
    shows advancement"). Ask first whether the work goes on `main` or a branch. Every phase ends with a test list for the user
    to try on the board (they flash it themselves), as for ADR-044.
-5. **Keep the docs in step**: RITUAL_MACHINE_UI.md (it describes the code; rewrite the parts a phase changes),
-   DEVELOPING.md (the controls table of "Quick start"), CHANGELOG.md, this file (mark phases done), CONTINUE.md.
+5. **Keep the docs in step**: UI.md (it describes the code; rewrite the parts a phase changes),
+   DEVELOPING.md (the controls table of "Quick start"), apps/ritual_machine/CHANGELOG.md, this file (mark phases done), apps/ritual_machine/CONTINUE.md.
 
 ## 2. The problems it solves
 
@@ -45,14 +45,14 @@ ADR-041 / 042 / 044 / 045, `core/bindings.c`, `core/keymap.c`, `core/boards/map_
 | --- | --- | --- |
 | P1 | Two editing models | Main view: the joystick edits values directly, push = "right", no latch (`synth_ui_handle` translates `UI_LATCH` to `UI_SELECT`). Menu tabs: spatial focus. RACK and the pad editor: latch (`use_latch`) |
 | P2 | Push has six meanings | Latch, activate, "right", toggle a note (SEQUENCER), open the pad editor (grid), open the cog |
-| P3 | Knob targets invisible | RITUAL_MACHINE_UI.md 14.1; only the catch wedge on a row |
+| P3 | Knob targets invisible | UI.md 14.1; only the catch wedge on a row |
 | P4 | Four routes, two maps | 9 tabs in one ring (`tab_kind`), the Shift + Menu list groups them MAIN / ADVANCED (`app_lists.c`), the jump list holds up to 69 pages flat |
 | P5 | Sound, sequencing and setup mixed | SEQUENCER / SEQ SETUP / PATTERNS are the last global pages of the main view; KEYS, LEDS sit beside RACK |
 | P6 | Synth and Pads not parallel | Menu = tabs vs FX chains; no jump list in Pads; Presets / Advanced picked in Pads switch to the synth |
 | P7 | Back overloaded, sometimes destructive | Back deletes the selected module on RACK (`scr_rack.c` `back()`); held while recording it erases; Shift + Back releases notes / stops all pads |
 | P8 | Hidden state | Rack edits apply when the menu closes (`rebuild`); Rec armed shown only on an info line and the Enc A LED |
 | P9 | Hardware gaps solved case by case | HWV1 has no encoder push; the panel simulator has no Select / Mute / Rec / Bank keys |
-| P10 | Column knobs idle in the menu; endless pots used as positions | RITUAL_MACHINE_UI.md 14.7; `map_hwv1.h`: knob roles as positions from 512 |
+| P10 | Column knobs idle in the menu; endless pots used as positions | UI.md 14.7; `map_hwv1.h`: knob roles as positions from 512 |
 
 ## 3. The ruleset (hardware-agnostic)
 
@@ -193,7 +193,7 @@ module), T-Module (today's module page), T-Grid (pads grid, RACK, PAD FX), T-Tim
 EG points), T-Full list (browser, map, page list).
 
 **Widgets**: Field, Selector (`< value >`), Button, Cell, Cog as today; **Bar** (proposed: a thin value bar under a
-continuous value; answers RITUAL_MACHINE_UI.md 14.4).
+continuous value; answers UI.md 14.4).
 
 **LED language** (defaults from ADR-045, two changes, Q6, built in phase 6): Amber dim / bright = context knob away / caught; White /
 Green = Volume; one colour per macro; Sky = Synth on Enc A; **Mint = Pads on Enc A** (Amber is the Knob role's); red
@@ -302,10 +302,10 @@ changes of place.
   adding a row shifts them.
 - **Menu close = rebuild** today (`rebuild` when the menu closes with structural edits; ADR-044: the jump list applies a rack
   edit first). Phase 3 changes "the menu closes" into "leaving RACK by any route": every route must apply it.
-- **Focus lending**: the Pads screens lend their own focus to the declarative code per call (RITUAL_MACHINE_UI.md section 8);
+- **Focus lending**: the Pads screens lend their own focus to the declarative code per call (UI.md section 8);
   a new declarative screen outside the menu must do the same.
 - **`in_rack`** means "the menu is open", not the rack (historical name).
 - **Menu short acts at its release** (ADR-044) so a hold can be the jump list; keep that when Menu becomes the view toggle.
 - **The 128 x 64 drawing** of the list and of SOUND was never looked at (ADR-044); the plan's 64 px fallback is untested.
 - **The simulator's 4-column panel** lacks Select, Mute, Rec, Bank: whatever those keys do must stay reachable another way (R7).
-- `ui_dump.c` draws at 128 x 128 whatever `UI_DUMP_SIZE` says (CONTINUE.md known debt): check the 64 px fallback another way.
+- `ui_dump.c` draws at 128 x 128 whatever `UI_DUMP_SIZE` says (apps/ritual_machine/CONTINUE.md known debt): check the 64 px fallback another way.

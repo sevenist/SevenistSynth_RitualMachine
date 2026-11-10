@@ -1,8 +1,8 @@
 # Glossary
 
 The domain's words, as the code and the docs use them. Started 2026-11-08 by an architecture review; add a term when a module is
-named after it or a word gets sharpened. Decisions live in [ENGINE_DESIGN.md](ENGINE_DESIGN.md) (the ADRs), the UI in
-[docs/guides/RITUAL_MACHINE_UI.md](docs/guides/RITUAL_MACHINE_UI.md).
+named after it or a word gets sharpened. Decisions live in each part's `DESIGN.md` (the index of every ADR: [framework/docs/DESIGN.md](framework/docs/DESIGN.md)), the UI in
+[apps/ritual_machine/docs/UI.md](apps/ritual_machine/docs/UI.md).
 
 ## Ritual Machine UI
 

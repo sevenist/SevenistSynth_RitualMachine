@@ -1,4 +1,4 @@
-// The fallback table (ADR-046 phase 5, rule R7 / R13; docs/guides/UX_REORGANIZATION.md section 5): every verb with the smallest set of
+// The fallback table (ADR-046 phase 5, rule R7 / R13; apps/ritual_machine/docs/UX_REORGANIZATION.md section 5): every verb with the smallest set of
 // controls, the joystick, its push and the 4 function keys (F1 Shift, F2 Menu, F3 Back, F4 Play), on HWV1's controls. A verb a mapped
 // layer entry carries (Tap, BPM) uses a note key with Shift, as a user would map it.
 #include "ui_test.h"

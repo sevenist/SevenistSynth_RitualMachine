@@ -1,7 +1,8 @@
 # Building the apps (`build.ps1`)
 
 A quick guide to building and running the desktop program of any app in `apps/`, for any board, from the repo root.
-The details are in [DEVELOPING.md](../../DEVELOPING.md) ("Quick start"); the firmware is at the end of this page.
+The requirements are in [DEVELOPING.md](DEVELOPING.md); each app's guide says more (the Ritual Machine's:
+[apps/ritual_machine/docs/DEVELOPING.md](apps/ritual_machine/docs/DEVELOPING.md), "Quick start"). The firmware is at the end of this page.
 
 ## Before the first build
 
@@ -93,5 +94,5 @@ needs `-Clean`.
 
 The ESP32 firmware is built by PlatformIO from the app's `platformio.ini`. Build it from VS Code with the app's folder open, or with
 `.\upload.ps1 -App <app>` (`-BuildOnly` flashes nothing, `-Port COM8` picks the port, `-Env <env>` picks another environment).
-`upload.ps1` always calls PlatformIO's own `C:\.platformio\penv\Scripts\pio.exe`, never a bare `pio`. See DEVELOPING.md, "ESP32
-firmware".
+`upload.ps1` always calls PlatformIO's own `C:\.platformio\penv\Scripts\pio.exe`, never a bare `pio`. See [framework/docs/BOARDS.md](framework/docs/BOARDS.md), "ESP32
+firmware and performance work".

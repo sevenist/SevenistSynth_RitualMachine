@@ -1,4 +1,4 @@
-// The knob legend (ENGINE_DESIGN.md ADR-046, rules R14 / R15): a zone at the bottom of a tall screen that names what each column knob
+// The knob legend (apps/ritual_machine/docs/DESIGN.md ADR-046, rules R14 / R15): a zone at the bottom of a tall screen that names what each column knob
 // drives, laid out like the knobs themselves (from the places in the board's control table: 2 x 2 around the joystick on HWV1, 1 x 4 on
 // the panel). Each cell: the knob's number, what it drives, and a bar of that value; while the knob has not caught the value a tick shows
 // where the knob stands, so the way to turn is the way from the tick to the end of the bar.

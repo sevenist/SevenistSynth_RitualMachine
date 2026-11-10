@@ -6,7 +6,7 @@
 // into it, whatever the rate, the swing and the direction are, so both are always in step. A pattern longer than the lanes' 16 steps
 // plays them again every 16 steps. It is silent while the sequencer does not play.
 //
-// Lane model (DEVELOPING.md): interpolation is always between ACTIVE steps. At position p (in steps, fractional)
+// Lane model (apps/ritual_machine/docs/DEVELOPING.md): interpolation is always between ACTIVE steps. At position p (in steps, fractional)
 //   prev = the last active step at or before floor(p), wrapping;  next = the first active step after it, wrapping.
 //   STEP:   value of prev.           LINEAR: lerp prev -> next by (p - prev) / (next - prev), distances modulo the step count.
 //   One active step = constant; no active step (within the first `steps` steps) = the lane outputs 0.

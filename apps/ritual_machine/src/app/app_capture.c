@@ -1,5 +1,5 @@
 // Capture / resampling (ADR-041 decision 50): what the Pads section plays, recorded onto a pad. And the synth's pattern recorded as a
-// sample (ENGINE_DESIGN.md ADR-042 decision 24), at the end of this file.
+// sample (apps/ritual_machine/docs/DESIGN.md ADR-042 decision 24), at the end of this file.
 #include "app/app_internal.h"
 #include <stdio.h>
 #include <stdlib.h>

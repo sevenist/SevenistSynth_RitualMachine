@@ -14,7 +14,8 @@ fixed sound engine, sixteen steps, and a dice that rolls a track's sound and ste
 | T6 TEXT | dust, velvet, LFSR, tape | 1 |
 | T7 SAMP | slices, scan, spectral freeze | 1 |
 
-The design, the decisions and what is still to build: `ENGINE_DESIGN.md` ADR-048 at the repo root.
+The design, the decisions and what is still to build: [docs/DESIGN.md](docs/DESIGN.md), ADR-048. What changed:
+[CHANGELOG.md](CHANGELOG.md); the state and the todo: [CONTINUE.md](CONTINUE.md).
 
 **Status (2026-11-08): the first version, in the simulator.** The screens and every control of the panel work; **the sounds are
 placeholders** (a few lines each, not tuned, not measured on the board). Not built yet: the real engines, the joystick (MORPH, TENSE),

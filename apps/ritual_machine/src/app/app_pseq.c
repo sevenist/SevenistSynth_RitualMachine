@@ -1,4 +1,4 @@
-// The Pads section's sequencer in the application (core/pad_seq.h; it plays in the engine, ENGINE_DESIGN.md ADR-042 stage 3; user,
+// The Pads section's sequencer in the application (core/pad_seq.h; it plays in the engine, apps/ritual_machine/docs/DESIGN.md ADR-042 stage 3; user,
 // 2026-10-12: a step grid with live record, one pattern over all 64 pads, patterns as on the synth, step mode by Select + Play).
 //
 // It plays while the Pads clock runs (Play) and it is on. The pattern that plays is edited in place (app->pbank.pat[cur], in bulk

@@ -1,7 +1,7 @@
 # Mutable Instruments code in this tree
 
 Algorithms by Émilie Gillet (Mutable Instruments), MIT licence (`LICENSE` here; credits in `THIRD_PARTY_NOTICES.md` at the project root).
-Used by the `MiOsc` module (`src/engine/modules/mi_osc.*`, ENGINE_DESIGN.md ADR-039).
+Used by the `MiOsc` module (`src/engine/modules/mi_osc.*`, framework/docs/DESIGN.md ADR-039).
 
 | Folder | Origin | Commit |
 |---|---|---|

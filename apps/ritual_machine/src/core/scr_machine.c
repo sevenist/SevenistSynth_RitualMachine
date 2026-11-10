@@ -1,4 +1,4 @@
-// The MACHINE tab (SETUP view; ENGINE_DESIGN.md ADR-046 decision 4: Out, Spk and Knob came from SOUND): the machine's own settings, the
+// The MACHINE tab (SETUP view; apps/ritual_machine/docs/DESIGN.md ADR-046 decision 4: Out, Spk and Knob came from SOUND): the machine's own settings, the
 // output, the speaker, the knobs' mode, and Storage (the USB card reader: the app asks, saves everything, then restarts). The picture
 // on the right: the battery. A declarative screen (see ui_screen.h): list on the left, picture on the right.
 #include "core/ui_screen.h"

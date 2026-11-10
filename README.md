@@ -16,32 +16,15 @@ unzip the simulator and play it from the PC keyboard.
 
 ---
 
-## The instrument
+## The apps
 
-Two sections, one switch away from each other: a synth and a sampler.
+| App | What | Status |
+| --- | --- | --- |
+| [**The Ritual Machine**](apps/ritual_machine/README.md) | the instrument: a modular rack, six-op FM and Strings synth beside 64 streamed sample pads, sequencers, sample tools on the machine | beta 1.1 |
+| [**TechnoGen**](apps/technogen/README.md) | a techno loop generator for the second prototype: seven tracks and a dice, in colour | first version, simulator |
+| [**template**](apps/template/README.md) | the starter app: a four-voice synth with a screen and the board's keys | |
 
-| | |
-| --- | --- |
-| **Modular rack** | Up to 16 modules chained freely in two parallel branches and a shared master row. Mono, paraphonic or polyphonic, up to 8 voices. |
-| **Six-op FM** | DX7-style engine: 32 algorithms, 128 patches, every operator editable on the machine. Because why not. |
-| **Strings** | Up to 32 voices. Detuned oscillator pairs, key-tracked low-pass, three-tap ensemble chorus on the bus. |
-| **Pads** | 64 sample pads in 4 banks, 8 voices, streamed from the TF card. Loops with crossfade, choke groups, starts on the beat, three FX chains. |
-
-- **Oscillators**: 6 classic waves, 9 engines written for it (Karplus string, modal, FM, wavefolder, supersaw, vowel,
-  additive, dust, string machine) and 47 models from Mutable Instruments' Braids and Plaits.
-- **Filters and shaping**: 9 filter types (12 / 24 dB, ladder, notch, all-pass ...), 10 saturation modes, a comb resonator.
-- **Modulation, at audio rate**: LFOs, envelopes with curves, a multi-stage envelope, a 4-lane motion sequencer, velocity.
-- **Effects**: delay, plate reverb, chorus, ensemble, phaser, flanger, tremolo, EQ, compressor, ring modulator,
-  FFT spectral effects (freeze, gate, pitch, robot, whisper), cabinet convolver.
-- **Sequencers**: 64 steps with chords, velocity, probability and ratchets for the synth; a step sequencer over all
-  64 pads; 8 patterns and a chain for each; step and live recording.
-- **Sample tools on the machine**: chop to pads, then trim, normalize, reverse, time-stretch, pitch, Paulstretch and
-  lo-fi, with a version history to undo. **Capture** records whatever plays onto a pad: resample, mangle, repeat.
-- **Hands on**: 8 macros, the joystick as an XY controller, Shift and Mod layers for every control, editable key
-  layouts, presets, and a sound that comes back as you left it.
-
-<!-- ![signal flow diagram](docs/images/signal_flow.png) -->
-<!-- ![OLED screen pages walkthrough](docs/images/oled_pages.png) -->
+The library under them is [framework/](framework/README.md): the DSP engine, the boards behind one interface, the drawing kit.
 
 ---
 
@@ -53,7 +36,7 @@ The audio path never allocates, never locks, never logs: no compromise on determ
 - **One code base, two targets.** The same engine and UI run on the ESP32-S3 and in a desktop window. What you hear
   is what you get.
 - **A library and its apps.** `framework/` is the library: the DSP engine, the board drivers behind one interface, and
-  a small drawing kit. `apps/` holds the Ritual Machine and a starter template.
+  a small drawing kit. `apps/` holds the Ritual Machine, TechnoGen and a starter template.
 - **Boards are data.** Each board lists its controls in a table; the simulator draws its front panel from that table,
   so an app can be tried as any board before the hardware exists.
 - **RGB key feedback.** One LED per key: note colours, held notes, pads, play and mode states. The colours are editable.
@@ -109,9 +92,10 @@ pio run -d apps/ritual_machine -t upload                # flash the first protot
 
 Where to read next:
 
+- [DEVELOPING.md](DEVELOPING.md): the repo for developers, and where each part's documents are.
+- [framework/README.md](framework/README.md): the library; [framework/CHANGELOG.md](framework/CHANGELOG.md) has a tour of it.
+- [apps/ritual_machine/README.md](apps/ritual_machine/README.md): the instrument, its guides and its update log.
 - [apps/template/README.md](apps/template/README.md): the starter app, file by file.
-- [CHANGELOG.md](CHANGELOG.md): what each release changed, and a tour of the library.
-- [docs/guides/](docs/guides/README.md): the drawing kit, the Ritual Machine's screens, the serial commands.
 
 ---
 

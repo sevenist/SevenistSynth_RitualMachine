@@ -1,6 +1,6 @@
 #pragma once
 // More effects. All global scope and stereo (ins L, R; outs L, R) except Comb (a voice-scope processor). Parameters are int32 in the
-// units given below; see ENGINE_DESIGN.md (ADR-031) for the choices.
+// units given below; see framework/docs/DESIGN.md (ADR-031) for the choices.
 #include "engine/core/command_queue.h"
 #include "engine/core/module.h"
 

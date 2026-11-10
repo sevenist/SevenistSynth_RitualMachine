@@ -1,7 +1,7 @@
 #pragma once
 // The engine as seen by the HAL (C API). One synth per process; the platform supplies the memory and the audio
 // output and calls engine_synth_render() from its audio thread / DMA task. Everything else is called from the
-// UI thread. See ENGINE_DESIGN.md (ADR-024) for the threading rules.
+// UI thread. See framework/docs/DESIGN.md (ADR-024) for the threading rules.
 #include <stddef.h>
 #include <stdint.h>
 #include "core/pad_seq.h"

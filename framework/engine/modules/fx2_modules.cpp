@@ -291,7 +291,7 @@ struct Biquad {                                                              // 
 };
 
 // The same three sections in float32, for the audio loop: on the S3 the int64 tick costs ~140 cycles (five 64-bit multiplies), these
-// a handful of FPU multiply-adds (the figures: ENGINE_DESIGN.md, ADR-041 "Speed"). A channel runs in float from one conversion to the
+// a handful of FPU multiply-adds (the figures: apps/ritual_machine/docs/DESIGN.md, ADR-041 "Speed"). A channel runs in float from one conversion to the
 // next, so the signal is rounded to 16 bits once, not after every section: against the same filters in double precision the EQ is
 // off by ~0.3 LSB rms, where the int64 loop was off by 1.0 .. 2.6 (test eq3_matches_its_cookbook_sections_in_double_precision).
 // The high shelf (6 kHz) is the biquad as it was, in float. The low shelf (150 Hz) and the peak (down to 65 Hz) are NOT: a float32

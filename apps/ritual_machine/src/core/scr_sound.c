@@ -1,4 +1,4 @@
-// The SOUND tab of the menu (ENGINE_DESIGN.md ADR-044: GENERAL, SAMPLES and ALGORITHM in one screen): synth type, FM patch, voices,
+// The SOUND tab of the menu (apps/ritual_machine/docs/DESIGN.md ADR-044: GENERAL, SAMPLES and ALGORITHM in one screen): synth type, FM patch, voices,
 // master volume (output, speaker and knob mode: SETUP > MACHINE since ADR-046, scr_machine.c); then, Modular only, a sample for the rack (File opens the browser, scr_browse.c, Tgt is
 // the sampler it goes to, New = a new sampler at the end of the rack, Assign does it); then, FM only, the DX7 patch's Algo and Fb and
 // the Op row (left / right pick an operator in the tree, a push opens its page in the main view: OPn, then OPn ENV; ui_pages.c,

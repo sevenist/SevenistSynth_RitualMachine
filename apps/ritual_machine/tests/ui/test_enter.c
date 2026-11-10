@@ -1,4 +1,4 @@
-// Push = Enter on the synth's pages (ENGINE_DESIGN.md ADR-046 phase 2, core/ui_input.c page_enter): a push latches a value (never "right"),
+// Push = Enter on the synth's pages (apps/ritual_machine/docs/DESIGN.md ADR-046 phase 2, core/ui_input.c page_enter): a push latches a value (never "right"),
 // up / down then step it by four, a push or Back releases it; a two-state row flips; encoder A's move releases.
 #include "ui_test.h"
 

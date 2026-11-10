@@ -1,4 +1,4 @@
-// Safety (ENGINE_DESIGN.md ADR-046 phase 4): Back goes up one level and never destroys; pending rack edits are marked and said when
+// Safety (apps/ritual_machine/docs/DESIGN.md ADR-046 phase 4): Back goes up one level and never destroys; pending rack edits are marked and said when
 // applied; the header shows a recording armed / running.
 #include "ui_test.h"
 #include "app/app_internal.h"

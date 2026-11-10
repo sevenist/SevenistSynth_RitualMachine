@@ -1,4 +1,4 @@
-// The step sequencer in the application (core/seq.h; it plays in the engine, ENGINE_DESIGN.md ADR-042).
+// The step sequencer in the application (core/seq.h; it plays in the engine, apps/ritual_machine/docs/DESIGN.md ADR-042).
 //
 // Patterns and chain (user, 2026-10-11: 8 patterns kept with the machine, the change at the pattern's end). app->seq is the pattern
 // that plays and is edited; app->bank holds all of them. While it runs, the pattern that follows (the chain's next entry, or the
@@ -7,7 +7,7 @@
 // taken at once. On the card: system/config/seq.cfg (tempo, current pattern, chain) and pattern1.cfg .. pattern8.cfg, written a
 // moment after the last change, one file per pass.
 //
-// Recording into the step sequencer from the keys (ENGINE_DESIGN.md ADR-042; user, 2026-10-11: step entry + live). Rec is armed by
+// Recording into the step sequencer from the keys (apps/ritual_machine/docs/DESIGN.md ADR-042; user, 2026-10-11: step entry + live). Rec is armed by
 // Shift + Play or the key function Rec, in the synth section.
 //   Stopped (step entry): the notes played go to the cursor's step, those pressed while others are held into the same step (a chord
 //                         of SEQ_CHORD at most); when every key is up the cursor moves on. The step's other values stay.

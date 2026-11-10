@@ -1,5 +1,5 @@
 #pragma once
-// The Pads section (ENGINE_DESIGN.md ADR-041, decisions 14-26): an SP-404-style sampler beside the synth, a separate workflow. 4 banks of
+// The Pads section (apps/ritual_machine/docs/DESIGN.md ADR-041, decisions 14-26): an SP-404-style sampler beside the synth, a separate workflow. 4 banks of
 // 16 pads; each pad holds a sample of the library (by name, so it survives a rescan of the card) and how it plays. Every pad is mono: a
 // push restarts it. The engine side is the Pads module (engine/modules/sampler_modules.h, 8 voices).
 //

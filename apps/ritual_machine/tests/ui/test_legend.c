@@ -1,4 +1,4 @@
-// The knob legend and the header's marks (ENGINE_DESIGN.md ADR-046, phase 1; core/ui_legend.c): what each column knob drives, laid out
+// The knob legend and the header's marks (apps/ritual_machine/docs/DESIGN.md ADR-046, phase 1; core/ui_legend.c): what each column knob drives, laid out
 // like the knobs of the board bound, and the battery / the modifier held at the right of the header.
 #include "ui_test.h"
 #include "app/app_internal.h"

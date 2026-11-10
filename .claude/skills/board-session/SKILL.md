@@ -86,7 +86,7 @@ Before adding one, check that no existing flag or serial command can do the job 
 no rebuild, no flag to clean up). If a new flag is really needed:
 - ask the user first, with the reason and why the existing ones do not fit;
 - name it `DEV_*` (dev feature) or `HWV1_DEBUG_*` (hardware logging), keep it removable (code compiles to nothing without it), hardware code inside `#ifdef HWV1`;
-- document it in `apps/ritual_machine/platformio.ini` (commented line with "dev only: ...") and in the flag table of `DEVELOPING.md` ("ESP32 firmware and performance work").
+- document it in `apps/ritual_machine/platformio.ini` (commented line with "dev only: ...") and in the flag table of `apps/ritual_machine/docs/DEVELOPING.md` ("Build flags").
 
 ## 4. Testing the machine over serial
 
@@ -98,16 +98,17 @@ C:\.platformio\penv\Scripts\python.exe apps\ritual_machine\tools\serial_test.py 
 
 - The port opens with DTR / RTS low: opening it does not reset the board. Default port COM8, 115200.
 - `--raw` prints only lines newer than the `--cmd` pauses; to see the replies to `--cmd`, use the normal mode or read the `--log` file.
-- The command list and examples: `docs/guides/SERIAL_COMMANDS.md`. A patch set over serial is the working sound: it is saved 2 s later and comes back at the next start (`patch startup` puts the start sound back).
+- The command list and examples: `apps/ritual_machine/docs/SERIAL_COMMANDS.md`. A patch set over serial is the working sound: it is saved 2 s later and comes back at the next start (`patch startup` puts the start sound back).
 - Report CPU (`cycles per engine block`, `blocks over budget`; any > 0 is an audible dropout) and, for the sampler, the card counters, before / now in a small table.
-- Delete `run*.txt` logs when done; numbers that matter go into CONTINUE.md.
+- Delete `run*.txt` logs when done; numbers that matter go into the CONTINUE.md of the part measured (the root one for the engine and
+  the boards, `apps/<app>/CONTINUE.md` for an app).
 - For optimization work follow the skill `esp32-optimize` (its loop in section 2b), with the paths of section 2 above.
 
 ## 5. Changing the serial commands
 
 - File: `apps/ritual_machine/src/platform/esp32/serial_cmd_esp32.cpp` (everything inside `DEV_SERIAL_CMD`). Follow its pattern: `if (!strcmp(line, "name") ...) { ...; Serial.printf("[CMD] ...\n", ...); return; }`, a one-line comment with the syntax, and always a `[CMD]` reply so the tool can see it worked.
 - Commands run on the UI core: a change to the synth goes through the same path as the UI (rebuild like leaving the menu, or a live engine command). Never change the graph shape from a frequently sent command (100-170 ms audio stall).
-- When a command is added or changed, update in the same session: `docs/guides/SERIAL_COMMANDS.md` (syntax + example), the `DEV_SERIAL_CMD` row of the flag table in `DEVELOPING.md`, and `apps/ritual_machine/tools/serial_test.py` if the tool should use it.
+- When a command is added or changed, update in the same session: `apps/ritual_machine/docs/SERIAL_COMMANDS.md` (syntax + example), the `DEV_SERIAL_CMD` row of the flag table in `apps/ritual_machine/docs/DEVELOPING.md`, and `apps/ritual_machine/tools/serial_test.py` if the tool should use it.
 - Edit traps: lines with `\n` inside C strings go through the Edit tool (scripted edits through this harness lose one backslash level; a heredoc turns `\n` into a real newline). Many files are CRLF: keep the line endings (never `sed -i` in Git Bash on them). After a scripted printf edit, grep that the format string is on one line.
 
 ## 6. Pause for the user
@@ -120,5 +121,5 @@ Stop the loop and ask with `AskUserQuestion` (concrete options, e.g. "clean / cl
 ## 7. Before the session ends
 
 - Make sure no `PLATFORMIO_BUILD_FLAGS` is left set, and say which build is on the board (with which extra flags).
-- Update CONTINUE.md (what was flashed, measured, verified by ear or not) and the docs touched in section 5. Do not record this permission as permanent.
+- Update the CONTINUE.md of the part concerned (what was flashed, measured, verified by ear or not) and the docs touched in section 5. Do not record this permission as permanent.
 - Delete scratch logs. Commit only if asked.

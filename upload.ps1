@@ -6,7 +6,7 @@
 #   .\upload.ps1 -Env card_reader        another environment of the app's platformio.ini (the card reader's firmware)
 #   .\upload.ps1 -BuildOnly              build, flash nothing
 # It always uses PlatformIO's own pio.exe (a bare `pio` on PATH can be Python 3.13's, which breaks PlatformIO's environment:
-# DEVELOPING.md, "ESP32 firmware").
+# framework/docs/BOARDS.md, "ESP32 firmware").
 param([string]$App = "ritual_machine", [string]$Port = "", [string]$Env = "", [switch]$BuildOnly)
 $pio = "C:\.platformio\penv\Scripts\pio.exe"
 $dir = Join-Path $PSScriptRoot "apps/$App"

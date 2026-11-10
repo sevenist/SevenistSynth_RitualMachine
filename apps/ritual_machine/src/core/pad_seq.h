@@ -1,5 +1,5 @@
 #pragma once
-// The Pads section's sequencer (ENGINE_DESIGN.md ADR-042, stage 3; user, 2026-10-12): the pattern and the bank of patterns, as the UI
+// The Pads section's sequencer (apps/ritual_machine/docs/DESIGN.md ADR-042, stage 3; user, 2026-10-12): the pattern and the bank of patterns, as the UI
 // edits them. Pure data and its rules: no HAL / engine dependency, no timing. It PLAYS in the engine, on the machine clock (core/audio.h
 // audio_pseq_set), like the synth's sequencer (core/seq.h).
 //

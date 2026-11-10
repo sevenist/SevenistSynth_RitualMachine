@@ -1,4 +1,4 @@
-// The views (ENGINE_DESIGN.md ADR-046 phase 3): the synth's pages and tabs grouped as EDIT, SEQ, RACK, PERFORM, PRESETS, SETUP; the header's
+// The views (apps/ritual_machine/docs/DESIGN.md ADR-046 phase 3): the synth's pages and tabs grouped as EDIT, SEQ, RACK, PERFORM, PRESETS, SETUP; the header's
 // view selector above the page selector; the page rings of each view; Menu = home <-> the last other view; Back climbs to home; MACHINE.
 #include "ui_test.h"
 #include "core/ui_screen.h"

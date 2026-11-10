@@ -11,10 +11,14 @@ Keep every step short. Do not write code in this skill; it ends when the user pi
 ## 1. Catch up (silently, no long report)
 
 Read, in this order:
-1. `CONTINUE.md`: state, latest measurements, next steps, known debt, working style and traps. The section **"Session todo"** holds the list from the last session.
-2. `DEVELOPING.md` and `ENGINE_DESIGN.md`: only the headings and the sections the open items point at (ADR-035 for board work, ADR-036 for the modular engine). Do not re-read everything.
+1. `CONTINUE.md` at the root (the library and the repo: state, latest measurements, next steps, known debt, working style and traps),
+   then the `CONTINUE.md` of each app in `apps/` (its state and todo). Each has a section **"Session todo"** with the list from the last
+   session. (`DEVELOPING.md` at the root says where each part's documents are.)
+2. The guides and the design files (`framework/README.md`, `framework/docs/`, each app's `docs/`): only the headings and the sections the
+   open items point at (ADR-035 for board work, ADR-036 for the modular engine: `framework/docs/DESIGN.md`, whose index says where every
+   ADR is). Do not re-read everything.
 3. `git status --short` and `git log --oneline -8`: uncommitted work, what changed since the notes were written.
-   If the code and `CONTINUE.md` disagree (work done but not recorded, or recorded but not committed), note it for step 2.
+   If the code and a `CONTINUE.md` disagree (work done but not recorded, or recorded but not committed), note it for step 2.
 
 ## 2. Short status to the user
 
@@ -31,12 +35,13 @@ Ask 2-4 short questions, chosen from what is open, for example:
 - Is there an idea you want to discuss before building it (design session, options with pros and cons)?
 
 Listen, answer briefly, give your opinion when asked. Follow the project rule: the user decides design and quality trades; offer options with pros and cons,
-record the decision and its risk, never re-litigate a recorded decision (see "Decisions that went against my recommendation" in `CONTINUE.md`).
+record the decision and its risk, never re-litigate a recorded decision (see "Decisions that went against my recommendation" in the `CONTINUE.md` files).
 One or two rounds are enough; do not turn it into an interview.
 
-## 4. Write the todo in CONTINUE.md
+## 4. Write the todo in the CONTINUE.md of each part
 
-Update the section `## Session todo` in `CONTINUE.md` (create it right after the intro paragraph if missing). Format:
+Update the section `## Session todo` in the `CONTINUE.md` of the part each item belongs to: the root one for the library (the engine,
+the boards, the drawing kit) and the repo, `apps/<app>/CONTINUE.md` for an app (create the section right after the intro paragraph if missing). Format:
 
 ```markdown
 ## Session todo (updated YYYY-MM-DD)

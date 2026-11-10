@@ -10,9 +10,11 @@ It works because every change is **measured on the board**, never guessed. Follo
 
 ## 0. Read first (mandatory, before touching code)
 
-1. `CONTINUE.md` : state, the user's working style, **traps**, and the latest measurements + next steps.
-2. `DEVELOPING.md` : section "ESP32 firmware and performance work" (flags, tools, how to read the logs).
-3. `ENGINE_DESIGN.md` : ADR-035 (what was measured, what was decided, the cost table of the S3). Do not redo a measured experiment; do not re-litigate a decision the user already took.
+1. `CONTINUE.md` (the root: the library's state, the user's working style, **traps**, the latest measurements + next steps), and the
+   app's own (`apps/ritual_machine/CONTINUE.md`).
+2. `framework/docs/BOARDS.md` : section "ESP32 firmware and performance work" (the files, the tasks, the performance rules), and
+   `apps/ritual_machine/docs/DEVELOPING.md` : section "ESP32 firmware (the app's side)" (the flags, how to read the logs, the serial test tool).
+3. `framework/docs/DESIGN.md` : ADR-035 (what was measured, what was decided, the cost table of the S3). Do not redo a measured experiment; do not re-litigate a decision the user already took.
 
 If you change anything the docs describe, update them before you finish (see section 8).
 
@@ -117,7 +119,8 @@ After they say flashed: rerun section 2, compare with a before/now table, say if
 
 ## 8. Before you finish a session
 
-- Update `CONTINUE.md` (state, the newest measurements, next steps, new traps) and the parts of `DEVELOPING.md` / `ENGINE_DESIGN.md` (ADR-035, budget table) that you changed. Remove stale statements ("nothing built on hardware" was left wrong for a long time).
+- Update `CONTINUE.md` (state, the newest measurements, next steps, new traps) and the parts of `framework/docs/BOARDS.md` / `apps/ritual_machine/docs/DEVELOPING.md` / `framework/docs/DESIGN.md` (ADR-035, budget
+  table) that you changed. Remove stale statements ("nothing built on hardware" was left wrong for a long time).
 - Clean up scratch files (`run*.txt`), keep dev flags documented in `apps/ritual_machine/platformio.ini`, and note which flags must go before a release.
 - Do not commit unless asked.
 

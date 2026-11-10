@@ -23,7 +23,7 @@ void audio_build(const rack_t *rack, const synth_params_t *params);
 // Applies the full sound definition (oscillator, envelopes, filter) to the synth.
 void audio_set_params(const rack_t *rack, const synth_params_t *params);
 
-// The synth's step sequencer (core/seq.h) plays in the engine, on the machine clock (ENGINE_DESIGN.md ADR-042): its timing does not
+// The synth's step sequencer (core/seq.h) plays in the engine, on the machine clock (apps/ritual_machine/docs/DESIGN.md ADR-042): its timing does not
 // depend on the UI. audio_seq_set: the pattern and its settings as they are now (cheap: call it at every step, only what changed is
 // sent), BEFORE audio_set_clock, so that a sequencer started with the clock plays its first step on the first beat. It plays while
 // `seq->running` and the clock runs; the motion sequencers follow it. audio_seq_pos: the step that plays, -1 while none does.

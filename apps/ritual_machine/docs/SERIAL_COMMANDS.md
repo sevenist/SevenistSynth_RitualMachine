@@ -2,8 +2,8 @@
 
 Text commands over the board's USB serial port to play notes, load test patches, change settings and measure the engine, without touching the keys.
 They belong to the Ritual Machine's firmware (`apps/ritual_machine`); the starter app has none.
-Code: [apps/ritual_machine/src/platform/esp32/serial_cmd_esp32.cpp](../../apps/ritual_machine/src/platform/esp32/serial_cmd_esp32.cpp). Measurement tool: [apps/ritual_machine/tools/serial_test.py](../../apps/ritual_machine/tools/serial_test.py).
-Paths and commands below are from the repo root (the `oled_sim` folder), not from `docs/guides/`.
+Code: [apps/ritual_machine/src/platform/esp32/serial_cmd_esp32.cpp](../src/platform/esp32/serial_cmd_esp32.cpp). Measurement tool: [apps/ritual_machine/tools/serial_test.py](../tools/serial_test.py).
+Paths and commands below are from the repo root (the `oled_sim` folder), not from this folder.
 
 ## Before you start
 
@@ -17,7 +17,7 @@ Paths and commands below are from the repo root (the `oled_sim` folder), not fro
   Remove-Item Env:PLATFORMIO_BUILD_FLAGS
   ```
 
-  Every flag is described in [DEVELOPING.md](../../DEVELOPING.md), "Build flags".
+  Every flag is described in [DEVELOPING.md](DEVELOPING.md), "Build flags".
 - Port COM8, 115200 baud. **One program per port**: close the serial monitor before running `serial_test.py`, and the other way round.
 - One command per line (end with Enter / `\n`), at most 111 characters. Every command answers with a `[CMD] ...` line; an unknown one with `[CMD] unknown '...'`.
 - Notes are MIDI numbers: 60 = C4 (middle C), 69 = A4 (440 Hz).
@@ -28,7 +28,7 @@ Paths and commands below are from the repo root (the `oled_sim` folder), not fro
 Two ways to send commands:
 
 ```
-C:\.platformio\penv\Scripts\pio.exe device monitor -d apps/ritual_machine     # type commands by hand (never a bare "pio": see ../../DEVELOPING.md)
+C:\.platformio\penv\Scripts\pio.exe device monitor -d apps/ritual_machine     # type commands by hand (never a bare "pio": see framework/docs/BOARDS.md)
 C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py --cmd "chord 3" --raw --seconds 5
 ```
 
@@ -158,7 +158,7 @@ C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py 
 | `--settle S` | 2 | seconds skipped after each change (so note-on costs are **not** in the numbers) |
 | `--engines "0,1,4,6;2,3,5,7"` | | measures each engine set: the first four oscillators are switched live, cost per engine and voice is printed |
 | `--raw --seconds S` | 10 | just prints what the board sends for S seconds (after the `--cmd`s) |
-| `--log file.txt` | | also writes every received line to a file (delete it afterwards, keep the numbers in [CONTINUE.md](../../CONTINUE.md)) |
+| `--log file.txt` | | also writes every received line to a file (delete it afterwards, keep the numbers in [CONTINUE.md](../../../CONTINUE.md)) |
 | `--port COM8 --baud 115200` | | |
 
 The report ends with a table: notes held, cycles per block, % of the budget, render average / worst, blocks over budget.

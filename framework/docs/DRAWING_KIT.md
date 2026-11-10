@@ -16,7 +16,7 @@ Paths below are from the repo root. In code the library is included without its 
 **What the kit is not.** It draws; it does not remember. There is no focus, no list of widgets, no event handling: your app
 keeps its own cursor and decides what a control does. The Ritual Machine has a layer of its own on top (screens written as
 tables of elements, with focus navigation: `apps/ritual_machine/src/core/ui_screen.h`, described in
-[RITUAL_MACHINE_UI.md](RITUAL_MACHINE_UI.md)); that layer is tied to its data and is not part of the library.
+[apps/ritual_machine/docs/UI.md](../../apps/ritual_machine/docs/UI.md)); that layer is tied to its data and is not part of the library.
 
 ## 1. Getting it into a build
 
@@ -300,7 +300,7 @@ Without `display_boot_config` there is no animation and the two other calls do n
 
 - **The desktop program**: `.\build.ps1 -App my_synth`, `.\run.ps1 -App my_synth` opens the display window and a panel
   window whose controls work with the mouse. `-Board hwv1` builds the same app as the first prototype.
-- **On the board**: `C:\.platformio\penv\Scripts\pio.exe run -d apps/my_synth -t upload` (never a bare `pio`: DEVELOPING.md,
+- **On the board**: `C:\.platformio\penv\Scripts\pio.exe run -d apps/my_synth -t upload` (never a bare `pio`: BOARDS.md,
   "ESP32 firmware").
 - **As text, without a window**: the Ritual Machine has a small program that prints its screens as ASCII after a script of
   control events (`apps/ritual_machine/tools/ui_dump.c`). It is built on that app's sources, so it is an example to copy,

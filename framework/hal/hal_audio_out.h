@@ -1,6 +1,6 @@
 #pragma once
 // HAL: the audio output. The board owns the output only: the thread that asks for sound, the converter, its start-up gate. The app
-// owns its engine and hands over the function that renders it (ENGINE_DESIGN.md ADR-043 decision 9). One implementation per board.
+// owns its engine and hands over the function that renders it (framework/docs/DESIGN.md ADR-043 decision 9). One implementation per board.
 #include <stdbool.h>
 #include <stdint.h>
 

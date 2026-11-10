@@ -1,4 +1,4 @@
-// The map (Shift + Menu; ENGINE_DESIGN.md ADR-044, grouped by view since ADR-046 phase 3): MODES (Synth, Pads), then each view's screens
+// The map (Shift + Menu; apps/ritual_machine/docs/DESIGN.md ADR-044, grouped by view since ADR-046 phase 3): MODES (Synth, Pads), then each view's screens
 // under its heading, EDIT, SEQ, RACK, PERFORM, PRESETS, and SETUP >, a submenu of the machine's settings. The entries follow the section:
 // Edit <-> the pads' grid, Sequencer <-> Steps, Rack <-> Pad FX, the synth's own (Seq setup, Patterns, Sound, Presets) only in the synth;
 // the synth's tabs picked in Pads go to the synth.

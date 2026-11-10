@@ -3,7 +3,7 @@
 // and the undo of BACK. Portable and plain (no engine, no screen): the app edits it, synth.cpp turns it into the engine's hits and values,
 // the tests drive it alone.
 //
-// The dice (ENGINE_DESIGN.md ADR-048, "the genome", first version): a track's roll is drawn from its seed by one random sequence, the same
+// The dice (apps/technogen/docs/DESIGN.md ADR-048, "the genome", first version): a track's roll is drawn from its seed by one random sequence, the same
 // on every machine. The seven values come first, then the steps. A locked value still takes its random number, so locking one never changes
 // how the others roll. Each value has a sweet spot (lo..hi, in 0..100) that RAW stays inside; TIGHT nudges the values and keeps the steps;
 // WEIRD goes to the edges. Rules then link values (tg_rules): a long kick decay caps its rumble, reso and drive of the bass stay under a limit.

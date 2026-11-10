@@ -2,8 +2,8 @@
 
 How the screens of the Ritual Machine are built, so you know where to cut before changing one. File and function names are
 real. The drawing helpers it uses (rectangles, text, fields, sprites, popups) are the library's and have their own guide:
-[DRAWING_KIT.md](DRAWING_KIT.md). What each control and each screen does for the player is in
-[DEVELOPING.md](../../DEVELOPING.md) ("Quick start", "Screens"); this guide is about the code.
+[framework/docs/DRAWING_KIT.md](../../../framework/docs/DRAWING_KIT.md). What each control and each screen does for the player is in
+[DEVELOPING.md](DEVELOPING.md) ("Quick start", "Screens"); this guide is about the code.
 
 Paths without a prefix are inside `apps/ritual_machine/src/` (`core/...`, `app/...`); `ui/...` and `hal/...` are
 `framework/ui` and `framework/hal`.
@@ -301,7 +301,7 @@ All but RACK use `ui_layout_column` (a list on the left, the picture on the righ
 structure (a module inserted or deleted, a target, the type, the voices, the FM patch) set `rack_dirty` or `rebuild`; edits
 that are live (volume, an effect's value, FM operator values) return `true` so the app pushes them to the engine at once.
 
-### The map and the page list (`app/app_lists.c`; ENGINE_DESIGN.md ADR-044, ADR-046 phase 3)
+### The map and the page list (`app/app_lists.c`; DESIGN.md ADR-044, ADR-046 phase 3)
 
 Both are list popups of the drawing kit (`popup_choose_labels`, `ui/popup.h`: the labels are asked as they are drawn, a
 heading is skipped by the focus, a long list scrolls).
@@ -470,7 +470,7 @@ rows it shows (`br_page[]`); the app reads the highlighted file once the highlig
 | change the screen size | `DISPLAY_WIDTH` / `DISPLAY_HEIGHT` in `framework/hal/hal_display.h` |
 | change what a button or a knob does | `core/bindings.c`; a matrix key: the key layout (`core/keymap.c`, the KEYS tab); with Shift / Mod: the MODIFIERS tab (`core/modifiers.c`, defaults in `modifiers_init`) |
 | give a new board's control a role | `core/boards/map_<board>.h` |
-| raise a message | `popup_info` / `popup_error` / `popup_ask` on `app->popup` ([DRAWING_KIT.md](DRAWING_KIT.md), "Popups") |
+| raise a message | `popup_info` / `popup_error` / `popup_ask` on `app->popup` ([framework/docs/DRAWING_KIT.md](../../../framework/docs/DRAWING_KIT.md), "Popups") |
 
 ## 13. Checking a change
 
@@ -486,7 +486,7 @@ From the repo root unless said otherwise.
   (the build line is at the top of the file; `UI_DUMP_SIZE=128x128` for the taller screen). With no argument it shows the
   main view, then every menu tab of the modular and of the FM synth.
 
-## 13b. The knob legend and the header's marks (`core/ui_legend.c`; ENGINE_DESIGN.md ADR-046)
+## 13b. The knob legend and the header's marks (`core/ui_legend.c`; DESIGN.md ADR-046)
 
 - **The zone**: `ui_legend_h(g)` is its height (0 under 100 px of screen or without column knobs), laid out from the knobs'
   places in the board table (`controls_place`). `ui_legend_shown(ui, rack, pads)` says whether the screen on show has it: the

@@ -1,4 +1,4 @@
-// The map on Shift + Menu (app/app_lists.c; ENGINE_DESIGN.md ADR-044, ADR-046 phase 3): MODES, the views' headings, SETUP >, the entries
+// The map on Shift + Menu (app/app_lists.c; apps/ritual_machine/docs/DESIGN.md ADR-044, ADR-046 phase 3): MODES, the views' headings, SETUP >, the entries
 // following the section; the page list on Menu held: the pages of the view on show.
 #include "ui_test.h"
 #include "core/ui_screen.h"

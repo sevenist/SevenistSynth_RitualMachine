@@ -22,6 +22,7 @@ unzip the simulator and play it from the PC keyboard.
 | --- | --- | --- |
 | [**The Ritual Machine**](apps/ritual_machine/README.md) | the instrument: a modular rack, six-op FM and Strings synth beside 64 streamed sample pads, sequencers, sample tools on the machine | beta 1.1 |
 | [**TechnoGen**](apps/technogen/README.md) | a techno loop generator for the second prototype: seven tracks and a dice, in colour | first version, simulator |
+| [**SynthLab**](apps/synthlab/README.md) | a workbench for home-made synths: small all-in-one synths, one file each, a list of values and two encoders | new, simulator |
 | [**template**](apps/template/README.md) | the starter app: a four-voice synth with a screen and the board's keys | |
 
 The library under them is [framework/](framework/README.md): the DSP engine, the boards behind one interface, the drawing kit.
@@ -36,7 +37,7 @@ The audio path never allocates, never locks, never logs: no compromise on determ
 - **One code base, two targets.** The same engine and UI run on the ESP32-S3 and in a desktop window. What you hear
   is what you get.
 - **A library and its apps.** `framework/` is the library: the DSP engine, the board drivers behind one interface, and
-  a small drawing kit. `apps/` holds the Ritual Machine, TechnoGen and a starter template.
+  a small drawing kit. `apps/` holds the Ritual Machine, TechnoGen, SynthLab and a starter template.
 - **Boards are data.** Each board lists its controls in a table; the simulator draws its front panel from that table,
   so an app can be tried as any board before the hardware exists.
 - **RGB key feedback.** One LED per key: note colours, held notes, pads, play and mode states. The colours are editable.

@@ -6,14 +6,16 @@
         { "name": "oled_sim", "path": "." },
         { "name": "ritual_machine", "path": "apps/ritual_machine" },
         { "name": "template", "path": "apps/template" },
-        { "name": "technogen", "path": "apps/technogen" }
+        { "name": "technogen", "path": "apps/technogen" },
+        { "name": "synthlab", "path": "apps/synthlab" }
     ],
     "settings": {
         // An app is open twice (inside the repo and as its own folder): the repo's search leaves it to the app's folder.
         "search.exclude": {
             "apps/ritual_machine": true,
             "apps/template": true,
-            "apps/technogen": true
+            "apps/technogen": true,
+            "apps/synthlab": true
         }
     },
     "extensions": {

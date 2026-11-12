@@ -19,7 +19,7 @@ The first build also compiles u8g2 and takes about 10 s. After that, only the fi
 .\run.ps1   [-App <app>] [-Board <board>]
 ```
 
-- `-App` is a folder of `apps/`: `ritual_machine` (the default), `technogen` or `template`. You can also give it first without the
+- `-App` is a folder of `apps/`: `ritual_machine` (the default), `technogen`, `synthlab` or `template`. You can also give it first without the
   name: `.\build.ps1 technogen`.
 - The root `build.ps1` only finds `apps/<app>/build.ps1` and passes every other argument on to it. Running the app's own script
   (`.\apps\technogen\build.ps1`) does the same thing.
@@ -43,6 +43,7 @@ Each app has its own default board:
 | --- | --- | --- |
 | `ritual_machine` | `panel` | `oled_sim.exe`, `oled_sim_hwv1.exe`, `oled_sim_hwv2.exe` |
 | `technogen` | `hwv2` | `technogen_hwv2.exe`, `technogen.exe` (panel), `technogen_hwv1.exe` |
+| `synthlab` | `hwv2` | `synthlab_hwv2.exe`, `synthlab.exe` (panel), `synthlab_hwv1.exe` |
 | `template` | `panel` | `template.exe`, `template_hwv1.exe`, `template_hwv2.exe` |
 
 ## Common recipes
@@ -57,6 +58,10 @@ Each app has its own default board:
 .\build.ps1 -App technogen
 .\run.ps1   -App technogen
 .\build.ps1 -App technogen -Board panel; .\run.ps1 -App technogen -Board panel
+
+# SynthLab (built for HWV2 by default)
+.\build.ps1 -App synthlab
+.\run.ps1   -App synthlab
 
 # The template, or a new app made with tools\new_project.ps1
 .\build.ps1 -App template; .\run.ps1 -App template

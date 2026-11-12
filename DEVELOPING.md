@@ -8,6 +8,7 @@ next to its code; this guide is what they share: the layout, the requirements, t
 | the framework | [framework/README.md](framework/README.md) | [docs/DESIGN.md](framework/docs/DESIGN.md) (the decisions, the index of every ADR), [docs/BOARDS.md](framework/docs/BOARDS.md) (the boards, the ESP32 firmware), [docs/DRAWING_KIT.md](framework/docs/DRAWING_KIT.md), [CHANGELOG.md](framework/CHANGELOG.md) |
 | the Ritual Machine | [apps/ritual_machine/README.md](apps/ritual_machine/README.md) | [docs/DEVELOPING.md](apps/ritual_machine/docs/DEVELOPING.md), [docs/UI.md](apps/ritual_machine/docs/UI.md), [docs/SERIAL_COMMANDS.md](apps/ritual_machine/docs/SERIAL_COMMANDS.md), [docs/UX_REORGANIZATION.md](apps/ritual_machine/docs/UX_REORGANIZATION.md), [docs/DESIGN.md](apps/ritual_machine/docs/DESIGN.md), [CHANGELOG.md](apps/ritual_machine/CHANGELOG.md), [CONTINUE.md](apps/ritual_machine/CONTINUE.md) |
 | TechnoGen | [apps/technogen/README.md](apps/technogen/README.md) | [docs/DESIGN.md](apps/technogen/docs/DESIGN.md), [CHANGELOG.md](apps/technogen/CHANGELOG.md), [CONTINUE.md](apps/technogen/CONTINUE.md) |
+| SynthLab | [apps/synthlab/README.md](apps/synthlab/README.md) | [docs/SYNTHS.md](apps/synthlab/docs/SYNTHS.md), [CHANGELOG.md](apps/synthlab/CHANGELOG.md), [CONTINUE.md](apps/synthlab/CONTINUE.md) |
 | the template | [apps/template/README.md](apps/template/README.md) | |
 
 For the whole repo: [BUILDING.md](BUILDING.md) (building and running any app's desktop program), [CONTINUE.md](CONTINUE.md) (the
@@ -41,12 +42,14 @@ oled_sim/
 │  │                        platformio.ini, the simulator's card (sdcard/, samples/, samples_src/), and its documents: README.md,
 │  │                        CHANGELOG.md, CONTINUE.md, docs/ (DEVELOPING.md, UI.md, UX_REORGANIZATION.md, SERIAL_COMMANDS.md, DESIGN.md)
 │  ├─ template/             the starter app: a four-voice synth with a screen and the board's keys, desktop + first prototype (its README.md)
-│  └─ technogen/            TECHNOGEN: a techno loop generator for the second prototype, seven tracks and a dice, in colour
-│                           (README.md, CHANGELOG.md, CONTINUE.md, docs/DESIGN.md)
+│  ├─ technogen/            TECHNOGEN: a techno loop generator for the second prototype, seven tracks and a dice, in colour
+│  │                        (README.md, CHANGELOG.md, CONTINUE.md, docs/DESIGN.md)
+│  └─ synthlab/             SYNTHLAB: a workbench for home-made synths, one file each (src/synths/), for the second prototype
+│                           (README.md, CHANGELOG.md, CONTINUE.md, docs/SYNTHS.md: the synths' design notebook)
 ├─ tools/new_project.ps1    .\tools\new_project.ps1 my_synth  ->  apps/my_synth, a copy of the template under its own name
 ├─ docs/images/             the pictures of the repo's README.md
 ├─ build.ps1, run.ps1       build / run an app's desktop program from here (-App name; default: ritual_machine; BUILDING.md)
-├─ test.ps1                 every host test: the library's, then the Ritual Machine's engine and UI tests, then TechnoGen's
+├─ test.ps1                 every host test: the library's, then the Ritual Machine's engine and UI tests, TechnoGen's, SynthLab's
 ├─ README.md, DEVELOPING.md, BUILDING.md, CONTINUE.md, GLOSSARY.md, THIRD_PARTY_NOTICES.md   the repo's documents
 └─ lib/                     third-party code for the desktop builds (u8g2, minimp3, amy; not versioned)
 ```

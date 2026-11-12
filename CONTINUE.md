@@ -2,7 +2,7 @@
 
 Each part of the repo keeps its own notes: this file holds **the library's** (the engine, the boards, the HAL, the drawing kit),
 the repo's, **the user's working style and the environment's traps**; each app has its own `CONTINUE.md`:
-[the Ritual Machine](apps/ritual_machine/CONTINUE.md), [TechnoGen](apps/technogen/CONTINUE.md).
+[the Ritual Machine](apps/ritual_machine/CONTINUE.md), [TechnoGen](apps/technogen/CONTINUE.md), [SynthLab](apps/synthlab/CONTINUE.md).
 
 Read [DEVELOPING.md](DEVELOPING.md) first (the repo and where each part's documents are), then [framework/README.md](framework/README.md),
 [framework/docs/BOARDS.md](framework/docs/BOARDS.md) (**"ESP32 firmware and performance work"**) and

@@ -39,10 +39,9 @@ in `platformio.ini`): the prototype is loud on headphones.
 
 | File | What it is |
 | --- | --- |
-| `src/synth.h`, `src/synth.cpp` | Your synth, portable: which engine modules it uses, how they are cabled, the values a control can move. Start here. |
+| `src/synth.h`, `src/synth.cpp` | Your synth, portable: which engine modules it uses, how they are cabled, the values a control can move. Start here. The engine, its memory and the hand-out of its blocks are `framework/engine/core/host.h`. |
 | `src/app.h`, `src/app.cpp` | What the controls do and what the screen shows, portable too. |
-| `src/main_sim.cpp` | The desktop side: the synth's memory and the loop. |
-| `src/main_esp32.cpp` | The firmware side: the same, with the board's start-up. |
+| (the entry points) | The library's: `framework/app/main_sim.cpp` (the desktop: the synth's memory and the loop) and `main_esp32.cpp` (the same, with the board's start-up). They call the functions of `framework/app/app_main.h`, which `synth.h` and `app.h` declare by including it. |
 | `build.ps1` | The desktop build. The compile and link steps are shared: `framework/tools/sim_build.ps1`. |
 | `platformio.ini` | The firmware build: board, flags, libraries. |
 

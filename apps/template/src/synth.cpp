@@ -8,8 +8,7 @@
 // To make it yours: add nodes and cables in build_graph(), register the module families you use in synth_init(),
 // and add a setter like synth_set_cutoff() for every value a control should move.
 #include "synth.h"
-#include <cstring>
-#include "engine/core/engine.h"
+#include "engine/core/host.h"
 #include "engine/modules/synth_modules.h"
 
 using namespace sc;
@@ -20,11 +19,8 @@ constexpr int kVoices = 4;
 // Node ids: any numbers, unique and stable. The engine keeps a module's state across a reload while its id and type stay the same.
 enum Node : int { N_NOTE = 1, N_OSC, N_FILTER, N_ENV, N_VCA, N_VOICE_OUT, N_BUS, N_MASTER };
 
-Heap fast_heap, bulk_heap;
-Engine eng;
-q15 block_l[kBlock], block_r[kBlock];
-int block_pos = kBlock;                 // frames of the rendered block already handed out
-bool ready = false;
+EngineHost host;                        // the heaps, the engine, the hand-out of its blocks (engine/core/host.h)
+Engine &eng = host.engine;
 int cutoff = 84;
 
 bool build_graph(GraphDesc &g) {
@@ -66,48 +62,21 @@ bool build_graph(GraphDesc &g) {
 }  // namespace
 
 bool synth_init(void *fast, size_t fast_bytes, void *bulk, size_t bulk_bytes) {
-    fast_heap.init(fast, fast_bytes);
-    Memory mem{&fast_heap, &fast_heap};
-    if (bulk && bulk != fast) {
-        bulk_heap.init(bulk, bulk_bytes);
-        fast_heap.set_spill(&bulk_heap);            // a full fast heap takes from the bulk one instead of failing
-        mem.bulk = &bulk_heap;
-    }
-    if (!eng.init(mem, kVoices)) return false;      // registers the structure modules (NoteIn, VoiceOut, BusIn, MasterOut)
+    if (!host.init(fast, fast_bytes, bulk, bulk_bytes, kVoices)) return false;     // registers the structure modules (NoteIn, VoiceOut, BusIn, MasterOut)
     register_synth_modules(eng.registry());         // Osc, Env, Lfo, Filter, Vca, Mix4, Shaper ... (add the families you use)
-
-    static GraphDesc g;                             // large: not on the stack
-    g = GraphDesc{};
-    if (!build_graph(g)) return false;
-    if (eng.load(g, kVoices) != Err::Ok) return false;
-    block_pos = kBlock;
-    ready = true;
-    return true;
+    GraphDesc &g = host.new_graph();
+    return build_graph(g) && host.load(g, kVoices);
 }
 
-void synth_shutdown() {
-    if (!ready) return;
-    ready = false;
-    eng.shutdown();
-}
-
-void synth_render(int16_t *stereo, int frames) {
-    if (!ready) { std::memset(stereo, 0, static_cast<size_t>(frames) * 4); return; }
-    for (int i = 0; i < frames; i++) {              // the engine renders blocks of kBlock frames: hand them out frame by frame
-        if (block_pos >= kBlock) { eng.render(block_l, block_r); block_pos = 0; }
-        stereo[2 * i] = block_l[block_pos];
-        stereo[2 * i + 1] = block_r[block_pos];
-        block_pos++;
-    }
-}
-
-void synth_update() { if (ready) eng.gc(); }
-void synth_note_on(int midi_note) { if (ready) eng.note_on(midi_note); }
-void synth_note_off(int midi_note) { if (ready) eng.note_off(midi_note); }
+void synth_shutdown() { host.shutdown(); }
+void synth_render(int16_t *stereo, int frames) { host.render(stereo, frames); }
+void synth_update() { host.update(); }
+void synth_note_on(int midi_note) { if (host.ready()) eng.note_on(midi_note); }
+void synth_note_off(int midi_note) { if (host.ready()) eng.note_off(midi_note); }
 
 void synth_set_cutoff(int semitones) {
     cutoff = semitones < 24 ? 24 : (semitones > 120 ? 120 : semitones);
-    if (ready) eng.set_param(N_FILTER, FLT_CUTOFF, cutoff * 256);           // a live write: no reload, every voice follows
+    if (host.ready()) eng.set_param(N_FILTER, FLT_CUTOFF, cutoff * 256);           // a live write: no reload, every voice follows
 }
 int synth_cutoff() { return cutoff; }
 int synth_sample_rate() { return kSampleRate; }

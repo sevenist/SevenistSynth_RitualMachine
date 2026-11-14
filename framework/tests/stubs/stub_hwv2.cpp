@@ -1,8 +1,7 @@
-// What the tests stand in for: the board's display (a frame sent is kept, so a test can look at it) and its control table (HWV2's own,
-// linked from framework/boards/hwv2/hwv2_controls.c).
-#include "tests/stubs.h"
+// The HWV2 board for host tests (stub_hwv2.h): the display, the control table, the LEDs.
+#include "tests/stubs/stub_hwv2.h"
 #include <cstring>
-#include "boards/hwv2/hwv2_controls.h"
+#include "host/png.h"
 
 int stub_frames = 0;
 uint16_t stub_frame[DISPLAY_WIDTH * DISPLAY_HEIGHT];
@@ -22,3 +21,5 @@ extern "C" void leds_clear(void) { std::memset(stub_leds, 0, sizeof stub_leds); 
 extern "C" void leds_set(int ctl, led_color_t c) { if (ctl >= 0 && ctl < HWV2_CONTROL_COUNT) stub_leds[ctl] = c; }
 extern "C" void leds_set_all(led_color_t c) { for (led_color_t &l : stub_leds) l = c; }
 extern "C" void leds_show(void) { stub_led_shows++; }
+
+bool stub_write_png(const char *path, int scale) { return png_write_rgb565(path, stub_frame, DISPLAY_WIDTH, DISPLAY_HEIGHT, scale); }

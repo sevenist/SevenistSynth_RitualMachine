@@ -5,8 +5,7 @@
 // Each track module adds its sound to what comes in (tg_tracks.h). The pads' sequencer plays the pattern: pad p of a hit is lane p % 8 of
 // track p / 8, routed to that track's module (Engine::pseq_route). The engine's voices are not used yet (the pad's paraphonic strings will).
 #include "synth.h"
-#include <cstring>
-#include "engine/core/engine.h"
+#include "engine/core/host.h"
 #include "engine/modules/builtin.h"
 #include "tg_tracks.h"
 
@@ -15,11 +14,8 @@ using namespace sc;
 namespace {
 enum Node : int { N_TRACK0 = 1, N_MASTER = N_TRACK0 + tg::kTracks };   // the tracks are nodes 1..7
 
-Heap fast_heap, bulk_heap;
-Engine eng;
-q15 block_l[kBlock], block_r[kBlock];
-int block_pos = kBlock;                 // frames of the rendered block already handed out
-bool ready = false;
+EngineHost host;                        // the heaps, the engine, the hand-out of its blocks (engine/core/host.h)
+Engine &eng = host.engine;
 int n_hits = 0;
 
 bool build_graph(GraphDesc &g) {
@@ -45,48 +41,22 @@ int hit_level(int kind) { return kind == tg::S_ACCENT ? 15 : 10; }
 }  // namespace
 
 bool synth_init(void *fast, size_t fast_bytes, void *bulk, size_t bulk_bytes) {
-    fast_heap.init(fast, fast_bytes);
-    Memory mem{&fast_heap, &fast_heap};
-    if (bulk && bulk != fast) {
-        bulk_heap.init(bulk, bulk_bytes);
-        fast_heap.set_spill(&bulk_heap);            // a full fast heap takes from the bulk one instead of failing
-        mem.bulk = &bulk_heap;
-    }
-    if (!eng.init(mem, 1)) return false;            // (one voice: the graph has no voice-scope module)
+    if (!host.init(fast, fast_bytes, bulk, bulk_bytes, 1)) return false;      // (one voice: the graph has no voice-scope module)
     tg::register_track_module(eng.registry());
-
-    static GraphDesc g;                             // large: not on the stack
-    g = GraphDesc{};
-    if (!build_graph(g)) return false;
-    if (eng.load(g, 1) != Err::Ok) return false;
+    GraphDesc &g = host.new_graph();
+    if (!build_graph(g) || !host.load(g, 1)) return false;
     int8_t route[kPadSeqGroups];
     for (int k = 0; k < kPadSeqGroups; k++) route[k] = static_cast<int8_t>(k < tg::kTracks ? N_TRACK0 + k : -1);
     eng.pseq_route(route);
-    block_pos = kBlock;
-    ready = true;
     return true;
 }
 
-void synth_shutdown() {
-    if (!ready) return;
-    ready = false;
-    eng.shutdown();
-}
-
-void synth_render(int16_t *stereo, int frames) {
-    if (!ready) { std::memset(stereo, 0, static_cast<size_t>(frames) * 4); return; }
-    for (int i = 0; i < frames; i++) {              // the engine renders blocks of kBlock frames: hand them out frame by frame
-        if (block_pos >= kBlock) { eng.render(block_l, block_r); block_pos = 0; }
-        stereo[2 * i] = block_l[block_pos];
-        stereo[2 * i + 1] = block_r[block_pos];
-        block_pos++;
-    }
-}
-
-void synth_update() { if (ready) eng.gc(); }
+void synth_shutdown() { host.shutdown(); }
+void synth_render(int16_t *stereo, int frames) { host.render(stereo, frames); }
+void synth_update() { host.update(); }
 
 void synth_set_track(int t, const tg::Track &tr) {
-    if (!ready || t < 0 || t >= tg::kTracks) return;
+    if (!host.ready() || t < 0 || t >= tg::kTracks) return;
     for (int k = 0; k < tg::kParams; k++) eng.set_param(N_TRACK0 + t, tg::TP_V0 + k, tr.value[k]);
     eng.set_param(N_TRACK0 + t, tg::TP_LEVEL, tr.muted ? 0 : tr.level);
 }
@@ -135,14 +105,14 @@ bool g_running = false;
 }  // namespace
 
 void synth_set_steps(const tg::Pattern &p) {
-    if (!ready) return;
+    if (!host.ready()) return;
     static PadHit hits[kPadSeqHits];
     n_hits = pattern_hits(p, hits);
     send_hits(hits, n_hits, false);
 }
 
 void synth_queue_steps(const tg::Pattern &p, int id) {
-    if (!ready) return;
+    if (!host.ready()) return;
     static PadHit hits[kPadSeqHits];
     send_hits(hits, pattern_hits(p, hits), true);
     SeqSetup s = setup(g_running);
@@ -151,22 +121,22 @@ void synth_queue_steps(const tg::Pattern &p, int id) {
     eng.pseq_setup(s, N_TRACK0);
 }
 
-uint32_t synth_taken() { return ready ? eng.pseq_taken() : 0; }
+uint32_t synth_taken() { return host.ready() ? eng.pseq_taken() : 0; }
 
 void synth_set_volume(int percent) {
-    if (!ready) return;
+    if (!host.ready()) return;
     const int p = percent < 0 ? 0 : (percent > 100 ? 100 : percent);
     eng.set_param(N_MASTER, 0, p * p * kUnity / 10000);                  // (squared: the knob's travel feels even in loudness)
 }
 
 void synth_set_transport(int bpm, bool running) {
-    if (!ready) return;
+    if (!host.ready()) return;
     g_running = running;
     eng.pseq_setup(setup(running), N_TRACK0);       // (its node is not used: the hits are routed)
     eng.set_transport(bpm, running, false);
 }
 
-int synth_step() { return ready ? eng.pseq_step() : -1; }
+int synth_step() { return host.ready() ? eng.pseq_step() : -1; }
 int synth_hits() { return n_hits; }
 int synth_max_hits() { return kPadSeqHits; }
 int synth_sample_rate() { return kSampleRate; }

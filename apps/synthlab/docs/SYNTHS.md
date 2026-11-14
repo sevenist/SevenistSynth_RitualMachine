@@ -585,7 +585,7 @@ reverb 20 % / 700 ms): peak −9.4 dBFS as the Snare, RMS 0.8 dB above, the band
 voice (the Kick 38.6), its Fx 11.7 ns. ESP32-S3 (the compiler): the render 2818 instructions (the Kick's 2193), its 4 divisions once a
 block (the filter envelope's coefficients, as the Kick's), none in the sample loop; the Fx 662. **Memory:** a voice is 7.7 KB (the
 Kick's 7.2), the Fx 12.9 KB; the engine makes 6 voices the size of the largest synth: about 46 KB + 12.9 KB, near the 64 KB of fast
-RAM (main_esp32.cpp; beyond it the heap spills into PSRAM). A mono synth needs one voice: loading it with one would save 38 KB.
+RAM (framework/app/main_esp32.cpp, APP_FAST_BYTES; beyond it the heap spills into PSRAM). A mono synth needs one voice: loading it with one would save 38 KB.
 
 **Parameters** (104 rows, 17 of them section titles). The rows of the Kick and the Snare keep their ranges and meanings (the tables of
 the Kick and the Snare above); the defaults are the Kick's. What is new or different:

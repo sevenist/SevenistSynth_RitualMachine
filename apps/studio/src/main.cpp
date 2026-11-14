@@ -38,8 +38,8 @@
 #include "params.h"
 #include "studio.h"
 #include "synth.h"
+#include "host/png.h"
 
-bool write_png(const char *path, const uint16_t *frame, int fw, int fh, int scale);   // (SynthLab's tests/png.cpp)
 int shot_scale = 1;                                                                    // --scale: the PNGs pixels x N
 int studio_selftest(wg_ctx_t &c, const char *shot);                                   // selftest.cpp
 
@@ -436,7 +436,7 @@ int main(int argc, char **argv) {
         in.x = in.y = -100;
         run_frame(c, in);
         run_frame(c, in);
-        const bool ok = write_png(shot, pixels, cv.w, g_h, shot_scale);
+        const bool ok = png_write_rgb565(shot, pixels, cv.w, g_h, shot_scale);
         std::printf("%s %s\n", ok ? "wrote" : "could not write", shot);
         synth_shutdown();
         return ok ? 0 : 1;

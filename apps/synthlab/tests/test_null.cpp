@@ -10,7 +10,8 @@
 #include "lab.h"
 #include "lab_dsp.h"
 #include "synths/kick_lite.h"
-#include "tests/check.h"
+#include "host/wav.h"
+#include "tests/test.h"
 
 int find_row(const lab::Synth &s, const char *name);           // test_main.cpp
 
@@ -68,16 +69,7 @@ std::vector<float> render(const lab::Synth &s, const float *p) {
 }
 
 void write_float_wav(const char *path, const std::vector<float> &x) {
-    std::FILE *f = std::fopen(path, "wb");
-    if (!f) return;
-    auto u32 = [f](uint32_t v) { std::fwrite(&v, 4, 1, f); };
-    auto u16 = [f](uint16_t v) { std::fwrite(&v, 2, 1, f); };
-    const uint32_t bytes = static_cast<uint32_t>(x.size() * 4);
-    std::fwrite("RIFF", 1, 4, f); u32(36 + bytes); std::fwrite("WAVEfmt ", 1, 8, f);
-    u32(16); u16(3); u16(1); u32(static_cast<uint32_t>(kSr)); u32(static_cast<uint32_t>(kSr) * 4); u16(4); u16(32);    // (format 3: float)
-    std::fwrite("data", 1, 4, f); u32(bytes);
-    std::fwrite(x.data(), 4, x.size(), f);
-    std::fclose(f);
+    wav_write_float(path, x.data(), x.size(), 1, static_cast<int>(kSr));
 }
 
 double db(double v) { return v > 0.0 ? 20.0 * std::log10(v) : -999.0; }

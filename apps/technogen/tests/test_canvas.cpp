@@ -1,6 +1,6 @@
 // The library's colour canvas (framework/ui/canvas.h): u8g2 and the drawing kit painting RGB565.
 #include "tests/test.h"
-#include "tests/stubs.h"
+#include "tests/stubs/stub_hwv2.h"
 #include "ui/canvas.h"
 #include "ui/gui.h"
 

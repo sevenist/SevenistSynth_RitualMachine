@@ -1,24 +1,15 @@
-// The screen and the encoders (src/app.cpp), on HWV2's control table and a 128 x 160 frame, as on the board. The board is stubbed here:
-// the display (the app draws into a colour canvas, kept to be written as a PNG) and the control table (HWV2's own, linked from
-// framework/boards/hwv2/hwv2_controls.c).
+// The screen and the encoders (src/app.cpp), on HWV2's control table and a 128 x 160 frame, as on the board. The board is the library's
+// stub (framework/tests/stubs/stub_hwv2.h: the frames sent are counted, the control table is HWV2's own); the app draws into a colour canvas of
+// the test's, written as a PNG.
 #include <cmath>
 #include <vector>
 #include "app.h"
-#include "boards/hwv2/hwv2_controls.h"
 #include "lab.h"
 #include "synth.h"
-#include "tests/check.h"
+#include "host/png.h"
+#include "tests/stubs/stub_hwv2.h"
+#include "tests/test.h"
 #include "ui/canvas.h"
-
-bool write_png(const char *path, const uint16_t *frame, int w, int h, int scale);      // png.cpp
-
-namespace {
-int frames_sent = 0;
-}
-
-extern "C" void display_send(u8g2_t *) { frames_sent++; }
-extern "C" void display_send_rgb565(const uint16_t *) {}   // (the canvas links it; the app sends one-colour frames)
-extern "C" const input_control_t *input_controls(int *count) { if (count) *count = HWV2_CONTROL_COUNT; return kHwv2Controls; }
 
 namespace {
 canvas_t screen;
@@ -30,7 +21,7 @@ void push(int ctl) { send(ctl, IN_PRESS); send(ctl, IN_RELEASE); }
 void draw() { canvas_clear(&screen, 0); app_draw(); }   // (u8g2_ClearBuffer does not clear a canvas: the test does)
 void shot(const char *path) {
     draw();
-    CHECK(write_png(path, pixels, DISPLAY_WIDTH, DISPLAY_HEIGHT, 3), "could not write %s", path);
+    CHECK(png_write_rgb565(path, pixels, DISPLAY_WIDTH, DISPLAY_HEIGHT, 3), "could not write %s", path);
 }
 }  // namespace
 
@@ -40,9 +31,9 @@ void test_app() {
     CHECK(canvas_init(&screen, pixels, DISPLAY_WIDTH, DISPLAY_HEIGHT), "canvas %dx%d", DISPLAY_WIDTH, DISPLAY_HEIGHT);
     app_start(canvas_u8g2(&screen));
     draw();
-    CHECK(frames_sent == 1, "the first frame is sent (%d)", frames_sent);
+    CHECK(stub_frames == 1, "the first frame is sent (%d)", stub_frames);
     app_draw();
-    CHECK(frames_sent == 1, "nothing changed: no frame (%d)", frames_sent);
+    CHECK(stub_frames == 1, "nothing changed: no frame (%d)", stub_frames);
     shot("build/screen_start.png");
 
     // row 0: encoder B picks the synth, and stops at both ends of the list

@@ -354,6 +354,8 @@ void update_leds() {
 
 namespace tg { AppState &app_state() { return st; } }
 
+const char *app_name() { return APP_NAME; }
+
 void app_start(u8g2_t *display) {
     (void)display;                                    // (the board's one-colour u8g2: this app draws on its colour canvas)
     canvas_init(&cv, frame, DISPLAY_WIDTH, DISPLAY_HEIGHT);

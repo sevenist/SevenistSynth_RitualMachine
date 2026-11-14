@@ -5,8 +5,7 @@
 //
 // The graph never changes: picking a synth is a parameter of LabVoice (lab_voice.h), so it is live, without a reload.
 #include "synth.h"
-#include <cstring>
-#include "engine/core/engine.h"
+#include "engine/core/host.h"
 #include "engine/modules/builtin.h"
 #include "lab.h"
 #include "lab_voice.h"
@@ -18,11 +17,8 @@ constexpr int kVoices = 6;
 
 enum Node : int { N_LAB = 1, N_VOICE_OUT, N_BUS, N_FX, N_MASTER };
 
-Heap fast_heap, bulk_heap;
-Engine eng;
-q15 block_l[kBlock], block_r[kBlock];
-int block_pos = kBlock;                 // frames of the rendered block already handed out
-bool ready = false;
+EngineHost host;                        // the heaps, the engine, the hand-out of its blocks (engine/core/host.h)
+Engine &eng = host.engine;
 int selected = 0;
 bool looping = false;
 int loop_bpm = 120;
@@ -129,51 +125,25 @@ bool synth_init(void *fast, size_t fast_bytes, void *bulk, size_t bulk_bytes) {
     if (lab::kSynthCount < 1 || lab::kSynthCount > lab::kMaxSynths) return false;      // (lab.h: kMaxSynths)
     for (int s = 0; s < lab::kSynthCount; s++)
         for (int i = 0; i < lab::kSynths[s]->n_params; i++) values[s][i] = lab::kSynths[s]->params[i].def;
-    fast_heap.init(fast, fast_bytes);
-    Memory mem{&fast_heap, &fast_heap};
-    if (bulk && bulk != fast) {
-        bulk_heap.init(bulk, bulk_bytes);
-        fast_heap.set_spill(&bulk_heap);
-        mem.bulk = &bulk_heap;
-    }
-    if (!eng.init(mem, kVoices)) return false;
+    if (!host.init(fast, fast_bytes, bulk, bulk_bytes, kVoices)) return false;
     lab::register_lab_modules(eng.registry());
-
-    static GraphDesc g;                             // large: not on the stack
-    g = GraphDesc{};
-    if (!build_graph(g)) return false;
-    if (eng.load(g, kVoices) != Err::Ok) return false;
+    GraphDesc &g = host.new_graph();
+    if (!build_graph(g) || !host.load(g, kVoices)) return false;
     send_mode();
-    block_pos = kBlock;
-    ready = true;
     return true;
 }
 
-void synth_shutdown() {
-    if (!ready) return;
-    ready = false;
-    eng.shutdown();
-}
-
-void synth_render(int16_t *stereo, int frames) {
-    if (!ready) { std::memset(stereo, 0, static_cast<size_t>(frames) * 4); return; }
-    for (int i = 0; i < frames; i++) {              // the engine renders blocks of kBlock frames: hand them out frame by frame
-        if (block_pos >= kBlock) { eng.render(block_l, block_r); block_pos = 0; }
-        stereo[2 * i] = block_l[block_pos];
-        stereo[2 * i + 1] = block_r[block_pos];
-        block_pos++;
-    }
-}
-
-void synth_update() { if (ready) eng.gc(); }
-void synth_note_on(int midi_note, int velocity127) { if (ready) eng.note_on(midi_note, velocity127); }
-void synth_note_off(int midi_note) { if (ready) eng.note_off(midi_note); }
-void synth_all_notes_off() { if (ready) eng.all_notes_off(); }
+void synth_shutdown() { host.shutdown(); }
+void synth_render(int16_t *stereo, int frames) { host.render(stereo, frames); }
+void synth_update() { host.update(); }
+void synth_note_on(int midi_note, int velocity127) { if (host.ready()) eng.note_on(midi_note, velocity127); }
+void synth_note_off(int midi_note) { if (host.ready()) eng.note_off(midi_note); }
+void synth_all_notes_off() { if (host.ready()) eng.all_notes_off(); }
 
 void synth_select(int index) {
     if (index < 0 || index >= lab::kSynthCount) return;
     selected = index;
-    if (!ready) return;
+    if (!host.ready()) return;
     if (looping) synth_loop_stop();
     eng.all_notes_off();
     eng.set_param(N_LAB, lab::LV_SYNTH, index);     // first: the voices build the new synth's Voice (and the effect its Fx), then take its values
@@ -187,7 +157,7 @@ void synth_set_value(int param, float value) {
     const lab::Synth &s = *lab::kSynths[selected];
     if (param < 0 || param >= s.n_params) return;
     values[selected][param] = clamp_value(s.params[param], value);
-    if (!ready) return;
+    if (!host.ready()) return;
     send_values(param, 1);
     if (looping && groove()) {                      // the loop's values, live
         const lab::Options &o = s.opt;
@@ -208,10 +178,10 @@ float synth_value(int param) { return param >= 0 && param < lab::kMaxParams ? va
 
 void synth_set_volume(float volume) {
     const float v = volume < 0.f ? 0.f : (volume > 1.f ? 1.f : volume);
-    if (ready) eng.set_param(N_MASTER, 0, static_cast<int32_t>(v * 32767.f));
+    if (host.ready()) eng.set_param(N_MASTER, 0, static_cast<int32_t>(v * 32767.f));
 }
 void synth_loop_start(int midi_note, int bpm) {
-    if (!ready) return;
+    if (!host.ready()) return;
     const lab::Options &o = lab::kSynths[selected]->opt;
     loop_bpm = groove() && o.tempo_param >= 0 ? loop_tempo() : bpm;
     loop_note = midi_note;
@@ -222,10 +192,10 @@ void synth_loop_start(int midi_note, int bpm) {
 }
 void synth_loop_note(int midi_note) {
     loop_note = midi_note;
-    if (ready && looping) loop_pattern(midi_note);
+    if (host.ready() && looping) loop_pattern(midi_note);
 }
 void synth_loop_stop() {
-    if (!ready) return;
+    if (!host.ready()) return;
     SeqSetup s;
     s.run = 0;
     eng.seq_setup(s);
@@ -239,4 +209,4 @@ bool synth_looping() { return looping; }
 int synth_loop_bpm() { return loop_bpm; }
 
 int synth_sample_rate() { return kSampleRate; }
-int synth_active_voices() { return ready ? eng.active_voices() : 0; }
+int synth_active_voices() { return host.ready() ? eng.active_voices() : 0; }

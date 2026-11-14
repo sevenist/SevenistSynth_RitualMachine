@@ -5,7 +5,7 @@
 #include <vector>
 #include "app.h"
 #include "synth.h"
-#include "tests/stubs.h"
+#include "tests/stubs/stub_hwv2.h"
 #include "tests/test.h"
 #include "tg_app.h"
 #include "ui/canvas.h"

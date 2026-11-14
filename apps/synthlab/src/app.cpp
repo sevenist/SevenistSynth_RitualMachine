@@ -154,6 +154,8 @@ void key_event(int r, int c, bool pressed) {
 }
 }  // namespace
 
+const char *app_name() { return APP_NAME; }
+
 void app_start(u8g2_t *display) {
     g = display;
     controls = input_controls(&n_controls);

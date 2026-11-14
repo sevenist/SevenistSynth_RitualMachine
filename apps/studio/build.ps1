@@ -18,7 +18,7 @@ try {
     $objDir = "build/obj"
     if ($Clean -and (Test-Path $objDir)) { Remove-Item -Recurse -Force $objDir }
     $labSrc = @(Get-Item "$lab/src/synth.cpp", "$lab/src/lab_voice.cpp") + @(Get-ChildItem "$lab/src/synths/*.cpp")
-    $cppSrc = @(Get-EngineSources) + $labSrc + @(Get-ChildItem src/*.cpp) + @(Get-Item "$lab/tests/png.cpp") + @(Get-ChildItem "$fw/modular/*.cpp")
+    $cppSrc = @(Get-EngineSources) + $labSrc + @(Get-ChildItem src/*.cpp) + @(Get-ChildItem "$fw/modular/*.cpp")
     # the desktop board's files the studio uses: the tool window, the audio output (the display window is linked for canvas_send, never opened)
     $desk = "$fw/boards/desktop"
     $cSrc = @(Get-UiSources) + @(Get-Item "$desk/desk_window.c", "$desk/audio_out_sim.c", "$desk/display_sim.c") + @(Get-ChildItem $u8g2/csrc/*.c) + @(Get-ChildItem $u8g2/sys/sdl/common/*.c)

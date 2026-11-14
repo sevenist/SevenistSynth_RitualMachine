@@ -1,13 +1,12 @@
-#ifdef PLATFORM_SIM
-// Desktop build. The library's desktop board gives the display window, a panel window whose controls work with the mouse, the PC
-// keyboard as the key matrix, and the audio output (SDL); this file gives the synth its memory and runs the loop.
-// Esc or closing a window quits.
+#if defined(PLATFORM_SIM) && !defined(PLATFORM_TEST)
+// The desktop program's entry point for an app made from apps/template (app/app_main.h). The library's desktop board gives the display
+// window, a panel window whose controls work with the mouse, the PC keyboard as the key matrix, and the audio output (SDL); this file
+// gives the synth its memory and runs the loop. Esc or closing a window quits.
 #define SDL_MAIN_HANDLED
 #include <cstdio>
 #include <cstdlib>
-#include "app.h"
+#include "app/app_main.h"
 #include "hal/hal_audio_out.h"
-#include "synth.h"
 
 namespace {
 constexpr size_t kFastBytes = 1u << 20, kBulkBytes = 1u << 20;
@@ -33,4 +32,4 @@ int main() {
     std::free(bulk);
     return 0;
 }
-#endif  // PLATFORM_SIM
+#endif  // PLATFORM_SIM && !PLATFORM_TEST

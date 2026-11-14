@@ -14,15 +14,14 @@
 #include "params.h"
 #include "studio.h"
 #include "synth.h"
+#include "host/png.h"
+#include "tests/test.h"
 
 using namespace studio;
 
-bool write_png(const char *path, const uint16_t *frame, int fw, int fh, int scale);   // (SynthLab's tests/png.cpp)
 extern int shot_scale;                                                                  // main.cpp: --scale
 
 namespace {
-int checks = 0, failures = 0;
-#define CHECK(cond, ...) do { checks++; if (!(cond)) { failures++; std::printf("FAIL %s:%d: ", __FILE__, __LINE__); std::printf(__VA_ARGS__); std::printf("\n"); } } while (0)
 
 bool near(float a, float b, float tol) { return std::fabs(a - b) <= tol; }
 
@@ -242,7 +241,7 @@ void test_app(wg_ctx_t &c, const char *shot) {
     in.x = 231; in.y = 70;
     step();
     CHECK(c.hint[0] != 0, "a hint for the knob under the pointer");
-    if (shot) std::printf("%s %s\n", write_png(shot, c.cv->px, c.cv->w, c.cv->h, shot_scale) ? "wrote" : "could not write", shot);
+    if (shot) std::printf("%s %s\n", png_write_rgb565(shot, c.cv->px, c.cv->w, c.cv->h, shot_scale) ? "wrote" : "could not write", shot);
 }
 // The modular catalog, the patch, the runner, the Modular synth, the exports.
 void test_modular() {
@@ -611,7 +610,7 @@ void test_patch_tab(wg_ctx_t &c, const char *shot) {
     CHECK(cb.src == 2 && cb.dst == 5 && cb.dst_port == 0 && !cb.to_param, "it goes from Osc 2 to VCA 5's In");
     in.x = 300; in.y = 160;
     step();
-    if (shot) std::printf("%s %s\n", write_png(shot, c.cv->px, c.cv->w, c.cv->h, shot_scale) ? "wrote" : "could not write", shot);
+    if (shot) std::printf("%s %s\n", png_write_rgb565(shot, c.cv->px, c.cv->w, c.cv->h, shot_scale) ? "wrote" : "could not write", shot);
 }
 }  // namespace
 
@@ -629,7 +628,7 @@ int studio_selftest(wg_ctx_t &c, const char *shot) {
     std::string shot2 = shot ? std::string(shot) : std::string();
     if (shot2.size() > 4) shot2.insert(shot2.size() - 4, "_patch");
     test_patch_tab(c, shot ? shot2.c_str() : nullptr);
-    std::printf("%s: %d checks, %d failed\n", failures ? "FAIL" : "PASS", checks, failures);
-    return failures ? 1 : 0;
+    std::printf("%s: %d checks, %d failed\n", tst::failures() ? "FAIL" : "PASS", tst::checks(), tst::failures());
+    return tst::failures() ? 1 : 0;
 }
 #endif  // PLATFORM_SIM

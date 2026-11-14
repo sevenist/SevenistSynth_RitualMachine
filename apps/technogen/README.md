@@ -63,6 +63,6 @@ they have caught their value; white when locked).
 | `src/tg_tracks.h`, `.cpp` | The track module for the engine: one per track, plays its own hits, adds its sound to the chain. Placeholder sounds. |
 | `src/synth.h`, `.cpp` | The sound: the graph (seven tracks chained into the master, loaded once), the pattern as the sequencer's hits, the clock. |
 | `src/tg_app.h`, `src/app.cpp` | What the controls do, the screen (drawn in colour on `ui/canvas.h`) and the LEDs. |
-| `src/main_sim.cpp`, `src/main_esp32.cpp` | The desktop and the firmware: memory, the loop, the board's start-up. |
-| `tests/` | The host tests (`tools/build_tests.ps1`): the dice, the synth with the engine, the controls and the screen. |
+| (the entry points) | The library's: `framework/app/main_sim.cpp` and `main_esp32.cpp` (memory, the loop, the board's start-up) call the app's functions listed in `framework/app/app_main.h`. |
+| `tests/` | The host tests (`tools/build_tests.ps1`): the dice, the synth with the engine, the controls and the screen. The harness, its main and the HWV2 board's stub are the library's (`framework/tests/test.h`, `test_main.cpp`, `stubs/stub_hwv2.h`). |
 | `build.ps1`, `platformio.ini` | The desktop build (default board: hwv2) and the firmware build for HWV2. |

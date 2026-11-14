@@ -32,7 +32,7 @@ on the voices' sum). 527 checks pass; new `tools/esp32_report.ps1`.
 found were fixed (`lab::flush`; the bench now warns). 557 checks pass; Kick 46 ns per sample on the host with the rumble.
 
 **Then: an echo on the rumble** (Delay / Feedbk / Dly Mix, at sr / 8 on a 16-bit line). 587 checks pass. On the ESP32 a Kick voice is
-3.9 KB (x 6 voices) and its reverb 12.8 KB: about 36 KB of the 64 KB fast heap (main_esp32.cpp; it spills to PSRAM beyond).
+3.9 KB (x 6 voices) and its reverb 12.8 KB: about 36 KB of the 64 KB fast heap (framework/app/main_esp32.cpp, APP_FAST_BYTES; it spills to PSRAM beyond).
 
 **Then: the master shaper** (glue compressor with attack / release, saturation, tilt, output; in the Kick's Fx after the reverb),
 measured from the WAV (the glue's gain first came a block late: now every 8 samples after the detector; the saturation's gain fixed
@@ -49,7 +49,7 @@ the section renamed RUMBLE (`-Values "RUMBLE/Level=100"`). 677 checks pass.
 
 **Then: the reverb's Route** (Output / Rumble). The reverb became a template (`Room`) with two copies: the output's (Fx, half rate,
 12.9 KB) and the rumble's (Voice, 1/8 rate, 3.2 KB). 695 checks pass. **Memory on the board**: a Kick voice is now 7.2 KB, and the
-engine makes 6 voices for every synth, even a mono one: 43 KB + the Fx's 12.9 KB = 56 KB of the 64 KB fast heap (main_esp32.cpp;
+engine makes 6 voices for every synth, even a mono one: 43 KB + the Fx's 12.9 KB = 56 KB of the 64 KB fast heap (framework/app/main_esp32.cpp, APP_FAST_BYTES;
 beyond it the heap spills into PSRAM). If that becomes a problem: load the graph with 1 voice for a mono synth (Engine::load's
 nvoices, at a change of synth).
 

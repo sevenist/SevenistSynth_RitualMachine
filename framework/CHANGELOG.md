@@ -2,6 +2,23 @@
 
 What changed in the library (`framework/`) and in the repo as a whole. Each app keeps its own update log.
 
+## 2026-11-14: the apps' copies in the library
+
+What the template, TechnoGen and SynthLab each had a copy of (and SynthLab Studio took from SynthLab) is the library's. No behaviour
+changed: every test run passes with the same counts.
+- **`engine/core/host.h`** (new): `EngineHost`, the engine with its two heaps and the hand-out of its blocks to an audio output that asks
+  for any number of frames (`init`, `new_graph`, `load`, `render`, `update`, `shutdown`, `ready`). The three apps' `synth.cpp` use it.
+- **`app/`** (new): the entry points, `main_esp32.cpp` (setup / loop) and `main_sim.cpp` (main), and `app_main.h`, the functions they call
+  (synth_init ... synth_sample_rate, app_name, app_start, app_event, app_draw). The apps' six copies are gone: the firmware's
+  `build_src_filter` has `+<framework/app/>`, the desktop's `build.ps1` adds `Get-AppMainSources` (`tools/sim_build.ps1`). The engine's
+  memory on the board: build flags `APP_FAST_BYTES` / `APP_BULK_BYTES` (64 KB / 256 KB, as before). An app gives `app_name()` (the log
+  lines' tag, `[SYNTHLAB]`).
+- **The tests' kit**: `tests/test.h`'s `CHECK` takes a printf-style message (`CHECK(peak < 4.f, "%s: peak %.1f", name, peak)`) and counts
+  the checks (`tst::checks()`); SynthLab's `check.h` and SynthLab Studio's own `CHECK` are gone. `tests/stubs/stub_hwv2.*` (new): the
+  HWV2 board for host tests, TechnoGen's `stubs.*` moved (SynthLab's tests use it too). `host/png.h` (new): the PNG writer of TechnoGen
+  and SynthLab (`png.cpp`, two copies; the studio compiled SynthLab's). `host/wav.h` (new): 16-bit and float WAV writers, from
+  SynthLab's tests. TechnoGen's tests use the library's `tests/test_main.cpp`.
+
 ## 2026-11-14: modules in both areas
 
 - Every catalog module but the ends is `Scope::Both`, the engine's modules included (`engine_adapter.h`: the type of the other

@@ -22,10 +22,10 @@
 #include "lab.h"
 #include "lab_dsp.h"
 #include "synth.h"
-#include "tests/check.h"
+#include "host/wav.h"
+#include "tests/test.h"
 
-int failures = 0, checks = 0;
-const char *filter = nullptr;
+const char *filter = nullptr;      // the text given on the command line (nullptr: every test)
 namespace {
 struct Override { const char *name; int index; float value; };
 constexpr int kMaxOverrides = 64;
@@ -285,9 +285,6 @@ void bench(const lab::Synth &s) {
         std::printf("  %-12s WARNING: its fx is %.0f %% slower than with denormals flushed (%.1f ns)\n", "", 100.0 * (fx / fx_ftz - 1.0), fx_ftz);
 }
 
-void put32(std::FILE *f, uint32_t v) { std::fwrite(&v, 4, 1, f); }
-void put16(std::FILE *f, uint16_t v) { std::fwrite(&v, 2, 1, f); }
-
 // A mono synth's phrase on one voice, as the engine plays it: each note restarts it (the last one choked). Hits on the beat at 120 BPM,
 // some of them before the last has ended, a soft one, two other notes, then the tail.
 void mono_phrase(const lab::Synth &s, std::vector<float> &mix, double &rendered, double &spent) {
@@ -353,15 +350,9 @@ void write_wav(const lab::Synth &s) {
     char path[160];
     std::snprintf(path, sizeof path, "build/wav/%s.wav", s.name);
     for (char *c = path + 10; *c; c++) if (*c == ' ' || *c == '/') *c = '_';
-    std::FILE *f = std::fopen(path, "wb");
-    CHECK(f != nullptr, "could not write %s (does build/wav exist?)", path);
-    if (!f) return;
-    const uint32_t bytes = static_cast<uint32_t>(pcm.size() * 2);
-    std::fwrite("RIFF", 1, 4, f); put32(f, 36 + bytes); std::fwrite("WAVEfmt ", 1, 8, f);
-    put32(f, 16); put16(f, 1); put16(f, 1); put32(f, static_cast<uint32_t>(kSr)); put32(f, static_cast<uint32_t>(kSr) * 2); put16(f, 2); put16(f, 16);
-    std::fwrite("data", 1, 4, f); put32(f, bytes);
-    std::fwrite(pcm.data(), 2, pcm.size(), f);
-    std::fclose(f);
+    const bool written = wav_write_pcm16(path, pcm.data(), pcm.size(), 1, static_cast<int>(kSr));
+    CHECK(written, "could not write %s (does build/wav exist?)", path);
+    if (!written) return;
     std::printf("  %-12s %s   host: %.1f us per voice per ms of sound\n", s.name, path,
                 seconds_rendered > 0 ? 1000.0 * seconds_spent / seconds_rendered : 0.0);
 }
@@ -401,6 +392,6 @@ int main(int argc, char **argv) {
         for (int s = 0; s < lab::kSynthCount; s++)
             if (wanted("wav", lab::kSynths[s]->name)) write_wav(*lab::kSynths[s]);
     }
-    std::printf("%s: %d checks, %d failed\n", failures ? "FAILED" : "passed", checks, failures);
-    return failures ? 1 : 0;
+    std::printf("%s: %d checks, %d failed\n", tst::failures() ? "FAILED" : "passed", tst::checks(), tst::failures());
+    return tst::failures() ? 1 : 0;
 }

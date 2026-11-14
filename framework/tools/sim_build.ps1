@@ -11,6 +11,12 @@ function Get-EngineSources {
     return @(Get-ChildItem (Join-Path $PSScriptRoot "../engine") -Recurse -Filter *.cpp)
 }
 
+# The desktop entry point of an app made from apps/template (framework/app/main_sim.cpp: memory, the loop; app/app_main.h), for an app's
+# -CppSources. Not for the host tests: they have their own main.
+function Get-AppMainSources {
+    return @(Get-Item (Join-Path $PSScriptRoot "../app/main_sim.cpp"))
+}
+
 # The library's drawing kit (framework/ui) and its desktop board (framework/boards/desktop: the display and panel windows, the
 # keyboard and mouse as controls, SDL audio, the card as a folder), for an app's -CSources. Both need u8g2 on the include path.
 function Get-UiSources {

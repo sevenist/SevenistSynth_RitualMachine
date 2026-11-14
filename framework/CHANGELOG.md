@@ -6,6 +6,7 @@ What changed in the library (`framework/`) and in the repo as a whole. Each app 
 
 What the template, TechnoGen and SynthLab each had a copy of (and SynthLab Studio took from SynthLab) is the library's. No behaviour
 changed: every test run passes with the same counts.
+
 - **`engine/core/host.h`** (new): `EngineHost`, the engine with its two heaps and the hand-out of its blocks to an audio output that asks
   for any number of frames (`init`, `new_graph`, `load`, `render`, `update`, `shutdown`, `ready`). The three apps' `synth.cpp` use it,
   and the Ritual Machine's `engine_synth.cpp` (its sample bank in the host's memory; `init_memory` / `start` in two steps, its rack's

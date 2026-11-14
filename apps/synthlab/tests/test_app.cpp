@@ -2,8 +2,10 @@
 // stub (framework/tests/stubs/stub_hwv2.h: the frames sent are counted, the control table is HWV2's own); the app draws into a colour canvas of
 // the test's, written as a PNG.
 #include <cmath>
+#include <cstdio>
 #include <vector>
 #include "app.h"
+#include "control/preset.h"
 #include "lab.h"
 #include "synth.h"
 #include "host/png.h"
@@ -211,5 +213,41 @@ void test_app() {
         CHECK(!synth_looping(), "PLAY again stops the groove");
         for (int i = 0; i < 20000 && synth_active_voices() > 0; i++) { synth_render(buf, 64); synth_update(); }
     }
+
+    // the sounds on the card (framework/control/preset.h, as SynthLab Studio saves them): read when the card comes in (the synth playing),
+    // when another synth is chosen the first time, and again on push B on the synth row; a value the synth does not have is skipped
+    push(HWV2_ENC_A_SW);
+    turn(HWV2_ENC_B, -50);
+    const lab::Synth &b = *lab::kSynths[0];
+    char file[64], path[96], text[200];
+    pset_file_name(b.name, ".sound", file, sizeof file);
+    std::snprintf(path, sizeof path, "synthlab/sounds/%s", file);
+    char p0[64];
+    pset_quote_path(b.params, b.n_params, 0, p0, sizeof p0);
+    std::snprintf(text, sizeof text, "# a test\nvalue %s %g\nvalue Gone/Value 3\n", p0, static_cast<double>(b.params[0].max));
+    stub_card_put(path, text);
+    synth_set_value(0, b.params[0].min);
+    draw();
+    CHECK(synth_value(0) == b.params[0].min, "no card yet: the value as it was (%g)", synth_value(0));
+    stub_card_insert();
+    shot("build/screen_sound_read.png");                         // (drawing polls the card)
+    CHECK(synth_value(0) == b.params[0].max, "the card in: %s read (%g)", path, synth_value(0));
+    synth_set_value(0, b.params[0].min);                         // played on: the synth keeps it
+    const int reads = stub_card_reads;
+    if (lab::kSynthCount > 1) {
+        turn(HWV2_ENC_B, 1);
+        CHECK(stub_card_reads == reads + 1, "another synth: its sound is looked for (%d reads)", stub_card_reads - reads);
+        turn(HWV2_ENC_B, -1);
+        CHECK(stub_card_reads == reads + 1 && synth_value(0) == b.params[0].min, "back: not read again, the value played on kept (%g)", synth_value(0));
+    }
+    push(HWV2_ENC_B_SW);                                         // on the synth row: read again
+    CHECK(synth_value(0) == b.params[0].max, "push B on the synth: read again (%g)", synth_value(0));
+    stub_card_remove();
+    draw();
+    synth_set_value(0, b.params[0].min);
+    push(HWV2_ENC_B_SW);
+    CHECK(synth_value(0) == b.params[0].min, "the card out: nothing read (%g)", synth_value(0));
+    shot("build/screen_no_card.png");
+    stub_card_clear();
     synth_shutdown();
 }

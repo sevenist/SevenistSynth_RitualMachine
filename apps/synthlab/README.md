@@ -27,7 +27,7 @@ The firmware: open `oled_sim.code-workspace` in VS Code, pick the folder `synthl
 | Control | On the desktop | What it does |
 | --- | --- | --- |
 | Encoder A | `[` / `]` | the row: the synth, then its parameters (it steps over the sections' titles). **Push** (`\`): back to the top |
-| Encoder B | `;` / `'` | the row's value: the synth, or the parameter. **Push** (`/`): the parameter's default |
+| Encoder B | `;` / `'` | the row's value: the synth, or the parameter. **Push** (`/`): the parameter's default; on the synth row, its sound read again from the card |
 | The 16 keys | `1`..`4`, `Q`..`R`, `A`..`F`, `Z`..`V` (by position) | notes: bottom left = C3, +1 to the right, +4 per row up |
 | F1 / F2 | `F1` / `F2` | octave down / up |
 | F3 / F4 | `F3` / `F4` | the previous / next synth |
@@ -36,6 +36,22 @@ The firmware: open `oled_sim.code-workspace` in VS Code, pick the folder `synthl
 
 The panel window writes each part's PC keys on it. The keys are named by their position on a QWERTY keyboard: on AZERTY, `Q` is the key
 labelled A.
+
+## Sounds from SynthLab Studio
+
+A sound made in SynthLab Studio (its SOUND tab, Ctrl+S) is a file `apps/studio/presets/<Synth>.sound`, one per synth. Copy it to the
+card, in the folder `synthlab/sounds/` (the board makes the folder when a card comes in): `Kick.sound`, `Kick_Lite.sound` (a space in
+the name is a `_`). On the desktop the card is the folder `apps/synthlab/sdcard/`, so the file goes in `apps/synthlab/sdcard/synthlab/sounds/`.
+
+- When the card comes in, the synth playing gets its sound; any other synth gets its own the first time you choose it. After that
+  the synth keeps what you play on it (the board does not save yet).
+- **Push encoder B on the synth row** to read the sound again, after copying a new version.
+- The bar says what happened, until the next control moves: "Sound read", "Sound read, 2 skipped" (values the file names that the
+  synth no longer has), "No Kick.sound", "No card".
+- The values are found by name (`value BODY/Tune 50`), so a sound still loads after its synth gains, loses or reorders values; a
+  value the file does not name keeps its own. The macros in the file are not played on the board yet.
+- The board reads the first 4 KB of a file: every synth's values fit (SynthLab Studio's self-test checks it; DrumLab, the largest,
+  takes 2.6 KB).
 
 ## Writing a synth
 

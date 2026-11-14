@@ -19,6 +19,7 @@
 #include "synth.h"
 #include "host/png.h"
 #include "tests/test.h"
+#include "hal/hal_storage.h"
 
 using namespace studio;
 
@@ -138,6 +139,9 @@ void test_sound_file() {
             if (spaced < 0 && std::strchr(path, ' ')) spaced = i;
         }
         const std::string text = sound_to_text(si);
+        const size_t values = text.find("\n# SynthLab Studio macros");
+        CHECK(si == modular_index() || (values != std::string::npos && values + 1 < STORAGE_FILE_MAX),
+              "%s: its values take %d bytes, a board reads %d of a file", s.name, static_cast<int>(values), STORAGE_FILE_MAX - 1);
         int lines = 0;
         for (int i = 0; i < s.n_params; i++) {
             if (s.params[i].curve == lab::Head) continue;

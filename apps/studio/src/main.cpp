@@ -68,9 +68,9 @@ void set_value_norm(int param, float n) { synth_set_value(param, pdesc_from_norm
 
 namespace {
 std::string file_name(int synth, const char *ext) {
-    std::string n = lab::kSynths[synth]->name;
-    for (char &ch : n) if (ch == ' ' || ch == '/' || ch == '\\') ch = '_';
-    return st.preset_dir + n + ext;
+    char n[96];
+    pset_file_name(lab::kSynths[synth]->name, ext, n, sizeof n);        // (framework/control/preset.h: the name a board reads too)
+    return st.preset_dir + n;
 }
 
 bool read_file(const std::string &path, std::string &out) {

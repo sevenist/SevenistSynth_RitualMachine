@@ -16,3 +16,11 @@ extern int stub_led_shows;
 
 // Writes the last colour frame as a PNG at `scale` (host/png.h), to look at it.
 bool stub_write_png(const char *path, int scale);
+
+// Its card (hal/hal_storage.h): files in memory. Out at the start; stub_card_insert queues the INSERTED event (its folders all there),
+// stub_card_remove the REMOVED one; stub_card_put writes a file (a card out keeps its files), stub_card_clear empties it.
+void stub_card_put(const char *name, const char *text);
+void stub_card_clear();
+void stub_card_insert();
+void stub_card_remove();
+extern int stub_card_reads;                                     // storage_read calls

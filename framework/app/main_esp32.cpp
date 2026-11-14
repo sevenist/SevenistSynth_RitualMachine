@@ -1,12 +1,14 @@
 #if defined(ARDUINO_ARCH_ESP32)
 // The firmware's entry point for an app made from apps/template (app/app_main.h). The library's board (framework/boards/hwv1 or hwv2, the
-// build's choice) gives the display, the controls, the power button or switch and the audio output: its audio task on core 1 calls
-// synth_render() and streams over I2S. loop() runs on core 0 (build flag ARDUINO_RUNNING_CORE=0), reads the controls and draws.
+// build's choice) gives the display, the controls, the power button or switch, the card (its task: hal/hal_storage.h's small files) and
+// the audio output: its audio task on core 1 calls synth_render() and streams over I2S. loop() runs on core 0 (build flag
+// ARDUINO_RUNNING_CORE=0), reads the controls and draws.
 #include <Arduino.h>
 #include <ctype.h>
 #include <esp_heap_caps.h>
 #include "app/app_main.h"
 #include "boards/esp32/board_esp32.h"
+#include "boards/esp32/card_task.h"
 #include "hal/hal_audio_out.h"
 
 #ifndef APP_FAST_BYTES
@@ -42,6 +44,7 @@ void setup() {
     if (!synth_start()) Serial.printf("%s the synth did not start\n", tag);
     else if (!audio_out_start(synth_render, synth_sample_rate())) Serial.printf("%s the audio output did not start\n", tag);
     app_start(display);
+    card_task_start(nullptr);                       // the card's small files (hal/hal_storage.h), after app_start has listed its folders
     display_boot_end();                             // the start is over: the board lets the sound through
     Serial.printf("%s running at %d Hz\n", tag, synth_sample_rate());
 }

@@ -2,7 +2,7 @@
 // the board.
 //
 //   encoder A              the row (push: back to the top, the synth); it steps over the sections' titles
-//   encoder B              the row's value: the synth, or the value (push: its default)
+//   encoder B              the row's value: the synth, or the value (push: its default; on the synth: its sound read again from the card)
 //   the note rows          notes: bottom left = C3 (48), +1 per key to the right, +1 row = + the row's length
 //   function keys 1 / 2    octave down / up            (the function keys: the top row of the key matrix)
 //   function keys 3 / 4    the previous / next synth
@@ -11,6 +11,12 @@
 //                          (a synth with grooves, DrumLab: its Groove at its Tempo)
 //   VOLUME                 the master volume
 //
+// The sounds: SynthLab Studio's (framework/control/preset.h), one per synth, on the card in synthlab/sounds/ under the name Studio saves
+// them (presets/Kick.sound -> synthlab/sounds/Kick.sound). A synth's sound is read the first time the synth is chosen while a card is
+// in (the one playing: when the card comes in), then the synth keeps what is played on it; push B on the synth reads it again. Its
+// values by name: a value the synth no longer has is skipped, one it gained keeps its own. The bar says what was read until the next
+// control moves.
+//
 // The board's controls are found in its table (hal/hal_input.h), not by id: encoder A and B are the first two encoders (the first two
 // endless pots on a board without encoders), their pushes the buttons at the same place, PLAY and VOLUME by name. So the app runs on
 // any board of the library.
@@ -18,6 +24,8 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include "control/preset.h"
+#include "hal/hal_storage.h"
 #include "lab.h"
 #include "synth.h"
 #include "ui/gui.h"
@@ -39,6 +47,12 @@ int hold_note = -1;                         // the note PLAY holds, -1 = none
 int row = 0;                                // the selected row: 0 = the synth, 1.. = its values
 int top = 0;                                // the first row on screen
 bool dirty = true;                          // the screen shows something else than the state
+
+const char *const kFolders[] = {"synthlab", "synthlab/sounds"};   // on the card (made when missing)
+constexpr const char *kSoundDir = "synthlab/sounds";
+bool card_in = false;
+bool sound_read[lab::kMaxSynths];           // the synth's sound was read from this card
+char status[40];                            // the bar's message ("": the app's name)
 
 const lab::Synth &cur() { return *lab::kSynths[synth_selected()]; }
 int row_count() { return 1 + cur().n_params; }
@@ -72,6 +86,45 @@ int find_named(const char *name) {
     return INPUT_NO_CONTROL;
 }
 
+// Reads the sound of the selected synth from the card (status: what happened).
+void read_sound() {
+    const lab::Synth &s = cur();
+    char name[48], path[80];
+    pset_file_name(s.name, ".sound", name, sizeof name);
+    std::snprintf(path, sizeof path, "%s/%s", kSoundDir, name);
+    sound_read[synth_selected()] = true;
+    static char text[STORAGE_FILE_MAX];
+    const int n = storage_read(path, text, sizeof text);
+    if (n < 0) { std::snprintf(status, sizeof status, card_in ? "No %s" : "No card", name); return; }
+    if (n >= static_cast<int>(sizeof text) - 1) {   // (a file larger than the board reads: its last line may be cut, it goes)
+        char *e = std::strrchr(text, '\n');
+        if (e) e[1] = 0;
+    }
+    const pset_sound_t ps = {s.params, s.n_params, nullptr, [](void *, int i, float v) { synth_set_value(i, v); }, nullptr, nullptr};
+    int skipped = 0;
+    if (!(pset_from_text(&ps, text, &skipped) & PSET_HAD_VALUES)) std::snprintf(status, sizeof status, "%s: no value", name);
+    else if (skipped) std::snprintf(status, sizeof status, "Sound read, %d skipped", skipped);
+    else std::snprintf(status, sizeof status, "Sound read");
+}
+
+// The card's events: a card that comes in gets its folders and gives the playing synth its sound.
+void poll_card() {
+    storage_event_t e;
+    while (storage_poll_event(&e)) {
+        if (e.kind == STORAGE_EV_INSERTED) {
+            card_in = true;
+            std::memset(sound_read, 0, sizeof sound_read);
+            if (e.missing) storage_make_folders();
+            read_sound();
+            dirty = true;
+        } else if (e.kind == STORAGE_EV_REMOVED) {
+            card_in = false;
+            std::snprintf(status, sizeof status, "Card out");
+            dirty = true;
+        }
+    }
+}
+
 void release_hold() {
     if (hold_note >= 0) synth_note_off(hold_note);
     hold_note = -1;
@@ -83,6 +136,7 @@ void select_synth(int index) {                      // (beyond the ends of the l
     hold_note = -1;                                 // (synth_select lets every note go)
     std::memset(held, 0, sizeof held);
     synth_select(index);
+    if (card_in && !sound_read[index]) read_sound();
     if (row >= row_count()) row = row_count() - 1;
     while (is_title(row)) row--;                    // (row 0, the synth, is never a title)
 }
@@ -137,12 +191,14 @@ void app_start(u8g2_t *display) {
     play_btn = find_named("PLAY");
     volume_knob = find_named("VOLUME");
     gui_style_init(&style, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
+    storage_set_folders(kFolders, 2);
     dirty = true;
 }
 
 void app_event(const input_event_t &e) {
     if (e.ctl < 0 || e.ctl >= n_controls) return;
     const input_control_t &c = controls[e.ctl];
+    if (e.kind != IN_VALUE && e.kind != IN_RELEASE && status[0]) { status[0] = 0; dirty = true; }   // (a control moved: the message goes)
     if (c.kind == CK_KEY && (e.kind == IN_PRESS || e.kind == IN_RELEASE)) {
         key_event(c.row, c.col, e.kind == IN_PRESS);
     } else if (e.kind == IN_DELTA && e.ctl == enc_a) {
@@ -152,7 +208,8 @@ void app_event(const input_event_t &e) {
     } else if (e.kind == IN_PRESS && e.ctl == push_a) {
         row = 0;
     } else if (e.kind == IN_PRESS && e.ctl == push_b) {
-        if (row > 0 && !is_title(row)) synth_set_value(row - 1, cur().params[row - 1].def);
+        if (row == 0) read_sound();
+        else if (!is_title(row)) synth_set_value(row - 1, cur().params[row - 1].def);
     } else if (e.kind == IN_PRESS && e.ctl == play_btn) {
         if (cur().opt.play_bpm > 0) {               // the synth's loop
             if (synth_looping()) synth_loop_stop();
@@ -173,6 +230,7 @@ void app_event(const input_event_t &e) {
 }
 
 void app_draw() {
+    poll_card();                                    // (the loop's one call to the app between events)
     if (!dirty || !g) return;
     dirty = false;
     u8g2_ClearBuffer(g);
@@ -182,10 +240,10 @@ void app_draw() {
     // the bar: the app, the octave, the held note
     char text[40];
     const gui_rect_t bar = gui_take_top(&area, GUI_BAR_H);
-    gui_draw_text_left(g, &style, bar, "SynthLab");
+    gui_draw_text_left(g, &style, bar, status[0] ? status : "SynthLab");
     if (synth_looping()) std::snprintf(text, sizeof text, "%d BPM  oct %+d", synth_loop_bpm(), octave);
     else std::snprintf(text, sizeof text, "%soct %+d", hold_note >= 0 ? "HOLD  " : "", octave);
-    gui_draw_text_right(g, &style, bar, text);
+    if (!status[0]) gui_draw_text_right(g, &style, bar, text);    // (a message takes the whole bar)
     u8g2_DrawHLine(g, 0, GUI_BAR_H - 1, static_cast<u8g2_uint_t>(bar.w));
 
     // the list: as many rows as fit, scrolled to keep the selected one in view

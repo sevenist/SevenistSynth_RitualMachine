@@ -103,6 +103,15 @@ static inline int pset_find(const param_desc_t *v, int n, const char *path) {
     return -1;
 }
 
+// A synth's file name: its name, a space or a slash as "_", then `ext` ("Kick Lite" + ".sound" -> "Kick_Lite.sound"). SynthLab Studio
+// saves a synth's sound under it, a board reads it there.
+static inline void pset_file_name(const char *synth, const char *ext, char *out, int cap) {
+    int n = 0;
+    for (const char *c = synth; *c && n + 1 < cap; c++) out[n++] = (*c == ' ' || *c == '/' || *c == '\\') ? '_' : *c;
+    if (cap > 0) out[n] = 0;
+    if (ext) snprintf(out + n, (size_t)(cap - n), "%s", ext);
+}
+
 /* ---------------- a sound ---------------- */
 
 // What a sound is made of: the synth's values (PARAM_HEAD entries are its sections) and how to read / set them, its macros.

@@ -2,6 +2,14 @@
 
 What changed in the library (`framework/`) and in the repo as a whole. Each app keeps its own update log.
 
+## 2026-11-15: the card for every app, a sound's file name
+
+- `app/main_esp32.cpp`: the firmware's entry point starts the card task (`card_task_start`, no hooks: the small files of
+  `hal/hal_storage.h`), after `app_start` has listed its folders. SynthLab reads its sounds from the card with it.
+- `control/preset.h`: `pset_file_name` ("Kick Lite" -> `Kick_Lite.sound`), the name SynthLab Studio saves a synth's sound under and a
+  board reads it by.
+- `tests/stubs/stub_hwv2.*`: the stub board has a card, files in memory (`stub_card_put`, `stub_card_insert`, `stub_card_remove`).
+
 ## 2026-11-15: a sound as text
 
 - **`control/preset.h`** (new, C, header only): a synth's sound as text, its values by path (`value BODY/Tune 50`; "SECTION/Name",

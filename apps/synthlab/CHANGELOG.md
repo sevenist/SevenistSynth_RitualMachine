@@ -2,6 +2,16 @@
 
 The library's changes: [framework/CHANGELOG.md](../../framework/CHANGELOG.md).
 
+## 2026-11-15: sounds from the card
+
+- **SynthLab Studio's sounds play on the board.** Copy `<Synth>.sound` from `apps/studio/presets/` to the card's `synthlab/sounds/`:
+  the synth playing reads its sound when the card comes in, another synth the first time it is chosen, and push B on the synth row
+  reads it again. The values are found by name, so a sound made before a synth changed still loads (the bar says how many were
+  skipped). See the README, "Sounds from SynthLab Studio".
+- For developers: `src/app.cpp` reads the card (`hal/hal_storage.h`, polled from `app_draw`) and the sound (`framework/control/preset.h`);
+  the firmware's entry point now starts the card task for every app (`framework/app/main_esp32.cpp`). The tests put files on the
+  stub board's card (`framework/tests/stubs/stub_hwv2.h`: `stub_card_put`, `stub_card_insert`).
+
 ## 2026-11-14: the DSP parts in the library, synths from patches
 
 - **For developers:** `src/lab_dsp.h`'s parts moved to the library (`framework/modular/mdsp.h`), shared with the modular catalog;

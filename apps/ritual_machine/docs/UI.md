@@ -94,7 +94,7 @@ and small arrays, plus a few pointers to data the app owns. The fields by group:
 | RACK tab | `rack_row`, `rack_col[]`, `rack_cur`, `rack_scroll`, `rack_type`, `rack_menu`, `rack_dirty`, `rebuild` | the selected row and each row's cell; the selected module's slot; the scroll; the type Insert adds; the push menu is open; edits waiting / the engine must be rebuilt |
 | Sequencer pages | `cursor`, `seq_voice`, `seq_tool`, `seq_scope`, `seq_msg`, `seq_knob_*`, `bank`, `seq_chain_cur`, `seq_rec` | the step and the note of its chord; the edit tool and what it just did; the step knobs' bookkeeping; the patterns (the app's); Rec armed |
 | Other pages | `fm_op`, `fm_pt`, `ms_lane`, `ms_step`, `eg_pt` | the sub-selection of the FM, motion and envelope pages |
-| Menu tabs | `smp_cur`, `smp_tgt`, `key_cur`, `mods_layer`, `mods_ctl`, `macro_cur`, `macro_dest`, `curve_cur`, `curve_pt`, `led_role`, `joy_tab`, `preset_name`, `preset_edited`, `preset_req` | each tab's own selection; the PRESETS tab's request to the app |
+| Menu tabs | `smp_cur`, `smp_tgt`, `key_cur`, `mods_layer`, `mods_ctl`, `macro_cur`, `macro_dest`, `macro_link`, `curve_cur`, `curve_pt`, `led_role`, `joy_tab`, `preset_name`, `preset_edited`, `preset_req` | each tab's own selection; the PRESETS tab's request to the app |
 | Learn | `learn_req`, `learn_wait`, `learn_layer`, `learn_ctl`, `learn_macro` | a Learn button was pushed; the next push on a page row assigns it |
 | Knobs and macros | `macro[]`, `knob_key[]`, `knob_pos[]`, `knob_catch_dir[]`, `knob_cur[]`, `knob_val[]`, `knob_away` | the 8 macros; what each knob last drove; the catch state of the four column knobs |
 | Joystick XY | `joy[]`, `joy_prev[]`, `joy_xy`, `joy_fresh`, `joy_next`, `joy_rest[]`, `joy_centre[]`, `joy_wrote[]`, `joy_last[]` | what X and Y drive, XY mode on, and the bookkeeping of a push |
@@ -292,7 +292,7 @@ them onto SOUND; a new tab is appended (`TAB_MACHINE`).
 | KEYS | `scr_keys.c` | Layout, Key, Func, Reset | the keys with their functions |
 | LEDS | `scr_leds.c` | Role, Idle, Idle %, Active, Act %, Value (the pots' roles), Reset; for Knob the shades read Away / Caught, for Enc A Synth / Pads (ADR-045) | the keys of that role filled, or which pots / encoder A |
 | MODIFIERS | `scr_mods.c` | Layer, Ctrl, Func, Min, Max, Curve, Learn, Reset | the controls with their function in the layer |
-| MACROS | `scr_macros.c` | Macro, Value (the macro played from the tab: `synth_ui_macro_pos`, `macro_pos[]`; ADR-046 phase 5), Color (its LED's, ADR-045), Dest, Tgt, Min, Max, Curve, Learn, Remove | the selected destination's response |
+| MACROS | `scr_macros.c` | Macro, Value (the macro played from the tab: `synth_ui_macro_pos`, `macro[k].pos`; ADR-046 phase 5), Color (its LED's, ADR-045), Dest, Tgt, Min, Max, Curve, Add (left / right: Learn, or another macro to drive: `macro_link`; push: do it), Remove | the selected destination's response |
 | JOY | `scr_joy.c` | Axis, Tgt, Min, Max, Curve, Clear | the axis' response, XY mode on or off |
 | CURVES | `scr_curves.c` | Curve, New, Point, X, Y, Seg, Add, Del pt, Delete | the curve and its points |
 | MACHINE | `scr_machine.c` | Out, Spk, Knob (from SOUND, ADR-046 decision 4), Storage (raises `ui->storage_req`: the app asks, `app_storage_ask`) | the battery |

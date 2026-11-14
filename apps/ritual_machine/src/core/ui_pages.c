@@ -248,11 +248,10 @@ void synth_ui_init(synth_ui_t *ui, const rack_t *rack) {
     ui->rack_dirty = false; ui->rebuild = false; ui->in_rack = false; ui->menu_tab = 0; ui->fm_op = 0; ui->fm_pt = 0;
     ui->view_sel = false; ui->edit_pages = 0; ui->view_last = VIEW_RACK; ui->storage_req = false; ui->reset_id = 0;
     for (int v = 0; v < VIEW_COUNT; v++) ui->view_at[v] = 0;
-    for (int k = 0; k < SYNTH_UI_MACROS; k++) ui->macro_pos[k] = -1;
     ui->cog_page = -1;
     ui->run_anim = GUI_ANIM_INVALID; ui->ms_lane = 0; ui->ms_step = 0; ui->smp_cur = 0; ui->smp_tgt = 0; ui->key_cur = KEY_COLS; ui->eg_pt = 0;
     ui->mods_layer = 0; ui->mods_ctl = CTL_COL_KNOB_0; ui->learn_req = false; ui->learn_wait = false; ui->knob_away = 0; ui->batt_pct = -1; ui->layer_held = -1;
-    ui->learn_macro = -1; ui->macro_cur = 0; ui->macro_dest = 0; ui->curve_cur = 0; ui->curve_pt = 0; ui->led_role = 0;
+    ui->learn_macro = -1; ui->macro_cur = 0; ui->macro_dest = 0; ui->macro_link = 0; ui->curve_cur = 0; ui->curve_pt = 0; ui->led_role = 0;
     ui->preset_req = PRESET_REQ_NONE;
     memset(ui->joy, 0, sizeof ui->joy); memset(ui->joy_prev, 0, sizeof ui->joy_prev);
     ui->joy_fresh = -1; ui->joy_next = 0; ui->joy_xy = false; ui->joy_tab = 0;
@@ -260,6 +259,7 @@ void synth_ui_init(synth_ui_t *ui, const rack_t *rack) {
     for (int i = 0; i < SYNTH_UI_JUMP_SLOTS; i++) ui->jump[i].valid = false;
     synth_ui_rebuild_pages(ui, rack);
     macros_default(ui, rack);
+    for (int k = 0; k < SYNTH_UI_MACROS; k++) ui->macro[k].pos = -1.0f;   // not set since the start
 }
 
 void synth_ui_sound_loaded(synth_ui_t *ui, const rack_t *rack) {

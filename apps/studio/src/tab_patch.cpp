@@ -636,7 +636,11 @@ void patch_apply() {
     const bool remap = st.loaded[mi];
     if (remap) {
         for (int k = 0; k < kMacros; k++)
-            for (int d = 0; d < st.macros[mi].m[k].n; d++) { param_path(s, st.macros[mi].m[k].d[d].param, path, sizeof path); mac[k].push_back(path); }
+            for (int d = 0; d < st.macros[mi].m[k].n; d++) {
+                const int p = dest_param(st.macros[mi].m[k].d[d]);
+                if (p >= 0) param_path(s, p, path, sizeof path); else path[0] = 0;            // (a link to another macro: kept as it is)
+                mac[k].push_back(path);
+            }
         for (const Page &pg : st.layouts[mi].pages)
             for (const El &e : pg.els) { if (e.param >= 0) param_path(s, e.param, path, sizeof path); else path[0] = 0; lay.push_back(path); }
     }
@@ -646,8 +650,9 @@ void patch_apply() {
             Macro &m = st.macros[mi].m[k];
             int w = 0;
             for (int d = 0; d < m.n; d++) {
+                if (dest_macro(m.d[d]) >= 0) { m.d[w++] = m.d[d]; continue; }
                 const int i = find_param(s, mac[k][d].c_str());
-                if (i >= 0) { m.d[w] = m.d[d]; m.d[w].param = i; w++; }
+                if (i >= 0) { m.d[w] = m.d[d]; m.d[w].t.prm = static_cast<uint16_t>(i); w++; }
             }
             m.n = w;
         }

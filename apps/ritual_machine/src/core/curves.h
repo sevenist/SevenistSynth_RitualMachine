@@ -50,7 +50,9 @@ bool curves_load(void);                                     // false: no card / 
 bool curves_save(void);
 bool curves_changed(void);                                  // edited since the last load / save
 
-// A mapping: knob 0..1 -> the curve -> onto Min..Max (% of the target's range) -> the target's value 0..1.
+const crv_bank_t *curves_bank(void);                       // the user curves (what the library's mappings and macros read)
+
+// A mapping (framework/control/macro.h): knob 0..1 -> the curve -> onto Min..Max of the target's range -> the target's value 0..1.
 float mapping_apply(const mapping_t *m, float knob);
 // The first knob position 0..MAPPING_POSITIONS-1 whose output is nearest `v` (the catch compares knob positions with it).
 #define MAPPING_POSITIONS 256

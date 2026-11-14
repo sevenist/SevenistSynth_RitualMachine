@@ -1,7 +1,9 @@
 // The SOUND tab: the synth's values as knobs, grouped by its sections (they flow left to right, the wheel scrolls), and the eight
 // macros on the left. A macro is assigned by dragging the handle under its knob onto a value's knob (or: a knob focused, Ctrl+1..8);
 // the knob then shows the macro's range as a ring in the macro's colour (dragging the ring moves Max, with Shift Min; a right click
-// removes it). The selected macro's destinations are listed under the macros, with Min, Max, Curve and the response.
+// removes it). Dropped on another macro's knob, the handle links them: that macro is then driven by this one (and drives its own
+// values), its ring the same way; a link that would loop back is refused (macros.h). The selected macro's destinations are listed
+// under the macros, with Min, Max, Curve and the response.
 #include <algorithm>
 #include <cstdio>
 #include <vector>
@@ -47,6 +49,26 @@ void assign(int k, int i, bool toggle) {
     mark_dirty();
 }
 
+// Macro k drives macro j (its handle dropped on j's knob); with `toggle`, the link that is there goes.
+void link(int k, int j, bool toggle) {
+    MacroSet &set = st.macros[synth_selected()];
+    Macro &m = set.m[k];
+    if (k == j) return;
+    const int at = macro_find_link(m, j);
+    if (at >= 0 && toggle) {
+        macro_remove(m, at);
+        message("%s no longer drives %s", m.name, set.m[j].name);
+    } else {
+        const int d = macro_link(set, k, j);
+        if (d < 0 && m.n >= kDests) { message("%s already drives %d destinations (the most)", m.name, kDests); return; }
+        if (d < 0) { message("%s cannot drive %s: %s drives it already (a loop)", m.name, set.m[j].name, set.m[j].name); return; }
+        st.dest_sel = d;
+        message("%s drives %s: drag the ring on its knob to set how far", m.name, set.m[j].name);
+    }
+    select_macro(k);
+    mark_dirty();
+}
+
 void draw_macros(wg_ctx_t &c, gui_rect_t area) {
     const wg_theme_t &t = c.theme;
     const wg_input_t &in = *c.in;
@@ -67,9 +89,22 @@ void draw_macros(wg_ctx_t &c, gui_rect_t area) {
         kd.def = 0.5f;
         kd.color = macro_color(k);
         const int id = WG_ID(F_MACRO, k);
-        if (wg_knob(&c, id, gui_rect(cell.x, cell.y, 46, 56), &m.pos, &kd) & WG_CHANGED) { macro_apply(cur(), m); mark_dirty(); }
-        if (c.active == id || wg_has_focus(&c, id)) select_macro(k);
-        if (c.hot == id) wg_set_hint(&c, "%s %s: drives %d value(s). Drag the handle under it onto a knob to add one", m.name, val, m.n);
+        Macro &sel = set.m[st.macro_sel];
+        const int li = k != st.macro_sel ? macro_find_link(sel, k) : -1;           // driven by the selected macro: its ring
+        if (li >= 0) { kd.ring = true; kd.ring_a = &sel.d[li].min; kd.ring_b = &sel.d[li].max; kd.ring_color = macro_color(st.macro_sel); }
+        const int res = wg_knob(&c, id, gui_rect(cell.x, cell.y, 46, 56), &m.pos, &kd);
+        if (res & WG_CHANGED) { macro_apply(cur(), set, k); mark_dirty(); }
+        if (res & WG_RING_CHANGED) { st.dest_sel = li; macro_apply(cur(), set, st.macro_sel); mark_dirty(); }
+        if (c.active == id && c.press_part == 1) wg_set_focus(&c, WG_ID(F_MACRO, st.macro_sel));   // (the ring is the selected macro's: it stays selected)
+        else if (c.active == id || wg_has_focus(&c, id)) select_macro(k);
+        if (c.hot == id && li >= 0)
+            wg_set_hint(&c, "%s %s   driven by %s: %d%%..%d%% (drag the ring; Shift: its start; right click: unlink)", m.name, val, sel.name,
+                        static_cast<int>(sel.d[li].min * 100.f + 0.5f), static_cast<int>(sel.d[li].max * 100.f + 0.5f));
+        else if (c.hot == id)
+            wg_set_hint(&c, "%s %s: drives %d destination(s). Drag the handle under it onto a knob (a value, another macro) to add one", m.name, val, m.n);
+        if ((c.in->pressed & WG_BTN_RIGHT) && inside(cell, c.in->x, c.in->y) && li >= 0) link(st.macro_sel, k, true);
+        int from;
+        if (wg_drop_target(&c, cell, kDndMacro, &from) && from != k) link(from, k, false);
 
         const int hid = WG_ID(F_HANDLE, k);
         const gui_rect_t h = gui_rect(cell.x + 5, cell.y + 58, 36, 8);
@@ -100,7 +135,7 @@ void draw_macros(wg_ctx_t &c, gui_rect_t area) {
     wg_text_small(&c, area.x + 6, y + 6, m.n ? "DESTINATIONS (click: select, x: remove)" : "NO DESTINATION YET", t.dim);
     y += 10;
     if (m.n == 0) {
-        static const char *const help[] = {"Drag the handle under a macro", "onto a value's knob, or focus", "a knob (Tab, click) and press", "Ctrl+1..8. Then drag the ring", "around the knob: how far the", "macro moves it."};
+        static const char *const help[] = {"Drag the handle under a macro", "onto a value's knob (or another", "macro's: it drives that one), or", "focus a knob and press Ctrl+1..8.", "Then drag the ring around the", "knob: how far the macro moves it."};
         for (int i = 0; i < 6; i++) wg_text_small(&c, area.x + 8, y + 8 + i * 9, help[i], t.dim);
         return;
     }
@@ -114,8 +149,14 @@ void draw_macros(wg_ctx_t &c, gui_rect_t area) {
         const wg_keys_t keys = wg_focus_keys(&c, id);
         wg_fill(&c, r, j == st.dest_sel ? t.panel2 : (c.hot == id ? t.line : t.panel));
         char path[64], line[96], val[24];
-        param_path(cur(), m.d[j].param, path, sizeof path);
-        pdesc_format(&cur().params[m.d[j].param], synth_value(m.d[j].param), val, sizeof val);
+        const int lk = dest_macro(m.d[j]);
+        if (lk >= 0) {                                  // a link: the macro it drives, where it is
+            std::snprintf(path, sizeof path, "> %s", st.macros[synth_selected()].m[lk].name);
+            std::snprintf(val, sizeof val, "%d%%", static_cast<int>(st.macros[synth_selected()].m[lk].pos * 100.f + 0.5f));
+        } else {
+            param_path(cur(), dest_param(m.d[j]), path, sizeof path);
+            pdesc_format(&cur().params[dest_param(m.d[j])], synth_value(dest_param(m.d[j])), val, sizeof val);
+        }
         std::snprintf(line, sizeof line, "%.22s", path);
         wg_text_small(&c, r.x + 3, r.y + 9, line, j == st.dest_sel ? t.text : t.dim);
         wg_text_small(&c, r.x + r.w - 3 - wg_text_w(&c, val, true), r.y + 9, val, macro_color(st.macro_sel));
@@ -132,12 +173,12 @@ void draw_macros(wg_ctx_t &c, gui_rect_t area) {
     for (int i = 0; i < 2; i++) {
         wg_text_small(&c, area.x + 6, y + 9, labels[i], t.dim);
         std::snprintf(text, sizeof text, "%d%%", static_cast<int>(*vals[i] * 100.f + 0.5f));
-        if (wg_slider(&c, WG_ID(F_DEST_ED, i), gui_rect(area.x + 30, y, 162, 12), vals[i], i ? 1.f : 0.f, text, macro_color(st.macro_sel))) { macro_apply(cur(), m); mark_dirty(); }
+        if (wg_slider(&c, WG_ID(F_DEST_ED, i), gui_rect(area.x + 30, y, 162, 12), vals[i], i ? 1.f : 0.f, text, macro_color(st.macro_sel))) { macro_apply(cur(), st.macros[synth_selected()], st.macro_sel); mark_dirty(); }
         y += 15;
     }
     wg_text_small(&c, area.x + 6, y + 10, "Curve", t.dim);
     const int cs = wg_stepper(&c, WG_ID(F_DEST_ED, 2), gui_rect(area.x + 30, y, 162, 14), curve_name(d.curve));
-    if (cs) { d.curve = (d.curve + cs + kCurveCount * 4) % kCurveCount; macro_apply(cur(), m); mark_dirty(); }
+    if (cs) { d.curve = (d.curve + cs + kCurveCount * 4) % kCurveCount; macro_apply(cur(), st.macros[synth_selected()], st.macro_sel); mark_dirty(); }
     y += 18;
 
     // the response: the macro's travel left to right, the value's range bottom to top; the macro where it is: a dot
@@ -218,7 +259,7 @@ void draw_values(wg_ctx_t &c, gui_rect_t R) {
             kd.ndots = nd;
             const int res = wg_knob(&c, id, cell, &v, &kd);
             if (res & WG_CHANGED) set_value_norm(i, v);
-            if (res & WG_RING_CHANGED) { st.dest_sel = di; macro_apply(s, sel); mark_dirty(); }
+            if (res & WG_RING_CHANGED) { st.dest_sel = di; macro_apply(s, set, st.macro_sel); mark_dirty(); }
             if (c.hot == id && di >= 0)
                 wg_set_hint(&c, "%s %s   %s: %d%%..%d%% (drag the ring; Shift: its start; right click: remove)", p.name, val, sel.name,
                             static_cast<int>(sel.d[di].min * 100.f + 0.5f), static_cast<int>(sel.d[di].max * 100.f + 0.5f));

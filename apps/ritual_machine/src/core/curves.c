@@ -15,22 +15,11 @@ int         curve_count(void) { return crv_count(&g_bank); }
 int         curve_at(int i) { return crv_at(&g_bank, i); }
 int         curve_step(int id, int dir) { return crv_step(&g_bank, id, dir); }
 
-float mapping_apply(const mapping_t *m, float knob) {
-    const float lo = (float)m->min / 100.0f, hi = (float)mapping_max(m) / 100.0f;
-    return lo + (hi - lo) * curve_eval(m->curve, knob);
-}
+const crv_bank_t *curves_bank(void) { return &g_bank; }
 
-int mapping_inverse(const mapping_t *m, float v) {
-    int best = 0;
-    float best_d = 2.0f;
-    for (int p = 0; p < MAPPING_POSITIONS; p++) {
-        const float d = fabsf(mapping_apply(m, (float)p / (MAPPING_POSITIONS - 1)) - v);
-        if (d < best_d - 1e-6f) { best_d = d; best = p; }
-    }
-    return best;
-}
-
-bool mapping_is_plain(const mapping_t *m) { return m->min == 0 && m->max_off == 0 && m->curve == CURVE_LIN; }
+float mapping_apply(const mapping_t *m, float knob) { return ctl_map_apply(&g_bank, m, knob); }
+int   mapping_inverse(const mapping_t *m, float v) { return ctl_map_inverse(&g_bank, m, v, MAPPING_POSITIONS); }
+bool  mapping_is_plain(const mapping_t *m) { return ctl_map_is_plain(m); }
 
 /* ---------------- user curves ---------------- */
 

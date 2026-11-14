@@ -33,16 +33,16 @@ TEST(joy_push_binds_x_then_y_moves_and_swaps) {
     CHECK(same_t(ui_app.ui.joy[0].t, a) && same_t(ui_app.ui.joy[1].t, c));
     push_on(3);                                                          // and back
     CHECK(same_t(ui_app.ui.joy[0].t, c) && same_t(ui_app.ui.joy[1].t, b));
-    ui_app.ui.joy[1].min = 40; ui_app.ui.joy[1].max_off = 100 - 52;     // B's range (say one octave of pitch) and curve
+    mapping_set_min(&ui_app.ui.joy[1], 40); mapping_set_max(&ui_app.ui.joy[1], 52);     // B's range (say one octave of pitch) and curve
     ui_app.ui.joy[1].curve = CURVE_EXP;
     push_on(2);                                                          // B is bound and not the one just bound: X and Y swap
     CHECK(same_t(ui_app.ui.joy[0].t, b) && same_t(ui_app.ui.joy[1].t, c));
-    CHECK(ui_app.ui.joy[0].min == 40 && mapping_max(&ui_app.ui.joy[0]) == 52 && ui_app.ui.joy[0].curve == CURVE_EXP);   // B keeps its range
-    CHECK(ui_app.ui.joy[1].min == 0 && mapping_max(&ui_app.ui.joy[1]) == 100);
+    CHECK(mapping_min(&ui_app.ui.joy[0]) == 40 && mapping_max(&ui_app.ui.joy[0]) == 52 && ui_app.ui.joy[0].curve == CURVE_EXP);   // B keeps its range
+    CHECK(mapping_min(&ui_app.ui.joy[1]) == 0 && mapping_max(&ui_app.ui.joy[1]) == 100);
     CHECK_STR(ui_app.popup.info.title, "JOY SWAP");
     push_on(2);                                                          // swapped again: back
     CHECK(same_t(ui_app.ui.joy[0].t, c) && same_t(ui_app.ui.joy[1].t, b));
-    CHECK(ui_app.ui.joy[1].min == 40 && mapping_max(&ui_app.ui.joy[1]) == 52);
+    CHECK(mapping_min(&ui_app.ui.joy[1]) == 40 && mapping_max(&ui_app.ui.joy[1]) == 52);
     push_on(1);                                                          // a new one: replaces the older binding (B; C came back on X last)
     CHECK(same_t(ui_app.ui.joy[0].t, c) && same_t(ui_app.ui.joy[1].t, a));
     ui_app.ui.row = 0;                                                   // not a parameter row: the push keeps its old meaning
@@ -107,7 +107,7 @@ TEST(joy_range_curve_tab_and_the_patch_text) {
     ui_fresh();
     const macro_t a = row_target(1), b = row_target(2);
     push_on(1); push_on(2);
-    ui_app.ui.joy[0] = (mapping_t){a, 20, 100 - 60, CURVE_S};
+    ui_app.ui.joy[0] = (mapping_t){a, 0.20f, 0.60f, CURVE_S};
     ev_tap(CTL_BTN_1);                                                   // the menu, JOY tab: Y shown, then cleared
     ui_app.ui.menu_tab = tab_index_of(&ui_app.rack, TAB_JOY);
     CHECK(ui_app.ui.menu_tab >= 0);
@@ -124,9 +124,9 @@ TEST(joy_range_curve_tab_and_the_patch_text) {
     CHECK(strstr(txt, "joy y") == NULL);
     CHECK(strstr(txt, " range 20 60 curve s\n") != NULL);
     memset(ui_app.ui.joy, 0, sizeof ui_app.ui.joy);
-    ui_app.ui.joy[1] = (mapping_t){b, 0, 0, 0};                          // the file has no Y: it is unbound after loading
+    ui_app.ui.joy[1] = ctl_map_plain(b);                          // the file has no Y: it is unbound after loading
     CHECK(patch_from_text(&ui_app.rack, &ui_app.params, &ui_app.ui, NULL, NULL, txt));
-    CHECK(same_t(ui_app.ui.joy[0].t, a) && ui_app.ui.joy[0].min == 20 && mapping_max(&ui_app.ui.joy[0]) == 60 && ui_app.ui.joy[0].curve == CURVE_S);
+    CHECK(same_t(ui_app.ui.joy[0].t, a) && mapping_min(&ui_app.ui.joy[0]) == 20 && mapping_max(&ui_app.ui.joy[0]) == 60 && ui_app.ui.joy[0].curve == CURVE_S);
     CHECK_EQ(ui_app.ui.joy[1].t.kind, MACRO_NONE);
 }
 

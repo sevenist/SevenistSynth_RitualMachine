@@ -22,6 +22,19 @@ on the hardware.
   and the next panel (4 columns, encoders).
 - **For developers:** the repo is now a library and the apps built on it. Its guide: [framework/CHANGELOG.md](../../framework/CHANGELOG.md), 2026-10-13.
 
+## 2026-11-14: a macro can drive another macro
+
+- **Macros in a chain.** A macro's destination can now be another macro: in the MACROS tab, the **Add** row (where Learn was)
+  turns to M1..M8, and a push adds that macro. Turning M1 then sets M2 through its own Min / Max / Curve, and M2 moves its
+  parameters and the macros it drives in turn. A macro that would end up driving itself is never offered. The links are saved with
+  the sound (`macro 1 mac 2 range 0 50`). Add on Learn works as before: back to the pages, push on a row.
+- Nothing else changes: the macros, the joystick's axes and the Shift / Mod mappings play exactly as before (checked against the
+  old code: 2 million comparisons, none differ).
+- For developers: the macros, their mappings and the curves they read are the library's (`framework/control/macro.h`, one model
+  with SynthLab Studio). `macro_t` is its `ctl_target_t` (kind `MACRO_MACRO`: another macro), `mapping_t` its `ctl_map_t` (Min / Max
+  0..1, shown and saved in percent: `mapping_min` / `mapping_max`), `macro_def_t` its `mac_t` (`d[]`, `n`, `color`, and `pos`, the
+  old `macro_pos[]`). `ui_input.c` sets the parameters, the library walks the chain.
+
 ## 2026-11-08: the pots say what they do (ADR-047; branch `gui-reorg`)
 
 - **Shift and Mod work in Pads too**: holding one, the knobs do what its layer says, and the legend, the pot LEDs and the

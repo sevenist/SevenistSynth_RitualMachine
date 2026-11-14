@@ -103,7 +103,7 @@ TEST(fallbacks_every_synth_verb_by_the_joystick_and_four_keys) {
     ev_tap(CTL_JOY_DOWN);                                               // Value
     const float before = *cut;
     ev_tap(CTL_JOY_SW); ev_tap(CTL_JOY_LEFT); ev_tap(CTL_JOY_SW);
-    CHECK(ui->macro_pos[2] >= 0 && *cut < before);
+    CHECK(ui->macro[2].pos >= 0 && *cut < before);
     ui_board(false);
 }
 

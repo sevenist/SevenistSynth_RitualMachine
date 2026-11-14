@@ -115,7 +115,7 @@ bool app_joy_bind(app_t *app) {
     char name[24], t[40];
     const mapping_t *m = &app->ui.joy[axis];
     if (!synth_ui_target_describe(NULL, NULL, &app->rack, &m->t, name, sizeof name, NULL, 0)) snprintf(name, sizeof name, "?");
-    snprintf(t, sizeof t, "%s %s%s", axis ? "Y" : "X", name, m->min > mapping_max(m) ? " (inv)" : "");
+    snprintf(t, sizeof t, "%s %s%s", axis ? "Y" : "X", name, mapping_min(m) > mapping_max(m) ? " (inv)" : "");
     popup_info(&app->popup, r == JOY_CLICK_SWAPPED ? "JOY SWAP" : "JOY", t, 0, audio_millis(), JOY_INFO_MS);
     if (app->ui.joy_xy) synth_ui_joy_mode(&app->ui, &app->params, &app->seq, &app->rack, true);   // XY mode: the new binding rests where its value is
     app->dirty = true;

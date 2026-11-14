@@ -95,7 +95,7 @@ static int other_knob_slot(control_id_t c) { return c == CTL_VOLUME ? SYNTH_UI_K
 static void run_param(app_t *app, int layer, const mod_entry_t *me, int macro, input_event_t e) {
     bool changed = false;
     int arrow = 0;
-    const mapping_t mp = macro >= 0 ? app->ui.macro[macro].dest[0] : modifiers_mapping(me);
+    const mapping_t mp = macro >= 0 ? app->ui.macro[macro].d[0] : modifiers_mapping(me);
     if (is_col_knob(e.ctl) && e.kind == IN_VALUE) {
         const int row = e.ctl - CTL_COL_KNOB_0 + 1;
         changed = macro >= 0 ? synth_ui_macro_row(&app->ui, &app->params, &app->seq, &app->rack, row, macro, e.value)
@@ -109,7 +109,7 @@ static void run_param(app_t *app, int layer, const mod_entry_t *me, int macro, i
     } else if (e.kind == IN_DELTA) {
         changed = macro >= 0 ? synth_ui_macro_step(&app->params, &app->seq, &app->rack, &app->ui.macro[macro], e.value)
                              : synth_ui_target_step(&app->params, &app->seq, &app->rack, &mp.t, e.value);
-        if (macro >= 0) app->ui.macro_pos[macro] = -1;      // (stepped: measured again from its first destination)
+        if (macro >= 0) app->ui.macro[macro].pos = -1.0f;   // (stepped: measured again from its first destination)
         app_catch_stale |= changed;
     }
     if (changed) audio_set_params(&app->rack, &app->params);

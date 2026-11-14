@@ -28,15 +28,15 @@ TEST(curves_end_points_shape_and_order) {
 }
 
 TEST(mapping_range_inverts_and_finds_the_first_position) {
-    mapping_t m = {{MACRO_FM, 0, 0}, 20, 100 - 80, CURVE_LIN};
+    mapping_t m = {{MACRO_FM, 0, 0}, 0.20f, 0.80f, CURVE_LIN};
     CHECK(fabsf(mapping_apply(&m, 0.0f) - 0.2f) < 1e-5f);
     CHECK(fabsf(mapping_apply(&m, 1.0f) - 0.8f) < 1e-5f);
-    m.min = 100; m.max_off = 100;                                          // Min 100, Max 0: inverted
+    m.min = 1.0f; m.max = 0.0f;                                          // Min 100, Max 0: inverted
     CHECK(fabsf(mapping_apply(&m, 0.0f) - 1.0f) < 1e-5f);
     CHECK(fabsf(mapping_apply(&m, 1.0f)) < 1e-5f);
-    m = (mapping_t){{MACRO_FM, 0, 0}, 0, 0, CURVE_LIN};
+    m = (mapping_t){{MACRO_FM, 0, 0}, 0, 1, CURVE_LIN};
     CHECK(abs(mapping_inverse(&m, 0.5f) - MAPPING_POSITIONS / 2) <= 1);
-    m.max_off = 50;                                                        // Max 50: a value of 0.8 is out of reach, the nearest is the top
+    m.max = 0.5f;                                                         // Max 50: a value of 0.8 is out of reach, the nearest is the top
     CHECK_EQ(mapping_inverse(&m, 0.8f), MAPPING_POSITIONS - 1);
 }
 
@@ -84,7 +84,7 @@ TEST(macro_drives_every_destination_through_its_mapping) {
     memset(ui_app.ui.macro, 0, sizeof ui_app.ui.macro);
     CHECK(synth_ui_macro_add(&ui_app.ui, 0, &(macro_t){MACRO_FM, 0, DXV_LEVEL}));
     CHECK(synth_ui_macro_add(&ui_app.ui, 0, &(macro_t){MACRO_FM, 1, DXV_LEVEL}));
-    ui_app.ui.macro[0].dest[1].min = 100; ui_app.ui.macro[0].dest[1].max_off = 100;     // the second goes the other way
+    ui_app.ui.macro[0].d[1].min = 1.0f; ui_app.ui.macro[0].d[1].max = 0.0f;     // the second goes the other way
     ev_knob(CTL_KNOB_R1, INPUT_VALUE_MAX);
     CHECK_EQ(fm()->op[0].level, 99);
     CHECK_EQ(fm()->op[1].level, 0);
@@ -103,7 +103,7 @@ TEST(macro_learn_adds_dedups_fills_and_removes) {
     CHECK(!synth_ui_macro_add(&ui_app.ui, 3, &(macro_t){MACRO_GLOBAL, 0, 2}));           // already in it
     synth_ui_macro_remove(&ui_app.ui, 4, 0);
     CHECK_EQ(ui_app.ui.macro[4].n, SYNTH_UI_MACRO_DESTS - 1);
-    CHECK_EQ(ui_app.ui.macro[4].dest[0].t.prm, 1);                                        // the others moved up
+    CHECK_EQ(ui_app.ui.macro[4].d[0].t.prm, 1);                                        // the others moved up
     // Shift + R1 adds the row under the cursor to macro 1 (it does not replace it)
     ui_fresh();
     const int n0 = ui_app.ui.macro[0].n;
@@ -117,7 +117,7 @@ TEST(macros_saved_with_the_sound_with_range_and_curve) {
     memset(ui_app.ui.macro, 0, sizeof ui_app.ui.macro);
     synth_ui_macro_add(&ui_app.ui, 6, &(macro_t){MACRO_FM, 2, DXV_EG_T2});
     synth_ui_macro_add(&ui_app.ui, 6, &(macro_t){MACRO_MODULE, ui_app.rack.slot[0].id, 1});
-    ui_app.ui.macro[6].dest[1] = (mapping_t){ui_app.ui.macro[6].dest[1].t, 10, 100 - 70, CURVE_S};
+    ui_app.ui.macro[6].d[1] = (mapping_t){ui_app.ui.macro[6].d[1].t, 0.10f, 0.70f, CURVE_S};
     macro_def_t before[SYNTH_UI_MACROS];
     memcpy(before, ui_app.ui.macro, sizeof before);
     static char txt[STORAGE_FILE_MAX];
@@ -167,10 +167,10 @@ TEST(macros_tab_learn_and_remove) {
     ui_app.ui.menu_tab = tab_index_of(&ui_app.rack, TAB_MACROS);
     ui_app.ui.row = 6;                                                     // Min
     ev_turn(CTL_ENC_B, 3);
-    CHECK_EQ(ui_app.ui.macro[2].dest[0].min, 15);
+    CHECK_EQ(mapping_min(&ui_app.ui.macro[2].d[0]), 15);
     ui_app.ui.row = 8;                                                     // Curve
     ev_turn(CTL_ENC_B, 1);
-    CHECK_EQ(ui_app.ui.macro[2].dest[0].curve, CURVE_EXP);
+    CHECK_EQ(ui_app.ui.macro[2].d[0].curve, CURVE_EXP);
     ui_app.ui.row = 10;                                                    // Remove
     ev_tap(CTL_JOY_SW);
     CHECK_EQ(ui_app.ui.macro[2].n, 0);
@@ -199,27 +199,28 @@ TEST(macro_value_row_plays_the_macro_without_a_knob) {
     ui_fresh();
     ui_set_type(SYNTH_FM);
     memset(ui_app.ui.macro, 0, sizeof ui_app.ui.macro);
+    ui_app.ui.macro[5].pos = -1.0f;                                        // (cleared, a macro is at 0 %: not set since the start)
     synth_ui_macro_add(&ui_app.ui, 5, &(macro_t){MACRO_FM, 0, DXV_LEVEL});
     synth_ui_macro_add(&ui_app.ui, 5, &(macro_t){MACRO_FM, 4, DXV_LEVEL});
-    ui_app.ui.macro[5].dest[1].min = 100; ui_app.ui.macro[5].dest[1].max_off = 100;   // the second one inverted
+    ui_app.ui.macro[5].d[1].min = 1.0f; ui_app.ui.macro[5].d[1].max = 0.0f;   // the second one inverted
     fm()->op[0].level = 40;
     ev_tap(CTL_BTN_1);
     ui_app.ui.menu_tab = tab_index_of(&ui_app.rack, TAB_MACROS);
     ui_app.ui.macro_cur = 5;
     ui_app.ui.row = 2;                                                     // Value
     synth_ui_t *ui = &ui_app.ui;
-    CHECK(ui->macro_pos[5] == -1);
+    CHECK(ui->macro[5].pos < 0);
     CHECK_EQ(synth_ui_macro_pos(ui, &ui_app.params, &ui_app.seq, &ui_app.rack, 5, false), 40);   // measured from FM op 1's level
     ev_tap(CTL_JOY_SW);                                                    // latched: the joystick sets it, 5 % a step
     ev_tap(CTL_JOY_RIGHT); ev_tap(CTL_JOY_RIGHT);
-    CHECK_EQ(ui->macro_pos[5], 50);
+    CHECK_EQ(ctl_pct(ui->macro[5].pos), 50);
     CHECK(fm()->op[0].level >= 48 && fm()->op[0].level <= 50);
     CHECK(fm()->op[4].level >= 48 && fm()->op[4].level <= 51);            // (inverted: 100 - 50)
     ev_press(SHIFT); ev_tap(CTL_JOY_LEFT); ev_release(SHIFT);              // Shift: 1 %
-    CHECK_EQ(ui->macro_pos[5], 49);
+    CHECK_EQ(ctl_pct(ui->macro[5].pos), 49);
     ui_app.dirty = true; ev_idle(1);
     for (int k = 0; k < 30; k++) ev_tap(CTL_JOY_RIGHT);                    // held to the end: 100 %
-    CHECK(ui->macro_pos[5] == 100 && fm()->op[0].level == 99 && fm()->op[4].level == 0);
+    CHECK(ctl_pct(ui->macro[5].pos) == 100 && fm()->op[0].level == 99 && fm()->op[4].level == 0);
     ev_tap(CTL_JOY_SW);
     ui->row = 1;                                                           // macro 1 (no destination): Value is skipped
     ev_turn(CTL_ENC_B, -5);
@@ -227,4 +228,69 @@ TEST(macro_value_row_plays_the_macro_without_a_knob) {
     ev_tap(CTL_JOY_DOWN);
     CHECK_EQ(ui->row, 3);                                                  // (Color)
     ui_board(false);
+}
+
+// A macro's destination can be another macro (framework/control/macro.h): M1 sets M2's position, M2 moves its own destinations and M3,
+// down the chain; a link that would loop back is refused; the links are saved with the sound ("macro 1 mac 2 range 0 50").
+TEST(macro_drives_another_macro_down_a_chain) {
+    ui_fresh();
+    ui_set_type(SYNTH_FM);
+    synth_ui_t *ui = &ui_app.ui;
+    memset(ui->macro, 0, sizeof ui->macro);
+    CHECK(synth_ui_macro_add(ui, 1, &(macro_t){MACRO_FM, 0, DXV_LEVEL}));
+    CHECK(synth_ui_macro_add(ui, 2, &(macro_t){MACRO_FM, 1, DXV_LEVEL}));
+    const macro_t m2 = mac_target(1), m3 = mac_target(2), m1 = mac_target(0);
+    CHECK(synth_ui_macro_add(ui, 0, &m2));
+    mapping_set_max(&ui->macro[0].d[0], 50);                               // M1 sweeps the lower half of M2
+    CHECK(synth_ui_macro_add(ui, 1, &m3));
+    CHECK(!synth_ui_macro_add(ui, 2, &m1));                                // M3 -> M1 would loop
+    CHECK(!synth_ui_macro_add(ui, 0, &m1));                                // (itself)
+    CHECK(!synth_ui_macro_add(ui, 0, &m2));                                // (already in it)
+    ev_knob(CTL_KNOB_R1, INPUT_VALUE_MAX);                                 // R1 plays M1
+    CHECK_EQ(ctl_pct(ui->macro[1].pos), 50);
+    CHECK_EQ(ctl_pct(ui->macro[2].pos), 50);
+    CHECK(fm()->op[0].level >= 48 && fm()->op[0].level <= 51);
+    CHECK(fm()->op[1].level >= 48 && fm()->op[1].level <= 51);
+    ev_knob(CTL_KNOB_R1, 0);
+    CHECK(fm()->op[0].level == 0 && fm()->op[1].level == 0);
+    char name[24], val[16];
+    CHECK(synth_ui_target_describe(&ui_app.params, &ui_app.seq, &ui_app.rack, &m2, name, sizeof name, val, sizeof val));
+    CHECK_STR(name, "M2");
+    CHECK_STR(val, "0%");
+    // saved with the sound, read back the same; a file's loop is dropped
+    macro_def_t before[SYNTH_UI_MACROS];
+    memcpy(before, ui->macro, sizeof before);
+    static char txt[STORAGE_FILE_MAX];
+    CHECK(patch_to_text(&ui_app.rack, &ui_app.params, ui, false, NULL, false, txt, sizeof txt) > 0);
+    CHECK(strstr(txt, "macro 1 mac 2 range 0 50\n") != NULL);
+    CHECK(strstr(txt, "macro 2 mac 3\n") != NULL);
+    CHECK(patch_from_text(&ui_app.rack, &ui_app.params, ui, NULL, NULL, txt));
+    CHECK(memcmp(before, ui->macro, sizeof before) == 0);
+    char *end = txt + strlen(txt);
+    snprintf(end, sizeof txt - (size_t)(end - txt), "macro 3 mac 1\n");   // M3 -> M1: a loop
+    CHECK(patch_from_text(&ui_app.rack, &ui_app.params, ui, NULL, NULL, txt));
+    CHECK_EQ(ui->macro[2].n, 1);
+}
+
+// The MACROS tab's Add row: Learn, or (left / right) another macro to drive; one that drives this one back is not offered.
+TEST(macros_tab_add_links_another_macro) {
+    ui_fresh();
+    synth_ui_t *ui = &ui_app.ui;
+    memset(ui->macro, 0, sizeof ui->macro);
+    const macro_t m1 = mac_target(0);
+    CHECK(synth_ui_macro_add(ui, 1, &m1));                                 // M2 already drives M1
+    ev_tap(CTL_BTN_1);
+    ui->menu_tab = tab_index_of(&ui_app.rack, TAB_MACROS);
+    ui->macro_cur = 0;
+    ui->row = 9;                                                           // Add
+    ev_tap(CTL_JOY_RIGHT);
+    CHECK_EQ(ui->macro_link, 3);                                           // M3 (not M1 itself, not M2: a loop)
+    ev_tap(CTL_JOY_SW);
+    CHECK(ui->macro[0].n == 1 && mac_of(&ui->macro[0].d[0].t) == 2 && mapping_is_plain(&ui->macro[0].d[0]));
+    CHECK(!ui->learn_req && ui->macro_link == 0);
+    ui->row = 9;
+    ev_tap(CTL_JOY_LEFT);
+    CHECK_EQ(ui->macro_link, 8);                                           // from Learn, the other way: M8
+    ev_tap(CTL_JOY_RIGHT);
+    CHECK_EQ(ui->macro_link, 0);                                           // back to Learn
 }

@@ -9,6 +9,26 @@
 
 namespace studio {
 
+namespace {
+
+// A range of 0.3 placed so that the macro at `pos` gives `now`, kept inside 0..1 (then it moves a little).
+void place(Dest &d, float now, float pos) {
+    d.min = now - 0.3f * pos;
+    d.max = d.min + 0.3f;
+    if (d.min < 0.f) { d.max -= d.min; d.min = 0.f; }
+    if (d.max > 1.f) { d.min -= d.max - 1.f; d.max = 1.f; }
+}
+
+// What the library's macros call for a destination that is a value (ctx: the synth).
+bool set_value(void *ctx, const ctl_target_t *t, float v) {
+    const lab::Synth &s = *static_cast<const lab::Synth *>(ctx);
+    if (t->kind != kValueTarget || t->prm >= s.n_params) return false;
+    synth_set_value(t->prm, pdesc_from_norm(&s.params[t->prm], v));
+    return true;
+}
+
+}  // namespace
+
 MacroSet::MacroSet() {
     for (int k = 0; k < kMacros; k++) std::snprintf(m[k].name, sizeof m[k].name, "Macro %d", k + 1);
 }
@@ -21,54 +41,61 @@ uint16_t macro_color(int k) {
     return c[((k % kMacros) + kMacros) % kMacros];
 }
 
-float dest_apply(const Dest &d, float pos) { return d.min + (d.max - d.min) * curve_eval(d.curve, pos); }
+float dest_apply(const Dest &d, float pos) { return ctl_map_apply(nullptr, &d, pos); }
 
 int macro_find(const Macro &m, int param) {
-    for (int i = 0; i < m.n; i++)
-        if (m.d[i].param == param) return i;
-    return -1;
+    const ctl_target_t t = ctl_target(kValueTarget, 0, param);
+    return param < 0 ? -1 : mac_find(&m, &t);
+}
+
+int macro_find_link(const Macro &m, int j) {
+    const ctl_target_t t = mac_target(j);
+    return j < 0 || j >= kMacros ? -1 : mac_find(&m, &t);
 }
 
 int macro_add(Macro &m, int param, float now) {
     const int at = macro_find(m, param);
     if (at >= 0) return at;
-    if (m.n >= kDests) return -1;
+    if (m.n >= kDests || param < 0) return -1;
     Dest &d = m.d[m.n];
-    d = Dest{};
-    d.param = param;
-    d.min = now - 0.3f * m.pos;
-    d.max = d.min + 0.3f;
-    if (d.min < 0.f) { d.max -= d.min; d.min = 0.f; }      // (kept inside the range: then it moves a little)
-    if (d.max > 1.f) { d.min -= d.max - 1.f; d.max = 1.f; }
+    d = ctl_map_plain(ctl_target(kValueTarget, 0, param));
+    place(d, now, m.pos);
     return m.n++;
 }
 
-void macro_remove(Macro &m, int k) {
-    if (k < 0 || k >= m.n) return;
-    for (int i = k; i + 1 < m.n; i++) m.d[i] = m.d[i + 1];
-    m.n--;
+int macro_link(MacroSet &set, int k, int j) {
+    if (k < 0 || k >= kMacros || j < 0 || j >= kMacros) return -1;
+    const int at = macro_find_link(set.m[k], j);
+    if (at >= 0) return at;
+    Dest d = ctl_map_plain(mac_target(j));
+    place(d, set.m[j].pos, set.m[k].pos);
+    return mac_add(set.m, k, d);                    // (-1: full, itself, or j drives k)
 }
 
-void macro_apply(const lab::Synth &s, const Macro &m) {
-    for (int i = 0; i < m.n; i++) {
-        const Dest &d = m.d[i];
-        if (d.param < 0 || d.param >= s.n_params) continue;
-        synth_set_value(d.param, pdesc_from_norm(&s.params[d.param], dest_apply(d, m.pos)));
-    }
+void macro_remove(Macro &m, int k) { mac_remove(&m, k); }
+
+void macro_apply(const lab::Synth &s, MacroSet &set, int k) {
+    mac_apply(set.m, nullptr, k, set.m[k].pos, set_value, const_cast<lab::Synth *>(&s));
 }
 
 std::string macros_to_text(const lab::Synth &s, const MacroSet &set) {
     std::string out = "# SynthLab Studio macros: ";
     out += s.name;
-    out += "\n# macro N \"name\" position     dest SECTION/Value min max curve   (positions 0..1 along the range)\n";
+    out += "\n# macro N \"name\" position     dest SECTION/Value min max curve     link M min max curve (macro M driven by it)"
+           "   (positions 0..1 along the range)\n";
     char line[160], path[64];
     for (int k = 0; k < kMacros; k++) {
         const Macro &m = set.m[k];
         std::snprintf(line, sizeof line, "macro %d \"%s\" %.3f\n", k + 1, m.name, m.pos);
         out += line;
         for (int i = 0; i < m.n; i++) {
-            quote_path(s, m.d[i].param, path, sizeof path);
-            std::snprintf(line, sizeof line, "dest %s %.3f %.3f %s\n", path, m.d[i].min, m.d[i].max, curve_name(m.d[i].curve));
+            const Dest &d = m.d[i];
+            if (dest_macro(d) >= 0) {
+                std::snprintf(line, sizeof line, "link %d %.3f %.3f %s\n", dest_macro(d) + 1, d.min, d.max, curve_name(d.curve));
+            } else {
+                quote_path(s, dest_param(d), path, sizeof path);
+                std::snprintf(line, sizeof line, "dest %s %.3f %.3f %s\n", path, d.min, d.max, curve_name(d.curve));
+            }
             out += line;
         }
     }
@@ -108,11 +135,24 @@ bool macros_from_text(const lab::Synth &s, MacroSet &set, const char *text, int 
             Macro &m = r.m[cur];
             if (prm < 0 || s.params[prm].curve == lab::Head || m.n >= kDests) { lost++; continue; }
             Dest &d = m.d[m.n++];
-            d.param = prm;
+            d = ctl_map_plain(ctl_target(kValueTarget, 0, prm));
             d.min = mn < 0.f ? 0.f : mn > 1.f ? 1.f : mn;
             d.max = mx < 0.f ? 0.f : mx > 1.f ? 1.f : mx;
             const int c = curve_by_name(cname);
             d.curve = c < 0 ? kLin : c;
+        } else if (cur >= 0 && std::strncmp(line, "link ", 5) == 0) {
+            char w[4][16];
+            const char *q = line + 5;
+            if (!read_word(q, w[0], sizeof w[0]) || !read_word(q, w[1], sizeof w[1]) || !read_word(q, w[2], sizeof w[2])) continue;
+            if (!read_word(q, w[3], sizeof w[3])) std::snprintf(w[3], sizeof w[3], "Lin");
+            const int j = std::atoi(w[0]) - 1;
+            const float mn = static_cast<float>(std::atof(w[1])), mx = static_cast<float>(std::atof(w[2]));
+            Dest d = ctl_map_plain(mac_target(j < 0 ? kMacros : j));
+            d.min = mn < 0.f ? 0.f : mn > 1.f ? 1.f : mn;
+            d.max = mx < 0.f ? 0.f : mx > 1.f ? 1.f : mx;
+            const int c = curve_by_name(w[3]);
+            d.curve = c < 0 ? kLin : c;
+            if (mac_add(r.m, cur, d) < 0) lost++;   // not a macro, full, or a loop
         }
     }
     if (dropped) *dropped = lost;

@@ -86,7 +86,7 @@ void test_macros() {
     m.d[db].min = 0.8f;
     m.d[db].max = 0.1f;                         // inverted
     std::snprintf(m.name, sizeof m.name, "Big Punch");
-    macro_apply(s, m);
+    macro_apply(s, set, 2);
     CHECK(near(synth_value(a), pdesc_from_norm(&s.params[a], dest_apply(m.d[0], 0.3f)), 1e-3f), "macro_apply sets the value");
     CHECK(near(value_norm(b), 0.8f + (0.1f - 0.8f) * curve_eval(kS, 0.3f), 1e-3f), "an inverted S destination");
     MacroSet back;
@@ -95,9 +95,26 @@ void test_macros() {
     CHECK(std::strcmp(back.m[2].name, "Big Punch") == 0 && back.m[2].n == 2 && back.m[2].d[1].curve == kS && near(back.m[2].d[1].max, 0.1f, 1e-3f) &&
           near(back.m[2].pos, 0.3f, 1e-3f), "the macros' text reads back");
     macro_remove(m, 0);
-    CHECK(m.n == 1 && m.d[0].param == b, "removing a destination");
+    CHECK(m.n == 1 && dest_param(m.d[0]) == b, "removing a destination");
     int dropped = 0;
     CHECK(macros_from_text(s, back, "macro 1 \"x\" 0.5\ndest NOPE/Nothing 0 1 Lin\n", &dropped) && dropped == 1 && back.m[0].n == 0, "an unknown value is dropped");
+
+    // a macro drives another one (framework/control/macro.h): macro 1 -> macro 3, which drives value b
+    set.m[0].pos = 0.5f;
+    const int l = macro_link(set, 0, 2);
+    CHECK(l == 0 && dest_macro(set.m[0].d[0]) == 2 && near(dest_apply(set.m[0].d[0], 0.5f), 0.3f, 1e-5f), "a link keeps the macro it drives where it is");
+    CHECK(macro_link(set, 0, 2) == 0 && set.m[0].n == 1, "the same link twice is one");
+    CHECK(macro_link(set, 2, 0) == -1 && macro_link(set, 1, 1) == -1, "a link that loops back, or to itself, is refused");
+    set.m[0].pos = 1.f;
+    macro_apply(s, set, 0);
+    CHECK(near(set.m[2].pos, dest_apply(set.m[0].d[0], 1.f), 1e-5f) && set.m[2].pos > 0.3f, "the macro it drives moves (%g)", (double)set.m[2].pos);
+    CHECK(near(value_norm(b), 0.8f + (0.1f - 0.8f) * curve_eval(kS, set.m[2].pos), 1e-3f), "... and moves its own values");
+    const std::string lt = macros_to_text(s, set);
+    CHECK(lt.find("\nlink 3 ") != std::string::npos, "a link is written as a link line");
+    CHECK(macros_from_text(s, back, lt.c_str()) && back.m[0].n == 1 && dest_macro(back.m[0].d[0]) == 2 &&
+          near(back.m[0].d[0].max, set.m[0].d[0].max, 1e-3f), "the link reads back");
+    CHECK(macros_from_text(s, back, "macro 1 \"a\" 0.5\nlink 2 0 1 Lin\nmacro 2 \"b\" 0.5\nlink 1 0 1 Lin\nlink 9 0 1 Lin\n", &dropped) &&
+          dropped == 2 && back.m[0].n == 1 && back.m[1].n == 0, "a link that loops, or to no macro, is dropped (%d)", dropped);
 }
 
 // The widgets, with input written by hand: a frame is wg_begin, the widgets, wg_end.
@@ -222,7 +239,7 @@ void test_app(wg_ctx_t &c, const char *shot) {
     in.x = 231; in.y = 70; step();
     release();
     Macro &m = st.macros[kick].m[0];
-    CHECK(m.n == 1 && m.d[0].param == first, "the macro dropped on the first knob drives it (%d destination(s))", m.n);
+    CHECK(m.n == 1 && dest_param(m.d[0]) == first, "the macro dropped on the first knob drives it (%d destination(s))", m.n);
     if (m.n != 1) return;
     const float before = value_norm(first);
     CHECK(near(dest_apply(m.d[0], m.pos), before, 0.02f), "assigning does not move the value");

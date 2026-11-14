@@ -27,15 +27,15 @@ static void map_value(const ui_ctx_t *c, char *out, int n) {
     const mapping_t *m = bound(c);
     if (!m) { snprintf(out, (size_t)n, "--"); return; }
     if (c->arg == 2) snprintf(out, (size_t)n, "%s", curve_name(m->curve));
-    else snprintf(out, (size_t)n, "%d%%", c->arg == 0 ? m->min : mapping_max(m));
+    else snprintf(out, (size_t)n, "%d%%", c->arg == 0 ? mapping_min(m) : mapping_max(m));
 }
 static bool map_adjust(const ui_ctx_t *c, int dir) {
     mapping_t *m = bound(c);
     if (!m) return false;
-    if (c->arg == 2) { m->curve = (uint8_t)curve_step(m->curve, dir); return false; }
-    int v = (c->arg == 0 ? m->min : mapping_max(m)) + 5 * dir;
+    if (c->arg == 2) { m->curve = curve_step(m->curve, dir); return false; }
+    int v = (c->arg == 0 ? mapping_min(m) : mapping_max(m)) + 5 * dir;
     v = v < 0 ? 0 : v > 100 ? 100 : v;
-    if (c->arg == 0) m->min = (uint8_t)v; else m->max_off = (uint8_t)(100 - v);
+    if (c->arg == 0) mapping_set_min(m, v); else mapping_set_max(m, v);
     return false;
 }
 
@@ -71,7 +71,7 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
     const int x0 = box.x + 3, x1 = box.x + box.w - 4, y0 = box.y + lh + 4, y1 = box.y + box.h - 4;
     if (x1 <= x0 + 4 || y1 <= y0 + 4) return;
     for (int x = x0; x <= x1; x += 3) {                                   // Min and Max levels, dotted
-        u8g2_DrawPixel(g, x, y1 - (int)((float)m->min / 100.0f * (float)(y1 - y0)));
+        u8g2_DrawPixel(g, x, y1 - (int)((float)mapping_min(m) / 100.0f * (float)(y1 - y0)));
         u8g2_DrawPixel(g, x, y1 - (int)((float)mapping_max(m) / 100.0f * (float)(y1 - y0)));
     }
     int px = 0, py = 0;

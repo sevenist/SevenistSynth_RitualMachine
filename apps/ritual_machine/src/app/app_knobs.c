@@ -25,7 +25,7 @@ static float macro_norm(app_t *app, int k) {
     if (!m->n) return -1.0f;
     const int pos = app->ui.knob_pos[SYNTH_UI_KNOB_MACRO + k];
     if (pos >= 0) return (float)pos / (float)INPUT_VALUE_MAX;
-    return synth_ui_target_peek(&app->params, &app->seq, &app->rack, &m->dest[0].t);
+    return synth_ui_target_peek(&app->params, &app->seq, &app->rack, &m->d[0].t);
 }
 
 // A macro entry: the macro's index, or -1 when the entry plays none.
@@ -41,7 +41,7 @@ static bool layer_target(const app_t *app, const mod_entry_t *me, mapping_t *out
     if (me->kind == ME_PARAM) { *out = modifiers_mapping(me); return true; }
     const int m = entry_macro(me);
     if (m < 0 || me->act != ACT_MACRO || !app->ui.macro[m].n) return false;
-    *out = app->ui.macro[m].dest[0];
+    *out = app->ui.macro[m].d[0];
     return true;
 }
 
@@ -62,7 +62,7 @@ static bool layer_drive(app_t *app, int layer, control_id_t ctl, int col, knob_d
         if (app->ui.macro[m].n) {                                       // a column knob: its first destination, as its catch
             if (col < 0) c->value = macro_norm(app, m);
             else {
-                c->value = synth_ui_target_peek(&app->params, &app->seq, &app->rack, &app->ui.macro[m].dest[0].t);
+                c->value = synth_ui_target_peek(&app->params, &app->seq, &app->rack, &app->ui.macro[m].d[0].t);
                 if (c->value < 0.0f) c->value = app->ui.knob_norm[col];
             }
         }

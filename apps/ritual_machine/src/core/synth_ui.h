@@ -11,6 +11,7 @@
 #include "core/seq.h"
 #include "core/synth_params.h"
 #include "core/audio.h"
+#include "control/macro.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -56,19 +57,26 @@ typedef enum {
 #define SYNTH_UI_KNOB_VOLUME  (SYNTH_UI_COL_KNOBS + SYNTH_UI_MACROS)
 #define SYNTH_UI_KNOBS        (SYNTH_UI_KNOB_VOLUME + 1)
 
-typedef enum { MACRO_NONE, MACRO_MODULE, MACRO_GLOBAL, MACRO_SEQ, MACRO_CFG, MACRO_FM } macro_kind_t;
+typedef enum { MACRO_NONE, MACRO_MODULE, MACRO_GLOBAL, MACRO_SEQ, MACRO_CFG, MACRO_FM, MACRO_MACRO = MAC_KIND_MACRO } macro_kind_t;
 // MODULE: rack slot id + parameter index in slot.v[]; GLOBAL: param_id_t; SEQ: seq_param_id_t; CFG: cfg_param_id_t;
-// FM: id = operator 0..5 or DX7_GLOBAL_OP, prm = dx7_value_t / DXG_* (core/dx7.h)
-typedef struct { uint8_t kind, id, prm; } macro_t;
+// FM: id = operator 0..5 or DX7_GLOBAL_OP, prm = dx7_value_t / DXG_* (core/dx7.h); MACRO: another macro, prm = its index (a macro's
+// destination only: one macro drives another, framework/control/macro.h)
+typedef ctl_target_t macro_t;
 
-// A knob's mapping onto a target (core/curves.h): the knob's travel goes through the curve, then onto Min..Max of the target's range
-// (% of it; Min > Max inverts). All zero = the whole range, linear: a cleared struct is the plain mapping. Max = 100 - max_off.
-typedef struct { macro_t t; uint8_t min, max_off, curve; } mapping_t;
-static inline int mapping_max(const mapping_t *m) { return 100 - m->max_off; }
+// A knob's mapping onto a target (framework/control/macro.h, ctl_map_t): the knob's travel goes through the curve (core/curves.h), then
+// onto Min..Max of the target's range (0..1; Min > Max inverts). The screens and the files show them in whole percent.
+typedef ctl_map_t mapping_t;
+static inline int  mapping_min(const mapping_t *m) { return ctl_pct(m->min); }
+static inline int  mapping_max(const mapping_t *m) { return ctl_pct(m->max); }
+static inline void mapping_set_min(mapping_t *m, int pct) { m->min = (float)pct / 100.0f; }
+static inline void mapping_set_max(mapping_t *m, int pct) { m->max = (float)pct / 100.0f; }
 
-// A macro: one knob, up to SYNTH_UI_MACRO_DESTS parameters at once, each through its own mapping. Learn adds a destination.
-#define SYNTH_UI_MACRO_DESTS 8
-typedef struct { mapping_t dest[SYNTH_UI_MACRO_DESTS]; uint8_t n; uint8_t color; } macro_def_t;   // color: its LED's, a palette index (core/led_roles.h; ADR-045)
+// A macro (framework/control/macro.h): one knob, up to SYNTH_UI_MACRO_DESTS parameters or other macros at once, each through its own
+// mapping. Learn adds a destination. color: its LED's, a palette index (core/led_roles.h; ADR-045); pos: where it was last set, 0..1
+// (a knob, the MACROS tab's Value, a macro that drives it), -1 = not since the start or the sound's load (then measured from its first
+// destination); name: unused (the screens say M1..M8).
+#define SYNTH_UI_MACRO_DESTS MAC_DESTS
+typedef mac_t macro_def_t;
 int synth_ui_macro_default_color(int k);    // macro k's colour when nothing chose one (every macro a different one)
 
 // A jump slot remembers WHAT it points at, not where it was: page indexes and tab positions change when the rack or the synth type changes.
@@ -136,8 +144,8 @@ typedef struct {
     uint8_t pg_def[SYNTH_UI_MAX_PAGES];
     int     page_count;
     macro_def_t macro[SYNTH_UI_MACROS];    // the macros (R1..R3 play 1..3; any knob can play one through a Shift / Mod entry)
-    int8_t  macro_pos[SYNTH_UI_MACROS];    // where each was last set, 0..100 % (a knob, the MACROS tab's Value); -1 = not since the start
-    int     macro_cur, macro_dest;         // MACROS tab (scr_macros.c): the macro and the destination shown
+    int     macro_cur, macro_dest;         // MACROS tab (scr_macros.c): the macro and the destination shown ...
+    int     macro_link;                    // ... and what its Add row adds: 0 = Learn (a parameter), k + 1 = a link to macro k
     int     curve_cur, curve_pt;           // CURVES tab (scr_curves.c): the user curve (0..7) and its selected point
     int     led_role;                      // LEDS tab (scr_leds.c): the key role shown (led_role_t)
     // The joystick as an XY controller (synth_ui_joy_*): what X (0) and Y (1) drive, through a mapping (t.kind MACRO_NONE: nothing).

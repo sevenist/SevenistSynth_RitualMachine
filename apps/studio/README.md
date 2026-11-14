@@ -3,8 +3,8 @@
 A desktop program for [SynthLab](../synthlab/README.md)'s synths, worked with the mouse and the keyboard. It has three tabs:
 
 - **SOUND**: every value of the synth as a knob, grouped by its sections, and eight macros. The macros follow the Ritual Machine's
-  model: a macro is one knob that moves up to 8 values at once. Each value it moves (a destination) has a Min, a Max and a curve
-  (Lin, Exp, Log, S).
+  model (the library's, `framework/control/macro.h`): a macro is one knob that moves up to 8 values at once, or other macros, which
+  then move their own values. Each thing it moves (a destination) has a Min, a Max and a curve (Lin, Exp, Log, S).
 - **LAYOUT**: the board's screen (128 x 160, HWV2), drawn as the board would draw it and shown at twice its size. You arrange it
   by hand: rows, knobs, bars, section titles and big values, over several pages. TRY then works the screen as the board's
   encoders would.
@@ -59,6 +59,9 @@ The status line at the bottom says what the control under the pointer is and wha
 - Under the macros: the selected macro's name (Rename), its destinations (click to select, x to remove), the selected one's Min,
   Max and Curve, and its response: the macro's travel left to right, the value bottom to top, the macro's position as a dot.
 - A new destination is placed so that the value does not jump: its range is 30 % wide, around where the value is now.
+- A macro can drive another macro: drop its handle on the other macro's knob. That knob then shows the range as a ring, like a
+  value's (right click: unlink). Turning the first macro moves the second, which moves its own values. A macro cannot end up
+  driving itself: a link that would loop back is refused.
 
 **LAYOUT**
 
@@ -122,7 +125,7 @@ The status line at the bottom says what the control under the pointer is and wha
 Saved in `apps/studio/presets/`, one pair per synth. They are plain text, readable and editable by hand:
 
 - `<synth>.sound`: the values (`value BODY/Tune 50`) and the macros (`macro 1 "Punch" 0.500`, then `dest BODY/Tune 0.20 0.80 Exp`;
-  Min and Max are positions 0..1 along the value's range, the way its knob shows it).
+  Min and Max are positions 0..1 along the value's range, the way its knob shows it; `link 2 0.00 0.50 Lin`: macro 2, driven by it).
 - `<synth>.layout`: the pages (`page`), then an element a line: `row BODY/Tune 0 14 128 10` (the kind, the value, x y w h; a title
   shows a section by its name, `-` is the synth's name).
 

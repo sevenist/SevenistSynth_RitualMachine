@@ -25,7 +25,7 @@
 //   mod <id> <CODE> <row> <para> <penv> <target id> <target param> : <its values>
 //   smp <id> <sample name>                   the file of sampler <id>
 //   ms <pool> <lane> <target id> <target param> <linear> <bipolar> <depth> <active steps, hex> : <16 values>
-//   macro K <mapping>                        joy x|y <mapping>            (core/modifiers.h mapping_to_text)
+//   macro K <mapping> (mac N: macro N)       joy x|y <mapping>            (core/modifiers.h mapping_to_text)
 // (The sequencer is not in it: its patterns have their own files, core/seq.h.)
 #include <stdbool.h>
 #include <stdint.h>

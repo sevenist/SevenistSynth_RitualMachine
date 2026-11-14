@@ -163,7 +163,7 @@ static inline void crv_user_delete(crv_bank_t *b, int k) {
 // A point halfway to the next one (or after the last); returns its index, -1 when full.
 static inline int crv_user_add_point(crv_bank_t *b, int k, int after) {
     crv_user_t *u = crv_editable(b, k);
-    if (!u || u->n >= CRV_POINTS_MAX) return -1;
+    if (!u || u->n < 1 || u->n >= CRV_POINTS_MAX) return -1;            // (a curve has 2 points at least)
     if (after < 0) after = 0;
     if (after >= u->n) after = u->n - 1;
     crv_point_t p = u->pt[after];

@@ -33,7 +33,13 @@ typedef struct {
     uint8_t min, max_off, curve;   // ... and its mapping (mapping_t: zero = full range, linear)
 } mod_entry_t;
 
-static inline mapping_t modifiers_mapping(const mod_entry_t *e) { return (mapping_t){e->m, e->min, e->max_off, e->curve}; }
+static inline mapping_t modifiers_mapping(const mod_entry_t *e) {
+    mapping_t m = ctl_map_plain(e->m);
+    mapping_set_min(&m, e->min);
+    mapping_set_max(&m, 100 - e->max_off);
+    m.curve = e->curve;
+    return m;
+}
 
 void        modifiers_init(void);                           // the defaults (the Shift layer's starting entries, see above)
 mod_entry_t modifiers_get(int layer, control_id_t c);
@@ -66,8 +72,8 @@ int  modifiers_to_text(char *buf, int cap);
 void modifiers_from_text_begin(void);
 bool modifiers_from_line(const char *line);
 
-// A target and its mapping as file words, shared with the macros of ui.cfg: "mod 3 12 range 10 90 curve exp" (range / curve only when not
-// the plain mapping). parse reads them from the start of `s`; false when they are not a target.
+// A target and its mapping as file words, shared with the macros of a patch: "mod 3 12 range 10 90 curve exp", "mac 2" (a macro: a
+// macro's destination; range / curve only when not the plain mapping). parse reads them from the start of `s`; false when they are not a target.
 int  mapping_to_text(const mapping_t *m, char *out, int n);
 bool mapping_parse(const char *line, mapping_t *out);
 

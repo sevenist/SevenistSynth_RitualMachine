@@ -2,6 +2,18 @@
 
 What changed in the library (`framework/`) and in the repo as a whole. Each app keeps its own update log.
 
+## 2026-11-14: macros, and a macro that drives another
+
+- **`control/macro.h`** (new, C, header only): one control that moves several targets, each through a mapping (`ctl_map_t`: a
+  target, Min / Max 0..1 of its range, a curve); a macro (`mac_t`) has up to 8 destinations, and one can be another macro of the set
+  (`MAC_KIND_MACRO`): it sets that macro's position, which moves that macro's destinations, down the chain. `mac_add` refuses a link
+  that would loop; `mac_apply` walks the chain and calls the app's function for every other target (what a target is stays the app's:
+  `ctl_target_t` is its key). The Ritual Machine's macros, joystick axes and Shift / Mod mappings use it (its `macro_t`, `mapping_t`,
+  `macro_def_t`; Min / Max were whole percents, now floats that hold the same values: checked against the old code over every range,
+  curve and knob value, 2,052,972 comparisons, none differ), and so do SynthLab Studio's macros. Both apps can now link macros (the
+  Ritual Machine's MACROS tab, Add; Studio, a macro's handle dropped on another). `tests/test_macro.cpp` (new).
+- `control/curve.h`: adding a point to a curve with no points is refused (a compiler warning; such a curve never exists).
+
 ## 2026-11-14: response curves
 
 - **`control/curve.h`** (new, C, header only): the response curves a knob's travel goes through. Lin, Exp, Log, S built in (33-point

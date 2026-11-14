@@ -117,7 +117,7 @@ int patch_to_text(const rack_t *rack, const synth_params_t *params, const synth_
     for (int k = 0; k < SYNTH_UI_MACROS; k++)
         for (int i = 0; i < ui->macro[k].n && i < SYNTH_UI_MACRO_DESTS; i++) {
             char t[64];
-            if (mapping_to_text(&ui->macro[k].dest[i], t, sizeof t)) add(buf, cap, &n, "macro %d %s\n", k + 1, t);
+            if (mapping_to_text(&ui->macro[k].d[i], t, sizeof t)) add(buf, cap, &n, "macro %d %s\n", k + 1, t);
         }
     for (int a = 0; a < 2; a++) {
         char t[64];
@@ -178,7 +178,7 @@ bool patch_from_text(rack_t *rack, synth_params_t *params, synth_ui_t *ui, char 
     macro_def_t macro[SYNTH_UI_MACROS];
     mapping_t joy[2];
     memset(macro, 0, sizeof macro);
-    for (int k = 0; k < SYNTH_UI_MACROS; k++) macro[k].color = (uint8_t)synth_ui_macro_default_color(k);
+    for (int k = 0; k < SYNTH_UI_MACROS; k++) { macro[k].color = synth_ui_macro_default_color(k); macro[k].pos = ui->macro[k].pos; }   // (where they were set: kept)
     memset(joy, 0, sizeof joy);
     char from[PRESET_NAME_MAX] = "";
     int from_edited = 0;
@@ -285,8 +285,7 @@ bool patch_from_text(rack_t *rack, synth_params_t *params, synth_ui_t *ui, char 
         } else if (word(line, "macro")) {
             mapping_t mp;
             if (sscanf(line, "macro %d %n", &a, &at) != 1 || !at || a < 1 || a > SYNTH_UI_MACROS || !mapping_parse(line + at, &mp)) continue;
-            macro_def_t *md = &macro[a - 1];
-            if (md->n < SYNTH_UI_MACRO_DESTS) md->dest[md->n++] = mp;
+            mac_add(macro, a - 1, mp);                                                     // (not twice, not past 8, no loop of macros)
         } else if (word(line, "joy")) {
             mapping_t mp;
             if (sscanf(line, "joy %3s %n", w, &at) != 1 || !at || (strcmp(w, "x") && strcmp(w, "y")) || !mapping_parse(line + at, &mp)) continue;
@@ -352,7 +351,7 @@ uint32_t patch_hash(const rack_t *rack, const synth_params_t *params, const synt
         const ms_pattern_t *m = &rack->ms[(int)s->v[MP_MS_POOL]];
         for (int l = 0; l < MS_LANES; l++) { const ms_lane_t *ln = &m->lane[l]; H(ln->val); H(ln->active); H(ln->tgt_id); H(ln->tgt_param); H(ln->linear); H(ln->bipolar); H(ln->depth); }
     }
-    for (int k = 0; k < SYNTH_UI_MACROS; k++) { H(ui->macro[k].n); H(ui->macro[k].color); h = fnv(h, ui->macro[k].dest, sizeof ui->macro[k].dest[0] * (ui->macro[k].n < SYNTH_UI_MACRO_DESTS ? ui->macro[k].n : SYNTH_UI_MACRO_DESTS)); }
+    for (int k = 0; k < SYNTH_UI_MACROS; k++) { H(ui->macro[k].n); H(ui->macro[k].color); h = fnv(h, ui->macro[k].d, sizeof ui->macro[k].d[0] * (ui->macro[k].n < SYNTH_UI_MACRO_DESTS ? ui->macro[k].n : SYNTH_UI_MACRO_DESTS)); }
     H(ui->joy);
     return h;
 }

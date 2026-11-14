@@ -2,6 +2,14 @@
 
 The library's changes: [framework/CHANGELOG.md](../../framework/CHANGELOG.md).
 
+## 2026-11-14: a macro can drive another macro
+
+- SOUND: drop a macro's handle on another macro's knob and the first drives the second (and the second its own values); the
+  second's knob shows the range as a ring, dragged like a value's (right click: unlink). A link that would loop back is refused.
+  Saved in the `.sound` file as `link N min max curve` lines (older files read as before).
+- The macros are the library's (`framework/control/macro.h`, the Ritual Machine's model and code): `Macro` is its `mac_t`, a
+  destination its `ctl_map_t` (`dest_param` / `dest_macro` say what it drives); `macro_apply` takes the set and the macro.
+
 ## 2026-11-14: modules in both areas
 
 - Every module goes in VOICE or FX, except the ends (VoiceOut; Voices, Output): no module is greyed out for its kind any more.

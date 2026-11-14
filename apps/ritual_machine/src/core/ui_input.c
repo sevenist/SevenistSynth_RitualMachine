@@ -378,14 +378,20 @@ bool synth_ui_set_volume(synth_ui_t *ui, rack_t *rack, int value) {
 
 /* Targets: a parameter a knob drives besides the page rows (macro_t), through a mapping (mapping_t: Min / Max / curve, core/curves.h).
  * Shift / Mod + a knob can drive one (core/modifiers.h); a macro drives up to SYNTH_UI_MACRO_DESTS of them at once. A module is referred to
- * by its id, so a target survives inserting modules and does nothing once its module is gone. */
+ * by its id, so a target survives inserting modules and does nothing once its module is gone. A macro's destination can be another
+ * macro (MACRO_MACRO): driving it sets that macro's position and moves its own destinations (framework/control/macro.h). */
 
 static void macro_clear(macro_t *m) { m->kind = MACRO_NONE; m->id = 0; m->prm = 0; }
 
+// The machine has one UI: a macro target reaches the macros through it (set by macros_default, which synth_ui_init calls).
+static synth_ui_t *s_ui;
+
 typedef struct { synth_params_t *params; seq_t *seq; rack_t *rack; macro_t m; int slot; } macro_ctx_t;
+static bool macro_target_step(macro_ctx_t *x, int dir);
 static bool macro_step(void *c, int dir) {
     macro_ctx_t *x = c;
     switch (x->m.kind) {
+        case MACRO_MACRO:  return macro_target_step(x, dir);
         case MACRO_MODULE:
             if (x->m.prm == rack_depth_index((module_type_t)x->rack->slot[x->slot].type)) return rack_depth_adjust(x->rack, x->slot, dir);
             return rack_mparam_adjust(&x->rack->slot[x->slot], x->m.prm, dir);
@@ -403,11 +409,28 @@ static bool target_ctx(synth_params_t *params, seq_t *seq, rack_t *rack, const m
     if (m->kind == MACRO_NONE) return false;
     if (m->kind == MACRO_MODULE && (c->slot = rack_find(rack, m->id)) == RACK_NONE) return false;
     if (m->kind == MACRO_FM && !dx7_value_valid(m->id, m->prm)) return false;
+    if (m->kind == MACRO_MACRO && (!s_ui || mac_of(m) < 0)) return false;
     return true;
 }
 
-// A target's knob driver: exact for an FM value and a continuous parameter, walking otherwise.
+// A macro as a target, driven exactly: its position (measured when not known), set through every destination it has.
+static bool dest_set(void *env, const ctl_target_t *t, float v);
+static float macro_get(void *c) {
+    macro_ctx_t *x = c;
+    const float p = s_ui->macro[x->m.prm].pos;
+    if (p >= 0.0f) return p;
+    const int pct = synth_ui_macro_pos(s_ui, x->params, x->seq, x->rack, x->m.prm, false);
+    return pct < 0 ? 0.0f : (float)pct / 100.0f;
+}
+static bool macro_set(void *c, float n) { macro_ctx_t *x = c; return mac_apply(s_ui->macro, curves_bank(), x->m.prm, n, dest_set, x); }
+static bool macro_target_step(macro_ctx_t *x, int dir) {      // one step: 1 %
+    const int p = ctl_pct(macro_get(x)) + dir;
+    return p >= 0 && p <= 100 && macro_set(x, (float)p / 100.0f);
+}
+
+// A target's knob driver: exact for an FM value, a continuous parameter and a macro, walking otherwise.
 static knob_drv_t target_drv(macro_ctx_t *c, drv_ctx_t *dc) {
+    if (c->m.kind == MACRO_MACRO) return (knob_drv_t){NULL, c, macro_get, macro_set, KNOB_CONT_STEPS};
     if (c->m.kind == MACRO_FM) { dc->fm = (fm_ctx_t){&c->rack->cfg.fm, c->m.id, c->m.prm}; return fm_drv(&dc->fm); }
     if (c->m.kind == MACRO_MODULE && module_continuous(&c->rack->slot[c->slot], c->m.prm)) {
         dc->cont = (cont_ctx_t){&c->rack->slot[c->slot], c->m.prm, NULL, 0};
@@ -553,6 +576,15 @@ bool synth_ui_target_describe(const synth_params_t *params, const seq_t *seq, co
             else                        snprintf(name, (size_t)nn, "OP%d %s", m->id + 1, dx7_value_label(m->id, m->prm));
             if (value) dx7_value_format(&rack->cfg.fm, m->id, m->prm, value, (size_t)nv);
             return true;
+        case MACRO_MACRO: {
+            const int k = mac_of(m);
+            if (k < 0) return false;
+            snprintf(name, (size_t)nn, "M%d", k + 1);
+            if (!value) return true;
+            if (s_ui && s_ui->macro[k].pos >= 0.0f) snprintf(value, (size_t)nv, "%d%%", ctl_pct(s_ui->macro[k].pos));
+            else snprintf(value, (size_t)nv, "--");
+            return true;
+        }
         default: return false;
     }
 }
@@ -581,28 +613,29 @@ bool synth_ui_target_at_cursor(const synth_ui_t *ui, const rack_t *rack, macro_t
     return true;
 }
 
-/* ---------------- macros: one knob, several destinations ---------------- */
+/* ---------------- macros: one knob, several destinations (framework/control/macro.h) ---------------- */
 
-static bool same_target(const macro_t *a, const macro_t *b) { return a->kind == b->kind && a->id == b->id && a->prm == b->prm; }
+static bool same_target(const macro_t *a, const macro_t *b) { return ctl_target_same(a, b); }
 
-static bool macro_dest_set(synth_params_t *params, seq_t *seq, rack_t *rack, const mapping_t *mp, float knob) {
+// What the library's macros call for a destination that is not a macro: the target set to v (0..1 of its range) through its driver.
+// env: a macro_ctx_t (its params, seq, rack).
+static bool dest_set(void *env, const ctl_target_t *t, float v) {
+    const macro_ctx_t *e = env;
     macro_ctx_t c;
     drv_ctx_t fc;
-    if (!target_ctx(params, seq, rack, &mp->t, &c)) return false;
+    if (!target_ctx(e->params, e->seq, e->rack, t, &c)) return false;
     const knob_drv_t d = target_drv(&c, &fc);
-    drv_set_norm(&d, mapping_apply(mp, knob));
+    drv_set_norm(&d, v);
     return true;
 }
 
-static void note_pos(synth_ui_t *ui, int k, int value) { ui->macro_pos[k] = (int8_t)((value * 100 + INPUT_VALUE_MAX / 2) / INPUT_VALUE_MAX); }
+static float knob_pos(int value) { return (float)value / INPUT_VALUE_MAX; }
 
 bool synth_ui_macro(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int knob, int k, int value) {
     if (k < 0 || k >= SYNTH_UI_MACROS || ui->macro[k].n == 0) return false;
     if (knob >= SYNTH_UI_COL_KNOBS && knob < SYNTH_UI_KNOBS && !knob_new_position(ui, knob, 0x200000 | k, value)) return false;
-    note_pos(ui, k, value);
-    bool any = false;
-    for (int i = 0; i < ui->macro[k].n; i++) any |= macro_dest_set(params, seq, rack, &ui->macro[k].dest[i], (float)value / INPUT_VALUE_MAX);
-    return any;
+    macro_ctx_t env = {params, seq, rack, {0, 0, 0}, RACK_NONE};
+    return mac_apply(ui->macro, curves_bank(), k, knob_pos(value), dest_set, &env);
 }
 
 bool synth_ui_macro_row(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int row, int k, int value) {
@@ -613,43 +646,34 @@ bool synth_ui_macro_row(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack
     if (md->n == 0) return false;
     macro_ctx_t c;
     drv_ctx_t fc;
-    if (!target_ctx(params, seq, rack, &md->dest[0].t, &c)) return false;
-    if (!knob_new_position(ui, kk, target_key(&md->dest[0].t), value)) return false;
+    if (!target_ctx(params, seq, rack, &md->d[0].t, &c)) return false;
+    if (!knob_new_position(ui, kk, target_key(&md->d[0].t), value)) return false;
     const knob_drv_t d = target_drv(&c, &fc);
-    if (!col_knob_mapped(ui, rack, kk, value, &d, &md->dest[0])) return false;    // the catch follows the first destination
-    for (int i = 1; i < md->n; i++) macro_dest_set(params, seq, rack, &md->dest[i], (float)value / INPUT_VALUE_MAX);
-    note_pos(ui, k, value);
+    if (!col_knob_mapped(ui, rack, kk, value, &d, &md->d[0])) return false;    // the catch follows the first destination
+    macro_ctx_t env = {params, seq, rack, {0, 0, 0}, RACK_NONE};
+    mac_apply_from(ui->macro, curves_bank(), k, 1, knob_pos(value), dest_set, &env);
+    ui->macro[k].pos = knob_pos(value);
     return true;
 }
 
 int synth_ui_macro_pos(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int k, bool peek) {
     if (k < 0 || k >= SYNTH_UI_MACROS || ui->macro[k].n == 0) return -1;
-    if (ui->macro_pos[k] >= 0) return ui->macro_pos[k];
+    if (ui->macro[k].pos >= 0.0f) return ctl_pct(ui->macro[k].pos);
     if (!params || !seq) return -1;
-    const mapping_t *d = &ui->macro[k].dest[0];
+    const mapping_t *d = &ui->macro[k].d[0];
     const float v = peek ? synth_ui_target_peek(params, seq, rack, &d->t) : synth_ui_target_norm(params, seq, rack, &d->t);
     if (v < 0) return -1;
-    int best = 0;                                                   // the position whose mapping lands nearest the value (min == max: 0)
-    float err = 2.0f;
-    for (int p = 0; p <= 100; p++) {
-        const float e = fabsf(mapping_apply(d, (float)p / 100.0f) - v);
-        if (e < err - 1e-6f) { err = e; best = p; }
-    }
-    return best;
+    return ctl_map_inverse(curves_bank(), d, v, 101);              // the position whose mapping lands nearest the value (min == max: 0)
 }
 
 bool synth_ui_macro_step(synth_params_t *params, seq_t *seq, rack_t *rack, const macro_def_t *m, int n) {
     bool any = false;
-    for (int i = 0; i < m->n; i++) any |= synth_ui_target_step(params, seq, rack, &m->dest[i].t, n);
+    for (int i = 0; i < m->n; i++) any |= synth_ui_target_step(params, seq, rack, &m->d[i].t, n);
     return any;
 }
 
 bool synth_ui_macro_add(synth_ui_t *ui, int k, const macro_t *t) {
-    if (k < 0 || k >= SYNTH_UI_MACROS || t->kind == MACRO_NONE) return false;
-    macro_def_t *md = &ui->macro[k];
-    for (int i = 0; i < md->n; i++) if (same_target(&md->dest[i].t, t)) return false;
-    if (md->n >= SYNTH_UI_MACRO_DESTS) return false;
-    md->dest[md->n++] = (mapping_t){*t, 0, 0, 0};
+    if (k < 0 || k >= SYNTH_UI_MACROS || mac_add(ui->macro, k, ctl_map_plain(*t)) < 0) return false;
     ui->knob_key[SYNTH_UI_KNOB_MACRO + k] = -1;         // the next movement applies at once
     return true;
 }
@@ -660,18 +684,13 @@ bool synth_ui_macro_learn(synth_ui_t *ui, const rack_t *rack, int k) {
 }
 
 void synth_ui_macro_remove(synth_ui_t *ui, int k, int dest) {
-    if (k < 0 || k >= SYNTH_UI_MACROS) return;
-    macro_def_t *md = &ui->macro[k];
-    if (dest < 0 || dest >= md->n) return;
-    for (int i = dest; i + 1 < md->n; i++) md->dest[i] = md->dest[i + 1];
-    md->n--;
-    memset(&md->dest[md->n], 0, sizeof md->dest[md->n]);
+    if (k >= 0 && k < SYNTH_UI_MACROS) mac_remove(&ui->macro[k], dest);
 }
 
 void synth_ui_macro_describe(const synth_ui_t *ui, const rack_t *rack, int k, char *out, int n) {
     char name[24];
     const macro_def_t *md = &ui->macro[k];
-    if (md->n == 0 || !synth_ui_target_describe(NULL, NULL, rack, &md->dest[0].t, name, sizeof name, NULL, 0)) {
+    if (md->n == 0 || !synth_ui_target_describe(NULL, NULL, rack, &md->d[0].t, name, sizeof name, NULL, 0)) {
         snprintf(out, (size_t)n, "M%d (unassigned)", k + 1);
         return;
     }
@@ -682,7 +701,7 @@ void synth_ui_macro_describe(const synth_ui_t *ui, const rack_t *rack, int k, ch
 void synth_ui_macros_prune(synth_ui_t *ui, const rack_t *rack) {
     for (int k = 0; k < SYNTH_UI_MACROS; k++)
         for (int i = ui->macro[k].n - 1; i >= 0; i--) {
-            const macro_t *t = &ui->macro[k].dest[i].t;
+            const macro_t *t = &ui->macro[k].d[i].t;
             if (t->kind == MACRO_MODULE && rack_find(rack, t->id) == RACK_NONE) synth_ui_macro_remove(ui, k, i);
         }
     for (int a = 0; a < 2; a++) {                       // the joystick axes too
@@ -716,7 +735,7 @@ joy_click_t synth_ui_joy_click(synth_ui_t *ui, const rack_t *rack, int *axis) {
         }
     const int a = ui->joy_next % 2;                     // a new one replaces the older binding: X, Y, X, Y ...
     ui->joy_prev[0] = ui->joy[0]; ui->joy_prev[1] = ui->joy[1];
-    ui->joy[a] = (mapping_t){t, 0, 0, 0};
+    ui->joy[a] = ctl_map_plain(t);
     ui->joy_fresh = (int8_t)a; ui->joy_next = (uint8_t)(1 - a);
     *axis = a;
     return JOY_CLICK_BOUND;
@@ -838,8 +857,11 @@ int synth_ui_macro_default_color(int k) {
 }
 
 void macros_default(synth_ui_t *ui, const rack_t *rack) {
+    s_ui = ui;
+    float pos[SYNTH_UI_MACROS];                                     // where each was last set is kept (synth_ui_init forgets it)
+    for (int k = 0; k < SYNTH_UI_MACROS; k++) pos[k] = ui->macro[k].pos;
     memset(ui->macro, 0, sizeof ui->macro);
-    for (int k = 0; k < SYNTH_UI_MACROS; k++) ui->macro[k].color = (uint8_t)synth_ui_macro_default_color(k);
+    for (int k = 0; k < SYNTH_UI_MACROS; k++) { ui->macro[k].color = synth_ui_macro_default_color(k); ui->macro[k].pos = pos[k]; }
     int fl = RACK_NONE, lf = RACK_NONE;
     for (int i = 0; i < rack->count; i++) {
         if (rack->slot[i].type == MOD_FILTER && fl == RACK_NONE) fl = i;

@@ -48,7 +48,7 @@ TEST(curves_user_in_the_mapping_list_and_after_delete) {
     CHECK_EQ(curve_by_name("u6"), U(5));
     curve_user_set_point(5, 0, 0, 100);
     curve_user_set_point(5, 1, 100, 0);                                     // falling
-    mapping_t m = {{MACRO_FM, 0, 0}, 0, 0, (uint8_t)U(5)};
+    mapping_t m = {{MACRO_FM, 0, 0}, 0, 1, U(5)};
     CHECK(NEAR(mapping_apply(&m, 0.0f), 1.0f, 0.01f));
     CHECK(NEAR(mapping_apply(&m, 1.0f), 0.0f, 0.01f));
     CHECK(mapping_inverse(&m, 1.0f) == 0);                                  // a falling curve: the first position is at the bottom

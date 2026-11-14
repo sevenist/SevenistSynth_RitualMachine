@@ -259,9 +259,11 @@ int mapping_to_text(const mapping_t *m, char *out, int n) {
         case MACRO_SEQ:    k = snprintf(out, (size_t)n, "seq %d", m->t.prm); break;
         case MACRO_FM:     k = snprintf(out, (size_t)n, "fm %d %d", m->t.id, m->t.prm); break;
         case MACRO_CFG: { char t[16]; cfg_token(m->t.prm, t, sizeof t); k = snprintf(out, (size_t)n, "cfg %s", t); break; }
+        case MACRO_MACRO: if (mac_of(&m->t) < 0) { if (n > 0) out[0] = 0; return 0; }
+                          k = snprintf(out, (size_t)n, "mac %d", m->t.prm + 1); break;
         default: if (n > 0) out[0] = 0; return 0;
     }
-    if (k < n && (m->min || m->max_off)) k += snprintf(out + k, (size_t)(n - k), " range %d %d", m->min, mapping_max(m));
+    if (k < n && (mapping_min(m) != 0 || mapping_max(m) != 100)) k += snprintf(out + k, (size_t)(n - k), " range %d %d", mapping_min(m), mapping_max(m));
     if (k < n && m->curve) { char c[16]; snprintf(c, sizeof c, "%s", curve_name(m->curve)); for (char *p = c; *p; p++) *p = (char)tolower((unsigned char)*p);
                              k += snprintf(out + k, (size_t)(n - k), " curve %s", c); }
     return k < n ? k : n - 1;
@@ -272,7 +274,7 @@ bool mapping_parse(const char *line, mapping_t *out) {
     int a = 0, b = 0, n = 0;
     while (line[n] && line[n] != '\n' && line[n] != '\r' && n < (int)sizeof s - 1) { s[n] = line[n]; n++; }
     s[n] = 0;
-    mapping_t m = {{MACRO_NONE, 0, 0}, 0, 0, 0};
+    mapping_t m = ctl_map_plain(ctl_target(MACRO_NONE, 0, 0));
     if (sscanf(s, "%7s", kind) != 1) return false;
     if (!strcmp(kind, "mod") && sscanf(s, "%*s %d %d", &a, &b) == 2 && a > 0 && a < 256 && b >= 0 && b < 256) m.t = (macro_t){MACRO_MODULE, (uint8_t)a, (uint8_t)b};
     else if (!strcmp(kind, "glob") && sscanf(s, "%*s %d", &a) == 1 && a >= 0 && a < P_COUNT) m.t = (macro_t){MACRO_GLOBAL, 0, (uint8_t)a};
@@ -281,11 +283,12 @@ bool mapping_parse(const char *line, mapping_t *out) {
     else if (!strcmp(kind, "cfg") && sscanf(s, "%*s %15s", tok) == 1) {
         for (int id = 0; id < CFGP_COUNT; id++) { char t[16]; cfg_token(id, t, sizeof t); if (!strcmp(t, tok)) m.t = (macro_t){MACRO_CFG, 0, (uint8_t)id}; }
         if (m.t.kind == MACRO_NONE) return false;
-    } else return false;
+    } else if (!strcmp(kind, "mac") && sscanf(s, "%*s %d", &a) == 1 && a >= 1 && a <= SYNTH_UI_MACROS) m.t = mac_target(a - 1);
+    else return false;
     const char *r = strstr(s, " range ");
-    if (r && sscanf(r, " range %d %d", &a, &b) == 2 && a >= 0 && a <= 100 && b >= 0 && b <= 100) { m.min = (uint8_t)a; m.max_off = (uint8_t)(100 - b); }
+    if (r && sscanf(r, " range %d %d", &a, &b) == 2 && a >= 0 && a <= 100 && b >= 0 && b <= 100) { mapping_set_min(&m, a); mapping_set_max(&m, b); }
     const char *c = strstr(s, " curve ");
-    if (c && sscanf(c, " curve %15s", tok) == 1 && curve_by_name(tok) >= 0) m.curve = (uint8_t)curve_by_name(tok);
+    if (c && sscanf(c, " curve %15s", tok) == 1 && curve_by_name(tok) >= 0) m.curve = curve_by_name(tok);
     *out = m;
     return true;
 }
@@ -347,7 +350,7 @@ bool modifiers_from_line(const char *line) {
     } else if (!strcmp(w3, "param")) {
         mapping_t mp;
         if (!modifiers_ctl_is_knob(c) || !mapping_parse(rest, &mp)) return false;
-        e = (mod_entry_t){ME_PARAM, ACT_NONE, 0, mp.t, mp.min, mp.max_off, mp.curve};
+        e = (mod_entry_t){ME_PARAM, ACT_NONE, 0, mp.t, (uint8_t)mapping_min(&mp), (uint8_t)(100 - mapping_max(&mp)), (uint8_t)mp.curve};
     } else return false;
     g_e[layer][c] = e;
     g_rev++;

@@ -107,7 +107,7 @@ TEST(modifiers_shift_r1_learns_macro_1) {
     page_t pg;
     get_page(&ui_app.ui, &ui_app.rack, 0, &pg);
     ev_press(SHIFT); ev_knob(CTL_KNOB_R1, 400); ev_release(SHIFT);
-    CHECK(ui_app.ui.macro[0].n == 2 && ui_app.ui.macro[0].dest[1].t.kind == MACRO_MODULE && ui_app.ui.macro[0].dest[1].t.prm == pg.params[1]);
+    CHECK(ui_app.ui.macro[0].n == 2 && ui_app.ui.macro[0].d[1].t.kind == MACRO_MODULE && ui_app.ui.macro[0].d[1].t.prm == pg.params[1]);
 }
 
 TEST(modifiers_tab_selects_and_learn_button_assigns_on_push) {
@@ -213,14 +213,14 @@ TEST(modifiers_prototype_gets_macros_on_k3_k4) {
     CHECK(modifiers_get(MODL_SHIFT, CTL_COL_KNOB_3).act == ACT_MACRO);
     CHECK(modifiers_ctl_index(CTL_KNOB_R1) < 0);
     CHECK(modifiers_ctl_index(CTL_COL_KNOB_0) >= 0);
-    const int slot = rack_find(&ui_app.rack, ui_app.ui.macro[0].dest[0].t.id);
+    const int slot = rack_find(&ui_app.rack, ui_app.ui.macro[0].d[0].t.id);
     CHECK(slot != RACK_NONE);
-    const float before = ui_app.rack.slot[slot].v[ui_app.ui.macro[0].dest[0].t.prm];
+    const float before = ui_app.rack.slot[slot].v[ui_app.ui.macro[0].d[0].t.prm];
     ev_press(SHIFT); ev_idle(1);
     CHECK(ui_app.ui.knob_away & 4);
     for (int v = 0; v <= INPUT_VALUE_MAX; v += 64) ev_knob(CTL_COL_KNOB_2, v);
     ev_knob(CTL_COL_KNOB_2, INPUT_VALUE_MAX);
-    CHECK(ui_app.rack.slot[slot].v[ui_app.ui.macro[0].dest[0].t.prm] != before);
+    CHECK(ui_app.rack.slot[slot].v[ui_app.ui.macro[0].d[0].t.prm] != before);
     ev_release(SHIFT);
     ui_board(false);
 }

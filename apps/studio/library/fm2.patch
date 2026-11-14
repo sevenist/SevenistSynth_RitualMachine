@@ -1,0 +1,29 @@
+# SynthLab's FM2 (src/synths/fm2.cpp) rebuilt from the modular catalog, at FM2's default values.
+# A modulator Op (Ratio 2) times the index envelope times the velocity's scale moves the carrier Op's phase (Depth = Index, 4 rad).
+# The index envelope: FM2's I.Decay (1/e at 300 ms) is a Perc at Curve 100 (-60 dB at its Decay): Decay = 6.9078 x 300 ms.
+# The output x 0.5 x (0.3 + 0.7 x velocity), as Basic's.
+patch "FM2 (patch)"
+node 1 voice Note 16 40
+node 2 voice Op 150 20 Ratio=2 Depth=0 Feedback=0 Level=100 Track=1
+node 3 voice Perc 150 200 Attack=0 Hold=0 Decay=2072.35 Curve=100 Amount=100
+node 4 voice Ring 290 20
+node 5 voice Const 16 230 Value=1
+node 6 voice Mixer 150 330 Lvl1=70 Lvl2=30 Lvl3=0 Lvl4=0
+node 7 voice Ring 430 20
+node 8 voice Op 570 20 Ratio=1 Depth=4 Feedback=0 Level=100 Track=1
+node 9 voice ADSR 570 200 Attack=2 Decay=1200 Sustain=0 Release=400
+node 10 voice VCA 710 20 Level=100
+node 11 voice VCA 850 20 Level=50
+node 12 voice VoiceOut 990 20 Level=100
+cable 2.Out 4.A 1
+cable 3.Env 4.B 1
+cable 1.Vel 6.In1 1
+cable 5.Out 6.In2 1
+cable 4.Out 7.A 1
+cable 6.Out 7.B 1
+cable 7.Out 8.PM 1
+cable 8.Out 10.In 1
+cable 9.Env 10.CV 1
+cable 10.Out 11.In 1
+cable 6.Out 11.CV 1
+cable 11.Out 12.In 1

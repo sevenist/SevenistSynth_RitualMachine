@@ -26,10 +26,12 @@ void synth_set_value(int param, float value);   // a value of the selected synth
 float synth_value(int param);                   // as the screen shows it; each synth keeps its own values while another plays
 void synth_set_volume(float volume);            // the master, 0..1
 // A loop of one note, one hit per beat, played by the engine's step sequencer on its clock (on time to the sample, whatever this thread
-// does). synth_select stops it.
+// does). A synth with grooves (lab::Options::grooves) loops its groove instead, at its tempo value (bpm is then not used); its groove,
+// tempo and swing values act live. synth_select stops it.
 void synth_loop_start(int midi_note, int bpm);
 void synth_loop_note(int midi_note);            // the note it plays from its next hit on
 void synth_loop_stop();
 bool synth_looping();
+int  synth_loop_bpm();                          // the loop's tempo
 int  synth_sample_rate();
 int  synth_active_voices();

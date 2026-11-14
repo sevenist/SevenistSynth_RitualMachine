@@ -33,7 +33,12 @@
 
 namespace lab {
 
-constexpr int kMaxParams = 80;          // the values of a synth, its section titles included (sent to the engine 63 at a time: lab_voice.h)
+// The values of a synth, its section titles included (sent to the engine 63 at a time: lab_voice.h). A desktop program may raise it
+// (-DLAB_MAX_PARAMS=256: apps/studio, whose modular synth lists a patch's values; at most 256, the blob's index is a byte).
+#ifndef LAB_MAX_PARAMS
+#define LAB_MAX_PARAMS 128
+#endif
+constexpr int kMaxParams = LAB_MAX_PARAMS;
 constexpr int kMaxSynths = 32;
 
 // How the second encoder moves a value: Lin in equal steps (100 detents from min to max), Exp by an equal ratio (100 detents; for Hz,
@@ -58,12 +63,27 @@ struct Note {
     float sr;                           // the sample rate, in Hz
 };
 
+// A pattern PLAY can loop (Options::grooves): one hit per step, at the velocity of the step (0: a rest), on the note last played
+// raised by the step's semitones. Played by the engine's sequencer, on time to the sample.
+struct Groove {
+    uint8_t steps;                      // 1..64
+    uint8_t rate;                       // steps per beat: 2 (eighths), 3 (eighth triplets), 4 (sixteenths), 6, 8 (32nds)
+    const uint8_t *vel;                 // `steps` velocities, 1..127; 0 = a rest
+    const int8_t *semi = nullptr;       // `steps` semitones added to the note (nullptr: none)
+};
+
 struct Options {
     bool mono = false;                  // one voice, last note wins (a held key comes back when the top one is let go)
     bool legato = false;                // mono: a new key while one is held changes the pitch, no start()
     int glide_ms = 0;                   // mono: the pitch slides to the new note
     int play_bpm = 0;                   // > 0: PLAY starts / stops a loop of the last note played, one hit per beat at this tempo (the
                                         //   engine's sequencer: on time to the sample); 0: PLAY holds the last note
+    // Grooves (with play_bpm > 0): PLAY loops grooves[the value of groove_param] instead of one hit a beat, at the value of tempo_param
+    // (BPM) with the swing of swing_param (0..75 %), each read live: a new groove starts at the end of the playing one. -1: not used
+    // (no tempo_param: play_bpm; no swing_param: none).
+    const Groove *grooves = nullptr;
+    int n_grooves = 0;
+    int groove_param = -1, tempo_param = -1, swing_param = -1;
 };
 
 // A synth as the app sees it. make_synth fills it from the Voice type (and the Fx type).

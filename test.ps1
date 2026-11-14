@@ -1,5 +1,5 @@
 # Runs every host test of the repo: the library's own tests (the engine alone), then the Ritual Machine's engine tests (the engine
-# driven through the app's rack, pads and sequencers) and its UI tests, then TechnoGen's and SynthLab's.
+# driven through the app's rack, pads and sequencers) and its UI tests, then TechnoGen's, SynthLab's and SynthLab Studio's self-test.
 #   .\test.ps1               the default configuration (48 kHz, blocks of 32)
 #   .\test.ps1 -Matrix       the engine tests in the six supported sample-rate / block-size configurations
 #   .\test.ps1 -Filter seq   only the tests whose name contains the text
@@ -33,6 +33,11 @@ Write-Host "##### SynthLab (apps/synthlab/tests)" -ForegroundColor Cyan
 if ($Filter) { & (Join-Path $PSScriptRoot "apps/synthlab/tools/build_tests.ps1") -Filter $Filter }
 else { & (Join-Path $PSScriptRoot "apps/synthlab/tools/build_tests.ps1") }
 if ($LASTEXITCODE -ne 0) { $failed += "synthlab" }
+
+Write-Host "##### SynthLab Studio (apps/studio: --selftest)" -ForegroundColor Cyan
+& (Join-Path $PSScriptRoot "apps/studio/build.ps1")
+if ($LASTEXITCODE -eq 0) { & (Join-Path $PSScriptRoot "apps/studio/build/studio.exe") --selftest }
+if ($LASTEXITCODE -ne 0) { $failed += "studio" }
 
 if ($failed.Count) { Write-Host "FAILED: $($failed -join ', ')" -ForegroundColor Red; exit 1 }
 Write-Host "All test runs passed" -ForegroundColor Green

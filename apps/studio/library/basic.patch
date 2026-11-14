@@ -1,0 +1,23 @@
+# SynthLab's Basic (src/synths/basic.cpp) rebuilt from the modular catalog, at Basic's default values.
+# One oscillator, a resonant low pass opened by its own envelope (F.Env 30 st = CMod 2.5 oct), an amplitude envelope; the output
+# x 0.5 x (0.3 + 0.7 x velocity), the velocity's scale made by a Mixer of Note.Vel (70 %) and a Const 1 (30 %).
+patch "Basic (patch)"
+node 1 voice Note 16 40
+node 2 voice Osc 150 20 Wave=2 Tune=0 Fine=0 PW=50 Track=1 Level=100 PMod=0 FM=0
+node 3 voice ADSR 150 230 Attack=4 Decay=400 Sustain=50 Release=300
+node 4 voice ADSR 290 230 Attack=4 Decay=400 Sustain=0 Release=300
+node 5 voice Filter 290 20 Type=0 Cutoff=900 Reso=30 Track=0 CMod=2.5
+node 6 voice VCA 430 20 Level=100
+node 7 voice Const 16 230 Value=1
+node 8 voice Mixer 430 200 Lvl1=70 Lvl2=30 Lvl3=0 Lvl4=0
+node 9 voice VCA 570 20 Level=50
+node 10 voice VoiceOut 710 20 Level=100
+cable 2.Out 5.In 1
+cable 4.Env 5.Cutoff 1
+cable 5.Out 6.In 1
+cable 3.Env 6.CV 1
+cable 1.Vel 8.In1 1
+cable 7.Out 8.In2 1
+cable 6.Out 9.In 1
+cable 8.Out 9.CV 1
+cable 9.Out 10.In 1

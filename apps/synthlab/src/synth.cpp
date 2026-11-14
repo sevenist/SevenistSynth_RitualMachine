@@ -26,6 +26,7 @@ bool ready = false;
 int selected = 0;
 bool looping = false;
 int loop_bpm = 120;
+int loop_note = 60;
 float values[lab::kMaxSynths][lab::kMaxParams];   // each synth's values
 
 float clamp_value(const lab::Param &p, float v) { return v < p.min ? p.min : (v > p.max ? p.max : v); }
@@ -67,13 +68,55 @@ void send_values(int first, int count) {           // (in blobs of lab::kBlobVal
     }
 }
 
-// The loop's pattern: two steps of an eighth, the note on the first: one hit per beat.
-void loop_pattern(int note) {
-    SeqStep st[2];
-    st[0].note[0] = static_cast<uint8_t>(note < 1 ? 1 : (note > 127 ? 127 : note));    // (0 = no note)
-    st[0].len = 1;
-    st[0].vel = 100;
-    eng.seq_steps(0, 2, st);                        // (st[1]: a rest)
+uint8_t midi(int note) { return static_cast<uint8_t>(note < 1 ? 1 : (note > 127 ? 127 : note)); }    // (0 = no note)
+
+// The selected synth's groove (lab::Options::grooves), or nullptr: the loop is then one hit a beat
+const lab::Groove *groove() {
+    const lab::Options &o = lab::kSynths[selected]->opt;
+    if (!o.grooves || o.n_grooves < 1 || o.groove_param < 0) return nullptr;
+    int k = static_cast<int>(values[selected][o.groove_param] + 0.5f);
+    k = k < 0 ? 0 : (k >= o.n_grooves ? o.n_grooves - 1 : k);
+    return &o.grooves[k];
+}
+int loop_tempo() {
+    const lab::Options &o = lab::kSynths[selected]->opt;
+    const int bpm = o.tempo_param >= 0 ? static_cast<int>(values[selected][o.tempo_param] + 0.5f) : o.play_bpm;
+    return bpm < 20 ? 20 : (bpm > 300 ? 300 : bpm);
+}
+// The sequencer's setup for the loop: a groove's length, rate and swing; else two eighths
+SeqSetup loop_setup(bool run) {
+    SeqSetup s;
+    s.run = run ? 1 : 0;
+    s.steps = 2;
+    s.rate = SEQ_RATE_8;
+    if (const lab::Groove *g = groove()) {
+        const lab::Options &o = lab::kSynths[selected]->opt;
+        s.steps = static_cast<uint8_t>(g->steps < 1 ? 1 : (g->steps > kSeqSteps ? kSeqSteps : g->steps));
+        s.rate = g->rate == 3 ? SEQ_RATE_8T : g->rate == 4 ? SEQ_RATE_16 : g->rate == 6 ? SEQ_RATE_16T : g->rate == 8 ? SEQ_RATE_32 : SEQ_RATE_8;
+        const int sw = o.swing_param >= 0 ? static_cast<int>(values[selected][o.swing_param] + 0.5f) : 0;
+        s.swing = static_cast<uint8_t>(sw < 0 ? 0 : (sw > 75 ? 75 : sw));
+    }
+    return s;
+}
+
+// The loop's pattern: the groove's steps on the note; without one, two eighths, the note on the first: one hit per beat.
+// queue: for the end of the playing pattern (a groove changed while it plays)
+void loop_pattern(int note, bool queue = false) {
+    static SeqStep st[kSeqSteps];                   // (512 bytes: not on the stack)
+    for (SeqStep &x : st) x = SeqStep{};
+    int n = 2;
+    if (const lab::Groove *g = groove()) {
+        n = g->steps < 1 ? 1 : (g->steps > kSeqSteps ? kSeqSteps : g->steps);
+        for (int k = 0; k < n; k++) {
+            if (g->vel[k] == 0) continue;           // (a rest)
+            st[k].note[0] = midi(note + (g->semi ? g->semi[k] : 0));
+            st[k].vel = g->vel[k] > 127 ? 127 : g->vel[k];
+        }
+    } else {
+        st[0].note[0] = midi(note);
+        st[0].vel = 100;                            // (st[1]: a rest)
+    }
+    eng.seq_steps(0, n, st, queue);
 }
 
 void send_mode() {
@@ -144,7 +187,22 @@ void synth_set_value(int param, float value) {
     const lab::Synth &s = *lab::kSynths[selected];
     if (param < 0 || param >= s.n_params) return;
     values[selected][param] = clamp_value(s.params[param], value);
-    if (ready) send_values(param, 1);
+    if (!ready) return;
+    send_values(param, 1);
+    if (looping && groove()) {                      // the loop's values, live
+        const lab::Options &o = s.opt;
+        if (param == o.groove_param) {              // the new groove from the end of the playing one
+            loop_pattern(loop_note, true);
+            SeqSetup q = loop_setup(true);
+            q.queue = SEQ_QUEUE;
+            eng.seq_setup(q);
+        } else if (param == o.tempo_param) {
+            loop_bpm = loop_tempo();
+            eng.set_transport(loop_bpm, true, false);
+        } else if (param == o.swing_param) {
+            eng.seq_setup(loop_setup(true));
+        }
+    }
 }
 float synth_value(int param) { return param >= 0 && param < lab::kMaxParams ? values[selected][param] : 0.f; }
 
@@ -154,26 +212,31 @@ void synth_set_volume(float volume) {
 }
 void synth_loop_start(int midi_note, int bpm) {
     if (!ready) return;
-    loop_bpm = bpm;
+    const lab::Options &o = lab::kSynths[selected]->opt;
+    loop_bpm = groove() && o.tempo_param >= 0 ? loop_tempo() : bpm;
+    loop_note = midi_note;
     loop_pattern(midi_note);
-    SeqSetup s;
-    s.run = 1;
-    s.steps = 2;
-    s.rate = SEQ_RATE_8;
-    eng.seq_setup(s);                               // the setup first, then the clock: the run starts with it, on beat 0
-    eng.set_transport(bpm, true, false);
+    eng.seq_setup(loop_setup(true));                // the setup first, then the clock: the run starts with it, on beat 0
+    eng.set_transport(loop_bpm, true, false);
     looping = true;
 }
-void synth_loop_note(int midi_note) { if (ready && looping) loop_pattern(midi_note); }
+void synth_loop_note(int midi_note) {
+    loop_note = midi_note;
+    if (ready && looping) loop_pattern(midi_note);
+}
 void synth_loop_stop() {
     if (!ready) return;
     SeqSetup s;
     s.run = 0;
     eng.seq_setup(s);
+    SeqSetup u;                                     // (a groove queued and not yet taken: dropped)
+    u.queue = SEQ_UNQUEUE;
+    eng.seq_setup(u);
     eng.set_transport(loop_bpm, false, false);
     looping = false;
 }
 bool synth_looping() { return looping; }
+int synth_loop_bpm() { return loop_bpm; }
 
 int synth_sample_rate() { return kSampleRate; }
 int synth_active_voices() { return ready ? eng.active_voices() : 0; }

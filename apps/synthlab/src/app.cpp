@@ -8,6 +8,7 @@
 //   function keys 3 / 4    the previous / next synth
 //   PLAY                   holds the last note played (a drone, to turn values while it sounds); again: lets it go. A synth with a
 //                          tempo (lab::Options::play_bpm, the Kick: 135) loops it instead, a hit every beat; a key changes its note
+//                          (a synth with grooves, DrumLab: its Groove at its Tempo)
 //   VOLUME                 the master volume
 //
 // The board's controls are found in its table (hal/hal_input.h), not by id: encoder A and B are the first two encoders (the first two
@@ -215,7 +216,7 @@ void app_draw() {
     char text[40];
     const gui_rect_t bar = gui_take_top(&area, GUI_BAR_H);
     gui_draw_text_left(g, &style, bar, "SynthLab");
-    if (synth_looping()) std::snprintf(text, sizeof text, "%d BPM  oct %+d", cur().opt.play_bpm, octave);
+    if (synth_looping()) std::snprintf(text, sizeof text, "%d BPM  oct %+d", synth_loop_bpm(), octave);
     else std::snprintf(text, sizeof text, "%soct %+d", hold_note >= 0 ? "HOLD  " : "", octave);
     gui_draw_text_right(g, &style, bar, text);
     u8g2_DrawHLine(g, 0, GUI_BAR_H - 1, static_cast<u8g2_uint_t>(bar.w));

@@ -404,6 +404,224 @@ hard part (O3 and O7 failed).
 
 ---
 
+## Snare  (`src/synths/snare.cpp`)
+
+**Status:** playable (not heard by the user yet)
+
+**The sound (the user's brief, 2026-11-13):** a snare drum: a noise burst with a ratchet-like envelope; a steady sine and a pitch-swept
+sine (the resonance and the drum's skin); the same flavour of reverb, sine shaping and saturation as the Kick. Then (same day): mono
+and Seed 0 confirmed, macros later; a 3-band EQ on the noise instead of its high and low pass, a 3-band EQ in the shaping chain, a gate
+after the reverb. Then: a master chain as the Kick's, and the noise EQ's low and high bands made a high pass and a low pass.
+
+**The algorithm:**
+
+```text
+skin: sine, Tune × 2^(Sweep × sweep env / 12) ─► Shape ─► × skin decay ─┐
+ring: sine, Tune × Ratio (steady)             ─► Shape ─► × ring decay ─┼─► Fold (sine shaper) ─► Sat (soft clip, Drive) ─► DC block
+wires: noise ─► NOISE EQ (HP, bell, LP) ─► × ratchet env ──────────────┘                                                    │
+                                                                                     Level ─► soft limit ◄─ EQ (3 bands) ◄─┘
+the voices' sum ─► reverb (the Kick's Room: a 4-line FDN at half rate, 16-bit lines) ─► gate (keyed by the dry sum or the output)
+                   ─► MASTER (the Kick's: glue compressor ─► saturation ─► tilt ─► output)     (once, not per voice)
+```
+
+- **The ratchet envelope:** Ratchets bursts at the hit (1 to 8; 1 is one plain burst). Each burst jumps back to full and decays at
+  Burst (to 1 %) until the next one comes, Spacing later; the last one decays at Decay (the tail). Accel makes each gap shorter (−100 %:
+  half the gap before) or longer (+100 %: twice), at least 1 sample. The gaps are computed when a value changes; the sample loop counts
+  down to the next burst. Measured (the noise alone, defaults 3 / 8 ms / 15 ms): bursts at 0, 7 and 15 ms, each about 15 dB down
+  when the next comes, then the tail.
+- **The skin:** the Kick's exponential pitch envelope (computed once a block with `fast_exp2`, in a line between): the hit starts Sweep
+  semitones above the tune and gets 99 % of the way down in Sw Time. Measured (defaults): 270 Hz at the hit, 210 Hz at 4 ms, 181 Hz at
+  25 ms, 180 Hz from 36 ms.
+- **The ring:** a steady sine at Tune × Ratio (1.59 by default: a circular drum head's second mode over its first), no sweep, its own
+  decay. The keys transpose both sines (C3 plays the Tune).
+- **The noise's EQ** (NOISE EQ): a high pass, a bell and a low pass (the Biquad's: 12 dB / octave at Q 0.707, the bell at Q 0.9;
+  `Biquad::set_highpass` / `set_lowpass`, new in `lab_dsp.h`), each skipped when it does nothing (HP at 20 Hz, the bell at 0 dB, LP
+  at 20 kHz). Its level is kept as HP and LP move (× √(Nyquist / bandwidth), the bandwidth 1.11 × LP − HP, at least 300 Hz). Its
+  history: first a high pass and a one-pole low pass, then (the user) three shelving bands, then (the user) the two shelves made a
+  high pass and a low pass. Measured (the noise alone, the first 60 ms): RMS −28.4 / −28.9 / −28.2 dB for the three versions at their
+  defaults; HP 4 kHz with LP 8 kHz −28.5 dB (the level kept); bands within 1 dB of the first version from 100 Hz to 8 kHz; the 12 dB
+  low pass takes 3 dB more at 8 to 16 kHz, 16 dB more above.
+- **The voice's EQ** (EQ): `lab::Eq3` (`lab_dsp.h`, new: a low shelf, a bell at Q 0.9, a high shelf, each skipped at 0 dB, its
+  coefficients computed when a value changes), after the shapers and the DC block, before the level; ±12 dB, flat by default.
+- **The gate** (in the Fx, after the reverb): a peak follower of its key, falling in 10 ms; open above Thresh, closed 3 dB under it
+  (no chatter at the edge), held open Hold after the key falls; its gain goes to 1 in Attack and to 1 − Depth in Release (99 % of the
+  way). Key Dry: the voices before the reverb, so the reverb's tail is cut once the hit has gone (the gated reverb); Out: the output, so
+  the tail holds it open. At Depth 0 it does not run. Measured (the test's phrase, the 20 ms peaks after a hit): without it −41 / −47 /
+  −52 dB at 250 / 300 / 350 ms; Dry (defaults) −44 / −90 / silent; Out −41 / −47 / −54, silent at 400 ms. The next hit's peak is
+  unchanged (Attack 0.3 ms).
+- **The master** is the Kick's (its code copied, the same defaults), after the gate: the last stage on the bus. Measured (the test's
+  phrase): peak −11.2 → −9.4 dBFS, RMS −29.8 → −27.9 dB (the Kick's: −10.6 → −8.8 peak).
+- **Seed:** 0 (the default) gives another noise at every hit, as a real snare does; 1 to 99 the same waveform at every hit (the filters
+  start from rest), as the Kick's. (The noise EQ is linear: before or after the ratchet envelope is the same sound.)
+- **The shapers are the Kick's**, each mixed in by its amount and normalised: Shape (a soft clip up to 7× on each sine, before its
+  envelope, so the timbre stays as it decays), Fold (the sine wavefolder, gain 1 to 4, on the sum), Sat (the soft clip hit at Drive).
+- **The reverb is the Kick's** (the same code, copied: one file per synth), as the synth's Fx: on the voices' sum, its tail outlives
+  the hit. No master shaper (the Kick's glue / tilt) for now.
+
+**Parameters** (57 rows, 10 of them section titles):
+
+| Section | Name | Range | Default | Curve | What it does |
+| --- | --- | --- | --- | --- | --- |
+| SKIN | Tune | 100 .. 400 Hz | 180 | Exp | the skin's pitch at the end of the sweep, on C3 |
+| | Level | 0 .. 100 % | 70 | Lin | |
+| | Sweep | 0 .. 24 st | 7 | Int | where the hit starts, above the tune |
+| | Sw Time | 2 .. 200 ms | 30 | Exp | 99 % of the way down |
+| | Decay | 10 ms .. 1 s | 110 | Exp | to 1 % |
+| RING | Ratio | 0.5 .. 4 × | 1.59 | Exp | its pitch over the tune |
+| | Level | 0 .. 100 % | 35 | Lin | |
+| | Decay | 10 ms .. 2 s | 220 | Exp | to 1 % |
+| NOISE | Level | 0 .. 100 % | 55 | Lin | the wires |
+| | Ratchets | 1 .. 8 | 3 | Int | bursts at the hit; the last one is the tail |
+| | Spacing | 1 .. 50 ms | 8 | Exp | from one burst to the next |
+| | Accel | −100 .. +100 % | 0 | Lin | each gap × 0.5 .. × 2 the one before |
+| | Burst | 1 .. 100 ms | 15 | Exp | each burst's decay (to 1 %) |
+| | Decay | 10 ms .. 2 s | 180 | Exp | the tail's (to 1 %) |
+| | Seed | 0 .. 99 | 0 | Int | 0: free noise; 1 .. 99: the same at every hit |
+| NOISE EQ | HP | 20 Hz .. 8 kHz | 1.2 k | Exp | high pass, 12 dB / octave (20 Hz: off); the level kept as it moves |
+| | Mid | −24 .. +12 dB | 0 | Int | bell, Q 0.9 (the sizzle) |
+| | Mid Hz | 200 Hz .. 12 kHz | 4 k | Exp | |
+| | LP | 1 .. 20 kHz | 10 k | Exp | low pass, 12 dB / octave (20 kHz: off); the level kept as it moves |
+| SHAPE | Shape | 0 .. 100 % | 20 | Lin | each sine → distorted sine |
+| | Drive | 0 .. 24 dB | 6 | Int | into Sat |
+| | Fold | 0 .. 100 % | 10 | Lin | sine wavefolder on the sum |
+| | Sat | 0 .. 100 % | 30 | Lin | symmetric soft clip |
+| EQ | Low | ±12 dB | 0 | Int | low shelf, on the whole voice after the shapers |
+| | Low Hz | 40 Hz .. 1 kHz | 200 | Exp | |
+| | Mid | ±12 dB | 0 | Int | bell, Q 0.9 |
+| | Mid Hz | 100 Hz .. 8 kHz | 1 k | Exp | |
+| | High | ±12 dB | 0 | Int | high shelf |
+| | High Hz | 1 .. 16 kHz | 6 k | Exp | |
+| OUT | Level | −30 .. +6 dB | 0 | Int | before the soft limit |
+| REVERB | Mix | 0 .. 100 % | 20 | Lin | the wet added |
+| | Decay | 100 ms .. 4 s | 700 | Exp | to −60 dB |
+| | Size | 10 .. 100 % | 50 | Lin | the lines' lengths: 5 to 83 ms at 100 % |
+| | Damp | 0 .. 100 % | 40 | Lin | a low pass in the loop |
+| GATE | Depth | 0 .. 100 % | 100 | Lin | how far it closes (0: off) |
+| | Key | Dry, Out | Dry | Int | what opens it: the voices before the reverb, or the output |
+| | Thresh | −60 .. 0 dB | −40 | Int | it opens above (closes 3 dB under) |
+| | Attack | 0.1 .. 20 ms | 0.3 | Exp | how fast it opens |
+| | Hold | 0 .. 1000 ms | 80 | Lin | held open after the key falls |
+| | Release | 5 ms .. 1 s | 50 | Exp | how fast it closes (99 %) |
+| MASTER | Glue | 0 .. 100 % | 30 | Lin | bus compressor: threshold 0 .. −30 dB, ratio 1 .. 4, soft knee, a quarter of the reduction back |
+| | Attack | 0.1 .. 30 ms | 3 ms | Exp | fast: glue; slow: punch (the hit passes) |
+| | Release | 30 ms .. 1 s | 150 ms | Exp | |
+| | Sat | 0 .. 100 % | 20 | Lin | soft saturation: the body denser and louder, the peaks rounded |
+| | Tilt | −100 .. +100 % | 0 | Lin | around 800 Hz: − darker, + brighter (±6 dB on each side at the ends) |
+| | Output | −12 .. +6 dB | 0 | Int | the last gain |
+
+**Voice mode:** mono, no legato: a new hit chokes the last (the old level fades in 1 ms), as on a drum machine. **PLAY:** a hit on
+every beat at 135 BPM, as the Kick.
+
+**Measured (2026-11-13):** the test's WAV peaks at −11.2 dBFS (the Kick: −8.7); the skin leads the hit, the noise peaks about 5 dB
+under it. Host 23.7 ns per sample of a sounding voice (the Kick about 40), the reverb 5.0 ns once for all voices. ESP32-S3 (from the
+compiler): the voice's render 669 instructions (the Kick's 2193), no call in its sample loop. A voice is under 0.5 KB; the Fx
+12.7 KB (the reverb). With the two EQs and the gate (at their defaults: the noise EQ's two shelves on, the voice's EQ off, the gate on):
+host 25.6 ns the voice, 6.8 ns the Fx; ESP32 render 784 instructions, the Fx's 406, still no call in either sample loop. With the
+master and the high / low pass: host 23.0 ns the voice, 14.2 ns the Fx (the master about 7); ESP32 783 and 662 instructions, no call
+in either sample loop.
+
+**Notes:**
+- Mono and Seed 0 confirmed by the user; macros later (Snap: noise level and burst shorter; Body: the sines' decays; Tone: the EQs).
+- To try: a Q for the noise EQ's mid (a narrow, resonant band on the wires), a resonance on its high pass.
+
+---
+
+## DrumLab  (`src/synths/drumlab.cpp`)
+
+**Status:** playable (not heard by the user yet)
+
+**The brief (the user, 2026-11-13):** "a DrumLab page with kick and snare parts mixed together", then, through their answers: not the
+two lists side by side but the **modules merged** ("the skin module is shared etc."): one drum synthesizer for all kinds of
+percussion, **one long chain** with bits of the Kick and the Snare. Their choices: all four sources (the body, the ring, the noise with
+its ratchet, and a new metal source with both kinds, a Type switch); the Kick's rumble as a module; the keys play notes as on the other
+synths; PLAY loops **preset grooves** (four on the floor, backbeat, offbeat / 16ths, roll / fills); its own values (not shared with the
+Kick and the Snare synths); the list raised from 80 to 128 rows. Macros later.
+
+**The algorithm:**
+
+```text
+BODY: sine ⇄ triangle (Harmonic + harm env) ⇄ distorted sine (Shape), pitch env (Lin/Exp) ─► × amp env × Level ─┐
+RING: steady sine at Tune × Ratio ─► Shape ─► × its decay ───────────────────────────────────────────────────────┤
+NOISE: noise ─► HP / bell / LP ─► × ratchet env (1..8 bursts, then the tail) ────────────────────────────────────┤
+METAL: 6 squares (the classic hat's ratios, Ratio spreads them; Index: sum → products of pairs)                  │
+       or FM (carrier Tune, modulator × Ratio, Index falling with the decay) ─► band pass (2 stages) ─► × decay ──┤
+RUMBLE (the Kick's, 1/8 rate): noise + body ─► Pre ─► filter (8 types, env) ─► Post ─► decay ─► [reverb] ─► echo ─► duck ─┤
+                                                                                                                 ▼
+DRIVE: tube ─► fold ─► sat ─► clip ─► DC block ─► 3-BAND COMP ─► EQ (low shelf, bell, high shelf, each with its Hz) ─► Level ─► soft limit
+                                                                                                                 ▼
+the voices' sum ─► REVERB (Route Output) ─► GATE (keyed Dry or Out) ─► MASTER (glue ─► sat ─► tilt ─► output)
+```
+
+- **What comes from where:** the body, its three envelopes, the rumble, the drive, the 3-band compressor, the reverb (both routes) and
+  the master are the Kick's code (without its macros); the ring, the noise with its ratchet and its HP / bell / LP, and the gate are
+  the Snare's; the EQ is the Snare's (`lab::Eq3`, with a frequency for each band); the metal is new. The Kick's click became the noise
+  (its default: one burst of 18 ms, HP 1.5 kHz, +6 dB at 3.2 kHz, LP 6 kHz); the Snare's skin became the body (Tune, Pitch Amount and
+  Decay; its decay is the amp envelope's). Seed is shared by the noise and the rumble (1 by default, as the Kick: the same waveform at
+  every hit; 0: another at every hit).
+- **The metal:** Type Squares: six naive square waves (their aliasing is noise among noise, under a band pass) at the classic analog
+  hat's ratios (205.3, 304.4, 369.6, 522.7, 540, 800 Hz over the lowest: 1, 1.48, 1.80, 2.55, 2.63, 3.90), Tune the lowest, Ratio
+  spreading them (1 + (r − 1) × Ratio), starting at fixed phases a golden ratio apart (all at 0, they jumped together: a click at the
+  hit, 4 dB of peak); Index crossfades their sum to the products of three pairs (a ring modulation: a harsher, cymbal-like metal). Type
+  FM: a sine at Tune phase-modulated by one at Tune × Ratio, the depth Index × 8 rad × the envelope (bright at the hit, pure as it
+  decays). Both through a band pass at Tone, two stages (12 dB / octave each side; one stage let the squares' fundamentals, 4 octaves
+  under a hat's Tone, outweigh their highs: the energy sat at 500 Hz – 2 kHz), times 3.5. Measured (the metal alone, the test's phrase):
+  Squares, Tune 205 Hz, Tone 8 kHz, Decay 60 ms: peak −11.6 dBFS, its energy at 2 to 12 kHz (500 Hz – 2 kHz −11 dB, under 500 Hz
+  −25 dB and less), 7 dB under the noise at 100 % with HP 7 kHz; FM, Tune 560 Hz, Ratio 1.48, Index 60 %, Tone 1.5 kHz, Decay 400 ms (a
+  bell): peak −8.7 dBFS, its energy around the carrier.
+- **The grooves** (`lab::Options::grooves`, new in `lab.h`, played by `synth.cpp` through the engine's step sequencer: no change in the
+  framework): the GROOVE section's rows are values like the others, read by the app. Four (every beat, the one accented), Backbeat (2
+  and 4, a ghost note before the one), Offbeat (the eighths between the beats), 16ths (accents on the beats), Broken (a broken beat),
+  Roll (2 bars of 32nds: quarters, eighths, 16ths, 32nds, the velocity rising from 40 to 127), Fill (a bar of 16ths falling from +12 to
+  −5 semitones: a tom fill). On the note last played (a key changes it from its next hit). Tempo and Swing act at once; a new Groove
+  starts at the end of the playing one (the sequencer's queue). Tested through the engine (`tests/test_app.cpp`, measured from the sound):
+  Offbeat at 120 BPM hits at 250, 750, 1250, 1750 ms; Tempo 100 while it plays: a hit every 600 ms; Groove → Four while it plays: the
+  offbeats to the bar's end, then a hit on every beat.
+- **Mono, one-shot** (a new hit chokes the last, the old level fading in 1 ms), as the Kick and the Snare.
+
+**Measured (2026-11-13):** at its defaults it is the Kick: the test's WAV peak −8.8 dBFS and RMS −20.5 dB, both the Kick's, the spectrum
+within 4 dB in every band (the click from the noise, not the Kick's band-passed noise). The Snare's defaults set on its rows (Tune 180,
+Pitch 7 st / 30 ms, Amp Decay 220 ms, Ring 35 %, Noise 55 % with 3 ratchets, HP 1.2 k / LP 10 k, the rumble and compressor off,
+reverb 20 % / 700 ms): peak −9.4 dBFS as the Snare, RMS 0.8 dB above, the bands within 2 dB. Host 39 to 46 ns per sample of a sounding
+voice (the Kick 38.6), its Fx 11.7 ns. ESP32-S3 (the compiler): the render 2818 instructions (the Kick's 2193), its 4 divisions once a
+block (the filter envelope's coefficients, as the Kick's), none in the sample loop; the Fx 662. **Memory:** a voice is 7.7 KB (the
+Kick's 7.2), the Fx 12.9 KB; the engine makes 6 voices the size of the largest synth: about 46 KB + 12.9 KB, near the 64 KB of fast
+RAM (main_esp32.cpp; beyond it the heap spills into PSRAM). A mono synth needs one voice: loading it with one would save 38 KB.
+
+**Parameters** (104 rows, 17 of them section titles). The rows of the Kick and the Snare keep their ranges and meanings (the tables of
+the Kick and the Snare above); the defaults are the Kick's. What is new or different:
+
+| Section | Name | Range | Default | Curve | What it does |
+| --- | --- | --- | --- | --- | --- |
+| GROOVE | Groove | Four, Backbeat, Offbeat, 16ths, Broken, Roll, Fill | Four | Int | what PLAY loops |
+| | Tempo | 60 .. 200 BPM | 130 | Int | live |
+| | Swing | 0 .. 75 % | 0 | Lin | the off steps late by this much of a step |
+| BODY | Tune | 20 Hz .. 1 kHz | 50 | Exp | the end of the sweep, on C3 (a kick 50, a snare 180, toms 80 .. 300) |
+| | Level | 0 .. 100 % | 100 | Lin | the body (0: a voice of ring, noise, metal and rumble only) |
+| | Shape | 0 .. 100 % | 15 | Lin | the body and the ring |
+| RING | Level | 0 .. 100 % | 0 | Lin | off by default |
+| NOISE | Level / Ratchets / Decay | | 25 % / 1 / 18 ms | | the Kick's click; Decay from 1 ms |
+| | Seed | 0 .. 99 | 1 | Int | the noise's and the rumble's |
+| NOISE EQ | HP / Mid / Mid Hz / LP | | 1.5 k / +6 dB / 3.2 k / 6 k | | the click's band |
+| METAL | Type | Squares, FM | Squares | Int | |
+| | Level | 0 .. 100 % | 0 | Lin | off by default |
+| | Tune | 50 Hz .. 4 kHz | 205 | Exp | Squares: the lowest of the six; FM: the carrier (on C3) |
+| | Ratio | 0.25 .. 4 × | 1 | Exp | Squares: their spread (1: the classic ratios); FM: the modulator over the carrier |
+| | Index | 0 .. 100 % | 30 | Lin | Squares: sum → ring-modulated pairs; FM: depth 0 .. 8 rad, falling with the decay |
+| | Tone | 500 Hz .. 16 kHz | 8 k | Exp | the band pass's centre (2 stages, Q 0.87 each) |
+| | Decay | 5 ms .. 2 s | 80 | Exp | to 1 % |
+| RUMBLE | (the Kick's, without its Seed) | | | | |
+| EQ | Low Hz / Mid Hz / High Hz | | 90 / 600 / 5 k | | the Kick's bands, now movable |
+| GATE | Depth | 0 .. 100 % | 0 | Lin | off by default (the Kick's sound) |
+
+**Voice mode:** mono, no legato. **PLAY:** the Groove at the Tempo (the bar shows it).
+
+**Notes:**
+- To try: macros (later, the user's wish); presets of sounds (kick, snare, toms, clap, closed / open hat, cowbell) on a row that sets
+  the others; a choke group so an open hat stops on a closed one (it needs two sounds at once: today one voice plays); one voice for a
+  mono synth (memory).
+
+---
+
 ## Ideas
 
 Not decided: what to try next, one line each. Move one up into an entry when we start on it.

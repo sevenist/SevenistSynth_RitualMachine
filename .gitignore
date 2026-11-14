@@ -37,6 +37,10 @@ sdcard/
 *.ogg
 *.smp
 
+# --- SynthLab Studio: the user's own sounds, layouts and patches, and the exports (generated again from a patch any time) ---
+apps/studio/presets/
+apps/studio/exports/
+
 # --- debugging captures and scratch files ---
 *.bmp
 *.log

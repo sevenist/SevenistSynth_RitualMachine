@@ -31,7 +31,7 @@ The firmware: open `oled_sim.code-workspace` in VS Code, pick the folder `synthl
 | The 16 keys | `1`..`4`, `Q`..`R`, `A`..`F`, `Z`..`V` (by position) | notes: bottom left = C3, +1 to the right, +4 per row up |
 | F1 / F2 | `F1` / `F2` | octave down / up |
 | F3 / F4 | `F3` / `F4` | the previous / next synth |
-| PLAY | `Space` | holds the last note played, so you can turn values while it sounds. Press again to let it go. On a synth with a tempo (the Kick: 135 BPM) it loops a hit on every beat instead; a key changes the note it repeats, the bar shows the tempo |
+| PLAY | `Space` | holds the last note played, so you can turn values while it sounds. Press again to let it go. On a synth with a tempo (the Kick: 135 BPM) it loops a hit on every beat instead; a key changes the note it repeats, the bar shows the tempo. On a synth with grooves (DrumLab) it loops the Groove row's pattern at the Tempo row's BPM |
 | VOLUME | the mouse, on the panel | the master volume |
 
 The panel window writes each part's PC keys on it. The keys are named by their position on a QWERTY keyboard: on AZERTY, `Q` is the key
@@ -65,6 +65,7 @@ struct Voice {
 extern const lab::Synth synth_mine = lab::make_synth<Voice>("Mine", kParams);
 // a mono synth with glide: lab::make_synth<Voice>("Mine", kParams, {true, true, 80})   (mono, legato, glide in ms)
 // PLAY loops a hit every beat at 128 BPM instead of holding: {false, false, 0, 128}       (play_bpm)
+// PLAY loops patterns picked on a row, at a tempo on a row: Options::grooves (lab.h; see drumlab.cpp, drum_options)
 ```
 
 A long list can be cut into sections: `lab::section("PITCH ENV")` is a title row (it takes an index of `p[]` too, so keep your enum in
@@ -74,7 +75,7 @@ A synth can add one effect that runs **once**, on the sum of its voices (a rever
 after the voices end): a `struct Fx { void render(float *io, int frames, float sr, const float *p); }` and
 `lab::make_synth<Voice, Fx>(...)`. See the Kick's reverb.
 
-The rules: up to 80 rows (titles included); in `start`, `release` and `render`, no `new`/`malloc`, no `printf` and no locks (they run on the audio
+The rules: up to 128 rows (titles included); in `start`, `release` and `render`, no `new`/`malloc`, no `printf` and no locks (they run on the audio
 thread); use floats, not doubles (`0.5f`), because the ESP32-S3's FPU is single precision.
 
 `Lin` steps 1/100 of the range per detent, `Exp` steps an equal ratio per detent (100 detents from min to max; good for Hz and ms), and
@@ -84,8 +85,8 @@ thread); use floats, not doubles (`0.5f`), because the ESP32-S3's FPU is single 
 
 | File | What it is |
 | --- | --- |
-| `src/lab.h` | The synth API: `Param`, `Note`, `Options`, `make_synth`. |
-| `src/lab_dsp.h` | Small float parts: oscillators with PolyBLEP, a state-variable filter, ADSR, decay, noise, smoothing, soft clip. |
+| `src/lab.h` | The synth API: `Param`, `Note`, `Options` (and its `Groove`s), `make_synth`. |
+| `src/lab_dsp.h` | Small float parts: oscillators with PolyBLEP, a state-variable filter, a biquad and a 3-band EQ, ADSR, decay, noise, smoothing, soft clip. |
 | `src/synths/` | The synths, one file each, and `synth_list.cpp` (their order on screen). |
 | `src/lab_voice.h`, `.cpp` | The two engine modules: the selected synth's Voice on every voice, its Fx once on their sum. You do not need to touch them. |
 | `src/synth.h`, `.cpp` | The engine and its graph (6 voices), picking a synth, the values (each synth keeps its own). |

@@ -2,6 +2,47 @@
 
 The library's changes: [framework/CHANGELOG.md](../../framework/CHANGELOG.md).
 
+## 2026-11-14: the DSP parts in the library, synths from patches
+
+- **For developers:** `src/lab_dsp.h`'s parts moved to the library (`framework/modular/mdsp.h`), shared with the modular catalog;
+  `lab_dsp.h` forwards to it, so `lab::Osc`, `lab::Svf`, `LAB_COLD` ... are unchanged (the tests and the null test the same).
+- A synth can be generated from a patch in SynthLab Studio (PATCH tab, Export > Synth): `src/synths/gen_<name>.cpp`, added to
+  `synth_list.cpp` above the line that says so. The list also gets the studio's Modular synth when built with `-DLAB_STUDIO`
+  (only the studio does).
+- `lab::kMaxParams` can be raised by a desktop build (`-DLAB_MAX_PARAMS=256`); the board keeps 128.
+
+## 2026-11-13: DrumLab, one drum synth for every percussion
+
+- **DrumLab**, a new synth: the Kick's and the Snare's modules merged into one chain: the body (oscillator and skin, with its pitch,
+  harmonics and amp envelopes), the ring, the noise with its ratchet and its high pass / bell / low pass, a new metal source (six
+  square oscillators for hats and cymbals, or FM for bells and cowbells), the Kick's rumble, drive, 3-band compressor, an EQ, the
+  reverb, the gate and the master. Its defaults are the Kick's sound; the Snare's sound is a few values away.
+- **Grooves:** on DrumLab, PLAY loops a groove (Four, Backbeat, Offbeat, 16ths, Broken, Roll, Fill) at the Tempo row's BPM, with
+  Swing; Tempo and Swing act at once, a new Groove starts on the next bar.
+- A synth's list can have up to 128 rows (it was 80).
+- **For developers:** `lab::Options::grooves` (`lab.h`), `synth_loop_bpm()` (`synth.h`); the app test checks the grooves' timing
+  through the engine.
+
+## 2026-11-13: the Snare's master, the noise's high and low pass
+
+- **Snare**: a MASTER section, the Kick's (glue compressor, saturation, tilt, output), last, after the gate: about 2 dB louder at its
+  defaults. The noise EQ's low and high shelves became a high pass (HP) and a low pass (LP), 12 dB an octave, the bell between them;
+  the noise's level stays even as they move.
+- **For developers:** `lab::Biquad::set_highpass` and `set_lowpass` in `lab_dsp.h`.
+
+## 2026-11-13: the Snare's EQs and gate
+
+- **Snare**: the noise's high and low pass became a 3-band EQ (NOISE EQ: low shelf, bell, high shelf, each with its frequency, down to
+  −24 dB); a second 3-band EQ after the shapers (EQ); a gate after the reverb (GATE: Depth, Key, Thresh, Attack, Hold, Release),
+  keyed by the dry hit by default, so the reverb's tail is cut once the hit has gone. The defaults sound as before, with the tail gated.
+- **For developers:** `lab::Eq3` in `lab_dsp.h`, a 3-band EQ any synth can use.
+
+## 2026-11-13: the Snare
+
+- **Snare**, a new synth: the skin (a sine swept down to the tune), the ring (a steady sine at a ratio of it) and the wires (noise
+  between a low and a high cut, with a ratchet envelope: up to 8 bursts at the hit, then the tail), shaped by the Kick's Shape, Fold
+  and Sat, with the Kick's reverb. Mono, PLAY loops it at 135 BPM. About 60 % of the Kick's time.
+
 ## 2026-11-12: the rumble's filter: 8 types and an envelope
 
 - **Kick**: the rumble's filter has a type (Filter: LP 6, LP 12, LP 24, BP, HP 12, HP 24, Notch, Peak) and an envelope (Env Amt in

@@ -9,7 +9,8 @@ are in [DEVELOPING.md](../DEVELOPING.md); a new app starts from the template ([a
 | --- | --- | --- |
 | `engine/` | the DSP engine (C++17; includes nothing from an app): the graph of modules, the modules, the sampler, the step sequencers | `"engine/..."` |
 | `hal/` | what a board gives an app: display, controls, key LEDs, the card's small files, power, large memory, the audio output. Headers only | `"hal/..."` |
-| `ui/` | the drawing kit: style, layout, text, sprites, animations, popups, the colour canvas | `"ui/..."` |
+| `ui/` | the drawing kit: style, layout, text, sprites, animations, popups, the colour canvas, widgets for a mouse and a keyboard | `"ui/..."` |
+| `modular/` | the modular catalog: float modules from SynthLab's synths, patches of them, their runner (docs/MODULAR.md) | `"modular/..."` |
 | `boards/` | the HAL for each board: `esp32/` (what the ESP32 boards share), `hwv1/`, `hwv2/`, `desktop/` | `"boards/..."` |
 | `host/` | desktop-only helpers (a slow-card model for tests and simulators, the .wav / .mp3 converter) | `"host/..."` |
 | `tests/`, `tools/` | the library's own tests (the engine alone); table generators, sample tools, the shared desktop build | |
@@ -21,6 +22,7 @@ are in [DEVELOPING.md](../DEVELOPING.md); a new app starts from the template ([a
 | [docs/DESIGN.md](docs/DESIGN.md) | the decisions (ADRs) of the engine, the boards and the repo, the budget, the guidelines; the index of every ADR of the repo |
 | [docs/BOARDS.md](docs/BOARDS.md) | the boards: the desktop board of the simulator, the two prototypes, the ESP32 firmware, its tasks and performance rules |
 | [docs/DRAWING_KIT.md](docs/DRAWING_KIT.md) | putting something on the screen from any app, with `ui/` |
+| [docs/MODULAR.md](docs/MODULAR.md) | the modular catalog: its modules, patches, the runner, adding a module, the exports |
 | [CHANGELOG.md](CHANGELOG.md) | what changed in the library and the repo |
 | [../CONTINUE.md](../CONTINUE.md) | the library's state and todo, the working style and the traps (each app keeps its own) |
 

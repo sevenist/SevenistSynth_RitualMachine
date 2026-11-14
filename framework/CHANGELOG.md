@@ -2,6 +2,45 @@
 
 What changed in the library (`framework/`) and in the repo as a whole. Each app keeps its own update log.
 
+## 2026-11-14: modules in both areas
+
+- Every catalog module but the ends is `Scope::Both`, the engine's modules included (`engine_adapter.h`: the type of the other
+  scope is built where the engine lacks one; `engine_type_in` says where the engine has it).
+- `mod::LastNote` (`modular.h`): the FX area's note, the last note played. [docs/DESIGN.md](docs/DESIGN.md) ADR-049, addendum 3.
+
+## 2026-11-14: the modular catalog
+
+- **`modular/`** (new): 23 float modules gathered from SynthLab's synths and the engine's basics (Osc, the Kick's Body, Noise,
+  the hat's Metal, ADSR, Perc, the Snare's Ratchet, LFO, Filter, EQ3, the Kick's Drive, VCA, Mixer, Ring, Const, Delay, the Kick's
+  Room and Glue, the Snare's Gate, and the ends Note / VoiceOut / Voices / Output). They share the engine's module limits and
+  each names the engine module that does the same. Also patches of them (text files) and a runner. [docs/MODULAR.md](docs/MODULAR.md),
+  [docs/DESIGN.md](docs/DESIGN.md) ADR-049.
+- **`modular/mdsp.h`** is SynthLab's `lab_dsp.h`, moved: SynthLab's synths are unchanged (`lab_dsp.h` forwards to it).
+- Edited in SynthLab Studio's new PATCH tab, which exports a patch as a SynthLab synth or as an engine graph.
+- Later the same day: SynthLab's Basic, FM2 and Kick rebuilt as patches and checked with a null test (74, 91 and 72 dB). New modules
+  Op, Rumble, Comp3, Limit; Perc's Law and Steps, Body's Steps, Noise's stream B. The Filter now reads its Cutoff input at the block's
+  first sample (docs/MODULAR.md, "SynthLab's synths as patches").
+
+## 2026-11-14: widgets for a mouse and a keyboard, a desktop tool window
+
+- **`ui/widgets.h`** (new): the drawing kit's controls for a screen you point at. It is immediate mode: knob (drag, wheel, keys,
+  double click for the default, an optional ring for a macro's range), button, tab, stepper, slider; the keyboard focus moves
+  with Tab / Shift+Tab; drag and drop with a payload. Portable C, drawn on the colour canvas: the desktop fills its input,
+  and a touch screen could too. [docs/DRAWING_KIT.md](docs/DRAWING_KIT.md), section 14.
+- **`boards/desktop/desk_window.h`** (new, desktop only): a window of any size for a desktop tool. It shows an RGB565 frame at the
+  largest whole zoom that fits the monitor (it can be resized) and reports the mouse and the keys (keys by their place:
+  AZERTY's A is `q`).
+- **`ui/canvas.h`**: `CANVAS_MAX_W / CANVAS_MAX_H` can be raised with `-D` for a large desktop frame (the boards keep 160 x 160).
+- The first program that uses them: [SynthLab Studio](../apps/studio/README.md) (`apps/studio`).
+- Later the same day: the window's frame follows the window (resized, or full screen with F11 / Alt+Enter) with no border:
+  `desk_window_open(title, min_w, min_h, max_w, max_h)`, `desk_window_frame`, `desk_window_present(pixels, stride)`.
+- The Ritual Machine's modules in the catalog: `modular/engine_adapter.h` hosts the engine's own modules (34 entries, "RM" + their
+  name), so a patch can use them as they sound in the Ritual Machine and export them one to one (docs/MODULAR.md).
+- Fixed: `wg_line` with an end above or left of the canvas drew long strokes (u8g2's coordinates are unsigned: a negative one
+  wrapped far away); lines are clipped to the canvas first.
+- Every app's desktop build now compiles the two new files (`Get-UiSources`, `Get-DesktopBoardSources`); `widgets.c` is also in
+  the firmware builds (`+<framework/ui/>`): nothing is linked unless an app calls it.
+
 ## 2026-10-28: the repo can be moved
 
 - **For developers:** the desktop build and the three test scripts hand the compilers paths relative to the app's folder,

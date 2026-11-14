@@ -160,5 +160,65 @@ void test_app() {
         for (int i = 0; i < 20000 && synth_active_voices() > 0; i++) { synth_render(buf, 64); synth_update(); }
         CHECK(synth_active_voices() == 0, "after the loop the voice ends (%d)", synth_active_voices());
     }
+
+    // a synth with grooves (lab::Options::grooves, DrumLab): PLAY loops the Groove row's pattern at the Tempo row's BPM, both live
+    int grooved = -1;
+    for (int k = 0; k < lab::kSynthCount && grooved < 0; k++)
+        if (lab::kSynths[k]->opt.grooves) grooved = k;
+    if (grooved >= 0) {
+        const lab::Options &o = lab::kSynths[grooved]->opt;
+        push(HWV2_ENC_A_SW);
+        turn(HWV2_ENC_B, grooved - synth_selected());
+        CHECK(synth_selected() == grooved, "select the synth with grooves (%d)", synth_selected());
+        const int sr = synth_sample_rate(), win = sr / 500;    // the level in windows of 2 ms
+        // the onsets (ms from the call) over `ms` of sound: a window above -26 dBFS, 4 x louder than 10 ms before, 150 ms after the last
+        const auto onsets_over = [&](int ms) {
+            std::vector<float> level;
+            float acc = 0.f;
+            int in_win = 0;
+            for (int done = 0; done < ms * sr / 1000; done += 64) {
+                synth_render(buf, 64);
+                synth_update();
+                for (int i = 0; i < 64; i++) {
+                    const float v = buf[2 * i] / 32768.f;
+                    acc += v * v;
+                    if (++in_win == win) { level.push_back(std::sqrt(acc / win)); acc = 0.f; in_win = 0; }
+                }
+            }
+            std::vector<int> on;
+            for (size_t w = 0; w < level.size(); w++) {
+                const float before = w >= 5 ? level[w - 5] : 0.f;
+                if (level[w] > 0.05f && level[w] > 4.f * before && (on.empty() || static_cast<int>(w) * 2 - on.back() > 150)) on.push_back(static_cast<int>(w) * 2);
+            }
+            return on;
+        };
+        synth_set_value(o.groove_param, 2);                     // Offbeat: the eighth after each beat
+        synth_set_value(o.tempo_param, 120);
+        push(HWV2_PLAY);
+        CHECK(synth_looping() && synth_loop_bpm() == 120, "PLAY loops the groove at its Tempo (%d BPM)", synth_loop_bpm());
+        std::vector<int> on = onsets_over(2000);
+        bool offbeats = on.size() == 4;
+        for (size_t k = 0; k < on.size(); k++) offbeats = offbeats && std::abs(on[k] - (250 + 500 * static_cast<int>(k))) <= 3;
+        CHECK(offbeats, "Offbeat at 120 BPM: 4 hits at 250, 750, 1250, 1750 ms (%zu hits, the first at %d ms)", on.size(), on.empty() ? -1 : on[0]);
+        synth_set_value(o.tempo_param, 100);                    // live: 600 ms a beat from now on
+        on = onsets_over(3000);
+        bool slower = on.size() >= 4;
+        for (size_t k = 1; k < on.size(); k++) slower = slower && std::abs(on[k] - on[k - 1] - 600) <= 3;
+        CHECK(slower, "Tempo 100 while it plays: every hit 600 ms after the last (%zu hits)", on.size());
+        synth_set_value(o.groove_param, 0);                     // Four: from the end of the playing bar, a hit on every beat
+        on = onsets_over(4000);
+        // the offbeats go on to the bar's end, then one gap of half a beat (the last offbeat to the next downbeat), then a beat apart
+        int halves = 0, beats = 0, after = 0;
+        for (size_t k = 1; k < on.size(); k++) {
+            const int gap = on[k] - on[k - 1];
+            if (std::abs(gap - 300) <= 3) halves++;
+            else if (std::abs(gap - 600) <= 3) { beats++; if (halves) after++; }
+        }
+        CHECK(halves == 1 && beats == static_cast<int>(on.size()) - 2 && after >= 3,
+              "a new Groove from the next bar: one half-beat gap then a hit every beat (%zu hits, %d half-beat gaps, %d after)", on.size(), halves, after);
+        push(HWV2_PLAY);
+        CHECK(!synth_looping(), "PLAY again stops the groove");
+        for (int i = 0; i < 20000 && synth_active_voices() > 0; i++) { synth_render(buf, 64); synth_update(); }
+    }
     synth_shutdown();
 }

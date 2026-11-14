@@ -5,10 +5,11 @@ next to its code; this guide is what they share: the layout, the requirements, t
 
 | Part | Start with | Then |
 | --- | --- | --- |
-| the framework | [framework/README.md](framework/README.md) | [docs/DESIGN.md](framework/docs/DESIGN.md) (the decisions, the index of every ADR), [docs/BOARDS.md](framework/docs/BOARDS.md) (the boards, the ESP32 firmware), [docs/DRAWING_KIT.md](framework/docs/DRAWING_KIT.md), [CHANGELOG.md](framework/CHANGELOG.md) |
+| the framework | [framework/README.md](framework/README.md) | [docs/DESIGN.md](framework/docs/DESIGN.md) (the decisions, the index of every ADR), [docs/BOARDS.md](framework/docs/BOARDS.md) (the boards, the ESP32 firmware), [docs/DRAWING_KIT.md](framework/docs/DRAWING_KIT.md), [docs/MODULAR.md](framework/docs/MODULAR.md), [CHANGELOG.md](framework/CHANGELOG.md) |
 | the Ritual Machine | [apps/ritual_machine/README.md](apps/ritual_machine/README.md) | [docs/DEVELOPING.md](apps/ritual_machine/docs/DEVELOPING.md), [docs/UI.md](apps/ritual_machine/docs/UI.md), [docs/SERIAL_COMMANDS.md](apps/ritual_machine/docs/SERIAL_COMMANDS.md), [docs/UX_REORGANIZATION.md](apps/ritual_machine/docs/UX_REORGANIZATION.md), [docs/DESIGN.md](apps/ritual_machine/docs/DESIGN.md), [CHANGELOG.md](apps/ritual_machine/CHANGELOG.md), [CONTINUE.md](apps/ritual_machine/CONTINUE.md) |
 | TechnoGen | [apps/technogen/README.md](apps/technogen/README.md) | [docs/DESIGN.md](apps/technogen/docs/DESIGN.md), [CHANGELOG.md](apps/technogen/CHANGELOG.md), [CONTINUE.md](apps/technogen/CONTINUE.md) |
 | SynthLab | [apps/synthlab/README.md](apps/synthlab/README.md) | [docs/SYNTHS.md](apps/synthlab/docs/SYNTHS.md), [CHANGELOG.md](apps/synthlab/CHANGELOG.md), [CONTINUE.md](apps/synthlab/CONTINUE.md) |
+| SynthLab Studio | [apps/studio/README.md](apps/studio/README.md) | [CHANGELOG.md](apps/studio/CHANGELOG.md), [CONTINUE.md](apps/studio/CONTINUE.md) |
 | the template | [apps/template/README.md](apps/template/README.md) | |
 
 For the whole repo: [BUILDING.md](BUILDING.md) (building and running any app's desktop program), [CONTINUE.md](CONTINUE.md) (the
@@ -32,10 +33,11 @@ oled_sim/
 │  │                        how its power switch reads. "boards/hwv2/..."
 │  ├─ boards/desktop/       the desktop: the display and panel windows, the PC keyboard and mouse as controls, SDL audio,
 │  │                        the card as the folder sdcard/. "boards/desktop/..."
+│  ├─ modular/              the modular catalog: float modules from SynthLab's synths, patches of them, their runner. "modular/..."
 │  ├─ host/                 desktop-only helpers (a slow-card model for tests and simulators, the .wav / .mp3 converter). "host/..."
 │  ├─ tests/                the library's own tests: the engine alone
 │  ├─ tools/                table generators, sample tools, the shared desktop build (sim_build.ps1), build_engine_tests.ps1
-│  ├─ docs/                 its documents: DESIGN.md (the decisions, the index of every ADR), BOARDS.md, DRAWING_KIT.md
+│  ├─ docs/                 its documents: DESIGN.md (the decisions, the index of every ADR), BOARDS.md, DRAWING_KIT.md, MODULAR.md
 │  └─ CHANGELOG.md          what changed in the library and the repo
 ├─ apps/
 │  ├─ ritual_machine/       THE RITUAL MACHINE: its own src/ (core, app, platform), tests/, tools/, assets/, build.ps1,
@@ -44,8 +46,11 @@ oled_sim/
 │  ├─ template/             the starter app: a four-voice synth with a screen and the board's keys, desktop + first prototype (its README.md)
 │  ├─ technogen/            TECHNOGEN: a techno loop generator for the second prototype, seven tracks and a dice, in colour
 │  │                        (README.md, CHANGELOG.md, CONTINUE.md, docs/DESIGN.md)
-│  └─ synthlab/             SYNTHLAB: a workbench for home-made synths, one file each (src/synths/), for the second prototype
-│                           (README.md, CHANGELOG.md, CONTINUE.md, docs/SYNTHS.md: the synths' design notebook)
+│  ├─ synthlab/             SYNTHLAB: a workbench for home-made synths, one file each (src/synths/), for the second prototype
+│  │                        (README.md, CHANGELOG.md, CONTINUE.md, docs/SYNTHS.md: the synths' design notebook)
+│  └─ studio/               SYNTHLAB STUDIO, desktop only: SynthLab's synths with the mouse and the keyboard (knobs, macros, the
+│                           screen's layout editor, the modular patch editor and its exports); build.ps1, presets/ (what it
+│                           saves), exports/ (engine graphs, patches), README.md, CHANGELOG.md, CONTINUE.md
 ├─ tools/new_project.ps1    .\tools\new_project.ps1 my_synth  ->  apps/my_synth, a copy of the template under its own name
 ├─ docs/images/             the pictures of the repo's README.md
 ├─ build.ps1, run.ps1       build / run an app's desktop program from here (-App name; default: ritual_machine; BUILDING.md)

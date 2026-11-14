@@ -6,7 +6,7 @@ AMY / SDL / Arduino includes). Tests: `framework/tests/` (the engine alone) and 
 `tests/engine/` drive the engine through its rack, pads and sequencers), run with `.\test.ps1 [-Matrix]` (the library's alone:
 `.\framework\tools\build_engine_tests.ps1 [-Sr 44100 -Block 64]`).
 
-**ADR numbers are shared by the whole repo** (the next one is ADR-049). An app's decisions are in its own `docs/DESIGN.md`;
+**ADR numbers are shared by the whole repo** (the next one is ADR-050). An app's decisions are in its own `docs/DESIGN.md`;
 this index lists them all. Until 2026-11-10 they were all in one file, `ENGINE_DESIGN.md` at the repo's root.
 
 | ADR | Decision | Where |
@@ -59,6 +59,7 @@ this index lists them all. Until 2026-11-10 they were all in one file, `ENGINE_D
 | 046 | The GUI reorganization, one UX ruleset, built for HWV1 | [the Ritual Machine](../../apps/ritual_machine/docs/DESIGN.md) |
 | 047 | The knob resolver, one answer to "what does this pot drive now" | [the Ritual Machine](../../apps/ritual_machine/docs/DESIGN.md) |
 | 048 | TechnoGen, a second instrument on the library | [TechnoGen](../../apps/technogen/docs/DESIGN.md) |
+| 049 | A modular catalog from SynthLab's parts, a patch editor, exports to SynthLab and the engine | here |
 
 ## Goals
 
@@ -885,6 +886,77 @@ Chosen by me while building (say if one is wrong):
 - **Not done / not checked**: neither program was used by hand, with a real window, by anybody: the look, the mouse on a
   real screen, the display window's place next to a taller panel. The engine tests were not run again (no engine or app engine
   file changed). `release` and `card_reader` were not built.
+
+### ADR-049: A modular catalog from SynthLab's parts, a patch editor, exports to SynthLab and the engine (Accepted; the user's choices of 2026-11-14; built, host-tested, not tried by hand)
+
+- **Context:** the user, after SynthLab Studio's first version: "make possible the creating of synth with modules directly ...
+  gathering common modules used in the synthlab and having a real modular environment that i can then export informations to
+  then implement it in the ritual machine engines and rework the existing ones".
+- **The user's four answers:** (1) the modules are a **shared float catalog in the library**, built from SynthLab's parts and
+  shaped to the engine's module limits (not engine modules directly, not studio-only code); (2) a **free canvas with cables**;
+  (3) the exports: **the patch file, a generated SynthLab synth, engine graph code** (not a Markdown report); (4) **two areas**,
+  VOICE and FX, the engine's scopes.
+- **Decisions (mine, within those):**
+  - `framework/modular/`: SynthLab's `lab_dsp.h` moved to `modular/mdsp.h` (namespace `mod`); `lab_dsp.h` forwards to it, so the
+    synths are unchanged (2217 checks and the null test's depths the same after the move).
+  - 23 modules (`modules.h`, header only), each with a description (`catalog.cpp`) that names the engine module doing the same,
+    or none. Signals are float blocks of up to 64 samples. Modulation of a value is block-rate: the source's mean over the block
+    moves the value along its range, depth 1 = the whole range. Audio-rate modulation goes through inputs.
+  - The runner builds an area in memory the caller gives, orders the modules by their cables, and breaks a loop where it closes
+    (the cable reads the block before): no allocation on the audio thread.
+  - In the studio, a patch plays as the **Modular synth**: a SynthLab synth whose value list is the patch's (a section per
+    module, `"<module> <id>"`), so SOUND (knobs, macros) and LAYOUT work on patches. Only the studio lists it
+    (`synth_list.cpp`, `-DLAB_STUDIO`); `lab::kMaxParams` can be raised by a desktop build (`-DLAB_MAX_PARAMS=256`).
+  - **Export > Synth** generates `apps/synthlab/src/synths/gen_<name>.cpp` (the modules called directly, their order and
+    modulations the runner's) and adds it to SynthLab's list. **Export > Engine** generates `apps/studio/exports/<name>_graph.cpp`
+    with an explicit conversion per module into the engine's units, comments with the original values and the approximations,
+    and the list of modules the engine lacks (Body, Metal, Ratchet, EQ3, Glue, Gate today).
+- **Checked:** the studio's self-test (the catalog run on noise, the runner, the Modular synth through the engine, the exports,
+  the canvas driven by scripted mouse input); a generated synth passed SynthLab's per-synth tests (976 checks) and the ESP32-S3
+  compiler; an exported engine graph loaded into the real engine and played. **Not checked:** the canvas by hand; the
+  generated synth's cost on the board; the engine conversions by ear against the studio's sound.
+- **Consequences / next:** reworking the Ritual Machine's engines starts from the export's "modules needed" list, writing them
+  as engine modules (q15). Each engine module could also be checked against its catalog original with a null test, as
+  Kick Lite was against the Kick. The catalog's modules are not optimised as the Kick was; a generated synth is the place for that.
+- **Addendum (2026-11-14, the same day): the other engines in the PATCH tab.** The user asked to edit the other engines with it, and
+  chose **both families: SynthLab's synths and the Ritual Machine's racks**, SynthLab's synths **rebuilt as patches** (not wrapped as
+  one module each), checked against the originals with a null test. Done first:
+  - `studio.exe --null <synth>`, the null test, and `apps/studio/library/`, the rebuilds. **Basic 74.3 dB, FM2 90.7 dB, Kick 71.6 dB.**
+  - New modules: Op (FM2's operator), Rumble (the Kick's rumble at 1/8 rate, whole), Comp3, Limit.
+  - New settings: Perc Law Power and Steps Block, Body Steps Block, Noise stream B. The Filter's Cutoff input is now read at the
+    block's first sample.
+  - The PATCH tab opens a rebuild ("Open"), with its null depth. A rebuild exported as a synth plays the patch bit for bit (177.6 dB).
+  - The rule learned: to null, a module must compute as the synth does (the Kick's block-rate envelopes: 33 dB per sample, 72 dB per
+    block).
+  - Not done yet: Kick Lite, the Snare, DrumLab (they need the Snare's ring and wires, DrumLab's metal and grooves). The Ritual
+    Machine's racks (the plan: engine modules hosted in the catalog through an adapter, so a rack opens as a patch of its own
+    modules, exactly, and exports back as the same graph).
+- **Addendum 2 (2026-11-14): the Ritual Machine's modules in the catalog.** The user: "add every module already in the Ritual
+  Machine's modular synth". Built: the adapter above (`modular/engine_adapter.h`), not float ports.
+  - Each "RM" entry hosts the real engine module, with its own heap, converting signals at the block's edges, so it sounds as in the
+    Ritual Machine and exports one to one.
+  - 34 entries.
+  - Left out, because they need the Ritual Machine's services: Sampler, Granular, Pads, MotionSeq, GateIn, ParaGate, Convolver and
+    Dx7 (silent without the FM patch the app sends).
+  - The catalog can now grow at run time (`catalog_add`); a module can be built per area (`construct_in`); a new input default
+    `kPitch`. The engine export picks a type's scope and gives an unconnected pitch / gate input the NoteIn's.
+  - Checked: the self-test (key tracking, sound, a reverb's tail, the exports); a patch of them exported, loaded into the real engine
+    and played.
+- **Addendum 3 (2026-11-14): modules in both areas.** The user: "the majority of modules free to go on both sections, the monophonic
+  state of the actual exported synth would be added afterwards after some measurements of real performances".
+  - Every module but the ends (VoiceOut; Voices, Output) is `Scope::Both`. Note too: on the FX area it gives the last note.
+  - **The FX area's note is the last note played** (`mod::LastNote`): its pitch and velocity, a gate held while any key is held, and
+    a start at each new note (a Perc's Trig, an ADSR's gate, a Body's pitch). The voices write it and the FX reads it, on the audio
+    thread, voices first. It is my stand-in until the mono mode is designed from measurements, as the user asked; the generated
+    synth carries the same.
+  - The Ritual Machine's one-scope types are built in the other area too: a Voice type on the FX area gets the last note's state,
+    and a Global type in a voice is a copy per voice (RMDelay: 240 KB each). A Modular voice now has 2 MB.
+  - Export > Engine writes a module only where the engine registers its type in that scope (`engine_type_in`). Otherwise it is
+    listed under the modules needed, with the reason ("the engine's Eg is per voice only"). An FX module that followed the key gets
+    a note: the engine's global scope has no note. The PATCH tab dims the RM / eng tag of such a module, and the inspector says why.
+  - Checked: the self-test (6633: every scope, the last note, a Perc on the FX waiting for a note, RMEg on the FX, RMDelay in a
+    voice, the export's list); a generated synth with a Perc and a Body on its FX passed SynthLab's tests and the ESP32-S3
+    compiler's syntax check (then removed). Not heard by hand.
 
 ## Known limits and ideas for later
 

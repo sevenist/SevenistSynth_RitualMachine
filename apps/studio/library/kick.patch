@@ -1,0 +1,62 @@
+# SynthLab's Kick (src/synths/kick.cpp) rebuilt from the modular catalog, at the Kick's default values (its macros at 50 %: no effect).
+# The body: Body (sine -> triangle -> distorted sine), its pitch envelope a Perc into Pitch (PMod 30 st = Amount), its harmonics envelope a
+#   Perc into Harm (Amount 40 %). The Kick's envelopes fall to 1 % at their Decay, a Perc at Curve 100 to -60 dB: Decay x 1.5.
+# The click: Noise (seed 1, stream B: the Kick's click noise) -> band pass 3200 Hz -> x its envelope (1/e at 4 ms: Perc Decay 27.63 ms) x
+#   0.75 (Click 25 % x 0.03), / the filter's k (1.43): the VCA at 52.45 %.
+# The amp envelope: Perc, Law Power (the Kick's (1 - u)^(1 + 7 x Curve)). The velocity's scale: 0.35 + 0.65 x velocity.
+# The rumble: Rumble (the Kick's chain at 1/8 rate) fed the kick before its amp envelope, keyed by it; its Level a VCA (20 %).
+# Then Drive, Comp3, EQ3 (0 dB: off), Limit (soft clip x 0.6). On the sum: Room (15 %), Glue (the master shaper).
+patch "Kick (patch)"
+node 1 voice Note 16 40
+node 2 voice Const 16 200 Value=1
+node 3 voice Mixer 16 320 Lvl1=65 Lvl2=35 Lvl3=0 Lvl4=0
+node 4 voice Perc 160 20 Attack=0 Hold=0 Decay=67.5 Curve=100 Amount=100 Law=0 Steps=1
+node 5 voice Perc 160 150 Attack=0 Hold=0 Decay=37.5 Curve=100 Amount=40 Law=0 Steps=1
+node 6 voice Body 300 20 Tune=50 Harm=0 Shape=15 Level=100 PMod=30 Track=1 Steps=1
+node 7 voice Noise 160 300 Level=100 Tone=24000 Seed=1 Stream=1
+node 8 voice Filter 300 220 Type=2 Cutoff=3200 Reso=30 Track=0 CMod=0
+node 9 voice Perc 300 360 Attack=0 Hold=0 Decay=27.631 Curve=100 Amount=100 Law=0
+node 10 voice VCA 440 240 Level=52.448
+node 11 voice Mixer 440 20 Lvl1=100 Lvl2=100 Lvl3=0 Lvl4=0
+node 12 voice Perc 580 240 Attack=0.5 Hold=30 Decay=350 Curve=60 Amount=100 Law=1 Steps=1
+node 13 voice VCA 580 20 Level=100
+node 14 voice VCA 720 20 Level=100
+node 15 voice Rumble 720 220 InMix=0 Decay=300 Pre=30 Filter=1 Cutoff=90 Reso=40 EnvAmt=0 EnvAtk=0 EnvDec=150 Post=40 Delay=80 Feedback=35 DlyMix=30 Duck=50 DuckRel=80 Seed=1
+node 16 voice VCA 860 220 Level=20
+node 17 voice Mixer 860 20 Lvl1=100 Lvl2=100 Lvl3=0 Lvl4=0
+node 18 voice Drive 1000 20 Drive=6 Tube=25 Fold=0 Sat=35 Clip=0 Out=0
+node 19 voice Comp3 1140 20 Low=40 Mid=25 High=30 Attack=6 Release=120
+node 20 voice EQ3 1140 180 LowDb=0 LowHz=90 MidDb=0 MidHz=600 MidQ=0.9 HighDb=0 HighHz=5000
+node 21 voice Limit 1280 20 Gain=0 Out=60
+node 22 voice VoiceOut 1420 20 Level=100
+node 30 fx Voices 16 40
+node 31 fx Room 160 40 Mix=15 Decay=500 Size=60 Damp=50
+node 32 fx Glue 300 40 Glue=30 Attack=3 Release=150 Sat=20 Tilt=0 Out=0
+node 33 fx Output 440 40 Level=100
+cable 1.Vel 3.In1 1
+cable 2.Out 3.In2 1
+cable 4.Env 6.Pitch 1
+cable 5.Env 6.Harm 1
+cable 7.Out 8.In 1
+cable 8.Out 10.In 1
+cable 9.Env 10.CV 1
+cable 6.Out 11.In1 1
+cable 10.Out 11.In2 1
+cable 11.Out 13.In 1
+cable 12.Env 13.CV 1
+cable 13.Out 14.In 1
+cable 3.Out 14.CV 1
+cable 11.Out 15.Kick 1
+cable 12.Env 15.Key 1
+cable 3.Out 15.Vel 1
+cable 15.Out 16.In 1
+cable 14.Out 17.In1 1
+cable 16.Out 17.In2 1
+cable 17.Out 18.In 1
+cable 18.Out 19.In 1
+cable 19.Out 20.In 1
+cable 20.Out 21.In 1
+cable 21.Out 22.In 1
+cable 30.Out 31.In 1
+cable 31.Out 32.In 1
+cable 32.Out 33.In 1

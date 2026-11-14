@@ -20,8 +20,14 @@
 extern "C" {
 #endif
 
+// The largest canvas (each canvas_t holds a one-bit buffer of this size for u8g2). A desktop program that draws a large window raises it
+// with -DCANVAS_MAX_W=... -DCANVAS_MAX_H=... (apps/studio: 800 x 480); the boards keep 160 x 160.
+#ifndef CANVAS_MAX_W
 #define CANVAS_MAX_W 160
+#endif
+#ifndef CANVAS_MAX_H
 #define CANVAS_MAX_H 160
+#endif
 
 // A colour in RGB565 from 8-bit red, green, blue, and from a web-style 0xRRGGBB number.
 #define CANVAS_RGB(r, g, b) ((uint16_t)((((r) & 0xF8) << 8) | (((g) & 0xFC) << 3) | (((b) & 0xFF) >> 3)))

@@ -11,6 +11,8 @@ Paths below are from the repo root. In code the library is included without its 
 | --- | --- |
 | `framework/ui/gui.h`, `gui.c` | the style sheet, rectangles, text, fields and buttons, sprites, sprite animations |
 | `framework/ui/popup.h`, `popup.c` | popup messages over any screen: a note that goes by itself, an error with OK, a Yes / No question |
+| `framework/ui/canvas.h`, `canvas.c` | the colour canvas: u8g2 drawing into an RGB565 frame |
+| `framework/ui/widgets.h`, `widgets.c` | controls for a pointer and a keyboard (knob, button, stepper, slider, focus, drag and drop): section 14 |
 | `framework/hal/hal_display.h` | the screen itself: `display_init()` returns a ready `u8g2_t *`, `display_send()` shows the frame |
 
 **What the kit is not.** It draws; it does not remember. There is no focus, no list of widgets, no event handling: your app
@@ -311,7 +313,43 @@ Without `display_boot_config` there is no animation and the two other calls do n
 - One font, ASCII only. No text wrapping or clipping outside the popups.
 - The whole frame is redrawn on every change; there is no partial redraw in the kit (the first prototype's display task sends
   only the changed tiles, which hides most of the cost).
-- No focus, no scrolling list, no value bar or slider: a value is a label and a text. Build what you need from rectangles
-  and u8g2 calls.
+- For encoders and keys: no focus, no scrolling list, no value bar or slider: a value is a label and a text. Build what you need
+  from rectangles and u8g2 calls. (For a mouse and a keyboard: the widgets of section 14.)
 - 8 animations at once, 4 modal popups waiting.
 - `gui_style_t` still carries the Ritual Machine's page metrics (section 7).
+
+## 14. Widgets for a mouse and a keyboard
+
+`framework/ui/widgets.h` gives a screen that is pointed at (the desktop's mouse; a touch screen later) the controls the sections
+above leave to the app: a knob, a button, a tab, a stepper, a slider, a keyboard focus that Tab moves, and drag and drop. They
+draw on the colour canvas (`ui/canvas.h`) with the kit's fonts. They are **immediate mode**: each frame the app calls the
+widgets it shows, in the order Tab visits them, and each call draws the widget and says what the user did to it. A widget keeps
+nothing but its id.
+
+```c
+wg_ctx_t c;  wg_init(&c, &canvas);                 // once
+wg_begin(&c, &input);                              // each frame: the input since the last one (wg_input_t)
+if (wg_button(&c, WG_ID(1, 0), r, "PLAY", playing)) play();
+wg_knob_t k = {.label = "Cutoff", .value = text, .def = 0.5f};
+if (wg_knob(&c, WG_ID(2, i), cell, &pos, &k) & WG_CHANGED) set_cutoff(pos);    // pos: 0..1 along the knob
+wg_drag_source(&c, WG_ID(3, m), 1, m, "Macro 1");  // right after the widget a drag starts from
+if (wg_drop_target(&c, cell, 1, &m)) assign(m, i); // a payload of kind 1 let go over `cell`
+wg_end(&c);                                        // draws what is dragged, moves the focus on Tab
+```
+
+- **The pointer:** a press on a widget makes it *active* (it takes the drags until the release) and gives it the focus.
+  A knob turns with a drag up or down (Shift: finer) or with the wheel; a double click sets its default.
+- **The keyboard:** Tab / Shift+Tab move the focus; the focused widget takes the arrows, Page Up / Down, Home / End, Delete (its
+  default), Enter. Esc drops the focus. `wg_focus_keys` gives an app's own widget the same keys.
+- **A knob's ring:** `wg_knob_t.ring` draws a range `[*ring_a, *ring_b]` outside the knob (a macro's span over this value).
+  Dragging on the ring moves `ring_b` (Shift: `ring_a`); the call returns `WG_RING_CHANGED`.
+- **An app's own widget:** `wg_behavior(&c, id, r, focusable)` does the bookkeeping (hot, active, focus); `wg_has_focus`,
+  `wg_hover`, `wg_set_hint` (a line for the status bar).
+- **The input** is `wg_input_t`: the pointer (x, y in the canvas's pixels, buttons, presses, releases, double click, wheel), the
+  modifier keys, the keys pressed and released (named keys, and the character keys by their place on a US keyboard), the text
+  typed. On the desktop, `boards/desktop/desk_window.h` fills it. Its frame follows the window, resized or full screen (F11): a
+  whole zoom, and the frame as large as the window divided by it, so the app asks its size (`desk_window_frame`) and lays out in it.
+  A canvas larger than 160 x 160 needs `-DCANVAS_MAX_W=... -DCANVAS_MAX_H=...`.
+
+The example: SynthLab Studio (`apps/studio`), an 800 x 480 window with every widget, and its `--selftest`, which drives the widgets
+with input written by hand.

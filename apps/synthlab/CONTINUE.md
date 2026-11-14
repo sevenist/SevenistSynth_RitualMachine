@@ -70,6 +70,26 @@ filter there is). Filter (LP 6 / 12 / 24, BP, HP 12 / 24, Notch, Peak), Env Amt 
 the defaults bit for bit as before (the null test unchanged). `lab_dsp.h`: `Svf::set_g`, `fast_tan`. 851 checks pass. Next: the
 user's choice among the optimisations proposed (measure on the board, IRAM, render once).
 
+**Then (2026-11-13): the Snare** (the user: a noise burst with a ratchet-like envelope, a steady sine and a pitch-swept sine for the
+resonance and the skin, the Kick's flavour of reverb, sine shaping and saturation). `src/synths/snare.cpp`, docs/SYNTHS.md "Snare": skin,
+ring, wires (up to 8 bursts, Spacing / Accel / Burst / Decay), Shape / Fold / Sat, the Kick's Room as its Fx; mono, PLAY at 135 BPM.
+Host-tested (277 checks with -Filter Snare), the bursts and the sweep measured from the WAV; host 23.7 ns per sample, ESP32 render 669
+instructions with no call in its loop. My choices to confirm: mono (a choke, as a drum machine), Seed 0 = free noise, no macros or
+master shaper yet. Not heard by the user yet.
+The user then confirmed mono and Seed 0 (macros later) and asked for a 3-band EQ on the noise instead of its filters, a 3-band EQ in
+the shaping chain and a gate after the reverb: done (`lab::Eq3`, new in `lab_dsp.h`; the gate in the Fx, keyed Dry or Out), measured
+from the WAV, 1286 checks pass. Then: the Kick's master chain after the gate, and the noise EQ's shelves made a high pass and a
+low pass (I read "the low and high band to a low pass and high pass" as low band -> high pass, high band -> low pass: to confirm).
+1326 checks pass. Not committed.
+
+**Then (2026-11-13): DrumLab** (the user: "a drumlab page with kick and snare parts mixed together", then, asked: the modules
+merged into one long chain for every percussion, all four sources with a new metal (Squares and FM), the rumble as a module, the keys as
+notes, preset grooves on PLAY, its own values, the row limit raised to 128). `src/synths/drumlab.cpp`, docs/SYNTHS.md "DrumLab";
+`lab::Options::grooves` (lab.h) played by synth.cpp through the engine's sequencer (no framework change). Its defaults measured
+equal to the Kick, the Snare's values on its rows within 2 dB of the Snare; the grooves tested through the engine. 2217 checks pass.
+Not heard by the user; not committed. **Memory to watch:** its voice is 7.7 KB, 6 of them + its Fx about 59 KB of the 64 KB fast
+heap (it spills into PSRAM beyond): one voice for a mono synth would fix it. Proposed next: sound presets on a row, macros.
+
 **Open:**
 - [ ] **The user tries SynthLab and the Kick** (`.\build.ps1 -App synthlab`, `.\run.ps1 -App synthlab`; encoder B on the first row to
   "Kick", then PLAY or the keys) and says what to change, in the sound and in the screen. One reading to confirm: their "user

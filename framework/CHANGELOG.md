@@ -2,6 +2,15 @@
 
 What changed in the library (`framework/`) and in the repo as a whole. Each app keeps its own update log.
 
+## 2026-11-14: response curves
+
+- **`control/curve.h`** (new, C, header only): the response curves a knob's travel goes through. Lin, Exp, Log, S built in (33-point
+  tables, linear interpolation); user curves U1..U8 (2..16 points, linear or stepped segments) in a `crv_bank_t` the app owns; their
+  text (`curve` / `point` lines). The Ritual Machine's `curves.c` is its bank and its file on the card (its `curve_*` calls unchanged;
+  checked against the old file under 4,000 random edits, 477,546 comparisons, none differ). SynthLab Studio's own Exp / Log / S
+  formulas are gone: its macros now read the board's tables, the shapes the Ritual Machine plays (at most 0.03 of a range from the
+  exact formulas it had, at the top of Exp). `tests/test_curve.cpp` (new).
+
 ## 2026-11-14: one parameter descriptor
 
 - **`control/param.h`** (new, C, header only): `param_desc_t`, a value's range, curve (Lin, Log, Int, Enum, a section's Head), step,

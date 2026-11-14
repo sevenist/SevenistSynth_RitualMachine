@@ -6,6 +6,7 @@
 //   macro 1 "Punch" 0.500
 //   dest BODY/Tune 0.20 0.80 Exp
 #include <string>
+#include "control/curve.h"
 #include "lab.h"
 
 namespace studio {
@@ -13,11 +14,11 @@ namespace studio {
 constexpr int kMacros = 8;
 constexpr int kDests = 8;
 
-// The built-in curves of the Ritual Machine (core/curves.c): the same shapes.
-enum Curve { kLin, kExp, kLog, kS, kCurveCount };
-float       curve_eval(int curve, float x);         // 0..1 -> 0..1
-const char *curve_name(int curve);
-int         curve_by_name(const char *name);        // -1: unknown
+// The curves: the library's built-ins (framework/control/curve.h, the Ritual Machine's own: the same tables), no user curves.
+enum Curve { kLin = CRV_LIN, kExp = CRV_EXP, kLog = CRV_LOG, kS = CRV_S, kCurveCount = CRV_BUILTIN };
+inline float       curve_eval(int curve, float x) { return crv_eval(nullptr, curve, x); }     // 0..1 -> 0..1
+inline const char *curve_name(int curve) { return crv_name(curve); }
+inline int         curve_by_name(const char *name) { return crv_by_name(name); }           // -1: unknown (case-insensitive)
 
 struct Dest {
     int   param = -1;                               // the value's index in the synth's list

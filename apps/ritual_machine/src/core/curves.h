@@ -1,20 +1,20 @@
 #pragma once
-// Response curves and knob mappings (synth_ui.h: mapping_t). A curve turns a knob position 0..1 into 0..1 through a table read with
-// linear interpolation (cheap on the board). Built in: Lin, Exp, Log, S (CURVE_LUT points). User curves U1..U8 (ids CURVE_USER_FIRST + k):
-// 2..16 points (x, y 0..100), each saying whether the segment after it is linear or stepped (held until the next point); turned into a
-// CURVE_USER_LUT table whenever they change. Edited in the CURVES menu tab (scr_curves.c), saved in CURVES_FILE on the card.
+// Response curves and knob mappings (synth_ui.h: mapping_t). The curves are the library's (framework/control/curve.h: Lin, Exp, Log, S
+// built in; user curves U1..U8, ids CURVE_USER_FIRST + k, 2..16 points each, linear or stepped segments); the Ritual Machine has one
+// bank of them (curves.c), edited in the CURVES menu tab (scr_curves.c), saved in CURVES_FILE on the card.
 // A mapping whose user curve was deleted reads it as linear.
 #include <stdbool.h>
 #include <stdint.h>
 #include "core/synth_ui.h"
 #include "core/card_layout.h"
+#include "control/curve.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define CURVE_LUT 33
-enum { CURVE_LIN, CURVE_EXP, CURVE_LOG, CURVE_S, CURVE_BUILTIN, CURVE_USER_FIRST = 16 };
+#define CURVE_LUT CRV_LUT
+enum { CURVE_LIN = CRV_LIN, CURVE_EXP = CRV_EXP, CURVE_LOG = CRV_LOG, CURVE_S = CRV_S, CURVE_BUILTIN = CRV_BUILTIN, CURVE_USER_FIRST = CRV_USER_FIRST };
 
 float       curve_eval(int id, float x);            // x 0..1 -> 0..1 (an unknown id or a deleted user curve is linear)
 const char *curve_name(int id);                     // "Lin", "Exp", "Log", "S", "U1".."U8"
@@ -25,13 +25,13 @@ int         curve_at(int i);
 int         curve_step(int id, int dir);
 
 /* ---- user curves ---- */
-#define CURVE_USER_MAX   8
-#define CURVE_POINTS_MAX 16
-#define CURVE_USER_LUT   129
+#define CURVE_USER_MAX   CRV_USER_MAX
+#define CURVE_POINTS_MAX CRV_POINTS_MAX
+#define CURVE_USER_LUT   CRV_USER_LUT
 #define CURVES_FILE      STORAGE_DIR_CONFIG "/curves.cfg"
-enum { CURVE_PT_LIN, CURVE_PT_STEP };
-typedef struct { uint8_t x, y, mode; } curve_point_t;           // x, y 0..100; mode: the segment from this point to the next
-typedef struct { bool used; uint8_t n; curve_point_t pt[CURVE_POINTS_MAX]; uint16_t lut[CURVE_USER_LUT]; } user_curve_t;
+enum { CURVE_PT_LIN = CRV_PT_LIN, CURVE_PT_STEP = CRV_PT_STEP };
+typedef crv_point_t curve_point_t;                              // x, y 0..100; mode: the segment from this point to the next
+typedef crv_user_t user_curve_t;
 
 void                 curves_init(void);                     // no user curves
 const user_curve_t  *curve_user(int k);                     // k 0..CURVE_USER_MAX-1

@@ -9,28 +9,6 @@
 
 namespace studio {
 
-float curve_eval(int curve, float x) {
-    x = x < 0.f ? 0.f : x > 1.f ? 1.f : x;
-    const float k = 4.f, ek = std::exp(k) - 1.f;                // the Exp / Log bend of the Ritual Machine's curves.c
-    switch (curve) {
-    case kExp: return (std::exp(k * x) - 1.f) / ek;             // slow start, fast end
-    case kLog: return std::log(1.f + ek * x) / k;               // the mirror
-    case kS: return x * x * (3.f - 2.f * x);                    // smoothstep
-    default: return x;
-    }
-}
-
-const char *curve_name(int curve) {
-    static const char *const n[kCurveCount] = {"Lin", "Exp", "Log", "S"};
-    return curve >= 0 && curve < kCurveCount ? n[curve] : "Lin";
-}
-
-int curve_by_name(const char *name) {
-    for (int i = 0; i < kCurveCount; i++)
-        if (std::strcmp(curve_name(i), name) == 0) return i;
-    return -1;
-}
-
 MacroSet::MacroSet() {
     for (int k = 0; k < kMacros; k++) std::snprintf(m[k].name, sizeof m[k].name, "Macro %d", k + 1);
 }

@@ -1,6 +1,7 @@
 #pragma once
 // The modular catalog: float modules gathered from SynthLab's synths (an oscillator, the Kick's body, noise, the hat's metal, envelopes, the
-// Snare's ratchet, filters, an EQ, the drive, a VCA, a mixer, a delay, the Kick's room, glue and the Snare's gate ...), each one a small
+// Snare's ratchet, filters, an EQ, the drive, a VCA, a mixer, math and a range converter, a delay, the Kick's room, glue and the Snare's
+// gate ...), each one a small
 // struct with a description: its inputs, outputs and values. A patch (patch.h) wires them; the runner plays it; a patch can also be turned
 // into a SynthLab synth or an engine graph (apps/studio: the exports).
 //
@@ -79,7 +80,7 @@ struct IO {
 
 struct ModuleDef {
     const char *name;                   // no spaces: "Osc", "Filter"
-    const char *category;               // "In / Out", "Sources", "Envelopes", "Filters", "Shapers", "Utilities", "Effects"
+    const char *category;               // "In / Out", "Sources", "Envelopes", "Filters", "Shapers", "Utilities", "Math", "Effects"
     const char *doc;                    // one line: what it does (shown in the studio)
     Scope scope;
     uint8_t n_in, n_out, n_param;

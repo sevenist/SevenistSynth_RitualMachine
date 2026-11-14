@@ -11,7 +11,8 @@
 // memory each time). Export > Engine cannot write those (engine_type_in): the engine would need a module of that scope.
 //
 // Values are shown in the engine's units, except two families made readable: a level in q15 (0..32767) as a percentage, and a pitch in
-// 1/256 semitone (a "pitch", "cut...", "damp", "bandwidth" value) as semitones. A "pitch" input reads the patch's pitch (octaves over
+// 1/256 semitone (a "pitch", "cut...", "damp", "bandwidth" value) as semitones; a choice by its name (an engine, a model, a mode: the
+// adapter's table, in the engine's order; any 0..1 value Off / On). A "pitch" input reads the patch's pitch (octaves over
 // middle C; by default the voice's: the module follows the key) and gives the engine its CV (72 semitones a unit); a "gate" input reads
 // the voice's gate by default.
 //
@@ -33,5 +34,8 @@ const char *engine_param_name(const ModuleDef *d, int param);       // its name 
 // The engine registers `type` (an engine module's name: "Eg", "Delay") in the scope of `area` (kVoiceArea: Voice, kFxArea: Global).
 // False also for a type it does not have, or before register_engine_modules.
 bool engine_type_in(const char *type, int area);
+// The adapter's lists of names that found no value to name after register_engine_modules (a value renamed, or its range changed in the
+// engine: its numbers are shown instead). 0 when every list was used; `first`: the first one's "Module.value".
+int engine_names_unused(const char **first = nullptr);
 
 }  // namespace mod

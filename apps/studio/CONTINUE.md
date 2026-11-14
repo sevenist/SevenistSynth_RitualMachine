@@ -88,8 +88,8 @@ modular synth"). Done:
 - Not tried by hand: their sound in the window.
 
 Still open around it:
-- [ ] Their values show the engine's names and units (`t1`, `cut_mod`, `engine 0..8` without the engines' names). Labels for the
-      enumerations (the 9 oscillator engines, the filter modes) would need a table in the adapter: propose it.
+- [x] Their values show the engine's names and units (`t1`, `cut_mod`). The choices now show their names (2026-11-14, the
+      adapter's table: ADR-049 addendum 4).
 - [ ] Dx7 (needs a DX7 patch: the Ritual Machine's factory patches, or an editor), Convolver (its IR), Sampler / Granular / Pads (a
       sample bank in the studio), MotionSeq (the step sequencer).
 - [ ] A rack read as a patch (the plan above) is now possible with these modules: ask the user how a rack reaches the studio.
@@ -104,6 +104,20 @@ Checked: self-test 6633; a generated synth with FX envelopes through SynthLab's 
 Not heard by hand.
 - [ ] The mono state (the user's, after measurements): what the FX's last note should become (priority, legato, retrigger), and a
       mono / legato / glide setting for the Modular synth and the generated synth.
+
+**Then (same day): math, names, editing** (the user: math modules and a range converter, the engine's names instead of numbers,
+copy / paste and zone selection, a menu on a jack's right click). Done, ADR-049 addendum 4: Math / Func / Range / Slew; the
+engine's choices by name; a selection (zone, Ctrl / Shift click), Ctrl+C / X / V / D / A, Delete; panning on the middle button or
+Alt + drag; the jack's menu ("Remove cable(s)"). Checked: self-test 6715, a screenshot. Not tried by hand.
+- [ ] More items for the jack's menu when the user asks (the user: "only option for now").
+- [ ] The clipboard as patch text (between studios, into a file): not done, it lives while the studio runs.
+
+**Then (same day): the layout's kinds and texts** (the user: "need some more widgets to place in the layout editor, also a way to
+edit text label (titles etc)"). My choice of widgets (to correct): Fader, Toggle, Choice (they show a value), Label, Line, Box
+(decorations). Any element's text replaces its name (Enter / a double click / the inspector). The keys go to the text alone while
+it is typed (a fix: Enter used to press the focused Rename again). Checked: self-test 6810 (each kind drawn inside its rectangle,
+following its value; the file with every kind and texts; the tab by scripted clicks and typing); a demo page looked at. Not tried
+by hand. Not proposed yet: an envelope graph (4 values in one element), a meter, an icon.
 
 Next (to propose to the user):
 - [ ] The user tries the PATCH tab; fix what they find.

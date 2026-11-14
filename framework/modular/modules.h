@@ -32,6 +32,13 @@ enum { DLY_TIME, DLY_FEEDBACK, DLY_DAMP, DLY_MIX };
 enum { ROOM_MIX, ROOM_DECAY, ROOM_SIZE, ROOM_DAMP };
 enum { GLUE_GLUE, GLUE_ATTACK, GLUE_RELEASE, GLUE_SAT, GLUE_TILT, GLUE_OUT };
 enum { GATE_DEPTH, GATE_THRESH, GATE_ATTACK, GATE_HOLD, GATE_RELEASE };
+enum { MATH_OP, MATH_B };
+enum { FUNC_FN, FUNC_STEPS };
+enum { RANGE_INLO, RANGE_INHI, RANGE_OUTLO, RANGE_OUTHI, RANGE_CURVE, RANGE_CLAMP };
+enum { SLEW_RISE, SLEW_FALL, SLEW_MODE };
+// The Math module's operations and the Func module's functions (catalog.cpp names them in this order).
+enum { MATH_ADD, MATH_SUB, MATH_MUL, MATH_MIN, MATH_MAX, MATH_MEAN, MATH_DIFF, MATH_GT, MATH_N };
+enum { FN_ABS, FN_NEG, FN_INV, FN_SQUARE, FN_CUBE, FN_SQRT, FN_SIGN, FN_RECT_POS, FN_RECT_NEG, FN_QUANT, FN_FLOOR, FN_WRAP, FN_N };
 }  // namespace P
 
 constexpr float kC4 = 261.6256f;
@@ -465,6 +472,107 @@ struct RingM {
 struct ConstM {
     void start(const Ctx &) {}
     void process(const Ctx &, const IO &io) { for (int i = 0; i < io.frames; i++) io.out[0][i] = io.p[0]; }
+};
+
+/* ---- math: signals as numbers (audio, control and pitch alike) ---- */
+
+// Two signals into one: A op B, where B is the B input plus the B value (nothing plugged into B: the B value alone, a constant).
+// A>B gives 1 or 0 (a gate from a comparison).
+struct MathM {
+    void start(const Ctx &) {}
+    void process(const Ctx &, const IO &io) {
+        const int op = static_cast<int>(io.p[P::MATH_OP] + 0.5f);
+        const float bv = io.p[P::MATH_B];
+        const float *a = io.in[0], *b = io.in[1];
+        float *o = io.out[0];
+        switch (op) {
+        case P::MATH_SUB:  for (int i = 0; i < io.frames; i++) o[i] = a[i] - (b[i] + bv); break;
+        case P::MATH_MUL:  for (int i = 0; i < io.frames; i++) o[i] = a[i] * (b[i] + bv); break;
+        case P::MATH_MIN:  for (int i = 0; i < io.frames; i++) { const float y = b[i] + bv; o[i] = a[i] < y ? a[i] : y; } break;
+        case P::MATH_MAX:  for (int i = 0; i < io.frames; i++) { const float y = b[i] + bv; o[i] = a[i] > y ? a[i] : y; } break;
+        case P::MATH_MEAN: for (int i = 0; i < io.frames; i++) o[i] = (a[i] + b[i] + bv) * 0.5f; break;
+        case P::MATH_DIFF: for (int i = 0; i < io.frames; i++) o[i] = std::fabs(a[i] - (b[i] + bv)); break;
+        case P::MATH_GT:   for (int i = 0; i < io.frames; i++) o[i] = a[i] > b[i] + bv ? 1.f : 0.f; break;
+        default:           for (int i = 0; i < io.frames; i++) o[i] = a[i] + b[i] + bv; break;
+        }
+    }
+};
+
+// One signal through a function: Abs, Neg (-x), 1-x (an envelope upside down), x^2, x^3 (sign kept: a softer start), Sqrt (of |x|, sign
+// kept), Sign, Rect+ / Rect- (only the half above / below 0), Quant / Floor (to the nearest / the lower step, Steps a unit: 12 on a pitch
+// in octaves = semitones), Wrap (into 0..1: a ramp from a rising signal).
+struct FuncM {
+    void start(const Ctx &) {}
+    void process(const Ctx &, const IO &io) {
+        const int fn = static_cast<int>(io.p[P::FUNC_FN] + 0.5f);
+        const float steps = io.p[P::FUNC_STEPS] < 1.f ? 1.f : io.p[P::FUNC_STEPS], inv = 1.f / steps;
+        const float *x = io.in[0];
+        float *o = io.out[0];
+        for (int i = 0; i < io.frames; i++) {
+            const float v = x[i];
+            float y;
+            switch (fn) {
+            case P::FN_ABS: y = std::fabs(v); break;
+            case P::FN_NEG: y = -v; break;
+            case P::FN_INV: y = 1.f - v; break;
+            case P::FN_SQUARE: y = v * v; break;
+            case P::FN_CUBE: y = v * v * v; break;
+            case P::FN_SQRT: y = v < 0.f ? -std::sqrt(-v) : std::sqrt(v); break;
+            case P::FN_SIGN: y = v > 0.f ? 1.f : (v < 0.f ? -1.f : 0.f); break;
+            case P::FN_RECT_POS: y = v > 0.f ? v : 0.f; break;
+            case P::FN_RECT_NEG: y = v < 0.f ? v : 0.f; break;
+            case P::FN_QUANT: y = std::floor(v * steps + 0.5f) * inv; break;
+            case P::FN_FLOOR: y = std::floor(v * steps) * inv; break;
+            case P::FN_WRAP: y = v - std::floor(v); break;
+            default: y = v; break;
+            }
+            o[i] = y;
+        }
+    }
+};
+
+// A range converter: In from InLo..InHi onto OutLo..OutHi (-1..1 -> 0..1 by default: an LFO that only goes up). Curve bends the way
+// between them (0: a line; + slow then fast, - fast then slow); Clamp keeps the output inside OutLo..OutHi. InLo above InHi, or OutLo
+// above OutHi, turns it upside down.
+struct RangeM {
+    void start(const Ctx &) {}
+    void process(const Ctx &, const IO &io) {
+        const float *p = io.p;
+        const float ilo = p[P::RANGE_INLO], ihi = p[P::RANGE_INHI], olo = p[P::RANGE_OUTLO], ohi = p[P::RANGE_OUTHI];
+        const float span = ihi - ilo, k = std::fabs(span) < 1e-6f ? 0.f : 1.f / span;
+        const float curve = p[P::RANGE_CURVE] * 0.01f, e = curve >= 0.f ? 1.f + 3.f * curve : 1.f / (1.f - 3.f * curve);
+        const bool clamp = p[P::RANGE_CLAMP] >= 0.5f, bent = std::fabs(curve) > 0.005f;
+        for (int i = 0; i < io.frames; i++) {
+            float t = (io.in[0][i] - ilo) * k;
+            if (clamp || bent) t = t < 0.f ? 0.f : (t > 1.f ? 1.f : t);     // (a curve only bends 0..1)
+            if (bent) t = std::pow(t, e);
+            io.out[0][i] = olo + t * (ohi - olo);
+        }
+    }
+};
+
+// A slew (a lag): the output follows In, rising in Rise ms and falling in Fall ms; Exp: a smooth approach (the time to get about
+// 99 % there), Lin: a steady rate (the time a whole unit takes). A glide on a pitch, a smoothed gate, a stepped LFO made round.
+struct SlewM {
+    float y = 0.f;
+    bool primed = false;
+    void start(const Ctx &) {}
+    void process(const Ctx &c, const IO &io) {
+        const float *p = io.p;
+        const float rise = p[P::SLEW_RISE] < 0.01f ? 0.01f : p[P::SLEW_RISE], fall = p[P::SLEW_FALL] < 0.01f ? 0.01f : p[P::SLEW_FALL];
+        const float ms = c.sr * 0.001f;
+        const bool lin = p[P::SLEW_MODE] >= 0.5f;
+        const float ku = lin ? 1.f / (rise * ms) : 1.f - fast_exp2(-6.644f / (rise * ms));    // (2^-6.644 = 1 %: 99 % in that time)
+        const float kd = lin ? 1.f / (fall * ms) : 1.f - fast_exp2(-6.644f / (fall * ms));
+        if (!primed) { y = io.in[0][0]; primed = true; }                          // (no glide from 0 at the first block)
+        for (int i = 0; i < io.frames; i++) {
+            const float x = io.in[0][i], d = x - y;
+            if (lin) { const float s = d > 0.f ? ku : kd; y += d > s ? s : (d < -s ? -s : d); }
+            else y += d * (d > 0.f ? ku : kd);
+            io.out[0][i] = y;
+        }
+        flush(y);
+    }
 };
 
 // The Kick's 3-band compressor (kick.cpp): split at 120 Hz and 2.5 kHz (two SVFs, the mid is the rest); each amount lowers its band's

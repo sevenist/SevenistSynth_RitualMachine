@@ -6,6 +6,9 @@
 #include <cstring>
 #include <algorithm>
 #include <string>
+#include <vector>
+#include "engine/modules/mi_osc.h"
+#include "engine/modules/osc_engines.h"
 #include "export.h"
 #include "modular/engine_adapter.h"
 #include "modular/modules.h"
@@ -629,6 +632,334 @@ void test_patch_tab(wg_ctx_t &c, const char *shot) {
     step();
     if (shot) std::printf("%s %s\n", png_write_rgb565(shot, c.cv->px, c.cv->w, c.cv->h, shot_scale) ? "wrote" : "could not write", shot);
 }
+
+// The math modules (Math, Func, Range, Slew) on known blocks, and the names of the engine's choices.
+void test_math_and_names() {
+    using namespace mod;
+    constexpr int N = 8;
+    float a[N], b[N], o[N], p[kMaxParams] = {};
+    Ctx cx;
+    IO io{};
+    io.in[0] = a; io.in[1] = b; io.out[0] = o; io.p = p; io.frames = N;
+    for (int i = 0; i < N; i++) { a[i] = -1.f + 0.25f * static_cast<float>(i); b[i] = 0.5f; }
+    MathM m;
+    p[P::MATH_OP] = P::MATH_SUB; p[P::MATH_B] = 0.25f; m.process(cx, io);
+    CHECK(near(o[0], -1.75f, 1e-6f) && near(o[7], 0.f, 1e-6f), "Math A-B: B is its input + the B value (%g %g)", (double)o[0], (double)o[7]);
+    p[P::MATH_OP] = P::MATH_MUL; p[P::MATH_B] = 0.f; m.process(cx, io);
+    CHECK(near(o[0], -0.5f, 1e-6f), "Math AxB (%g)", (double)o[0]);
+    p[P::MATH_OP] = P::MATH_GT; m.process(cx, io);
+    CHECK(o[6] == 0.f && o[7] == 1.f, "Math A>B: 1 or 0 (%g %g)", (double)o[6], (double)o[7]);
+    p[P::MATH_OP] = P::MATH_MAX; p[P::MATH_B] = -0.5f; m.process(cx, io);
+    CHECK(o[0] == 0.f && near(o[7], 0.75f, 1e-6f), "Math Max");
+    FuncM f;
+    a[0] = 0.30f; a[1] = 1.25f; a[2] = -0.04f;
+    p[P::FUNC_FN] = P::FN_QUANT; p[P::FUNC_STEPS] = 12; f.process(cx, io);
+    CHECK(near(o[0], 4.f / 12.f, 1e-6f) && near(o[2], 0.f, 1e-6f), "Func Quant: to the nearest 1/12 (a semitone of a pitch in octaves) (%g)", (double)o[0]);
+    p[P::FUNC_FN] = P::FN_WRAP; f.process(cx, io);
+    CHECK(near(o[1], 0.25f, 1e-6f) && near(o[2], 0.96f, 1e-6f), "Func Wrap into 0..1 (%g %g)", (double)o[1], (double)o[2]);
+    p[P::FUNC_FN] = P::FN_INV; f.process(cx, io);
+    CHECK(near(o[0], 0.7f, 1e-6f), "Func 1-x");
+    RangeM r;
+    const ModuleDef *rd = find_module("Range");
+    CHECK(rd && rd->n_param == 6, "the Range module");
+    if (rd) for (int j = 0; j < rd->n_param; j++) p[j] = rd->param[j].def;
+    a[0] = 0.f; a[1] = -1.f; a[2] = 2.f; a[3] = 0.5f;
+    r.process(cx, io);
+    CHECK(near(o[0], 0.5f, 1e-6f) && near(o[1], 0.f, 1e-6f) && near(o[2], 1.f, 1e-6f), "Range: -1..1 onto 0..1, clamped (%g %g %g)", (double)o[0], (double)o[1], (double)o[2]);
+    p[P::RANGE_CLAMP] = 0; r.process(cx, io);
+    CHECK(near(o[2], 1.5f, 1e-6f), "Range without Clamp goes past OutHi (%g)", (double)o[2]);
+    p[P::RANGE_CURVE] = 100; r.process(cx, io);
+    CHECK(near(o[0], 0.0625f, 1e-5f), "Range Curve +100 %%: 0.5^4 (%g)", (double)o[0]);
+    p[P::RANGE_OUTLO] = 1; p[P::RANGE_OUTHI] = 0; p[P::RANGE_CURVE] = 0; r.process(cx, io);
+    CHECK(near(o[3], 0.25f, 1e-6f), "Range OutLo above OutHi: upside down (%g)", (double)o[3]);
+    // Slew: a step from 0 to 1, Lin at 10 ms a unit (480 samples at 48 kHz): half way after 240
+    SlewM s;
+    p[P::SLEW_RISE] = 10; p[P::SLEW_FALL] = 10; p[P::SLEW_MODE] = 1;
+    for (int i = 0; i < N; i++) a[i] = 0.f;
+    s.process(cx, io);
+    for (int i = 0; i < N; i++) a[i] = 1.f;
+    for (int k = 0; k < 30; k++) s.process(cx, io);
+    CHECK(near(o[N - 1], 0.5f, 1e-3f), "Slew Lin: half a unit in half the time (%g)", (double)o[N - 1]);
+    for (int k = 0; k < 40; k++) s.process(cx, io);
+    CHECK(near(o[N - 1], 1.f, 1e-6f), "Slew Lin: there, and no further (%g)", (double)o[N - 1]);
+    p[P::SLEW_MODE] = 0;
+    for (int i = 0; i < N; i++) a[i] = 0.f;
+    for (int k = 0; k < 60; k++) s.process(cx, io);
+    CHECK(near(o[N - 1], 0.01f, 0.003f), "Slew Exp: about 99 %% of the way in Fall ms (%g)", (double)o[N - 1]);
+    for (const char *name : {"Math", "Func", "Range", "Slew"}) {
+        const ModuleDef *d = find_module(name);
+        CHECK(d && !std::strcmp(d->category, "Math") && fits_area(d, kVoiceArea) && fits_area(d, kFxArea) && d->cpp, "%s: a Math module, in both areas, in a generated synth", name);
+    }
+
+    // the engine's choices by name (the adapter's table), not by number
+    auto label = [](const char *module, const char *param, int v) -> const char * {
+        const ModuleDef *d = find_module(module);
+        const int j = d ? param_index(*d, param) : -1;
+        if (j < 0 || !d->param[j].labels || d->param[j].curve != Int) return "(none)";
+        return d->param[j].labels[v - static_cast<int>(d->param[j].min)];
+    };
+    CHECK(!std::strcmp(label("RMOscEngines", "engine", 0), "Karp") && !std::strcmp(label("RMOscEngines", "engine", sc::OSCX_ENGINES - 1), "Strng"),
+          "RMOscEngines' engine by name (%s)", label("RMOscEngines", "engine", 0));
+    CHECK(!std::strcmp(label("RMMiOsc", "model", 0), "CSaw") && !std::strcmp(label("RMMiOsc", "model", sc::MI_MODELS - 1), "PHat2"), "RMMiOsc's model by name");
+    CHECK(!std::strcmp(label("RMFilter", "mode", 4), "AP") && !std::strcmp(label("RMFilter", "sections", 4), "48dB"), "RMFilter's mode and slope by name");
+    CHECK(!std::strcmp(label("RMShaper", "mode", 9), "Decim") && !std::strcmp(label("RMDelay", "pingpong", 1), "On"), "RMShaper's mode, a 0..1 value Off / On");
+    CHECK(!std::strcmp(label("RMShaper", "bits", 8), "(none)"), "a plain number stays a number (RMShaper's bits)");
+    const char *unused = nullptr;
+    const int nu = engine_names_unused(&unused);
+    CHECK(nu == 0, "every list of the engine's names found its value (%d did not; the first: %s)", nu, unused ? unused : "-");
+}
+
+// The PATCH tab's editing by hand: a zone, Ctrl+C / Ctrl+V, Delete, a group drag, Ctrl+D, Ctrl+A, a jack's menu.
+void test_patch_edit(wg_ctx_t &c) {
+    st.tab = kTabPatch;
+    mod::Patch &p = st.patch;
+    p.clear();
+    const int note = p.add(mod::find_module("Note"), mod::kVoiceArea, 0, 0)->id;
+    const int osc = p.add(mod::find_module("Osc"), mod::kVoiceArea, 200, 0)->id;
+    const int math = p.add(mod::find_module("Math"), mod::kVoiceArea, 200, 140)->id;
+    const int out = p.add(mod::find_module("VoiceOut"), mod::kVoiceArea, 400, 0)->id;
+    p.connect(note, 3, osc, 0, false, 1.f);
+    p.connect(math, 0, osc, 1, false, 1.f);
+    p.connect(osc, 0, out, 0, false, 1.f);
+    patch_apply();
+    st.patch_area = mod::kVoiceArea;
+    st.pan_x[0] = st.pan_y[0] = 0;
+    st.sel_node = 0;
+    st.menu = false;
+    c.focus = 0;
+    wg_input_t in{};
+    in.x = in.y = -100;
+    auto step = [&] { run_frame(c, in); in.pressed = in.released = 0; in.double_click = 0; in.wheel = 0; in.nkeys = 0; };
+    auto press = [&](int x, int y) { in.x = x; in.y = y; in.buttons = WG_BTN_LEFT; in.pressed = WG_BTN_LEFT; step(); };
+    auto release = [&] { in.buttons = 0; in.released = WG_BTN_LEFT; step(); };
+    auto ctrl_key = [&](int k) { in.mods = WG_MOD_CTRL; in.keys[0] = wg_key_t{static_cast<uint16_t>(k), 1, 0}; in.nkeys = 1; step(); in.mods = 0; };
+    auto drag = [&](int x0, int y0, int x1, int y1) { press(x0, y0); in.x = (x0 + x1) / 2; in.y = (y0 + y1) / 2; step(); in.x = x1; in.y = y1; step(); release(); };
+    // (the view's origin at 160, 48: a module at (x, y) is drawn from (160 + x, 48 + y))
+    step();
+    drag(340, 44, 370, 48 + 150);                 // a zone over Osc and Math (x 180..210), short of Note (0..124) and VoiceOut (400..)
+    std::vector<int> sel = st.sel;
+    std::sort(sel.begin(), sel.end());
+    CHECK(sel.size() == 2 && sel[0] == osc && sel[1] == math, "a zone selects the modules it meets (%d selected)", static_cast<int>(sel.size()));
+    ctrl_key('c');
+    in.x = 560; in.y = 300; step();               // (the canvas: x 152..628 at the test's 800 x 480)
+    const int n0 = p.n_nodes, c0 = p.n_cables;
+    ctrl_key('v');
+    CHECK(p.n_nodes == n0 + 2 && p.n_cables == c0 + 1, "Ctrl+V: the two modules and the cable between them (%d modules, %d cables)", p.n_nodes, p.n_cables);
+    const mod::Node *pasted = p.find(st.sel_node);
+    CHECK(st.sel.size() == 2 && pasted && pasted->id != osc && pasted->id != math, "the pasted modules are the selection");
+    bool at_pointer = false;
+    for (int id : st.sel) if (const mod::Node *n = p.find(id)) if (n->x == 400 && n->y == 252) at_pointer = true;
+    CHECK(at_pointer, "pasted at the pointer (its top left)");
+    in.keys[0] = wg_key_t{WG_KEY_DELETE, 1, 0}; in.nkeys = 1; step();
+    CHECK(p.n_nodes == n0 && p.n_cables == c0, "Delete removes the selection, its cables with it (%d modules)", p.n_nodes);
+    // a group drag: Osc and Math selected, Osc's header dragged 40 right, 20 down: both move
+    drag(340, 44, 370, 48 + 150);
+    const int mx = p.find(math)->x, my = p.find(math)->y;
+    drag(160 + 200 + 30, 48 + 5, 160 + 240 + 30, 48 + 25);
+    CHECK(p.find(osc)->x == 240 && p.find(osc)->y == 20 && p.find(math)->x == mx + 40 && p.find(math)->y == my + 20, "the selection moves together (Osc at %d, %d)", p.find(osc)->x, p.find(osc)->y);
+    CHECK(st.sel.size() == 2, "a drag keeps the selection");
+    press(160 + 240 + 30, 48 + 25); release();
+    CHECK(st.sel.size() == 1 && st.sel_node == osc, "a click on a selected module's header: that module alone");
+    ctrl_key('d');
+    CHECK(p.n_nodes == n0 + 1 && st.sel_node != osc, "Ctrl+D duplicates the selection");
+    ctrl_key('a');
+    CHECK(static_cast<int>(st.sel.size()) == p.n_nodes, "Ctrl+A selects the area's modules (%d of %d)", static_cast<int>(st.sel.size()), p.n_nodes);
+    in.keys[0] = wg_key_t{WG_KEY_ESC, 1, 0}; in.nkeys = 1; step();
+    CHECK(st.sel.empty() && st.sel_node == 0, "Esc drops the selection");
+    // a jack's menu: a right click on Osc's output (at 240, 20: the jack at 160 + 240 + 121, 48 + 20 + 18) opens it, "Remove cable" removes it
+    const int jx = 160 + 240 + 121, jy = 48 + 20 + 18;
+    int from_osc = 0;
+    for (int k = 0; k < p.n_cables; k++) if (p.cable[k].src == osc) from_osc++;
+    in.x = jx; in.y = jy; in.buttons = WG_BTN_RIGHT; in.pressed = WG_BTN_RIGHT; step();
+    in.buttons = 0; in.released = WG_BTN_RIGHT; step();
+    CHECK(st.menu && st.menu_node == osc && st.menu_out && st.menu_port == 0, "a right click on a jack opens its menu");
+    int still = 0;
+    for (int k = 0; k < p.n_cables; k++) if (p.cable[k].src == osc) still++;
+    CHECK(from_osc == 1 && still == 1, "the right click alone removes nothing (%d cable(s))", still);
+    press(st.menu_x + 20, st.menu_y + 20); release();
+    still = 0;
+    for (int k = 0; k < p.n_cables; k++) if (p.cable[k].src == osc) still++;
+    CHECK(!st.menu && still == 0, "the menu's \"Remove cable\" removes it (%d left)", still);
+    in.x = jx; in.y = jy; in.buttons = WG_BTN_RIGHT; in.pressed = WG_BTN_RIGHT; step();
+    in.buttons = 0; in.released = WG_BTN_RIGHT; step();
+    press(560, 400); release();
+    CHECK(!st.menu, "a press elsewhere closes the menu");
+    st.patch.init_default();
+    patch_apply();
+    st.sel_node = 0;
+}
+
+// The layout's kinds drawn alone on the board's screen: each draws, inside its rectangle only; a toggle, a choice and a fader follow
+// their value; the text replaces the name; the file keeps the texts and the alignments.
+canvas_t g_cv;
+uint16_t g_cv_px[kScreenW * kScreenH];
+
+int ink(int x0, int y0, int x1, int y1) {
+    int n = 0;
+    for (int y = std::max(0, y0); y < std::min(kScreenH, y1); y++)
+        for (int x = std::max(0, x0); x < std::min(kScreenW, x1); x++) n += g_cv_px[y * kScreenW + x] != 0;
+    return n;
+}
+
+void draw_alone(const lab::Synth &s, const El &e, const float *vals, bool focus) {
+    canvas_color(&g_cv, 0xFFFF, 0x0000);
+    canvas_clear(&g_cv, 0x0000);
+    Layout l;
+    l.pages.assign(1, Page{});
+    l.pages[0].els.push_back(e);
+    layout_draw(canvas_u8g2(&g_cv), s, l, 0, vals, focus ? 0 : -1);
+}
+
+void test_layout_kinds() {
+    CHECK(canvas_init(&g_cv, g_cv_px, kScreenW, kScreenH), "a canvas of the board's screen");
+    int si = -1, ci = -1, vi = -1;                      // a synth with a choice of 2..6 named values and a continuous value
+    for (int k = 0; k < lab::kSynthCount && si < 0; k++) {
+        const lab::Synth &s = *lab::kSynths[k];
+        int c2 = -1, v2 = -1;
+        for (int i = 0; i < s.n_params; i++) {
+            const lab::Param &p = s.params[i];
+            if (c2 < 0 && p.curve == lab::Int && p.labels && pdesc_choices(&p) >= 2 && pdesc_choices(&p) <= 6) c2 = i;
+            if (v2 < 0 && (p.curve == lab::Lin || p.curve == lab::Exp)) v2 = i;
+        }
+        if (c2 >= 0 && v2 >= 0) { si = k; ci = c2; vi = v2; }
+    }
+    CHECK(si >= 0, "a synth with a named choice and a continuous value");
+    if (si < 0) return;
+    const lab::Synth &s = *lab::kSynths[si];
+    const lab::Param &cp = s.params[ci];
+    float vals[lab::kMaxParams] = {};
+    for (int i = 0; i < s.n_params; i++) vals[i] = s.params[i].curve == lab::Head ? 0.f : s.params[i].def;
+    for (int k = 0; k < kKindCount; k++) {
+        El e;
+        e.kind = k;
+        e.param = !kind_shows_value(k) ? -1 : (k == kChoice || k == kToggle ? ci : vi);
+        kind_size(k, e.w, e.h);
+        e.x = 20;
+        e.y = 30;
+        e.w = std::min(e.w, kScreenW - 24);
+        if (k == kLabel || k == kBox) e.text = "Words";
+        CHECK(el_has_value(s, e) == kind_shows_value(k), "%s: shows a value or not", kind_name(k));
+        CHECK(kind_by_name(kind_name(k)) == k, "%s: its name reads back", kind_name(k));
+        for (bool focus : {false, true}) {
+            draw_alone(s, e, vals, focus);
+            const int in = ink(e.x, e.y, e.x + e.w, e.y + e.h), all = ink(0, 0, kScreenW, kScreenH);
+            CHECK(in > 0, "%s%s draws something", kind_name(k), focus ? " (focused)" : "");
+            CHECK(all == in, "%s%s stays in its rectangle (%d pixels outside)", kind_name(k), focus ? " (focused)" : "", all - in);
+        }
+    }
+    // a toggle fills when on; a fader rises with its value; a choice inverts the value's cell
+    auto ink_at = [&](const El &e, float v) { const float keep = vals[e.param]; vals[e.param] = v; draw_alone(s, e, vals, false); vals[e.param] = keep; return ink(0, 0, kScreenW, kScreenH); };
+    const El tg{kToggle, ci, 0, 0, 64, 10};
+    CHECK(ink_at(tg, cp.max) > ink_at(tg, cp.min), "a toggle is filled when on");
+    const El fd{kFader, vi, 0, 0, 24, 48};
+    CHECK(ink_at(fd, s.params[vi].max) > ink_at(fd, s.params[vi].min) + 20, "a fader fills with its value");
+    const El ch{kChoice, ci, 0, 0, kScreenW, 20};
+    std::vector<uint16_t> lo, hi;
+    ink_at(ch, cp.min); lo.assign(g_cv_px, g_cv_px + kScreenW * kScreenH);
+    ink_at(ch, cp.max); hi.assign(g_cv_px, g_cv_px + kScreenW * kScreenH);
+    int left_lo = 0, left_hi = 0;                       // the first cell's ink: inverted (much more ink) when it is the value
+    const int cell = kScreenW / pdesc_choices(&cp);
+    for (int y = 9; y < 20; y++) for (int x = 0; x < cell; x++) { left_lo += lo[y * kScreenW + x] != 0; left_hi += hi[y * kScreenW + x] != 0; }
+    CHECK(left_lo > left_hi + 20, "a choice inverts its value's cell (%d against %d)", left_lo, left_hi);
+    // the text replaces the name
+    El row{kRow, vi, 0, 0, kScreenW, 10};
+    CHECK(el_name(s, row) == s.params[vi].name, "a row shows its value's name");
+    row.text = "Pitch";
+    CHECK(el_name(s, row) == "Pitch", "its text replaces the name");
+    El title{kTitle, -1, 0, 0, kScreenW, 12};
+    CHECK(el_name(s, title) == s.name, "the top title is the synth's name");
+    title.text = "My synth";
+    CHECK(el_name(s, title) == "My synth", "and its text replaces it");
+    // the file: every kind, texts (one with a space), alignments; a decoration is not on the encoders' path
+    Layout l;
+    l.pages.assign(1, Page{});
+    for (int k = 0; k < kKindCount; k++) {
+        El e;
+        e.kind = k;
+        e.param = !kind_shows_value(k) ? -1 : (k == kChoice || k == kToggle ? ci : vi);
+        kind_size(k, e.w, e.h);
+        e.y = k * 12;
+        if (k % 3 == 0) e.text = "Text " + std::to_string(k);
+        if (k == kLabel) { e.text = "Left words"; e.align = kRight; }
+        if (k == kBox) e.align = kCenter;               // (an alignment without a text: the text is written as "")
+        l.pages[0].els.push_back(e);
+    }
+    const std::string text = layout_to_text(s, l);
+    Layout back;
+    int dropped = -1;
+    CHECK(layout_from_text(s, back, text.c_str(), &dropped) && dropped == 0 && layout_to_text(s, back) == text, "a layout with every kind reads back (%d dropped)", dropped);
+    bool same = back.pages.size() == 1 && back.pages[0].els.size() == l.pages[0].els.size();
+    for (size_t i = 0; same && i < l.pages[0].els.size(); i++) {
+        const El &a = l.pages[0].els[i], &b = back.pages[0].els[i];
+        same = a.kind == b.kind && a.param == b.param && a.text == b.text && a.align == b.align && a.x == b.x && a.y == b.y && a.w == b.w && a.h == b.h;
+    }
+    CHECK(same, "every element, its text and its alignment come back");
+    for (int i : nav_order(s, l.pages[0])) CHECK(kind_shows_value(l.pages[0].els[i].kind), "the encoders visit values only (%s)", kind_name(l.pages[0].els[i].kind));
+    CHECK(layout_from_text(s, back, "page\nrow - 0 0 128 10\n", &dropped) && dropped == 1, "a value's element without its value is left out");
+}
+
+// The LAYOUT tab by hand: "+ Label" (its text typed at once), a row's text by a double click, the inspector's Name and Text, "+ Box".
+void test_layout_edit(wg_ctx_t &c) {
+    const int kick = 2;
+    synth_select(kick);
+    if (!st.loaded[kick]) load_presets(kick);
+    const lab::Synth &s = cur();
+    const Layout saved = st.layouts[kick];
+    const bool was_dirty = st.dirty[kick];
+    int vi = 0;
+    while (vi < s.n_params && s.params[vi].curve == lab::Head) vi++;
+    Layout &l = st.layouts[kick];
+    l.pages.assign(1, Page{});
+    l.pages[0].els.push_back(El{kRow, vi, 0, 100, kScreenW, 10});
+    st.tab = kTabLayout;
+    st.try_mode = false;
+    st.page = 0;
+    st.snap = 4;
+    st.sel_el = -1;
+    st.editing = false;
+    c.focus = 0;
+    wg_input_t in{};
+    in.x = in.y = -100;
+    auto step = [&] { run_frame(c, in); in.pressed = in.released = 0; in.double_click = 0; in.wheel = 0; in.nkeys = 0; in.text[0] = 0; };
+    auto press = [&](int x, int y) { in.x = x; in.y = y; in.buttons = WG_BTN_LEFT; in.pressed = WG_BTN_LEFT; step(); };
+    auto release = [&] { in.buttons = 0; in.released = WG_BTN_LEFT; step(); };
+    auto key = [&](int k) { in.keys[0] = wg_key_t{static_cast<uint16_t>(k), 1, 0}; in.nkeys = 1; step(); };
+    auto type = [&](const char *t) { std::snprintf(in.text, sizeof in.text, "%s", t); step(); };
+    const std::vector<El> &els = l.pages[0].els;
+    step();
+    // (the left panel's kinds from 6, 44: two columns of 82 px, rows of 17; "+ Label" the 9th, "+ Box" the 11th)
+    press(45, 44 + 4 * 17 + 7); release();
+    CHECK(els.size() == 2 && els.back().kind == kLabel && st.editing && st.edit_what == 2 && st.edit_text.empty(), "\"+ Label\" adds a label and its text is typed");
+    type("Hi there");
+    key(WG_KEY_ENTER);
+    CHECK(!st.editing && els.size() == 2 && els.back().text == "Hi there", "Enter keeps the label's text (\"%s\")", els.size() == 2 ? els.back().text.c_str() : "?");
+    step();
+    CHECK(!st.editing, "and nothing starts typing again");
+    // a double click on the row (the screen from 190, 46, twice its size: the row at y 100 is drawn from 46 + 200)
+    in.double_click = 1;
+    press(200, 46 + 205); release();
+    CHECK(st.editing && st.sel_el == 0 && st.edit_text == s.params[vi].name, "a double click types the element's text, from its name (\"%s\")", st.edit_text.c_str());
+    for (int k = 0; k < 40 && !st.edit_text.empty(); k++) key(WG_KEY_BACKSPACE);
+    type("Gain");
+    key(WG_KEY_ENTER);
+    CHECK(els[0].text == "Gain" && els[0].param == vi, "the row's text replaces its name (\"%s\")", els[0].text.c_str());
+    Layout back;
+    CHECK(layout_from_text(s, back, layout_to_text(s, l).c_str()) && back.pages[0].els[0].text == "Gain" && back.pages[0].els[1].text == "Hi there", "the texts are saved");
+    // the inspector under the screen (from 190, 374): its second row, the text, "Text" at 346, "Name" at 398
+    press(420, 400); release();
+    CHECK(els[0].text.empty(), "\"Name\" goes back to the value's name");
+    press(370, 400); release();
+    CHECK(st.editing && st.edit_text == s.params[vi].name, "\"Text\" types the text");
+    key(WG_KEY_ENTER);
+    step();
+    CHECK(!st.editing && els[0].text.empty(), "Enter on its own name: no text of its own; the focused button is not pressed again");
+    press(45, 44 + 5 * 17 + 7); release();
+    CHECK(els.size() == 3 && els.back().kind == kBox && !st.editing, "\"+ Box\" adds a box");
+    st.layouts[kick] = saved;
+    st.dirty[kick] = was_dirty;
+    st.sel_el = -1;
+    st.tab = kTabSound;
+}
 }  // namespace
 
 int studio_selftest(wg_ctx_t &c, const char *shot) {
@@ -645,6 +976,10 @@ int studio_selftest(wg_ctx_t &c, const char *shot) {
     std::string shot2 = shot ? std::string(shot) : std::string();
     if (shot2.size() > 4) shot2.insert(shot2.size() - 4, "_patch");
     test_patch_tab(c, shot ? shot2.c_str() : nullptr);
+    test_math_and_names();
+    test_patch_edit(c);
+    test_layout_kinds();
+    test_layout_edit(c);
     std::printf("%s: %d checks, %d failed\n", tst::failures() ? "FAIL" : "PASS", tst::checks(), tst::failures());
     return tst::failures() ? 1 : 0;
 }

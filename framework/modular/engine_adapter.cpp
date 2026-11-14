@@ -8,6 +8,10 @@
 #include <new>
 #include <utility>
 #include "engine/core/heap.h"
+#include "engine/modules/mi_osc.h"
+#include "engine/modules/osc_engines.h"
+#include "engine/modules/strings_modules.h"
+#include "engine/modules/synth_modules.h"
 #include "modular/mdsp.h"
 #include "modular/patch.h"
 
@@ -20,6 +24,75 @@ constexpr int kB = sc::kBlock;
 
 const char *const kSkip[] = {"NoteIn", "VoiceOut", "BusIn", "MasterOut", "Sampler", "Granular", "Pads", "MotionSeq", "GateIn", "ParaGate",
                              "Convolver", "Dx7", "LabVoice", "LabFx"};
+
+// The names of the engine's choices (an oscillator's engine, a filter's mode ...), in the engine's own order (its enums: the headers
+// above, and the comments of fx_modules.h / fx2_modules.h). The engine keeps numbers only; the Ritual Machine's rack names them in its UI
+// (core/rack.c), in the rack's own order, so the names are kept here. A list whose length is not the value's range is not used (its
+// numbers stay): see register_engine_modules. Any other 0..1 value of the engine reads Off / On.
+const char *const kOffOn[] = {"Off", "On"};
+const char *const kQuality[] = {"Blep", "Mip", "Naive"};
+const char *const kOscWaves[] = {"Sine", "Saw", "Pulse", "Tri", "Noise", "SawDn"};                         // WAVE_*_
+const char *const kOscxEngines[] = {"Karp", "Modal", "FM2", "Fold", "SSaw", "Vowel", "Add", "Dust", "Strng"};   // OscxEngine
+const char *const kMiModels[] = {                                                                       // MiModel
+    "CSaw", "Morph", "SawSq", "SinTri", "Buzz", "SqSub", "SawSub", "SqSync", "SwSync", "Toy", "ZLP", "ZPk", "ZBP", "ZHP", "Vosim", "FbFM",
+    "Chaos", "Kick", "FNoise", "Twin", "Clock", "DigMod", "Morse", "3Saw", "3Sq", "3Tri", "3Sine", "3Ring", "WTbl", "WMap", "WLine", "Cloud",
+    "Cymbal", "BSnare", "PNoise", "Chip", "PhDist", "VA", "VAVcf", "Grain", "Terrn", "PBass", "PBassS", "PSnare", "PSnrS", "PHat", "PHat2"};
+const char *const kStrWaves[] = {"Saw", "Pulse", "Tri"};                                                // STRW_*
+const char *const kStrOsc[] = {"Naive", "Mip"};                                                         // STRO_*
+const char *const kLfoShapes[] = {"Sine", "Tri", "SawDn", "SawUp", "Square", "S&H"};                     // LFOS_*
+const char *const kFilterModes[] = {"LP", "BP", "HP", "Notch", "AP"};                                    // FLTM_*
+const char *const kFilterSlopes[] = {"12dB", "24dB", "36dB", "48dB"};                                    // sections 1..4
+const char *const kFilterAlgos[] = {"SVF", "LP6", "Ladder", "Cham"};                                     // FLTA_*
+const char *const kShaperModes[] = {"Tanh", "Clip", "Fold", "Crush", "Tube", "Tape", "Diode", "Cheb", "Rect", "Decim"};   // SHPM_*
+const char *const kEgTrig[] = {"Gate", "Shot"};                                                         // oneshot
+const char *const kSpectral[] = {"Thru", "Freeze", "Gate", "Robot", "Whisper", "Pitch"};                 // fx_modules.h SPXM_*
+const char *const kChorus[] = {"Off", "I", "II", "I+II"};                                                // CHRM_*
+const char *const kTremShapes[] = {"Sine", "Tri", "Square"};                                             // fx2_modules.h Tremolo
+const char *const kTremModes[] = {"Trem", "Pan"};
+const char *const kShifter[] = {"Ring", "Up", "Down"};                                                   // fx2_modules.h Shifter
+const char *const kPhaserStages[] = {"2", "4", "6", "8"};                                                // stages 1..4
+const char *const kVocBands[] = {"2 bins", "4 bins", "8 bins", "16 bins", "32 bins"};                    // band_log2 1..5
+#define NAMES(a) a, static_cast<int>(sizeof a / sizeof a[0])
+static_assert(sizeof kOscxEngines / sizeof kOscxEngines[0] == sc::OSCX_ENGINES, "a name for each of OscEngines' engines");
+static_assert(sizeof kMiModels / sizeof kMiModels[0] == sc::MI_MODELS, "a name for each of MiOsc's models");
+static_assert(sizeof kShaperModes / sizeof kShaperModes[0] == sc::SHPM_N, "a name for each of Shaper's modes");
+static_assert(sizeof kStrWaves / sizeof kStrWaves[0] == sc::STRW_N && sizeof kStrOsc / sizeof kStrOsc[0] == sc::STRO_N, "Strings' names");
+static_assert(sizeof kFilterModes / sizeof kFilterModes[0] == sc::FLTM_AP + 1, "a name for each of Filter's modes");
+struct Names { const char *module, *param; const char *const *labels; int n; };
+const Names kNames[] = {
+    {"Osc", "wave", NAMES(kOscWaves)}, {"Osc", "quality", NAMES(kQuality)},
+    {"OscEngines", "engine", NAMES(kOscxEngines)}, {"OscEngines", "quality", NAMES(kQuality)},
+    {"MiOsc", "model", NAMES(kMiModels)},
+    {"Strings", "wave", NAMES(kStrWaves)}, {"Strings", "osc", NAMES(kStrOsc)},
+    {"Lfo", "shape", NAMES(kLfoShapes)},
+    {"Filter", "mode", NAMES(kFilterModes)}, {"Filter", "sections", NAMES(kFilterSlopes)}, {"Filter", "algo", NAMES(kFilterAlgos)},
+    {"Shaper", "mode", NAMES(kShaperModes)},
+    {"Eg", "oneshot", NAMES(kEgTrig)},
+    {"SpectralFx", "mode", NAMES(kSpectral)},
+    {"Chorus", "mode", NAMES(kChorus)},
+    {"Tremolo", "shape", NAMES(kTremShapes)}, {"TremoloV", "shape", NAMES(kTremShapes)},
+    {"Tremolo", "mode", NAMES(kTremModes)}, {"TremoloV", "mode", NAMES(kTremModes)},
+    {"Shifter", "mode", NAMES(kShifter)}, {"ShifterV", "mode", NAMES(kShifter)},
+    {"Phaser", "stages", NAMES(kPhaserStages)}, {"PhaserV", "stages", NAMES(kPhaserStages)},
+    {"Vocoder", "band_log2", NAMES(kVocBands)},
+};
+#undef NAMES
+
+constexpr int kNNames = static_cast<int>(sizeof kNames / sizeof kNames[0]);
+bool g_names_used[kNNames] = {};
+
+// The names of an engine module's whole-number value from min to max (nullptr: none, or not as many as its range).
+const char *const *names_of(const char *module, const sc::ParamDesc &pd) {
+    const int count = pd.max - pd.min + 1;
+    for (int k = 0; k < kNNames; k++) {
+        const Names &n = kNames[k];
+        if (std::strcmp(n.module, module) || std::strcmp(n.param, pd.name)) continue;
+        if (n.n != count) return nullptr;
+        g_names_used[k] = true;
+        return n.labels;
+    }
+    return pd.min == 0 && pd.max == 1 ? kOffOn : nullptr;
+}
 
 // How a value is shown: raw (the engine's units), a percentage of q15, or semitones of a 1/256-semitone pitch.
 enum Show : uint8_t { kRaw, kPercent, kSemis };
@@ -238,6 +311,7 @@ int register_engine_modules(const sc::Registry &reg) {
                 sl.show[j] = kRaw;
                 q.min = static_cast<float>(pd.min); q.max = static_cast<float>(pd.max); q.def = static_cast<float>(pd.def);
                 q.curve = pd.max - pd.min <= 64 ? Int : Lin;
+                if (q.curve == Int) q.labels = names_of(info.name, pd);     // (an engine's, a mode's name: not its number)
             }
             q.def = q.def < q.min ? q.min : (q.def > q.max ? q.max : q.def);
         }
@@ -278,6 +352,16 @@ int32_t engine_raw_value(const ModuleDef *d, int j, float v) {
 }
 
 const char *engine_param_name(const ModuleDef *d, int j) { return d->param[j].name; }
+
+int engine_names_unused(const char **first) {
+    static char at[48];
+    int n = 0;
+    for (int k = 0; k < kNNames; k++) {
+        if (g_names_used[k]) continue;
+        if (!n++ && first) { std::snprintf(at, sizeof at, "%s.%s", kNames[k].module, kNames[k].param); *first = at; }
+    }
+    return n;
+}
 
 bool engine_type_in(const char *type, int area) {
     if (!g_reg || !type) return false;

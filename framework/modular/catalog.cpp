@@ -17,6 +17,11 @@ const char *const kStreams[] = {"A", "B"};
 const char *const kLaws[] = {"Blend", "Power"};
 const char *const kSteps[] = {"Sample", "Block"};
 const char *const kRumbleFilters[] = {"LP6", "LP12", "LP24", "BP", "HP12", "HP24", "Notch", "Peak"};
+const char *const kMathOps[] = {"A+B", "A-B", "AxB", "Min", "Max", "Mean", "|A-B|", "A>B"};                  // (modules.h P::MATH_*)
+const char *const kFuncs[] = {"Abs", "Neg", "1-x", "x^2", "x^3", "Sqrt", "Sign", "Rect+", "Rect-", "Quant", "Floor", "Wrap"};  // (P::FN_*)
+const char *const kSlewModes[] = {"Exp", "Lin"};
+static_assert(sizeof kMathOps / sizeof kMathOps[0] == P::MATH_N, "a name for each Math operation");
+static_assert(sizeof kFuncs / sizeof kFuncs[0] == P::FN_N, "a name for each Func function");
 
 const ModuleDef kNote = {
     "Note", "In / Out", "The voice's note: its gate, a pulse at its start, its velocity, its pitch (octaves over middle C); in the FX area: the last note", Scope::Both,
@@ -145,6 +150,31 @@ const ModuleDef kConst = {
     0, 1, 1, {}, {}, {"Out"}, {{"Value", -1, 1, 0}},
     "Const", "new", MOD_OPS(ConstM)};
 
+const ModuleDef kMath = {
+    "Math", "Math", "A op B: + - x, min, max, mean, |A-B|, A>B (1 or 0). B = its input + the B value (nothing in B: a constant)", Scope::Both,
+    2, 1, 2, {"A", "B"}, {kZero, kZero}, {"Out"},
+    {{"Op", 0, P::MATH_N - 1, 0, nullptr, Int, kMathOps}, {"B", -8, 8, 0}},
+    nullptr, "new", MOD_OPS(MathM)};
+
+const ModuleDef kFunc = {
+    "Func", "Math", "f(In): abs, -x, 1-x, x^2, x^3, sqrt, sign, half rectify, quantize / floor to Steps a unit (12: semitones), wrap 0..1", Scope::Both,
+    1, 1, 2, {"In"}, {kZero}, {"Out"},
+    {{"Fn", 0, P::FN_N - 1, 0, nullptr, Int, kFuncs}, {"Steps", 1, 48, 12, nullptr, Int}},
+    nullptr, "new", MOD_OPS(FuncM)};
+
+const ModuleDef kRange = {
+    "Range", "Math", "Range converter: In from InLo..InHi onto OutLo..OutHi (default -1..1 -> 0..1), a Curve, Clamp", Scope::Both,
+    1, 1, 6, {"In"}, {kZero}, {"Out"},
+    {{"InLo", -8, 8, -1}, {"InHi", -8, 8, 1}, {"OutLo", -8, 8, 0}, {"OutHi", -8, 8, 1}, {"Curve", -100, 100, 0, "%"},
+     {"Clamp", 0, 1, 1, nullptr, Int, kOnOff}},
+    nullptr, "new", MOD_OPS(RangeM)};
+
+const ModuleDef kSlew = {
+    "Slew", "Math", "A lag: the output follows In in Rise ms going up, Fall ms going down (Exp smooth, Lin a steady rate): glide, smoothing", Scope::Both,
+    1, 1, 3, {"In"}, {kZero}, {"Out"},
+    {{"Rise", 0.1f, 10000, 50, "ms", Exp}, {"Fall", 0.1f, 10000, 50, "ms", Exp}, {"Mode", 0, 1, 0, nullptr, Int, kSlewModes}},
+    nullptr, "new", MOD_OPS(SlewM)};
+
 const ModuleDef kDelay = {
     "Delay", "Effects", "An echo: a 16-bit line up to 1.3 s, a low pass in the loop (Damp), Mix", Scope::Both,
     1, 1, 4, {"In"}, {kZero}, {"Out"},
@@ -199,6 +229,7 @@ const ModuleDef *const kCatalog[] = {
     &kAdsr, &kPerc, &kRatchet, &kLfo,
     &kFilter, &kEq3,
     &kDrive, &kComp3, &kLimit, &kVca, &kMixer, &kRing, &kConst,
+    &kMath, &kFunc, &kRange, &kSlew,
     &kDelay, &kRoom, &kGlue, &kGate,
 };
 

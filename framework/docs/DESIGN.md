@@ -957,6 +957,16 @@ Chosen by me while building (say if one is wrong):
   - Checked: the self-test (6633: every scope, the last note, a Perc on the FX waiting for a note, RMEg on the FX, RMDelay in a
     voice, the export's list); a generated synth with a Perc and a Body on its FX passed SynthLab's tests and the ESP32-S3
     compiler's syntax check (then removed). Not heard by hand.
+- **Addendum 4 (2026-11-14): math, names, editing.** The user asked for math modules and a range converter, the engine's names
+  instead of numbers, copy / paste and zone selection, and a menu on a jack's right click ("remove cable/cables" for now).
+  - A Math kind in the catalog: Math, Func, Range, Slew (`modules.h`), in both areas, in a generated synth; none in the engine yet.
+  - The engine's choices by name: a table in `engine_adapter.cpp` in the engine's enum order (the engine and the Ritual Machine's
+    rack keep their own); a list that no longer fits its value is dropped, and `engine_names_unused` reports it.
+  - The PATCH tab: a selection of modules (a zone dragged on the canvas, Ctrl / Shift click), moved together, copied / cut / pasted
+    / duplicated with the cables inside it. Panning moved to the middle button and Alt + drag (the left drag is the zone). A jack's
+    right click opens a menu (drawn over the tab; what is under it does not take the pointer) instead of removing at once.
+  - Checked: the self-test (6715: the four modules on known blocks, the names, a zone, Ctrl+C / V, Delete, a group drag, Ctrl+D,
+    Ctrl+A, Esc, the menu's remove); a screenshot of the names and the Math modules. Not tried by hand.
 
 ## Known limits and ideas for later
 

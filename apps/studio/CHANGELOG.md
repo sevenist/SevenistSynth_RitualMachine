@@ -10,6 +10,25 @@ The library's changes: [framework/CHANGELOG.md](../../framework/CHANGELOG.md).
 - The macros are the library's (`framework/control/macro.h`, the Ritual Machine's model and code): `Macro` is its `mac_t`, a
   destination its `ctl_map_t` (`dest_param` / `dest_macro` say what it drives); `macro_apply` takes the set and the macro.
 
+## 2026-11-14: the layout's new kinds and texts
+
+- LAYOUT: three new kinds that show a value (Fader, Toggle, Choice) and three decorations (Label, Line, Box: a click on their
+  button adds one).
+- Any element's name can be replaced by your own text: Enter or a double click on it, or the inspector's Text; Name goes back to
+  the value's. The synth's name in the top title too. Saved in the `.layout` file (older files read as before).
+- Typing a name no longer lets Enter press the focused Done / Rename button again (it reopened the rename); the SOUND tab no longer
+  shows the patch's or a label's text as the macro's name.
+
+## 2026-11-14: math modules, names, selection and the clipboard
+
+- Four modules under Math: Math (A op B), Func (abs, invert, quantize, wrap ...), Range (a range converter) and Slew (a lag).
+- The Ritual Machine's choices show their names: an oscillator's engine (Karp, Modal, Fold ...), MiOsc's models, the filter's
+  mode, slope and algorithm, the shaper's modes; on / off values read Off / On.
+- A selection of modules: drag the empty canvas for a zone, Ctrl / Shift click a header to add one; the selection moves together.
+  Ctrl+C / X / V copy, cut, paste it with the cables between its modules; Ctrl+D duplicates, Ctrl+A selects all, Delete removes.
+- Looking around is now the middle drag or Alt + drag (the left drag draws the zone), the wheel and the arrows as before.
+- Right click a jack: a menu, "Remove cable" / "Remove N cables" (it used to remove them at once).
+
 ## 2026-11-14: modules in both areas
 
 - Every module goes in VOICE or FX, except the ends (VoiceOut; Voices, Output): no module is greyed out for its kind any more.

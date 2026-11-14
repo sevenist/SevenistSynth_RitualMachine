@@ -247,13 +247,14 @@ void global_keys(const wg_input_t &in) {
     note_keys(in);
 }
 
-// Renaming a macro or the patch: the typed text goes into the name; Enter keeps it, Esc drops it.
+// Renaming a macro or the patch, a layout element's text: the typed text goes into it; Enter keeps it, Esc drops it.
 void edit_keys(const wg_input_t &in) {
-    const size_t max = st.edit_what == 1 ? sizeof st.patch.name - 1 : 15;
+    const size_t max = st.edit_what == 1 ? sizeof st.patch.name - 1 : (st.edit_what == 2 ? static_cast<size_t>(kMaxText) : 15);
     for (const char *p = in.text; *p; p++)
         if (*p >= 32 && *p < 127 && *p != '"' && st.edit_text.size() < max) st.edit_text += *p;
     if (wg_key_pressed(&in, WG_KEY_BACKSPACE) && !st.edit_text.empty()) st.edit_text.pop_back();
     if (wg_key_pressed(&in, WG_KEY_ENTER)) {
+        if (st.edit_what == 2) { set_el_text(st.edit_text); return; }
         if (st.edit_what == 1) std::snprintf(st.patch.name, sizeof st.patch.name, "%s", st.edit_text.c_str());
         else std::snprintf(cur_macro().name, sizeof cur_macro().name, "%s", st.edit_text.c_str());
         st.editing = false;
@@ -297,7 +298,7 @@ void draw_status(wg_ctx_t &c) {
     const wg_theme_t &t = c.theme;
     const gui_rect_t r = gui_rect(0, g_h - kStatusH, g_w, kStatusH);
     wg_fill(&c, r, t.panel);
-    const char *left = st.editing ? "Renaming: type, Enter keeps, Esc drops" : (c.hint[0] ? c.hint : (st.message_frames > 0 ? st.message : ""));
+    const char *left = st.editing ? (st.edit_what == 2 ? "Typing its text: Enter keeps, Esc drops" : "Renaming: type, Enter keeps, Esc drops") : (c.hint[0] ? c.hint : (st.message_frames > 0 ? st.message : ""));
     wg_text_small(&c, 6, r.y + 10, left, st.message_frames > 0 && !c.hint[0] ? t.accent : t.text);
     const char *help = "Tab focus  arrows edit  Space play  F4 keys  F1/F2/F3 tabs  F7/F8 synth  Ctrl+S save";
     const int hw = wg_text_w(&c, help, true);
@@ -308,8 +309,11 @@ void draw_status(wg_ctx_t &c) {
 }  // namespace
 
 void run_frame(wg_ctx_t &c, const wg_input_t &in) {
-    if (st.editing) edit_keys(in); else global_keys(in);
-    wg_begin(&c, &in);
+    // While text is typed the keys are the text's: the widgets get none that frame (Enter would press the focused Done / Rename again).
+    wg_input_t ui = in;
+    if (st.editing) { edit_keys(in); ui.nkeys = 0; ui.text[0] = 0; }
+    else global_keys(in);
+    wg_begin(&c, &ui);
     wg_fill(&c, gui_rect(0, 0, c.cv->w, c.cv->h), c.theme.bg);
     const gui_rect_t area = gui_rect(0, kBarH, g_w, g_h - kBarH - kStatusH);
     if (st.tab == kTabPatch && synth_selected() != modular_index()) select_synth(modular_index());   // (the PATCH tab plays its patch)

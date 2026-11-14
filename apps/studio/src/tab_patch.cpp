@@ -1,8 +1,10 @@
 // The PATCH tab: the Modular synth's patch (modular_synth.h) on a canvas. On the left the catalog (drag a module onto the canvas, or Enter /
 // double click: it goes in the middle), the patch's file and the exports; in the middle the canvas, VOICE or FX (a module's header drags it,
 // its values are rows like sliders, its jacks take cables: drag from an output onto an input, or onto a value for a modulation; drag an
-// input's cable away to move or remove it; right click a jack: its cables go); on the right the selected module: what it is, its cables
-// with their depths, a way to connect with the keyboard. Empty canvas: drag it to look around (or the wheel; Shift: sideways).
+// input's cable away to move or remove it; right click a jack: its menu, "Remove cables"); on the right the selected module: what it
+// is, its cables with their depths, a way to connect with the keyboard. Empty canvas: a drag selects a zone (Ctrl / Shift click on a
+// header: one more); the selection moves together, Ctrl+C / X / V / D copy, cut, paste, duplicate it with the cables inside it, Delete
+// removes it. Middle drag or Alt + drag looks around (or the wheel; Shift: sideways).
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
@@ -32,6 +34,7 @@ uint16_t category_color(const char *cat) {
     if (!std::strcmp(cat, "Filters")) return CANVAS_HEX(0x5ED6E8);
     if (!std::strcmp(cat, "Shapers")) return CANVAS_HEX(0xFF6F7D);
     if (!std::strcmp(cat, "Utilities")) return CANVAS_HEX(0xA48BFF);
+    if (!std::strcmp(cat, "Math")) return CANVAS_HEX(0x6BE3B0);
     if (!std::strcmp(cat, "Effects")) return CANVAS_HEX(0xE86BD9);
     return CANVAS_HEX(0xDCE2E8);
 }
@@ -81,6 +84,155 @@ void structural(const char *what) {                 // modules or cables changed
 
 int payload_of(int id, int port) { return id * 16 + port; }
 
+/* ---------------- the selection and the clipboard ---------------- */
+
+bool is_sel(int id) { return std::find(st.sel.begin(), st.sel.end(), id) != st.sel.end(); }
+void select_only(int id) { st.sel.clear(); if (id) st.sel.push_back(id); st.sel_node = id; }
+void toggle_sel(int id) {
+    const auto it = std::find(st.sel.begin(), st.sel.end(), id);
+    if (it == st.sel.end()) { st.sel.push_back(id); st.sel_node = id; return; }
+    st.sel.erase(it);
+    if (st.sel_node == id) st.sel_node = st.sel.empty() ? 0 : st.sel.back();
+}
+// The selection and sel_node kept together: sel_node set elsewhere (a module added, a value touched) is a selection of one; gone modules
+// leave it; only the area shown is selected.
+void tidy_selection() {
+    mod::Patch &p = st.patch;
+    if (st.sel_node) { const mod::Node *n = p.find(st.sel_node); if (!n || n->area != st.patch_area) st.sel_node = 0; }
+    if (!st.sel_node) { st.sel.clear(); return; }
+    if (!is_sel(st.sel_node)) { st.sel.assign(1, st.sel_node); return; }
+    st.sel.erase(std::remove_if(st.sel.begin(), st.sel.end(), [&](int id) { const mod::Node *n = p.find(id); return !n || n->area != st.patch_area; }),
+                 st.sel.end());
+}
+
+void remove_selected() {
+    const int n = static_cast<int>(st.sel.size());
+    for (int id : st.sel) st.patch.remove(id);
+    select_only(0);
+    char what[40];
+    std::snprintf(what, sizeof what, n == 1 ? "Module removed" : "%d modules removed", n);
+    structural(what);
+}
+
+// The copied modules (their values, where they were) and the cables between them.
+struct Clip {
+    std::vector<mod::Node> nodes;
+    std::vector<mod::Cable> cables;
+    int pastes = 0;                                 // pasted since the copy (each paste a step further, off the pointer)
+};
+Clip g_clip;
+
+void copy_selection(Clip &clip) {
+    const mod::Patch &p = st.patch;
+    clip = Clip{};
+    for (int i = 0; i < p.n_nodes; i++) if (is_sel(p.node[i].id)) clip.nodes.push_back(p.node[i]);
+    for (int k = 0; k < p.n_cables; k++) if (is_sel(p.cable[k].src) && is_sel(p.cable[k].dst)) clip.cables.push_back(p.cable[k]);
+}
+
+// The clip into the area shown, its top left at (x, y) in the patch's coordinates; the pasted modules become the selection. The area's
+// ends (VoiceOut, Voices, Output: one each) and the modules of the other area only are left out.
+void paste(const Clip &clip, int x, int y) {
+    mod::Patch &p = st.patch;
+    const int a = st.patch_area;
+    if (clip.nodes.empty()) { message("Nothing copied yet: select modules, then Ctrl+C"); return; }
+    int minx = clip.nodes[0].x, miny = clip.nodes[0].y;
+    for (const mod::Node &n : clip.nodes) { minx = std::min<int>(minx, n.x); miny = std::min<int>(miny, n.y); }
+    std::vector<std::pair<int, int>> ids;          // copied id -> pasted id
+    std::vector<int> fresh;
+    int left_out = 0;
+    bool full = false;
+    for (const mod::Node &n : clip.nodes) {
+        bool end_taken = false;
+        if (n.def->scope != mod::Scope::Both)
+            for (int i = 0; i < p.n_nodes; i++) if (p.node[i].area == a && p.node[i].def == n.def) end_taken = true;
+        if (!allowed(n.def, a) || end_taken) { left_out++; continue; }
+        mod::Node *nd = p.add(n.def, a, (x + n.x - minx) / 4 * 4, (y + n.y - miny) / 4 * 4);
+        if (!nd) { full = true; break; }
+        std::memcpy(nd->v, n.v, sizeof nd->v);
+        ids.emplace_back(n.id, nd->id);
+        fresh.push_back(nd->id);
+    }
+    auto pasted = [&](int id) { for (const auto &m : ids) if (m.first == id) return m.second; return 0; };
+    for (const mod::Cable &cb : clip.cables) {
+        const int s = pasted(cb.src), d = pasted(cb.dst);
+        if (s && d) p.connect(s, cb.src_port, d, cb.dst_port, cb.to_param, cb.depth);
+    }
+    st.sel = fresh;
+    st.sel_node = fresh.empty() ? 0 : fresh.back();
+    structural(nullptr);
+    if (full) message("The patch is full (%d modules): %d pasted", mod::kMaxNodes, static_cast<int>(fresh.size()));
+    else if (left_out) message("%d module(s) pasted; %d left out (an area's end is there already, or it belongs in the other area)", static_cast<int>(fresh.size()), left_out);
+    else message("%d module(s) pasted, with the cables between them", static_cast<int>(fresh.size()));
+}
+
+/* ---------------- a jack's menu (a right click on it) ---------------- */
+
+constexpr int kMenuW = 112, kMenuRowH = 12;
+int jack_cables(const mod::Patch &p, int id, bool out, int port) {
+    int n = 0;
+    for (int q = 0; q < p.n_cables; q++) {
+        const mod::Cable &cb = p.cable[q];
+        if (out ? (cb.src == id && cb.src_port == port) : (cb.dst == id && !cb.to_param && cb.dst_port == port)) n++;
+    }
+    return n;
+}
+gui_rect_t menu_rect() { return gui_rect(st.menu_x, st.menu_y, kMenuW, 4 + 2 * kMenuRowH); }   // its title, then its one item
+// The menu is open and the pointer is over it: what is drawn under it does not take the pointer.
+bool menu_blocks(const wg_input_t &in) { return st.menu && inside(menu_rect(), in.x, in.y); }
+bool g_menu_new = false;                            // opened this frame (by the press that a press elsewhere would close it with)
+void open_menu(gui_rect_t canvas, int x, int y, int node, bool out, int port) {
+    st.menu = true;
+    g_menu_new = true;
+    st.menu_x = std::max(canvas.x, std::min(x + 2, canvas.x + canvas.w - kMenuW - 1));
+    st.menu_y = std::max(canvas.y, std::min(y + 2, canvas.y + canvas.h - (4 + 2 * kMenuRowH) - 1));
+    st.menu_node = node;
+    st.menu_out = out;
+    st.menu_port = port;
+}
+
+void draw_menu(wg_ctx_t &c) {
+    if (!st.menu) return;
+    const wg_theme_t &t = c.theme;
+    const wg_input_t &in = *c.in;
+    mod::Patch &p = st.patch;
+    const mod::Node *n = p.find(st.menu_node);
+    if (!n || n->area != st.patch_area || wg_key_pressed(&in, WG_KEY_ESC)) { st.menu = false; return; }
+    const gui_rect_t r = menu_rect();
+    // a press anywhere else closes it (that press still does what it does there)
+    const bool fresh = g_menu_new;
+    g_menu_new = false;
+    if (!fresh && (in.pressed & (WG_BTN_LEFT | WG_BTN_RIGHT | WG_BTN_MIDDLE)) && !inside(r, in.x, in.y)) { st.menu = false; return; }
+    const char *jname = st.menu_out ? n->def->out_name[st.menu_port] : n->def->in_name[st.menu_port];
+    const int ncab = jack_cables(p, n->id, st.menu_out, st.menu_port);
+    wg_fill(&c, gui_rect(r.x + 2, r.y + 2, r.w, r.h), t.bg);            // (a shadow)
+    wg_fill(&c, r, t.panel2);
+    wg_frame(&c, r, t.accent);
+    char text[48];
+    std::snprintf(text, sizeof text, "%s %d.%s", n->def->name, n->id, jname);
+    wg_text_small(&c, r.x + 5, r.y + 10, text, t.dim);
+    // the items (one for now)
+    const gui_rect_t item = gui_rect(r.x + 2, r.y + 2 + kMenuRowH, r.w - 4, kMenuRowH);
+    const int id = WG_ID(F_PMENU, 0);
+    const bool was = c.active == id;
+    wg_behavior(&c, id, item, false);
+    const bool on = ncab > 0;
+    if (c.hot == id && on) wg_fill(&c, item, t.line);
+    if (on) std::snprintf(text, sizeof text, ncab == 1 ? "Remove cable" : "Remove %d cables", ncab);
+    else std::snprintf(text, sizeof text, "No cable");
+    wg_text_small(&c, item.x + 3, item.y + 9, text, on ? t.text : t.dim);
+    if (c.hot == id) wg_set_hint(&c, on ? "Removes the cables of %s %d.%s" : "%s %d.%s has no cable", n->def->name, n->id, jname);
+    if (was && (in.released & WG_BTN_LEFT) && inside(item, in.x, in.y)) {
+        if (on) {
+            for (int q = p.n_cables - 1; q >= 0; q--) {
+                const mod::Cable &cb = p.cable[q];
+                if (st.menu_out ? (cb.src == n->id && cb.src_port == st.menu_port) : (cb.dst == n->id && !cb.to_param && cb.dst_port == st.menu_port)) p.disconnect(q);
+            }
+            structural(ncab == 1 ? "Cable removed" : "Cables removed");
+        }
+        st.menu = false;
+    }
+}
+
 void draw_cable(wg_ctx_t &c, gui_point_t a, gui_point_t b, uint16_t color, bool dotted) {
     const float dx = static_cast<float>(b.x - a.x), dy = static_cast<float>(b.y - a.y);
     const float sag = 12.f + std::sqrt(dx * dx + dy * dy) * 0.18f;
@@ -105,34 +257,47 @@ void draw_node(wg_ctx_t &c, const View &v, mod::Node &n, int idx) {
     const mod::ModuleDef *d = n.def;
     const gui_rect_t b = v.box(n);
     if (b.x > v.cv.x + v.cv.w || b.y > v.cv.y + v.cv.h || b.x + b.w < v.cv.x || b.y + b.h < v.cv.y) return;
-    const bool pin = inside(v.cv, in.x, in.y);      // (the pointer on the canvas: its widgets may take it)
+    const bool pin = inside(v.cv, in.x, in.y) && !menu_blocks(in);     // (the pointer on the canvas: its widgets may take it)
     const uint16_t cat = category_color(d->category);
     wg_fill(&c, b, t.panel);
-    wg_frame(&c, b, n.id == st.sel_node ? t.accent : t.line);
+    const bool selected = is_sel(n.id);
+    wg_frame(&c, b, selected ? t.accent : t.line);
+    if (selected && n.id == st.sel_node && st.sel.size() > 1) wg_frame(&c, gui_inset(b, -1), t.accent);   // (the one the inspector shows)
     const gui_rect_t head = gui_rect(b.x + 1, b.y + 1, b.w - 2, kHeadH - 1);
     wg_fill(&c, head, wg_mix(t.panel2, cat, 70));
     char title[24];
     std::snprintf(title, sizeof title, "%s %d", d->name, n.id);
     wg_text(&c, head.x + 3, head.y + 9, title, t.text);
 
-    // the header: drag moves, click selects; its x removes the module
+    // the header: a click selects (Ctrl / Shift: adds or takes away), a drag moves the selection; its x removes the module
     const int hid = WG_ID(F_NODE, n.id);
     const gui_rect_t xr = gui_rect(head.x + head.w - 10, head.y + 1, 9, 10);
     const bool was = c.active == hid;
+    const bool add_key = (in.mods & (WG_MOD_CTRL | WG_MOD_SHIFT)) != 0;
     if (pin) wg_behavior(&c, hid, head, false);
-    if (c.active == hid && !was) { st.sel_node = n.id; st.pan_mx = in.x - b.x; st.pan_my = in.y - b.y; }
-    if (c.active == hid && (in.buttons & WG_BTN_LEFT)) {
-        n.x = static_cast<int16_t>((in.x - st.pan_mx - v.ox) / 4 * 4);
-        n.y = static_cast<int16_t>((in.y - st.pan_my - v.oy) / 4 * 4);
+    if (c.active == hid && !was) {
+        c.focus = 0;                                // (the keys go to the canvas: Delete, Ctrl+C ...)
+        st.pan_mx = in.x - b.x;
+        st.pan_my = in.y - b.y;
+        if (add_key) toggle_sel(n.id);
+        else if (is_sel(n.id)) st.sel_node = n.id;  // (the selection stays: it may be dragged; a click alone keeps this one only)
+        else select_only(n.id);
     }
+    if (c.active == hid && (in.buttons & WG_BTN_LEFT) && is_sel(n.id)) {
+        const int dx = (in.x - st.pan_mx - v.ox) / 4 * 4 - n.x, dy = (in.y - st.pan_my - v.oy) / 4 * 4 - n.y;
+        if (dx || dy)
+            for (int id : st.sel)
+                if (mod::Node *m = p.find(id)) { m->x = static_cast<int16_t>(m->x + dx); m->y = static_cast<int16_t>(m->y + dy); }
+    }
+    const bool still = std::abs(in.x - c.press_x) + std::abs(in.y - c.press_y) < 3;
     wg_text_small(&c, xr.x + 2, xr.y + 7, "x", c.hot == hid && inside(xr, in.x, in.y) ? t.warn : t.dim);
-    if (was && (in.released & WG_BTN_LEFT) && inside(xr, in.x, in.y) && std::abs(in.x - (b.x + st.pan_mx)) < 3) {
+    if (was && (in.released & WG_BTN_LEFT) && inside(xr, in.x, in.y) && still) {
         p.remove(n.id);
-        st.sel_node = 0;
         structural("Module removed");
         return;
     }
-    if (c.hot == hid) wg_set_hint(&c, "%s: %s", d->name, d->doc);
+    if (was && (in.released & WG_BTN_LEFT) && still && !add_key && st.sel.size() > 1) select_only(n.id);
+    if (c.hot == hid) wg_set_hint(&c, "%s: %s   (Ctrl / Shift click: more modules; drag: moves them)", d->name, d->doc);
 
     // the jacks
     for (int side = 0; side < 2; side++) {
@@ -155,16 +320,9 @@ void draw_node(wg_ctx_t &c, const View &v, mod::Node &n, int idx) {
             const bool hot = c.hot == jid;
             wg_fill(&c, gui_rect(j.x - 3, j.y - 3, 7, 7), ncab ? cable_color(out ? n.id : p.cable[last].src) : t.bg);
             wg_frame(&c, gui_rect(j.x - 3, j.y - 3, 7, 7), hot ? t.accent : t.text);
-            if (hot) wg_set_hint(&c, "%s %d.%s: %d cable(s). %s", d->name, n.id, name, ncab,
-                                 out ? "Drag onto an input, or onto a value (modulation)" : "Drop a cable here; drag its cable away to move it; right click: none");
-            if ((in.pressed & WG_BTN_RIGHT) && inside(jr, in.x, in.y) && ncab) {
-                for (int q = p.n_cables - 1; q >= 0; q--) {
-                    const mod::Cable &cb = p.cable[q];
-                    if (out ? (cb.src == n.id && cb.src_port == k) : (cb.dst == n.id && !cb.to_param && cb.dst_port == k)) p.disconnect(q);
-                }
-                structural("Cables removed");
-                return;
-            }
+            if (hot) wg_set_hint(&c, "%s %d.%s: %d cable(s). %s; right click: a menu", d->name, n.id, name, ncab,
+                                 out ? "Drag onto an input, or onto a value (modulation)" : "Drop a cable here; drag its cable away to move it");
+            if (pin && (in.pressed & WG_BTN_RIGHT) && inside(jr, in.x, in.y)) open_menu(v.cv, in.x, in.y, n.id, out, k);
             if (out) {
                 char label[32];
                 std::snprintf(label, sizeof label, "%s %d.%s", d->name, n.id, name);
@@ -291,18 +449,47 @@ void draw_canvas(wg_ctx_t &c, gui_rect_t area) {
         draw_cable(c, from, to, cable_color(cb.src), cb.to_param);
     }
 
-    // the canvas itself: drag to look around; a module dropped on it
+    // the canvas itself: a drag draws a zone (its modules: the selection; Ctrl / Shift: added to it), Alt + drag or the middle button
+    // looks around, a click on nothing drops the selection; a module dropped on it
     const int bid = WG_ID(F_CANVAS, 0);
     const bool was = c.active == bid;
-    wg_behavior(&c, bid, v.cv, false);
-    if (c.active == bid && !was) { st.pan_mx = in.x; st.pan_my = in.y; }
-    if (c.active == bid && (in.buttons & WG_BTN_LEFT)) {
+    if (!menu_blocks(in)) wg_behavior(&c, bid, v.cv, false);
+    if (c.active == bid && !was) {
+        c.focus = 0;
+        if (in.mods & WG_MOD_ALT) { st.panning = true; st.pan_mx = in.x; st.pan_my = in.y; }
+        else { st.zone = true; st.zone_x = in.x - v.ox; st.zone_y = in.y - v.oy; st.zone_add = (in.mods & (WG_MOD_CTRL | WG_MOD_SHIFT)) != 0; }
+    }
+    if ((in.pressed & WG_BTN_MIDDLE) && inside(v.cv, in.x, in.y) && c.active == 0 && !st.zone) { st.panning = true; st.pan_mx = in.x; st.pan_my = in.y; }
+    if (st.panning && (in.buttons & (WG_BTN_LEFT | WG_BTN_MIDDLE))) {
         st.pan_x[a] -= in.x - st.pan_mx;
         st.pan_y[a] -= in.y - st.pan_my;
         st.pan_mx = in.x;
         st.pan_my = in.y;
+    } else {
+        st.panning = false;
     }
-    if (was && (in.released & WG_BTN_LEFT) && std::abs(in.x - c.press_x) + std::abs(in.y - c.press_y) < 3) st.sel_node = 0;
+    if (st.zone) {
+        const int x0 = std::min(st.zone_x + v.ox, in.x), y0 = std::min(st.zone_y + v.oy, in.y);
+        const gui_rect_t zr = gui_rect(x0, y0, std::abs(in.x - (st.zone_x + v.ox)) + 1, std::abs(in.y - (st.zone_y + v.oy)) + 1);
+        if (was && (in.released & WG_BTN_LEFT)) {
+            st.zone = false;
+            if (zr.w + zr.h < 6) { if (!st.zone_add) select_only(0); }     // (a click on nothing)
+            else {
+                if (!st.zone_add) select_only(0);
+                for (int i = 0; i < p.n_nodes; i++) {
+                    const mod::Node &n = p.node[i];
+                    const gui_rect_t nb = v.box(n);
+                    const bool meets = nb.x < zr.x + zr.w && zr.x < nb.x + nb.w && nb.y < zr.y + zr.h && zr.y < nb.y + nb.h;
+                    if (n.area == a && meets && !is_sel(n.id)) { st.sel.push_back(n.id); st.sel_node = n.id; }
+                }
+            }
+        } else if (c.active == bid) {
+            wg_frame(&c, zr, t.accent);
+        } else {
+            st.zone = false;
+        }
+    }
+    if (c.hot == bid && !st.zone) wg_set_hint(&c, "Drag: select a zone (Ctrl / Shift: add to it); middle drag or Alt + drag: look around; wheel: up / down (Shift: sideways)");
     if (in.wheel && c.hot == bid) {
         if (in.mods & WG_MOD_SHIFT) st.pan_x[a] -= in.wheel * 40;
         else st.pan_y[a] -= in.wheel * 40;
@@ -315,17 +502,37 @@ void draw_canvas(wg_ctx_t &c, gui_rect_t area) {
         else if (mod::Node *nd = p.add(d, a, (in.x - v.ox) / 4 * 4, (in.y - v.oy) / 4 * 4)) { st.sel_node = nd->id; structural(nullptr); }
         else message("The patch is full (%d modules)", mod::kMaxNodes);
     }
-    // keys, when nothing else has the focus: Delete removes the selection, Ctrl+D copies it, the arrows move the view
+    // keys, when nothing else has the focus: Delete removes the selection; Ctrl+C / X copies / cuts it (with the cables between its
+    // modules), Ctrl+V pastes (at the pointer when it is on the canvas), Ctrl+D duplicates, Ctrl+A selects the area's modules; Esc drops
+    // the selection; the arrows move the view. (Keys by their place: Ctrl+A is also the place of an AZERTY A.)
     if (c.focus == 0 && !st.editing) {
-        mod::Node *sel = p.find(st.sel_node);
-        if (sel && (wg_key_pressed(&in, WG_KEY_DELETE) || wg_key_pressed(&in, WG_KEY_BACKSPACE))) { p.remove(sel->id); st.sel_node = 0; structural("Module removed"); }
-        else if (sel && (in.mods & WG_MOD_CTRL) && wg_key_pressed(&in, 'd')) {
-            const mod::Node copy = *sel;
-            if (mod::Node *nd = p.add(copy.def, copy.area, copy.x + 16, copy.y + 16)) {
-                std::memcpy(nd->v, copy.v, sizeof nd->v);
-                st.sel_node = nd->id;
-                structural("Module copied (without its cables)");
-            }
+        const bool ctrl = (in.mods & WG_MOD_CTRL) != 0, has = !st.sel.empty();
+        const int at_x = inside(v.cv, in.x, in.y) ? in.x - v.ox : -1, at_y = in.y - v.oy;
+        auto beside = [&](const Clip &cl, int step) {   // (off the pointer: a step down and right of where the modules were)
+            int mx = cl.nodes.empty() ? 0 : cl.nodes[0].x, my = cl.nodes.empty() ? 0 : cl.nodes[0].y;
+            for (const mod::Node &n : cl.nodes) { mx = std::min<int>(mx, n.x); my = std::min<int>(my, n.y); }
+            paste(cl, mx + step, my + step);
+        };
+        if (has && (wg_key_pressed(&in, WG_KEY_DELETE) || wg_key_pressed(&in, WG_KEY_BACKSPACE))) remove_selected();
+        else if (ctrl && has && wg_key_pressed(&in, 'c')) {
+            copy_selection(g_clip);
+            message("%d module(s) copied, with the %d cable(s) between them: Ctrl+V pastes", static_cast<int>(g_clip.nodes.size()), static_cast<int>(g_clip.cables.size()));
+        } else if (ctrl && has && wg_key_pressed(&in, 'x')) {
+            copy_selection(g_clip);
+            remove_selected();
+            message("%d module(s) cut: Ctrl+V pastes them", static_cast<int>(g_clip.nodes.size()));
+        } else if (ctrl && wg_key_pressed(&in, 'v')) {
+            if (at_x >= 0 && !g_clip.nodes.empty()) paste(g_clip, at_x, at_y);
+            else beside(g_clip, 24 * ++g_clip.pastes);
+        } else if (ctrl && has && wg_key_pressed(&in, 'd')) {
+            Clip dup;                               // (the clipboard stays as it was)
+            copy_selection(dup);
+            beside(dup, 16);
+        } else if (ctrl && (wg_key_pressed(&in, 'a') || wg_key_pressed(&in, 'q'))) {
+            select_only(0);
+            for (int i = 0; i < p.n_nodes; i++) if (p.node[i].area == a) { st.sel.push_back(p.node[i].id); st.sel_node = p.node[i].id; }
+        } else if (wg_key_pressed(&in, WG_KEY_ESC) && !st.menu) {
+            select_only(0);
         }
         if (wg_key_pressed(&in, WG_KEY_LEFT)) st.pan_x[a] -= 40;
         if (wg_key_pressed(&in, WG_KEY_RIGHT)) st.pan_x[a] += 40;
@@ -416,7 +623,7 @@ void draw_left(wg_ctx_t &c, gui_rect_t area) {
     else wg_text_small(&c, area.x + 36, y + 8, st.patch.name, t.text);
     y += 12;
     if (wg_button(&c, WG_ID(F_PATCH_BTN, 0), gui_rect(area.x + 4, y, 70, 14), st.editing && st.edit_what == 1 ? "Done" : "Rename", false)) {
-        if (st.editing) { std::snprintf(st.patch.name, sizeof st.patch.name, "%s", st.edit_text.c_str()); st.editing = false; }
+        if (st.editing && st.edit_what == 1) { std::snprintf(st.patch.name, sizeof st.patch.name, "%s", st.edit_text.c_str()); st.editing = false; }
         else { st.editing = true; st.edit_what = 1; st.edit_text = st.patch.name; }
     }
     if (wg_button(&c, WG_ID(F_PATCH_BTN, 1), gui_rect(area.x + 76, y, 70, 14), "New", false)) {
@@ -514,7 +721,7 @@ void draw_inspector(wg_ctx_t &c, gui_rect_t r) {
         wg_text_small(&c, x, y, text, big ? t.warn : t.text); y += 10;
         if (big) { std::snprintf(text, sizeof text, "too big: %u KB / %u KB at most", static_cast<unsigned>(kModularVoiceBytes >> 10), static_cast<unsigned>(kModularFxBytes >> 10)); wg_text_small(&c, x, y, text, t.warn); y += 10; }
         std::snprintf(text, sizeof text, "%d module(s) the engine lacks", newmods); wg_text_small(&c, x, y, text, newmods ? t.warn : t.dim); y += 16;
-        static const char *const help[] = {"Click a module's header to", "see it here. Drag a module", "from the list; drag from an", "output onto an input or a", "value. Right click a jack:", "its cables go. Drag the", "empty canvas to look around.", "", "Its values are the Modular", "synth's: the SOUND tab's", "knobs and macros, the", "LAYOUT tab, all work on it."};
+        static const char *const help[] = {"Click a module's header to", "see it here. Drag a module", "from the list; drag from an", "output onto an input or a", "value. Right click a jack:", "its menu (remove cables).", "Drag the empty canvas: a", "zone selects; Ctrl+C / X / V,", "Ctrl+D, Ctrl+A, Delete.", "Middle drag / Alt+drag:", "look around.", "", "Its values are the Modular", "synth's: the SOUND tab's", "knobs and macros, the", "LAYOUT tab, all work on it."};
         for (const char *h : help) { wg_text_small(&c, x, y, h, t.dim); y += 9; }
         return;
     }
@@ -603,7 +810,13 @@ void draw_inspector(wg_ctx_t &c, gui_rect_t r) {
         }
         y += 17;
     }
-    if (wg_button(&c, WG_ID(F_PINSP, 403), gui_rect(x, r.y + r.h - 18, 74, 14), "Remove", false)) { p.remove(n.id); st.sel_node = 0; structural("Module removed"); }
+    const int nsel = std::max<int>(1, static_cast<int>(st.sel.size()));
+    std::snprintf(text, sizeof text, nsel > 1 ? "Remove %d" : "Remove", nsel);
+    if (wg_button(&c, WG_ID(F_PINSP, 403), gui_rect(x, r.y + r.h - 18, 74, 14), text, false)) {
+        if (st.sel.empty()) st.sel.assign(1, n.id);
+        remove_selected();
+    }
+    if (c.hot == WG_ID(F_PINSP, 403)) wg_set_hint(&c, nsel > 1 ? "Removes the %d selected modules (Delete)" : "Removes this module (Delete)", nsel);
 }
 }  // namespace
 
@@ -708,10 +921,12 @@ bool load_patch(const std::string &path) {
 }
 
 void draw_patch(wg_ctx_t &c, gui_rect_t area) {
-    // the canvas first: what overflows it is covered by the panels drawn after it
+    tidy_selection();
+    // the canvas first: what overflows it is covered by the panels drawn after it; a jack's menu over everything
     draw_canvas(c, gui_rect(area.x + kPanelW + 2, area.y, area.w - kPanelW - kInspW - 4, area.h));
     draw_left(c, area);
     draw_inspector(c, gui_rect(area.x + area.w - kInspW, area.y, kInspW, area.h));
+    draw_menu(c);
 }
 
 }  // namespace studio

@@ -27,15 +27,24 @@ void draw_text_right(u8g2_t *g, int right, int base, const char *s) {
     u8g2_DrawStr(g, static_cast<u8g2_uint_t>(right - u8g2_GetStrWidth(g, s)), static_cast<u8g2_uint_t>(base), s);
 }
 
+// The text drawn in w pixels from x: left, centred or right.
+void draw_aligned(u8g2_t *g, int x, int w, int base, const char *text, int align) {
+    const int tw = u8g2_GetStrWidth(g, text);
+    const int at = align == kCenter ? x + (w - tw) / 2 : (align == kRight ? x + w - tw : x);
+    u8g2_DrawStr(g, static_cast<u8g2_uint_t>(at), static_cast<u8g2_uint_t>(base), text);
+}
+
+// Whether a value reads as "on": a whole number above its least, any other value past half its travel.
+bool is_on(const lab::Param &p, float v, float n) { return p.curve == lab::Int ? v > p.min + 0.5f : n >= 0.5f; }
+
 void draw_el(u8g2_t *g, const lab::Synth &s, const El &e, int npages, int page, const float *values, bool focus) {
-    char name[32], val[32], cut[32];
+    char name[40], val[32], cut[40];
     const bool has = el_has_value(s, e);
     const lab::Param *p = has ? &s.params[e.param] : nullptr;
     const float v = has ? values[e.param] : 0.f;
     const float n = has ? pdesc_to_norm(&*p, v) : 0.f;
     if (has) pdesc_format(&*p, v, val, sizeof val); else val[0] = 0;
-    if (e.kind == kTitle) std::snprintf(name, sizeof name, "%s", e.param < 0 ? s.name : (is_head(s, e.param) ? s.params[e.param].name : "?"));
-    else std::snprintf(name, sizeof name, "%s", p ? p->name : "?");
+    std::snprintf(name, sizeof name, "%s", el_name(s, e).c_str());
 
     u8g2_SetClipWindow(g, static_cast<u8g2_uint_t>(std::max(0, e.x)), static_cast<u8g2_uint_t>(std::max(0, e.y)),
                        static_cast<u8g2_uint_t>(std::max(0, e.x + e.w)), static_cast<u8g2_uint_t>(std::max(0, e.y + e.h)));
@@ -104,6 +113,84 @@ void draw_el(u8g2_t *g, const lab::Synth &s, const El &e, int npages, int page, 
         if (focus) u8g2_DrawFrame(g, e.x, e.y, e.w, e.h);
         break;
     }
+    case kFader: {                                      // a vertical slot filled from the bottom, the name (the value when focused) under it
+        const int th = std::max(6, e.h - 9), tw = std::min(7, std::max(3, e.w - 2)), tx = e.x + (e.w - tw) / 2;
+        u8g2_DrawFrame(g, tx, e.y, tw, th);
+        const int fh = static_cast<int>(std::lround(n * static_cast<float>(th - 4)));
+        if (fh > 0 && tw > 4) u8g2_DrawBox(g, tx + 2, e.y + th - 2 - fh, tw - 4, fh);
+        const int cap = std::max(e.y, std::min(e.y + th - 1, e.y + th - 2 - fh));     // the cap: a line wider than the slot
+        u8g2_DrawHLine(g, std::max(e.x, tx - 3), cap, std::min(e.w, tw + 6));
+        fit(g, focus ? val : name, e.w, cut, sizeof cut);
+        const int cw = u8g2_GetStrWidth(g, cut), cx = e.x + e.w / 2, ty = e.y + e.h - 1;
+        if (focus) { u8g2_DrawBox(g, cx - cw / 2 - 1, ty - 7, cw + 2, 8); u8g2_SetDrawColor(g, 0); }
+        u8g2_DrawStr(g, cx - cw / 2, ty, cut);
+        u8g2_SetDrawColor(g, 1);
+        break;
+    }
+    case kToggle: {                                     // a box (filled: on), then the name
+        if (focus) { u8g2_DrawBox(g, e.x, e.y, e.w, e.h); u8g2_SetDrawColor(g, 0); }
+        const int bs = std::max(3, std::min(7, e.h - 2)), by = e.y + (e.h - bs) / 2;
+        u8g2_DrawFrame(g, e.x + 2, by, bs, bs);
+        if (has && is_on(*p, v, n) && bs > 4) u8g2_DrawBox(g, e.x + 4, by + 2, bs - 4, bs - 4);
+        fit(g, name, e.w - bs - 6, cut, sizeof cut);
+        u8g2_DrawStr(g, e.x + bs + 5, baseline(e.y, e.h), cut);
+        u8g2_SetDrawColor(g, 1);
+        break;
+    }
+    case kChoice: {                                     // the choices side by side, the value's inverted; too many to fit: < value >
+        int top = e.y;
+        if (e.h >= 18) {                                // room for the name above
+            fit(g, name, e.w - 2, cut, sizeof cut);
+            u8g2_DrawStr(g, e.x + 1, e.y + 7, cut);
+            top = e.y + 9;
+        }
+        const int ch = e.y + e.h - top;
+        const int nc = has ? pdesc_choices(&*p) : 0;
+        const int cell = nc > 0 ? e.w / nc : 0;
+        if (nc > 1 && cell >= 6) {
+            const int at = static_cast<int>(std::lround(v - p->min));
+            for (int k = 0; k < nc; k++) {
+                const int cx = e.x + k * cell, cw = k == nc - 1 ? e.w - k * cell : cell;
+                char lab[24];
+                pdesc_format(&*p, p->min + static_cast<float>(k), lab, sizeof lab);
+                fit(g, lab, cw - 2, cut, sizeof cut);
+                if (k == at) { u8g2_DrawBox(g, cx, top, cw, ch); u8g2_SetDrawColor(g, 0); }
+                else u8g2_DrawFrame(g, cx, top, k < nc - 1 ? cw + 1 : cw, ch);
+                draw_aligned(g, cx, cw, baseline(top, ch), cut, kCenter);
+                u8g2_SetDrawColor(g, 1);
+            }
+            if (focus) u8g2_DrawFrame(g, e.x, e.y, e.w, top > e.y ? top - e.y : e.h);   // (with a name: a frame round it)
+        } else {
+            if (focus) { u8g2_DrawBox(g, e.x, top, e.w, ch); u8g2_SetDrawColor(g, 0); }
+            u8g2_DrawStr(g, e.x + 2, baseline(top, ch), "<");
+            draw_text_right(g, e.x + e.w - 2, baseline(top, ch), ">");
+            fit(g, val, e.w - 16, cut, sizeof cut);
+            draw_aligned(g, e.x, e.w, baseline(top, ch), cut, kCenter);
+            u8g2_SetDrawColor(g, 1);
+        }
+        break;
+    }
+    case kLabel:
+        fit(g, name, e.w, cut, sizeof cut);
+        draw_aligned(g, e.x, e.w, baseline(e.y, e.h), cut, e.align);
+        break;
+    case kLine:                                         // along its longer side, through its middle
+        if (e.w >= e.h) u8g2_DrawHLine(g, e.x, e.y + e.h / 2, e.w);
+        else u8g2_DrawVLine(g, e.x + e.w / 2, e.y, e.h);
+        break;
+    case kBox: {                                        // a frame; its text in the top edge
+        const int top = name[0] ? e.y + 3 : e.y;
+        u8g2_DrawFrame(g, e.x, top, e.w, e.y + e.h - top);
+        if (name[0]) {
+            fit(g, name, e.w - 8, cut, sizeof cut);
+            const int tw = u8g2_GetStrWidth(g, cut);
+            u8g2_SetDrawColor(g, 0);
+            u8g2_DrawBox(g, e.x + 3, e.y, tw + 2, 7);
+            u8g2_SetDrawColor(g, 1);
+            u8g2_DrawStr(g, e.x + 4, e.y + 6, cut);
+        }
+        break;
+    }
     default: break;
     }
     u8g2_SetMaxClipWindow(g);
@@ -111,7 +198,7 @@ void draw_el(u8g2_t *g, const lab::Synth &s, const El &e, int npages, int page, 
 }  // namespace
 
 const char *kind_name(int kind) {
-    static const char *const n[kKindCount] = {"row", "knob", "bar", "title", "big"};
+    static const char *const n[kKindCount] = {"row", "knob", "bar", "title", "big", "fader", "toggle", "choice", "label", "line", "box"};
     return kind >= 0 && kind < kKindCount ? n[kind] : "row";
 }
 
@@ -127,12 +214,24 @@ void kind_size(int kind, int &w, int &h) {
     case kBar: w = 64; h = 16; break;
     case kTitle: w = kScreenW; h = 10; break;
     case kBig: w = 64; h = 24; break;
+    case kFader: w = 24; h = 48; break;
+    case kToggle: w = 64; h = 10; break;
+    case kChoice: w = kScreenW; h = 20; break;
+    case kLabel: w = 64; h = 10; break;
+    case kLine: w = kScreenW; h = 4; break;
+    case kBox: w = 64; h = 40; break;
     default: w = kScreenW; h = 10; break;
     }
 }
 
 bool el_has_value(const lab::Synth &s, const El &e) {
-    return e.kind != kTitle && e.param >= 0 && e.param < s.n_params && !is_head(s, e.param);
+    return kind_shows_value(e.kind) && e.param >= 0 && e.param < s.n_params && !is_head(s, e.param);
+}
+
+std::string el_name(const lab::Synth &s, const El &e) {
+    if (!e.text.empty() || kind_is_deco(e.kind)) return e.text;
+    if (e.kind == kTitle) return e.param < 0 ? s.name : (is_head(s, e.param) ? s.params[e.param].name : "?");
+    return e.param >= 0 && e.param < s.n_params ? s.params[e.param].name : "?";
 }
 
 std::vector<int> nav_order(const lab::Synth &s, const Page &p) {
@@ -182,22 +281,29 @@ void layout_draw(u8g2_t *g, const lab::Synth &s, const Layout &l, int page, cons
     if (page < 0 || page >= static_cast<int>(l.pages.size())) return;
     u8g2_SetFontMode(g, 1);
     const Page &p = l.pages[page];
-    for (int i = 0; i < static_cast<int>(p.els.size()); i++)
-        draw_el(g, s, p.els[i], static_cast<int>(l.pages.size()), page, values, i == focus);
+    for (int pass = 0; pass < 2; pass++)                // the decorations first: a box under what it holds
+        for (int i = 0; i < static_cast<int>(p.els.size()); i++)
+            if (kind_is_deco(p.els[i].kind) == (pass == 0))
+                draw_el(g, s, p.els[i], static_cast<int>(l.pages.size()), page, values, i == focus);
 }
 
 std::string layout_to_text(const lab::Synth &s, const Layout &l) {
     std::string out = "# SynthLab Studio layout: ";
     out += s.name;
-    out += "  (screen 128 x 160)\n# page, then: kind value x y w h   (title \"-\": the synth's name; a section title by its name)\n";
-    char line[160], path[64];
+    out += "  (screen 128 x 160)\n# page, then: kind value x y w h [\"text\" [align]]   (title \"-\": the synth's name; a section title by its"
+           " name; label, line, box: \"-\"; the text replaces the name shown)\n";
+    static const char *const aligns[3] = {"left", "center", "right"};
+    char line[200], path[64];
     for (const Page &p : l.pages) {
         out += "page\n";
         for (const El &e : p.els) {
             if (e.param < 0) std::snprintf(path, sizeof path, "-");
             else quote_path(s, e.param, path, sizeof path);
-            std::snprintf(line, sizeof line, "%s %s %d %d %d %d\n", kind_name(e.kind), path, e.x, e.y, e.w, e.h);
+            std::snprintf(line, sizeof line, "%s %s %d %d %d %d", kind_name(e.kind), path, e.x, e.y, e.w, e.h);
             out += line;
+            if (!e.text.empty() || e.align != kLeft) { out += " \""; out += e.text; out += "\""; }
+            if (e.align != kLeft) { out += " "; out += aligns[std::max(0, std::min(2, e.align))]; }
+            out += "\n";
         }
     }
     return out;
@@ -225,8 +331,12 @@ bool layout_from_text(const lab::Synth &s, Layout &l, const char *text, int *dro
         el.x = std::atoi(num[0]); el.y = std::atoi(num[1]); el.w = std::atoi(num[2]); el.h = std::atoi(num[3]);
         el.kind = kind_by_name(kname);
         if (el.kind < 0 || r.pages.empty()) { lost++; continue; }
-        el.param = std::strcmp(path, "-") == 0 ? -1 : find_param(s, path);
-        if (el.param < 0 && std::strcmp(path, "-") != 0) { lost++; continue; }
+        const bool none = std::strcmp(path, "-") == 0 || kind_is_deco(el.kind);
+        el.param = none ? -1 : find_param(s, path);
+        if (el.param < 0 && (!none || kind_shows_value(el.kind))) { lost++; continue; }      // (a value's element without its value)
+        char text[kMaxText + 1], align[16];
+        if (read_word(q, text, sizeof text)) el.text = text;
+        if (read_word(q, align, sizeof align)) el.align = std::strcmp(align, "center") == 0 ? kCenter : (std::strcmp(align, "right") == 0 ? kRight : kLeft);
         el.w = std::max(4, el.w);
         el.h = std::max(4, el.h);
         r.pages.back().els.push_back(el);

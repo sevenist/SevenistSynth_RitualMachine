@@ -2,6 +2,7 @@
 // The studio's state and the parts of its window. main.cpp: the window, the loop, the top bar, notes, files. tab_sound.cpp: the values as
 // knobs and the macros. tab_layout.cpp: the arrangement editor.
 #include <string>
+#include <vector>
 #include "lab.h"
 #include "layout.h"
 #include "macros.h"
@@ -21,7 +22,7 @@ enum DndKind { kDndMacro = 1, kDndParam, kDndTitle, kDndModule, kDndJack };
 
 // Widget id families (WG_ID(family, index)).
 enum Family { F_BAR = 1, F_KNOB, F_MACRO, F_HANDLE, F_DEST, F_DEST_X, F_DEST_ED, F_MACRO_ED, F_KIND, F_LAYOUT_BTN, F_PREVIEW, F_LIST, F_INSPECT,
-              F_PALETTE, F_NODE, F_JACK, F_PROW, F_PATCH_BTN, F_CANVAS, F_PINSP };
+              F_PALETTE, F_NODE, F_JACK, F_PROW, F_PATCH_BTN, F_CANVAS, F_PINSP, F_PMENU };
 
 struct State {
     int tab = kTabSound;
@@ -42,15 +43,23 @@ struct State {
     mod::Patch patch;
     int patch_area = 0;                         // mod::kVoiceArea / kFxArea
     int pan_x[2] = {}, pan_y[2] = {};
-    int sel_node = 0;                           // a node id (0: none)
+    int sel_node = 0;                           // a node id (0: none): the one the inspector shows
+    std::vector<int> sel;                       // the selection (node ids, sel_node among them; tab_patch.cpp keeps the two together)
+    bool zone = false;                          // a zone being drawn on the canvas (from zone_x, zone_y: the patch's coordinates)
+    int zone_x = 0, zone_y = 0;
+    bool zone_add = false;                      // Ctrl / Shift held at its start: added to the selection
+    // the menu of a jack (a right click on it): where it is drawn, and which jack
+    bool menu = false;
+    int menu_x = 0, menu_y = 0, menu_node = 0, menu_port = 0;
+    bool menu_out = false;
     int palette_scroll = 0;
     int pick_out = 0, pick_in = 0;              // the inspector's "connect" choices
     int patch_file = 0;                         // the Load list's position
     int open_synth = 0;                         // the "open a synth" list's position
     bool panning = false;
     int pan_mx = 0, pan_my = 0;
-    // renaming a macro or the patch (the keyboard types into it; notes are off)
-    int edit_what = 0;                          // 0 the macro, 1 the patch
+    // renaming a macro or the patch, a layout element's text (the keyboard types into it; notes are off, the widgets get no keys)
+    int edit_what = 0;                          // 0 the macro, 1 the patch, 2 a layout element's text (tab_layout.cpp: which one)
     bool editing = false;
     std::string edit_text;
     // playing
@@ -75,6 +84,7 @@ void run_frame(wg_ctx_t &c, const wg_input_t &in);     // one frame of the windo
 void draw_sound(wg_ctx_t &c, gui_rect_t area);
 void draw_layout(wg_ctx_t &c, gui_rect_t area);
 void draw_patch(wg_ctx_t &c, gui_rect_t area);
+void set_el_text(const std::string &text);       // the LAYOUT tab: the typed text becomes its element's (edit_what 2)
 
 // The patch (tab_patch.cpp): after a change of modules or cables, patch_apply() makes it the Modular synth's (its list, its voices; the
 // macros and the layout follow their values by name). patch_sync() copies the synth's values into the patch (each frame).

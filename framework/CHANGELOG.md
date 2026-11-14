@@ -54,6 +54,12 @@ changed: every test run passes with the same counts.
   and SynthLab (`png.cpp`, two copies; the studio compiled SynthLab's). `host/wav.h` (new): 16-bit and float WAV writers, from
   SynthLab's tests. TechnoGen's tests use the library's `tests/test_main.cpp`.
 
+## 2026-11-14: math modules and the engine's names
+
+- The modular catalog's Math kind: Math, Func, Range (a range converter), Slew (`modular/modules.h`, `catalog.cpp`).
+- The engine's choices shown by name in the catalog (`engine_adapter.cpp`'s table, `engine_names_unused`).
+  [docs/DESIGN.md](docs/DESIGN.md) ADR-049, addendum 4.
+
 ## 2026-11-14: modules in both areas
 
 - Every catalog module but the ends is `Scope::Both`, the engine's modules included (`engine_adapter.h`: the type of the other

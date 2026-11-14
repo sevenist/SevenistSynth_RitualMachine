@@ -35,6 +35,10 @@ The decisions behind it are [DESIGN.md](DESIGN.md) ADR-049.
 | Comp3 | the Kick's 3-band compressor | none yet | In -> Out |
 | Limit | the Kick's soft limit at the end | none yet | In -> Out |
 | VCA, Mixer, Ring, Const | new | Vca, Mix4, Mult, Const | |
+| Math | new: A op B (+ - x, min, max, mean, distance, A>B), B = its input + the B value | none yet | A, B -> Out |
+| Func | new: abs, -x, 1-x, x^2, x^3, sqrt, sign, half rectify, quantize / floor to Steps a unit, wrap 0..1 | none yet | In -> Out |
+| Range | new: a range converter, InLo..InHi onto OutLo..OutHi, a curve, clamp | none yet | In -> Out |
+| Slew | new: a lag, rise / fall times, Exp or Lin | none yet | In -> Out |
 | Delay | the Kick's rumble echo | Delay (global only) | In -> Out |
 | Room | the Kick's reverb | Reverb (a different one) | In -> Out |
 | Glue | the Kick's master shaper | none yet | In -> Out |
@@ -53,6 +57,12 @@ under its kind (the catalog's own categories: a kind stays one group, the catalo
   RMDelay, RMReverb, RMChorus, RMEnsemble, RMSpectralFx, RMVocoder.
 
 `studio.exe --modules` lists them with their memory.
+
+A value that is a choice shows its name, not its number: the adapter keeps a table of the engine's choices in the engine's own order
+(OscEngines' engine, MiOsc's 47 models, the filter's mode / slope / algorithm, the shaper's modes, the LFO's shapes, the spectral
+modes, the chorus, tremolo and shifter modes, the phaser's stages, the vocoder's bands; any other 0..1 value reads Off / On). The
+engine itself keeps numbers (its UI names them in `core/rack.c`, in the rack's order). A list whose length no longer matches the
+value's range is not used (the numbers come back); `engine_names_unused()` counts those, and the studio's self-test wants 0.
 
 How the adapter works:
 - **Each entry hosts the real engine module.** It is built in the runner's block with its own heap (measured once, when the catalog

@@ -3,6 +3,8 @@
 // free room). On the screen: click selects, drag moves (snapped), the corner resizes; with the screen focused the arrows move the
 // selection (Shift: 1 px), Ctrl+arrows resize it, Delete removes it, Ctrl+D copies it, Page Up / Down select another. TRY makes the
 // screen work as on the board: Up / Down are encoder A (the next value), Left / Right encoder B (the value), Delete its default.
+// The decorations (label, line, box) show no value: a click on their button puts one on the page. An element's text (Enter or a double
+// click on the screen, or the inspector's Text) replaces the name it shows; a label's and a box's text is what they say.
 #include <algorithm>
 #include <cstdio>
 #include <vector>
@@ -20,6 +22,9 @@ bool dev_ready = false;
 
 bool inside(gui_rect_t r, int x, int y) { return x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h; }
 bool overlap(const El &a, const El &b) { return a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h; }
+// A box and a line may sit across other elements (a box holds them); the others take their room.
+bool takes_room(const El &e) { return e.kind != kBox && e.kind != kLine; }
+bool in_the_way(const El &a, const El &b) { return takes_room(a) && takes_room(b) && overlap(a, b); }
 bool outside(const El &e) { return e.x < 0 || e.y < 0 || e.x + e.w > kScreenW || e.y + e.h > kScreenH; }
 int snapv(int v) { return st.snap > 1 ? (v >= 0 ? (v + st.snap / 2) / st.snap * st.snap : -((-v + st.snap / 2) / st.snap * st.snap)) : v; }
 
@@ -38,7 +43,7 @@ void find_free(const Page &p, int w, int h, int &x, int &y) {
         for (int xx = 0; xx + w <= kScreenW; xx += 8) {
             const El t{kRow, 0, xx, yy, w, h};
             bool ok = true;
-            for (const El &e : p.els) if (overlap(t, e)) { ok = false; break; }
+            for (const El &e : p.els) if (in_the_way(t, e)) { ok = false; break; }
             if (ok) { x = xx; y = yy; return; }
         }
     x = 0;
@@ -48,7 +53,7 @@ void find_free(const Page &p, int w, int h, int &x, int &y) {
 void add_element(int param, int at_x, int at_y, bool free_room) {
     Page &p = page();
     El e;
-    e.kind = is_head(param) ? kTitle : (st.new_kind == kTitle ? kRow : st.new_kind);
+    e.kind = is_head(param) ? kTitle : (kind_shows_value(st.new_kind) ? st.new_kind : kRow);
     e.param = param;
     kind_size(e.kind, e.w, e.h);
     if (free_room) find_free(p, e.w, e.h, e.x, e.y);
@@ -59,16 +64,54 @@ void add_element(int param, int at_x, int at_y, bool free_room) {
     mark_dirty();
 }
 
-// The kind of an element changed: a title shows a section (or the synth's name), the others a value.
+// Typing an element's text (st.editing, edit_what 2): which one.
+int g_text_synth = -1, g_text_page = -1, g_text_el = -1;
+
+void start_text(int el) {
+    const El &e = page().els[el];
+    st.editing = true;
+    st.edit_what = 2;
+    st.edit_text = e.text.empty() && !kind_is_deco(e.kind) ? el_name(cur(), e) : e.text;
+    g_text_synth = synth_selected();
+    g_text_page = st.page;
+    g_text_el = el;
+}
+
+// A decoration (label, line, box) in the first free room of the page; a label's text is typed at once.
+bool typing_here() {
+    return st.editing && st.edit_what == 2 && g_text_synth == synth_selected() && g_text_page == st.page && g_text_el >= 0 &&
+           g_text_el < static_cast<int>(page().els.size());
+}
+
+void add_deco(int kind) {
+    Page &p = page();
+    El e;
+    e.kind = kind;
+    e.param = -1;
+    kind_size(kind, e.w, e.h);
+    find_free(p, e.w, e.h, e.x, e.y);
+    if (kind == kLine || kind == kBox) e.x = 0;
+    if (kind == kLabel) e.text = "Label";
+    p.els.push_back(e);
+    st.sel_el = static_cast<int>(p.els.size()) - 1;
+    if (kind == kLabel) { start_text(st.sel_el); st.edit_text.clear(); }
+    mark_dirty();
+}
+
+// The kind of an element changed: a title shows a section (or the synth's name), a decoration nothing, the others a value.
 void set_kind(El &e, int kind) {
-    if ((kind == kTitle) != (e.kind == kTitle)) {
-        if (kind == kTitle) e.param = e.param >= 0 ? section_of(cur(), e.param) : -1;
-        else {
-            int i = std::max(0, e.param + 1);
-            while (i < cur().n_params && is_head(i)) i++;
-            e.param = i < cur().n_params ? i : 0;
-        }
+    const int from = e.kind;
+    if (kind_is_deco(kind)) {
+        if (kind == kLabel && e.text.empty()) e.text = el_name(cur(), e);
+        e.param = -1;
+    } else if (kind == kTitle && from != kTitle) {
+        e.param = e.param >= 0 ? section_of(cur(), e.param) : -1;
+    } else if (kind_shows_value(kind) && !kind_shows_value(from)) {
+        int i = std::max(0, e.param + 1);
+        while (i < cur().n_params && is_head(i)) i++;
+        e.param = i < cur().n_params ? i : 0;
     }
+    if (kind_is_deco(from) && !kind_is_deco(kind)) e.text.clear();   // (a label's words are not a value's name)
     e.kind = kind;
     int w, h;
     kind_size(kind, w, h);
@@ -78,6 +121,7 @@ void set_kind(El &e, int kind) {
 
 // The value an element shows, stepped through the ones its kind can show.
 void step_param(El &e, int dir) {
+    if (kind_is_deco(e.kind)) return;
     const int n = cur().n_params;
     int i = e.param;
     for (int k = 0; k < n + 1; k++) {
@@ -95,12 +139,28 @@ void draw_left(wg_ctx_t &c, gui_rect_t area) {
     int y = area.y + 14;
     wg_text(&c, area.x + 8, y, "NEW ELEMENT", t.dim);
     y += 6;
-    static const char *const names[kKindCount] = {"Row", "Knob", "Bar", "Title", "Big value"};
-    for (int k = 0; k < kKindCount; k++) {
-        if (wg_button(&c, WG_ID(F_KIND, k), gui_rect(area.x + 6, y, 160, 15), names[k], st.new_kind == k)) st.new_kind = k;
-        y += 17;
+    // the kinds a value is dragged as (two columns), then the decorations (a click adds one)
+    static const int order[kKindCount] = {kRow, kKnob, kBar, kBig, kFader, kToggle, kChoice, kTitle, kLabel, kLine, kBox};
+    static const char *const names[kKindCount] = {"Row", "Knob", "Bar", "Big value", "Fader", "Toggle", "Choice", "Title", "+ Label", "+ Line", "+ Box"};
+    for (int i = 0; i < kKindCount; i++) {
+        const int k = order[i];
+        const gui_rect_t b = gui_rect(area.x + 6 + (i % 2) * 82, y + (i / 2) * 17, 78, 15);
+        if (wg_button(&c, WG_ID(F_KIND, k), b, names[i], st.new_kind == k)) {
+            if (kind_is_deco(k)) add_deco(k); else st.new_kind = k;
+        }
+        if (c.hot == WG_ID(F_KIND, k)) {
+            static const char *const hints[kKindCount] = {
+                "A row: the name, the value on the right (SynthLab's own screen)", "A knob: the value's arc, the name under it",
+                "A bar: the name and the value over a bar", "A section's title (drag a section from the list)",
+                "A big value: the name over the value in a large font", "A fader: a vertical slot filled to the value, the name under it",
+                "A toggle: a box filled when on (a whole number above its least, any other value past half)",
+                "A choice: a whole number's choices side by side, the value's inverted (too many to fit: < value >)",
+                "Adds a label: words of your own (type them, Enter keeps)", "Adds a line: across or down, along its longer side",
+                "Adds a box: a frame round other elements, with words in its top edge"};
+            wg_set_hint(&c, "%s", hints[k]);
+        }
     }
-    y += 6;
+    y += (kKindCount + 1) / 2 * 17 + 6;
     char text[48];
     std::snprintf(text, sizeof text, "Snap %d px", st.snap);
     const int ss = wg_stepper(&c, WG_ID(F_LAYOUT_BTN, 0), gui_rect(area.x + 6, y, 160, 15), text);
@@ -131,9 +191,9 @@ void draw_left(wg_ctx_t &c, gui_rect_t area) {
     }
     if (c.hot == WG_ID(F_LAYOUT_BTN, 7)) wg_set_hint(&c, "The screen as on the board: Up / Down encoder A, Left / Right encoder B, Delete the default");
     y += 28;
-    static const char *const edit_help[] = {"Drag a value onto the screen", "Click: select, drag: move", "Corner: resize", "Screen focused:", " arrows move (Shift 1 px)", " Ctrl+arrows resize", " Del remove, Ctrl+D copy", " PgUp / PgDn select"};
-    static const char *const try_help[] = {"Screen focused:", " Up / Down: encoder A", " Left / Right: encoder B", "  (Shift: x10)", " Del: the default", " PgUp / PgDn: the page", "Click a value: go to it", ""};
-    for (int i = 0; i < 8; i++) wg_text_small(&c, area.x + 8, y + i * 9, st.try_mode ? try_help[i] : edit_help[i], t.dim);
+    static const char *const edit_help[] = {"Drag a value onto the screen", "Click: select, drag: move", "Corner: resize", "Double click: its text", "Screen focused:", " arrows move (Shift 1 px)", " Ctrl+arrows resize", " Del remove, Ctrl+D copy", " PgUp / PgDn select, Enter text"};
+    static const char *const try_help[] = {"Screen focused:", " Up / Down: encoder A", " Left / Right: encoder B", "  (Shift: x10)", " Del: the default", " PgUp / PgDn: the page", "Click a value: go to it", "", ""};
+    for (int i = 0; i < 9; i++) wg_text_small(&c, area.x + 8, y + i * 9, st.try_mode ? try_help[i] : edit_help[i], t.dim);
 }
 
 void draw_list(wg_ctx_t &c, gui_rect_t R) {
@@ -196,6 +256,7 @@ void preview_keys(wg_ctx_t &c, const std::vector<int> &order) {
     const wg_input_t &in = *c.in;
     Page &p = page();
     const bool shift = in.mods & WG_MOD_SHIFT, ctrl = in.mods & WG_MOD_CTRL;
+    if (st.editing) return;                             // (the keys are the text's)
     for (int k = 0; k < in.nkeys; k++) {
         if (!in.keys[k].down) continue;
         const int key = in.keys[k].key;
@@ -229,6 +290,7 @@ void preview_keys(wg_ctx_t &c, const std::vector<int> &order) {
             mark_dirty();
         }
         if (key == WG_KEY_DELETE || key == WG_KEY_BACKSPACE) { p.els.erase(p.els.begin() + st.sel_el); st.sel_el = std::min(st.sel_el, static_cast<int>(p.els.size()) - 1); mark_dirty(); return; }
+        if (key == WG_KEY_ENTER && e.kind != kLine) { start_text(st.sel_el); return; }
         if (ctrl && key == 'd') {
             El copy = e;
             copy.y = std::min(kScreenH - copy.h, copy.y + copy.h);
@@ -253,11 +315,12 @@ void draw_preview(wg_ctx_t &c, gui_rect_t P) {
     const bool active = wg_behavior(&c, id, P, true);
     const int dx = (in.x - P.x) / kZoom, dy = (in.y - P.y) / kZoom;
     if (active && !was) {
-        int hit = -1;
-        for (int i = static_cast<int>(p.els.size()) - 1; i >= 0 && hit < 0; i--) {
-            const El &e = p.els[i];
-            if (dx >= e.x && dy >= e.y && dx < e.x + e.w && dy < e.y + e.h) hit = i;
-        }
+        int hit = -1;                                   // the top one under the pointer; a box or a line only where nothing else is
+        for (int pass = 0; pass < 2 && hit < 0; pass++)
+            for (int i = static_cast<int>(p.els.size()) - 1; i >= 0 && hit < 0; i--) {
+                const El &e = p.els[i];
+                if (takes_room(e) == (pass == 0) && dx >= e.x && dy >= e.y && dx < e.x + e.w && dy < e.y + e.h) hit = i;
+            }
         if (st.try_mode) {
             for (int k = 0; k < static_cast<int>(order.size()); k++) if (order[k] == hit) st.try_focus = k;
             st.drag_mode = 0;
@@ -269,6 +332,7 @@ void draw_preview(wg_ctx_t &c, gui_rect_t P) {
                 st.drag_mode = (dx >= e.x + e.w - 4 && dy >= e.y + e.h - 4) ? 2 : 1;
                 st.drag_dx = dx - e.x;
                 st.drag_dy = dy - e.y;
+                if (in.double_click && e.kind != kLine) { start_text(hit); st.drag_mode = 0; }
             }
         }
     }
@@ -297,7 +361,13 @@ void draw_preview(wg_ctx_t &c, gui_rect_t P) {
     float vals[lab::kMaxParams];
     for (int i = 0; i < s.n_params; i++) vals[i] = synth_value(i);
     const int focus_el = st.try_mode && !order.empty() ? order[std::min(st.try_focus, static_cast<int>(order.size()) - 1)] : -1;
-    layout_draw(canvas_u8g2(&dev), s, cur_layout(), st.page, vals, focus_el);
+    if (typing_here()) {                                // the text as it is typed
+        Layout shown = cur_layout();
+        shown.pages[st.page].els[g_text_el].text = st.edit_text + "_";
+        layout_draw(canvas_u8g2(&dev), s, shown, st.page, vals, focus_el);
+    } else {
+        layout_draw(canvas_u8g2(&dev), s, cur_layout(), st.page, vals, focus_el);
+    }
     uint16_t *dst = c.cv->px;
     for (int y = 0; y < kScreenH; y++)
         for (int x = 0; x < kScreenW; x++) {
@@ -314,7 +384,7 @@ void draw_preview(wg_ctx_t &c, gui_rect_t P) {
     for (int i = 0; i < static_cast<int>(p.els.size()); i++) {      // the elements' outlines: grey, red when in the way, the selection's
         const El &e = p.els[i];
         bool bad = outside(e);
-        for (int k = 0; k < static_cast<int>(p.els.size()) && !bad; k++) if (k != i && overlap(e, p.els[k])) bad = true;
+        for (int k = 0; k < static_cast<int>(p.els.size()) && !bad; k++) if (k != i && in_the_way(e, p.els[k])) bad = true;
         const gui_rect_t r = gui_rect(P.x + e.x * kZoom, P.y + e.y * kZoom, e.w * kZoom, e.h * kZoom);
         if (i == st.sel_el) {
             wg_frame(&c, r, t.accent);
@@ -341,9 +411,38 @@ void draw_inspector(wg_ctx_t &c, gui_rect_t r) {
         if (ks) { set_kind(e, (e.kind + ks + kKindCount * 4) % kKindCount); mark_dirty(); }
         char path[64];
         if (e.param < 0) std::snprintf(path, sizeof path, "(the synth's name)"); else param_path(s, e.param, path, sizeof path);
-        const int vs = wg_stepper(&c, WG_ID(F_INSPECT, 1), gui_rect(r.x + 104, y, r.w - 104, 15), path);
-        if (vs) { step_param(e, vs); mark_dirty(); }
+        if (kind_is_deco(e.kind)) {
+            if (e.kind == kLabel) {                     // a label's alignment where a value's stepper would be
+                static const char *const al[3] = {"Left", "Centre", "Right"};
+                const int as = wg_stepper(&c, WG_ID(F_INSPECT, 1), gui_rect(r.x + 104, y, r.w - 104, 15), al[std::max(0, std::min(2, e.align))]);
+                if (as) { e.align = (e.align + as + 3) % 3; mark_dirty(); }
+            } else {
+                wg_text_small(&c, r.x + 108, y + 10, "(no value)", t.dim);
+            }
+        } else {
+            const int vs = wg_stepper(&c, WG_ID(F_INSPECT, 1), gui_rect(r.x + 104, y, r.w - 104, 15), path);
+            if (vs) { step_param(e, vs); mark_dirty(); }
+        }
         y += 19;
+        // the text: typed into (Enter keeps it, Esc drops it); "Name" goes back to the value's own name
+        if (e.kind != kLine) {
+            const bool typing = typing_here() && g_text_el == st.sel_el;
+            const bool own = !e.text.empty() || kind_is_deco(e.kind);
+            std::string shown = typing ? st.edit_text + "_" : (own ? e.text : el_name(s, e) + "  (its name)");
+            wg_fill(&c, gui_rect(r.x, y, r.w - 104, 15), t.panel2);
+            wg_text_small(&c, r.x + 4, y + 10, shown.c_str(), typing ? t.accent : (own ? t.text : t.dim));
+            if (wg_button(&c, WG_ID(F_INSPECT, 6), gui_rect(r.x + r.w - 100, y, 48, 15), typing ? "Done" : "Text", typing)) {
+                if (typing) set_el_text(st.edit_text); else start_text(st.sel_el);
+            }
+            if (c.hot == WG_ID(F_INSPECT, 6)) wg_set_hint(&c, "The words it shows instead of its name (Enter or a double click on the screen too)");
+            if (!kind_is_deco(e.kind) && wg_button(&c, WG_ID(F_INSPECT, 7), gui_rect(r.x + r.w - 48, y, 48, 15), "Name", false)) {
+                e.text.clear();
+                if (typing) st.editing = false;
+                mark_dirty();
+            }
+            if (c.hot == WG_ID(F_INSPECT, 7)) wg_set_hint(&c, "Back to the value's own name");
+            y += 19;
+        }
         int *f[4] = {&e.x, &e.y, &e.w, &e.h};
         static const char *const n[4] = {"x", "y", "w", "h"};
         const int fw = (r.w - 12) / 4;
@@ -361,7 +460,7 @@ void draw_inspector(wg_ctx_t &c, gui_rect_t r) {
     int over = 0, out = 0, missing = 0;
     for (int i = 0; i < static_cast<int>(p.els.size()); i++) {
         if (outside(p.els[i])) out++;
-        for (int k = i + 1; k < static_cast<int>(p.els.size()); k++) if (overlap(p.els[i], p.els[k])) over++;
+        for (int k = i + 1; k < static_cast<int>(p.els.size()); k++) if (in_the_way(p.els[i], p.els[k])) over++;
     }
     for (int i = 0; i < s.n_params; i++) {
         if (is_head(i)) continue;
@@ -372,12 +471,34 @@ void draw_inspector(wg_ctx_t &c, gui_rect_t r) {
     std::snprintf(text, sizeof text, "%d element(s), %d value(s) the encoders reach", static_cast<int>(p.els.size()), static_cast<int>(nav_order(s, p).size()));
     wg_text_small(&c, r.x, y + 7, text, t.dim);
     y += 10;
-    if (over) { std::snprintf(text, sizeof text, "%d overlap(s) on this page", over); wg_text_small(&c, r.x, y + 7, text, t.warn); y += 10; }
-    if (out) { std::snprintf(text, sizeof text, "%d element(s) off the screen", out); wg_text_small(&c, r.x, y + 7, text, t.warn); y += 10; }
+    if (over || out) {                                  // (one line: the inspector is short at the smallest window)
+        if (over && out) std::snprintf(text, sizeof text, "%d overlap(s), %d element(s) off the screen", over, out);
+        else if (over) std::snprintf(text, sizeof text, "%d overlap(s) on this page", over);
+        else std::snprintf(text, sizeof text, "%d element(s) off the screen", out);
+        wg_text_small(&c, r.x, y + 7, text, t.warn);
+        y += 10;
+    }
     std::snprintf(text, sizeof text, missing ? "%d value(s) on no page" : "every value is on a page", missing);
     wg_text_small(&c, r.x, y + 7, text, missing ? t.text : t.dim);
 }
 }  // namespace
+
+void set_el_text(const std::string &text) {
+    st.editing = false;
+    if (g_text_synth != synth_selected()) return;
+    Layout &l = cur_layout();
+    if (g_text_page < 0 || g_text_page >= static_cast<int>(l.pages.size())) return;
+    Page &p = l.pages[g_text_page];
+    if (g_text_el < 0 || g_text_el >= static_cast<int>(p.els.size())) return;
+    El &e = p.els[g_text_el];
+    std::string t = text.substr(0, kMaxText);
+    El own = e;
+    own.text.clear();
+    if (!kind_is_deco(e.kind) && t == el_name(cur(), own)) t.clear();     // its own name: it follows the value's name again
+    if (e.kind == kLabel && t.empty()) return;                             // (a label keeps its words rather than none)
+    e.text = t;
+    mark_dirty();
+}
 
 void draw_layout(wg_ctx_t &c, gui_rect_t area) {
     draw_left(c, area);

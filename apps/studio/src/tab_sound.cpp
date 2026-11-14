@@ -121,14 +121,15 @@ void draw_macros(wg_ctx_t &c, gui_rect_t area) {
     Macro &m = cur_macro();
     int y = area.y + 166;
     wg_fill(&c, gui_rect(area.x + 6, y - 7, 8, 8), macro_color(st.macro_sel));
-    if (st.editing) {
+    const bool renaming = st.editing && st.edit_what == 0;
+    if (renaming) {
         std::string s = st.edit_text + "_";
         wg_text(&c, area.x + 18, y + 1, s.c_str(), t.accent);
     } else {
         wg_text(&c, area.x + 18, y + 1, m.name, t.text);
     }
-    if (wg_button(&c, WG_ID(F_MACRO_ED, 0), gui_rect(area.x + 138, y - 9, 54, 13), st.editing ? "Done" : "Rename", st.editing)) {
-        if (st.editing) { std::snprintf(m.name, sizeof m.name, "%s", st.edit_text.c_str()); st.editing = false; mark_dirty(); }
+    if (wg_button(&c, WG_ID(F_MACRO_ED, 0), gui_rect(area.x + 138, y - 9, 54, 13), renaming ? "Done" : "Rename", renaming)) {
+        if (renaming) { std::snprintf(m.name, sizeof m.name, "%s", st.edit_text.c_str()); st.editing = false; mark_dirty(); }
         else { st.editing = true; st.edit_what = 0; st.edit_text = m.name; }
     }
     y += 10;

@@ -10,6 +10,7 @@ are in [DEVELOPING.md](../DEVELOPING.md); a new app starts from the template ([a
 | `engine/` | the DSP engine (C++17; includes nothing from an app): the graph of modules, the modules, the sampler, the step sequencers | `"engine/..."` |
 | `hal/` | what a board gives an app: display, controls, key LEDs, the card's small files, power, large memory, the audio output. Headers only | `"hal/..."` |
 | `ui/` | the drawing kit: style, layout, text, sprites, animations, popups, the colour canvas, widgets for a mouse and a keyboard | `"ui/..."` |
+| `control/` | what controls move: the parameter descriptor (`param.h`: range, curve, steps, 0..1 position, text) | `"control/..."` |
 | `app/` | the entry points of an app made from apps/template (setup / loop on a board, main on the desktop) and what they call (`app_main.h`) | `"app/..."` |
 | `modular/` | the modular catalog: float modules from SynthLab's synths, patches of them, their runner (docs/MODULAR.md) | `"modular/..."` |
 | `boards/` | the HAL for each board: `esp32/` (what the ESP32 boards share), `hwv1/`, `hwv2/`, `desktop/` | `"boards/..."` |

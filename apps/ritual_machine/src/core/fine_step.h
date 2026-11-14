@@ -5,20 +5,18 @@
 // Enumerations, FM values and the sequencer keep their steps. The app sets it around one fine action only (app/app_actions.c).
 #include <stdbool.h>
 #include <math.h>
+#include "control/param.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-#define FINE_STEP_DIV 5
+#define FINE_STEP_DIV PARAM_FINE_DIV
 extern bool g_fine_step;
 
-static inline float fine_lin_step(float step, int decimals) {
-    if (!g_fine_step) return step;
-    const float f = step / FINE_STEP_DIV, shown = powf(10.0f, (float)-decimals);
-    return f > shown ? f : (shown < step ? shown : step);
-}
-static inline float fine_log_step(float factor) { return g_fine_step ? powf(factor, 1.0f / FINE_STEP_DIV) : factor; }
+// (the formulas are the library's: framework/control/param.h, pdesc_fine_lin / pdesc_fine_log; the tables' values step through pdesc_step)
+static inline float fine_lin_step(float step, int decimals) { return g_fine_step ? pdesc_fine_lin(step, decimals) : step; }
+static inline float fine_log_step(float factor) { return g_fine_step ? pdesc_fine_log(factor) : factor; }
 static inline int   fine_int_step(int step) { return g_fine_step ? (step / FINE_STEP_DIV > 0 ? step / FINE_STEP_DIV : 1) : step; }
 
 #ifdef __cplusplus

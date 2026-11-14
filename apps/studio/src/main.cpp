@@ -61,8 +61,8 @@ void message(const char *fmt, ...) {
 }
 
 void mark_dirty() { st.dirty[synth_selected()] = true; }
-float value_norm(int param) { return to_norm(cur().params[param], synth_value(param)); }
-void set_value_norm(int param, float n) { synth_set_value(param, from_norm(cur().params[param], n)); }
+float value_norm(int param) { return pdesc_to_norm(&cur().params[param], synth_value(param)); }
+void set_value_norm(int param, float n) { synth_set_value(param, pdesc_from_norm(&cur().params[param], n)); }
 
 /* ---------------- files ---------------- */
 

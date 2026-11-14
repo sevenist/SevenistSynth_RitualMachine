@@ -75,7 +75,7 @@ void macro_apply(const lab::Synth &s, const Macro &m) {
     for (int i = 0; i < m.n; i++) {
         const Dest &d = m.d[i];
         if (d.param < 0 || d.param >= s.n_params) continue;
-        synth_set_value(d.param, from_norm(s.params[d.param], dest_apply(d, m.pos)));
+        synth_set_value(d.param, pdesc_from_norm(&s.params[d.param], dest_apply(d, m.pos)));
     }
 }
 

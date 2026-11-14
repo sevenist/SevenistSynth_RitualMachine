@@ -32,8 +32,8 @@ void draw_el(u8g2_t *g, const lab::Synth &s, const El &e, int npages, int page, 
     const bool has = el_has_value(s, e);
     const lab::Param *p = has ? &s.params[e.param] : nullptr;
     const float v = has ? values[e.param] : 0.f;
-    const float n = has ? to_norm(*p, v) : 0.f;
-    if (has) format_value(*p, v, val, sizeof val); else val[0] = 0;
+    const float n = has ? pdesc_to_norm(&*p, v) : 0.f;
+    if (has) pdesc_format(&*p, v, val, sizeof val); else val[0] = 0;
     if (e.kind == kTitle) std::snprintf(name, sizeof name, "%s", e.param < 0 ? s.name : (is_head(s, e.param) ? s.params[e.param].name : "?"));
     else std::snprintf(name, sizeof name, "%s", p ? p->name : "?");
 

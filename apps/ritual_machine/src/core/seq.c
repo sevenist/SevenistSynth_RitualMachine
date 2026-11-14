@@ -1,24 +1,25 @@
 #include "core/seq.h"
+#include "control/param.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+// A setting of seq_t (an int): its descriptor (framework/control/param.h, whole numbers in the Ritual Machine's text style) and where
+// it is. Rate and Dir are choices, written by seq_param_format.
 typedef struct {
-    const char *label;
-    int min, max, step;
-    const char *unit;
-    size_t offset;              // into seq_t
+    param_desc_t d;
+    size_t       offset;        // into seq_t
 } seq_desc_t;
 
 #define F(field) offsetof(seq_t, field)
 
 static const seq_desc_t table[SQP_COUNT] = {
-    [SQP_BPM]       = {"BPM",   40, 240, 5, "",   F(bpm)},
-    [SQP_STEPS]     = {"Steps",  1, SEQ_MAX_STEPS, 1, "", F(steps)},
-    [SQP_TRANSPOSE] = {"Trsp", -24, 24, 1, "st",  F(transpose)},
-    [SQP_SWING]     = {"Swing",  0, 50, 5, "%",   F(swing)},
-    [SQP_RATE]      = {"Rate",   0, SQR_COUNT - 1, 1, "", F(rate)},
-    [SQP_DIR]       = {"Dir",    0, SQD_COUNT - 1, 1, "", F(dir)},
+    [SQP_BPM]       = {{"BPM", 40, 240, 0, "", PARAM_INT, NULL, 5, 0, PARAM_TEXT_FIXED}, F(bpm)},
+    [SQP_STEPS]     = {{"Steps", 1, SEQ_MAX_STEPS, 0, "", PARAM_INT, NULL, 1, 0, PARAM_TEXT_FIXED}, F(steps)},
+    [SQP_TRANSPOSE] = {{"Trsp", -24, 24, 0, "st", PARAM_INT, NULL, 1, 0, PARAM_TEXT_FIXED}, F(transpose)},
+    [SQP_SWING]     = {{"Swing", 0, 50, 0, "%", PARAM_INT, NULL, 5, 0, PARAM_TEXT_FIXED}, F(swing)},
+    [SQP_RATE]      = {{"Rate", 0, SQR_COUNT - 1, 0, "", PARAM_INT, NULL, 1, 0, PARAM_TEXT_FIXED}, F(rate)},
+    [SQP_DIR]       = {{"Dir", 0, SQD_COUNT - 1, 0, "", PARAM_INT, NULL, 1, 0, PARAM_TEXT_FIXED}, F(dir)},
 };
 
 void seq_step_clear(seq_step_t *st) {
@@ -418,25 +419,23 @@ bool seq_tool_apply(seq_t *s, int tool, int scope, int cursor, char *msg, int n)
 bool seq_param_adjust(seq_t *s, seq_param_id_t id, int dir) {
     const seq_desc_t *d = &table[id];
     int *v = (int *)((uint8_t *)s + d->offset);
-    int nv = *v + dir * d->step;
-    if (nv < d->min) nv = d->min;
-    if (nv > d->max) nv = d->max;
+    const int nv = (int)pdesc_step(&d->d, (float)*v, dir, false);     // (the sequencer keeps its steps: no fine steps)
     bool changed = nv != *v;
     *v = nv;
     return changed;
 }
 
-const char *seq_param_label(seq_param_id_t id) { return table[id].label; }
+const char *seq_param_label(seq_param_id_t id) { return table[id].d.name; }
 
 void seq_param_format(const seq_t *s, seq_param_id_t id, char *out, size_t n) {
     static const char *const rate[SQR_COUNT] = {"1/8", "1/8T", "1/16", "1/16T", "1/32"};
     static const char *const dir[SQD_COUNT] = {"Fwd", "Rev", "Ping", "Rand"};
     const seq_desc_t *d = &table[id];
     int v = *(const int *)((const uint8_t *)s + d->offset);
-    if (id == SQP_TRANSPOSE)  snprintf(out, n, "%+d%s", v, d->unit);
+    if (id == SQP_TRANSPOSE)  snprintf(out, n, "%+d%s", v, d->d.unit);
     else if (id == SQP_RATE)  snprintf(out, n, "%s", rate[v >= 0 && v < SQR_COUNT ? v : SQR_16]);
     else if (id == SQP_DIR)   snprintf(out, n, "%s", dir[v >= 0 && v < SQD_COUNT ? v : SQD_FORWARD]);
-    else                      snprintf(out, n, "%d%s", v, d->unit);
+    else                      pdesc_format(&d->d, (float)v, out, n);
 }
 
 void seq_note_name(int note, char *buf, int size) {

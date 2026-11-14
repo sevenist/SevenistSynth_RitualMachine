@@ -167,7 +167,7 @@ void draw_list(wg_ctx_t &c, gui_rect_t R) {
             wg_text_small(&c, r.x + 4, r.y + 8, s.params[i].name, t.accent);
         } else {
             char val[24];
-            format_value(s.params[i], synth_value(i), val, sizeof val);
+            pdesc_format(&s.params[i], synth_value(i), val, sizeof val);
             wg_text_small(&c, r.x + 14, r.y + 8, s.params[i].name, t.text);
             wg_text_small(&c, r.x + r.w - 4 - wg_text_w(&c, val, true), r.y + 8, val, t.dim);
             if (here || elsewhere) wg_fill(&c, gui_rect(r.x + 5, r.y + 3, 4, 4), here ? t.accent : t.line);
@@ -211,7 +211,7 @@ void preview_keys(wg_ctx_t &c, const std::vector<int> &order) {
             if (key == WG_KEY_UP) st.try_focus = std::max(0, f - 1);
             if (key == WG_KEY_DOWN) st.try_focus = std::min(static_cast<int>(order.size()) - 1, f + 1);
             if (key == WG_KEY_LEFT || key == WG_KEY_RIGHT)
-                synth_set_value(prm, step_value(cur().params[prm], synth_value(prm), (key == WG_KEY_RIGHT ? 1 : -1) * (shift ? 10 : 1)));
+                synth_set_value(prm, pdesc_detents(&cur().params[prm], synth_value(prm), (key == WG_KEY_RIGHT ? 1 : -1) * (shift ? 10 : 1)));
             if (key == WG_KEY_DELETE || key == WG_KEY_BACKSPACE) synth_set_value(prm, cur().params[prm].def);
             continue;
         }

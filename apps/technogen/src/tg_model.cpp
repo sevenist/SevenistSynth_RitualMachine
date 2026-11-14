@@ -6,28 +6,28 @@
 namespace tg {
 
 namespace {
-// name, short, colour, lanes, lane names, the seven values {label, sweet spot lo, hi, start value}, the first seed
+// name, short, colour, lanes, lane names, the seven values (name, sweet spot lo, hi, start value), the first seed
 const TrackDef kDefs[kTracks] = {
     {"KICK", "KCK", 0xFF6A2B, 1, {"KICK"},
-     {{"PITCH", 30, 60, 45}, {"DROP", 40, 80, 60}, {"PUNCH", 40, 85, 60}, {"DECAY", 25, 70, 45}, {"DRIVE", 10, 60, 30}, {"CLICK", 15, 60, 35}, {"RUMBL", 0, 55, 20}},
+     {track_value("PITCH", 30, 60, 45), track_value("DROP", 40, 80, 60), track_value("PUNCH", 40, 85, 60), track_value("DECAY", 25, 70, 45), track_value("DRIVE", 10, 60, 30), track_value("CLICK", 15, 60, 35), track_value("RUMBL", 0, 55, 20)},
      0x7F3A},
     {"BASS", "BAS", 0xD4F000, 1, {"BASS"},
-     {{"CUTOF", 20, 70, 40}, {"RESO", 20, 75, 45}, {"ENV", 25, 80, 50}, {"DRIVE", 10, 60, 30}, {"DECAY", 15, 65, 35}, {"GLIDE", 0, 40, 10}, {"ALGO", 0, 100, 0}},
+     {track_value("CUTOF", 20, 70, 40), track_value("RESO", 20, 75, 45), track_value("ENV", 25, 80, 50), track_value("DRIVE", 10, 60, 30), track_value("DECAY", 15, 65, 35), track_value("GLIDE", 0, 40, 10), track_value("ALGO", 0, 100, 0)},
      0x21C4},
     {"DRUM", "DRM", 0x4FD1E8, 6, {"SNARE", "CLAP", "RIM", "HAT", "CYMB", "TOM"},
-     {{"TUNE", 30, 70, 50}, {"SNAP", 30, 80, 55}, {"DECAY", 20, 60, 40}, {"NOISE", 30, 75, 50}, {"METAL", 20, 70, 45}, {"CRUSH", 0, 35, 10}, {"SKEW", 0, 30, 5}},
+     {track_value("TUNE", 30, 70, 50), track_value("SNAP", 30, 80, 55), track_value("DECAY", 20, 60, 40), track_value("NOISE", 30, 75, 50), track_value("METAL", 20, 70, 45), track_value("CRUSH", 0, 35, 10), track_value("SKEW", 0, 30, 5)},
      0xB609},
     {"PERC", "PRC", 0xF2C14E, 4, {"MODAL", "RUST", "BYTE", "CLANK"},
-     {{"STRIK", 30, 80, 55}, {"BODY", 25, 75, 50}, {"RING", 20, 70, 45}, {"WARP", 0, 45, 15}, {"PITCH", 30, 75, 50}, {"DRIVE", 0, 50, 20}, {"ALGO", 0, 100, 0}},
+     {track_value("STRIK", 30, 80, 55), track_value("BODY", 25, 75, 50), track_value("RING", 20, 70, 45), track_value("WARP", 0, 45, 15), track_value("PITCH", 30, 75, 50), track_value("DRIVE", 0, 50, 20), track_value("ALGO", 0, 100, 0)},
      0x4E17},
     {"PAD", "PAD", 0xB08CFF, 1, {"PAD"},
-     {{"SPRED", 30, 80, 55}, {"AGE", 10, 60, 30}, {"ATTCK", 30, 85, 60}, {"FILTR", 25, 70, 45}, {"MANGL", 0, 50, 15}, {"FDBK", 0, 45, 15}, {"FREEZ", 0, 30, 0}},
+     {track_value("SPRED", 30, 80, 55), track_value("AGE", 10, 60, 30), track_value("ATTCK", 30, 85, 60), track_value("FILTR", 25, 70, 45), track_value("MANGL", 0, 50, 15), track_value("FDBK", 0, 45, 15), track_value("FREEZ", 0, 30, 0)},
      0xD05E},
     {"TEXT", "TXT", 0x7CE38B, 1, {"TEXT"},
-     {{"GRIT", 20, 70, 45}, {"DENS", 20, 65, 40}, {"TONE", 25, 75, 50}, {"DRIFT", 15, 60, 35}, {"GATE", 0, 60, 20}, {"RESON", 10, 55, 30}, {"ALGO", 0, 100, 0}},
+     {track_value("GRIT", 20, 70, 45), track_value("DENS", 20, 65, 40), track_value("TONE", 25, 75, 50), track_value("DRIFT", 15, 60, 35), track_value("GATE", 0, 60, 20), track_value("RESON", 10, 55, 30), track_value("ALGO", 0, 100, 0)},
      0x93AB},
     {"SAMP", "SMP", 0xFF9EC4, 1, {"SAMP"},
-     {{"START", 0, 60, 0}, {"LEN", 30, 90, 60}, {"PITCH", 35, 65, 50}, {"SCAN", 0, 60, 0}, {"FILTR", 30, 85, 70}, {"CRUSH", 0, 40, 0}, {"RESYN", 0, 30, 0}},
+     {track_value("START", 0, 60, 0), track_value("LEN", 30, 90, 60), track_value("PITCH", 35, 65, 50), track_value("SCAN", 0, 60, 0), track_value("FILTR", 30, 85, 70), track_value("CRUSH", 0, 40, 0), track_value("RESYN", 0, 30, 0)},
      0x1C72},
 };
 const char *const kDepthNames[D_COUNT] = {"TIGHT", "RAW", "WEIRD"};
@@ -144,7 +144,7 @@ void tg_roll(Track &tr, int t, uint16_t seed, int depth) {
 void tg_init_pattern(Pattern &p) {
     for (int t = 0; t < kTracks; t++) {
         p.track[t] = Track{};
-        for (int k = 0; k < kParams; k++) p.track[t].value[k] = track_def(t).param[k].def;
+        for (int k = 0; k < kParams; k++) p.track[t].value[k] = static_cast<uint8_t>(track_def(t).param[k].desc.def);
         tg_roll(p.track[t], t, track_def(t).seed, D_RAW);
     }
 }

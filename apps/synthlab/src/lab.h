@@ -30,6 +30,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <new>
+#include "control/param.h"
 
 namespace lab {
 
@@ -43,16 +44,13 @@ constexpr int kMaxSynths = 32;
 
 // How the second encoder moves a value: Lin in equal steps (100 detents from min to max), Exp by an equal ratio (100 detents; for Hz,
 // ms, anything heard on a log scale; min must be > 0), Int by 1 (whole numbers; with `labels`, a name for each). Head: not a value but
-// a section's title (lab::section); encoder A steps over it.
-enum Curve : uint8_t { Lin, Exp, Int, Head };
+// a section's title (lab::section); encoder A steps over it. (The library's curves: framework/control/param.h.)
+enum Curve : uint8_t { Lin = PARAM_LIN, Exp = PARAM_LOG, Int = PARAM_INT, Head = PARAM_HEAD };
 
-struct Param {
-    const char *name;                   // about 8 characters fit beside the value
-    float min, max, def;
-    const char *unit = nullptr;         // drawn after the value: "Hz", "ms", "%", "st" ... (nullptr: none)
-    Curve curve = Lin;
-    const char *const *labels = nullptr;    // Int: the names of min .. max, shown instead of the number
-};
+// A parameter is the library's descriptor (framework/control/param.h: pdesc_detents moves it as encoder B does, pdesc_format writes it,
+// SynthLab's text style): name (about 8 characters fit beside the value), min, max, def, then unit ("Hz", "ms", "%", "st" ...; nullptr:
+// none), curve and labels (Int: the names of min .. max, shown instead of the number).
+using Param = param_desc_t;
 
 constexpr Param section(const char *title) { return Param{title, 0, 0, 0, nullptr, Head, nullptr}; }
 

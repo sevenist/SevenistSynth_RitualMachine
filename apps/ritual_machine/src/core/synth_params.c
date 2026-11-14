@@ -1,22 +1,17 @@
 #include "core/synth_params.h"
 #include "core/fine_step.h"
+#include "control/param.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
 bool g_fine_step;
 
-typedef enum { KIND_ENUM, KIND_LIN, KIND_LOG } kind_t;
-
+// A value of synth_params_t: its descriptor (framework/control/param.h; the Ritual Machine's text style; the defaults are
+// synth_params_default's) and where it is. An enumeration is a byte, the others floats.
 typedef struct {
-    const char *label;
-    kind_t      kind;
-    size_t      offset;         // into synth_params_t
-    float       min, max;
-    float       step;           // KIND_LIN: added; KIND_LOG: multiplied
-    const char *unit;           // "ms", "Hz" (auto kHz), "" ...
-    uint8_t     decimals;
-    const char *const *names;   // KIND_ENUM
+    param_desc_t d;
+    size_t       offset;        // into synth_params_t
 } desc_t;
 
 static const char *const wave_names[]   = {"Sine", "Pulse", "SawDn", "SawUp", "Tri", "Noise"};
@@ -28,38 +23,38 @@ static const char *const off_on_names[]   = {"Off", "On"};
 #define F(field) offsetof(synth_params_t, field)
 
 static const desc_t table[P_COUNT] = {
-    [P_WAVE]           = {"Wav", KIND_ENUM, F(wave),                  0, WAVE_COUNT - 1, 1, "", 0, wave_names},
-    [P_PULSE_WIDTH]    = {"PW",  KIND_LIN,  F(pulse_width),           0.05f, 0.95f, 0.05f, "", 2, 0},
-    [P_VOLUME]         = {"Vol", KIND_LIN,  F(volume),                0.0f, 2.0f, 0.05f, "", 2, 0},
-    [P_AMP_A]          = {"Atk", KIND_LOG,  F(amp_env.attack_ms),     1, 5000, 1.2f, "ms", 0, 0},
-    [P_AMP_D]          = {"Dec", KIND_LOG,  F(amp_env.decay_ms),      1, 5000, 1.2f, "ms", 0, 0},
-    [P_AMP_S]          = {"Sus", KIND_LIN,  F(amp_env.sustain),       0, 1, 0.05f, "", 2, 0},
-    [P_AMP_R]          = {"Rel", KIND_LOG,  F(amp_env.release_ms),    1, 5000, 1.2f, "ms", 0, 0},
-    [P_FILTER_TYPE]    = {"Typ", KIND_ENUM, F(filter_type),           0, FILT_COUNT - 1, 1, "", 0, filter_names},
-    [P_CUTOFF]         = {"Cut", KIND_LOG,  F(cutoff_hz),             20, 18000, 1.12f, "Hz", 0, 0},
-    [P_RESONANCE]      = {"Res", KIND_LIN,  F(resonance),             0.5f, 10, 0.1f, "", 1, 0},
-    [P_FILTER_ENV_AMT] = {"Env", KIND_LIN,  F(filter_env_amt),        0, 8, 0.25f, "", 2, 0},
-    [P_FENV_A]         = {"Atk", KIND_LOG,  F(filter_env.attack_ms),  1, 5000, 1.2f, "ms", 0, 0},
-    [P_FENV_D]         = {"Dec", KIND_LOG,  F(filter_env.decay_ms),   1, 5000, 1.2f, "ms", 0, 0},
-    [P_FENV_S]         = {"Sus", KIND_LIN,  F(filter_env.sustain),    0, 1, 0.05f, "", 2, 0},
-    [P_FENV_R]         = {"Rel", KIND_LOG,  F(filter_env.release_ms), 1, 5000, 1.2f, "ms", 0, 0},
-    [P_AMP_HOLD]       = {"Hld", KIND_LIN,  F(amp_env.hold_ms),       0, 2000, 5, "ms", 0, 0},
-    [P_AMP_ACV]        = {"ACv", KIND_LIN,  F(amp_env.a_curve),       -100, 100, 5, "%", 0, 0},
-    [P_AMP_DCV]        = {"DCv", KIND_LIN,  F(amp_env.d_curve),       -100, 100, 5, "%", 0, 0},
-    [P_AMP_RCV]        = {"RCv", KIND_LIN,  F(amp_env.r_curve),       -100, 100, 5, "%", 0, 0},
-    [P_STR_WAVE]       = {"Wav", KIND_ENUM, F(str.wave),              0, STRW_COUNT - 1, 1, "", 0, str_wave_names},
-    [P_STR_OSC]        = {"Osc", KIND_ENUM, F(str.osc),               0, 1, 1, "", 0, str_osc_names},
-    [P_STR_DETUNE]     = {"Det", KIND_LIN,  F(str.detune),            0, 100, 1, "c", 0, 0},
-    [P_STR_MIX]        = {"Mix", KIND_LIN,  F(str.mix),               0, 1, 0.05f, "", 2, 0},
-    [P_STR_PW]         = {"PW",  KIND_LIN,  F(str.pw),                0.05f, 0.95f, 0.05f, "", 2, 0},
-    [P_STR_LEVEL]      = {"Lvl", KIND_LIN,  F(str.level),             0, 1, 0.05f, "", 2, 0},
-    [P_STR_LP]         = {"LP",  KIND_ENUM, F(str.lp_on),             0, 1, 1, "", 0, off_on_names},
-    [P_STR_LPCUT]      = {"Cut", KIND_LOG,  F(str.lp_cut),            50, 18000, 1.12f, "Hz", 0, 0},
-    [P_STR_LPENV]      = {"Env", KIND_LIN,  F(str.lp_env),            0, 8, 0.25f, "oct", 2, 0},
-    [P_STR_LPKEY]      = {"Key", KIND_LIN,  F(str.lp_key),            0, 1, 0.05f, "", 2, 0},
-    [P_STR_FTYPE]      = {"Typ", KIND_ENUM, F(str.ftype),             0, FILT_COUNT - 1, 1, "", 0, filter_names},
-    [P_STR_FCUT]       = {"Cut", KIND_LOG,  F(str.fcut),              20, 18000, 1.12f, "Hz", 0, 0},
-    [P_STR_FRES]       = {"Res", KIND_LIN,  F(str.fres),              0.5f, 10, 0.1f, "", 1, 0},
+    [P_WAVE]           = {{"Wav", 0, WAVE_COUNT - 1, 0, "", PARAM_ENUM, wave_names, 1, 0, PARAM_TEXT_FIXED}, F(wave)},
+    [P_PULSE_WIDTH]    = {{"PW", 0.05f, 0.95f, 0, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED}, F(pulse_width)},
+    [P_VOLUME]         = {{"Vol", 0.0f, 2.0f, 0, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED}, F(volume)},
+    [P_AMP_A]          = {{"Atk", 1, 5000, 0, "ms", PARAM_LOG, NULL, 1.2f, 0, PARAM_TEXT_FIXED}, F(amp_env.attack_ms)},
+    [P_AMP_D]          = {{"Dec", 1, 5000, 0, "ms", PARAM_LOG, NULL, 1.2f, 0, PARAM_TEXT_FIXED}, F(amp_env.decay_ms)},
+    [P_AMP_S]          = {{"Sus", 0, 1, 0, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED}, F(amp_env.sustain)},
+    [P_AMP_R]          = {{"Rel", 1, 5000, 0, "ms", PARAM_LOG, NULL, 1.2f, 0, PARAM_TEXT_FIXED}, F(amp_env.release_ms)},
+    [P_FILTER_TYPE]    = {{"Typ", 0, FILT_COUNT - 1, 0, "", PARAM_ENUM, filter_names, 1, 0, PARAM_TEXT_FIXED}, F(filter_type)},
+    [P_CUTOFF]         = {{"Cut", 20, 18000, 0, "Hz", PARAM_LOG, NULL, 1.12f, 0, PARAM_TEXT_FIXED}, F(cutoff_hz)},
+    [P_RESONANCE]      = {{"Res", 0.5f, 10, 0, "", PARAM_LIN, NULL, 0.1f, 1, PARAM_TEXT_FIXED}, F(resonance)},
+    [P_FILTER_ENV_AMT] = {{"Env", 0, 8, 0, "", PARAM_LIN, NULL, 0.25f, 2, PARAM_TEXT_FIXED}, F(filter_env_amt)},
+    [P_FENV_A]         = {{"Atk", 1, 5000, 0, "ms", PARAM_LOG, NULL, 1.2f, 0, PARAM_TEXT_FIXED}, F(filter_env.attack_ms)},
+    [P_FENV_D]         = {{"Dec", 1, 5000, 0, "ms", PARAM_LOG, NULL, 1.2f, 0, PARAM_TEXT_FIXED}, F(filter_env.decay_ms)},
+    [P_FENV_S]         = {{"Sus", 0, 1, 0, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED}, F(filter_env.sustain)},
+    [P_FENV_R]         = {{"Rel", 1, 5000, 0, "ms", PARAM_LOG, NULL, 1.2f, 0, PARAM_TEXT_FIXED}, F(filter_env.release_ms)},
+    [P_AMP_HOLD]       = {{"Hld", 0, 2000, 0, "ms", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED}, F(amp_env.hold_ms)},
+    [P_AMP_ACV]        = {{"ACv", -100, 100, 0, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED}, F(amp_env.a_curve)},
+    [P_AMP_DCV]        = {{"DCv", -100, 100, 0, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED}, F(amp_env.d_curve)},
+    [P_AMP_RCV]        = {{"RCv", -100, 100, 0, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED}, F(amp_env.r_curve)},
+    [P_STR_WAVE]       = {{"Wav", 0, STRW_COUNT - 1, 0, "", PARAM_ENUM, str_wave_names, 1, 0, PARAM_TEXT_FIXED}, F(str.wave)},
+    [P_STR_OSC]        = {{"Osc", 0, 1, 0, "", PARAM_ENUM, str_osc_names, 1, 0, PARAM_TEXT_FIXED}, F(str.osc)},
+    [P_STR_DETUNE]     = {{"Det", 0, 100, 0, "c", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED}, F(str.detune)},
+    [P_STR_MIX]        = {{"Mix", 0, 1, 0, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED}, F(str.mix)},
+    [P_STR_PW]         = {{"PW", 0.05f, 0.95f, 0, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED}, F(str.pw)},
+    [P_STR_LEVEL]      = {{"Lvl", 0, 1, 0, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED}, F(str.level)},
+    [P_STR_LP]         = {{"LP", 0, 1, 0, "", PARAM_ENUM, off_on_names, 1, 0, PARAM_TEXT_FIXED}, F(str.lp_on)},
+    [P_STR_LPCUT]      = {{"Cut", 50, 18000, 0, "Hz", PARAM_LOG, NULL, 1.12f, 0, PARAM_TEXT_FIXED}, F(str.lp_cut)},
+    [P_STR_LPENV]      = {{"Env", 0, 8, 0, "oct", PARAM_LIN, NULL, 0.25f, 2, PARAM_TEXT_FIXED}, F(str.lp_env)},
+    [P_STR_LPKEY]      = {{"Key", 0, 1, 0, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED}, F(str.lp_key)},
+    [P_STR_FTYPE]      = {{"Typ", 0, FILT_COUNT - 1, 0, "", PARAM_ENUM, filter_names, 1, 0, PARAM_TEXT_FIXED}, F(str.ftype)},
+    [P_STR_FCUT]       = {{"Cut", 20, 18000, 0, "Hz", PARAM_LOG, NULL, 1.12f, 0, PARAM_TEXT_FIXED}, F(str.fcut)},
+    [P_STR_FRES]       = {{"Res", 0.5f, 10, 0, "", PARAM_LIN, NULL, 0.1f, 1, PARAM_TEXT_FIXED}, F(str.fres)},
 };
 
 void synth_params_default(synth_params_t *p) {
@@ -79,64 +74,48 @@ bool param_reset(synth_params_t *p, param_id_t id) {
     synth_params_t d;
     synth_params_default(&d);
     const desc_t *t = &table[id];
-    const size_t n = t->kind == KIND_ENUM ? 1 : sizeof(float);             // (an enumeration is a byte: param_adjust)
+    const size_t n = t->d.curve == PARAM_ENUM ? 1 : sizeof(float);             // (an enumeration is a byte: param_adjust)
     uint8_t *v = (uint8_t *)p + t->offset;
     if (!memcmp(v, (const uint8_t *)&d + t->offset, n)) return false;
     memcpy(v, (const uint8_t *)&d + t->offset, n);
     return true;
 }
 
+// The value of a parameter (an enumeration's byte as a float), and its store (false: it was already that value).
+static float get(const synth_params_t *p, const desc_t *t) {
+    const uint8_t *base = (const uint8_t *)p + t->offset;
+    return t->d.curve == PARAM_ENUM ? (float)*base : *(const float *)base;
+}
+static bool put(synth_params_t *p, const desc_t *t, float v) {
+    if (v == get(p, t)) return false;
+    uint8_t *base = (uint8_t *)p + t->offset;
+    if (t->d.curve == PARAM_ENUM) *base = (uint8_t)v;
+    else *(float *)base = v;
+    return true;
+}
+
 int param_adjust(synth_params_t *p, param_id_t id, int dir) {
-    const desc_t *d = &table[id];
-    uint8_t *base = (uint8_t *)p + d->offset;
-    if (d->kind == KIND_ENUM) {
-        int v = *base, nv = v + dir;
-        if (nv < (int)d->min || nv > (int)d->max) return 0;
-        *base = (uint8_t)nv;
-        return 1;
-    }
-    float *f = (float *)base, v = *f, nv;
-    const float st = d->kind == KIND_LOG ? fine_log_step(d->step) : fine_lin_step(d->step, d->decimals);
-    nv = d->kind == KIND_LOG ? (dir > 0 ? v * st : v / st) : v + dir * st;
-    if (nv < d->min) nv = d->min;
-    if (nv > d->max) nv = d->max;
-    if (nv == v) return 0;
-    *f = nv;
-    return 1;
+    const desc_t *t = &table[id];
+    return put(p, t, pdesc_step(&t->d, get(p, t), dir, g_fine_step)) ? 1 : 0;     // (an enumeration keeps its steps)
 }
 
 // Continuous access (knobs): a linear value as 0..1 of min..max, a logarithmic one as 0..1 of log(min)..log(max). Set values are rounded to the
 // decimals the parameter shows.
-bool param_is_continuous(param_id_t id) { return table[id].kind != KIND_ENUM; }
+bool param_is_continuous(param_id_t id) { return pdesc_is_continuous(&table[id].d); }
 
 float param_norm(const synth_params_t *p, param_id_t id) {
-    const desc_t *d = &table[id];
-    if (d->kind == KIND_ENUM) return 0.0f;
-    const float v = *(const float *)((const uint8_t *)p + d->offset);
-    const float n = d->kind == KIND_LOG ? logf(v / d->min) / logf(d->max / d->min) : (v - d->min) / (d->max - d->min);
-    return n < 0.0f ? 0.0f : n > 1.0f ? 1.0f : n;
+    const desc_t *t = &table[id];
+    return pdesc_is_continuous(&t->d) ? pdesc_to_norm(&t->d, get(p, t)) : 0.0f;
 }
 
 bool param_set_norm(synth_params_t *p, param_id_t id, float n) {
-    const desc_t *d = &table[id];
-    if (d->kind == KIND_ENUM) return false;
-    n = n < 0.0f ? 0.0f : n > 1.0f ? 1.0f : n;
-    float *f = (float *)((uint8_t *)p + d->offset);
-    const float q = powf(10.0f, (float)d->decimals);           // to the precision shown: whole units stay whole
-    float nv = roundf((d->kind == KIND_LOG ? d->min * powf(d->max / d->min, n) : d->min + n * (d->max - d->min)) * q) / q;
-    nv = nv < d->min ? d->min : nv > d->max ? d->max : nv;
-    if (nv == *f) return false;
-    *f = nv;
-    return true;
+    const desc_t *t = &table[id];
+    return pdesc_is_continuous(&t->d) && put(p, t, pdesc_from_norm(&t->d, n));     // (to the precision shown: whole units stay whole)
 }
 
-const char *param_label(param_id_t id) { return table[id].label; }
+const char *param_label(param_id_t id) { return table[id].d.name; }
 
 void param_format(const synth_params_t *p, param_id_t id, char *out, size_t n) {
-    const desc_t *d = &table[id];
-    const uint8_t *base = (const uint8_t *)p + d->offset;
-    if (d->kind == KIND_ENUM) { snprintf(out, n, "%s", d->names[*base]); return; }
-    float v = *(const float *)base;
-    if (d->unit[0] == 'H' && v >= 1000) snprintf(out, n, "%.1fkHz", v / 1000.0f);
-    else                                snprintf(out, n, "%.*f%s", d->decimals, v, d->unit);
+    const desc_t *t = &table[id];
+    pdesc_format(&t->d, get(p, t), out, n);
 }

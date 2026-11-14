@@ -236,7 +236,7 @@ void draw_node(wg_ctx_t &c, const View &v, mod::Node &n, int idx) {
         }
         char txt[24];
         wg_text_small(&c, r.x + 2, r.y + 7, q.name, t.text);
-        if (slot >= 0) format_value(cur().params[slot], val, txt, sizeof txt);
+        if (slot >= 0) pdesc_format(&cur().params[slot], val, txt, sizeof txt);
         else std::snprintf(txt, sizeof txt, "%g", static_cast<double>(val));
         wg_text_small(&c, r.x + r.w - 2 - wg_text_w(&c, txt, true), r.y + 7, txt, t.text);
         if (wg_has_focus(&c, rid)) wg_focus_ring(&c, gui_inset(r, -1));

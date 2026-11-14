@@ -161,7 +161,7 @@ void knob(int k, int value) {
             mod_touched = static_cast<uint8_t>(mod_touched | (1 << k));
             st.sel().lock[k] = !st.sel().lock[k];
             char text[24];
-            std::snprintf(text, sizeof text, "%s %s", track_def(st.selected).param[k].label, st.sel().lock[k] ? "LOCKED" : "UNLOCKED");
+            std::snprintf(text, sizeof text, "%s %s", track_def(st.selected).param[k].desc.name, st.sel().lock[k] ? "LOCKED" : "UNLOCKED");
             say(text);
         }
         return;
@@ -294,7 +294,7 @@ void draw_footer(u8g2_t *g) {
         const int k = st.last_value;
         const bool main = st.view == V_MAIN;
         const int v = main ? st.track(k).level : tr.value[k];
-        const char *label = main ? track_def(k).shortname : d.param[k].label;
+        const char *label = main ? track_def(k).shortname : d.param[k].desc.name;
         if (st.knob_caught[k] || st.knob_pos[k] < 0) std::snprintf(b, sizeof b, main ? "%s LEVEL %d" : "%s %d", label, v);
         else std::snprintf(b, sizeof b, main ? "%s LEVEL %d (%d)" : "%s %d (%d)", label, v, st.knob_pos[k]);   // (where the knob is)
     } else if (tr.muted) std::snprintf(b, sizeof b, "MUTED");

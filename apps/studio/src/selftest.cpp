@@ -31,9 +31,9 @@ void test_params() {
         for (int i = 0; i < s.n_params; i++) {
             const lab::Param &p = s.params[i];
             if (p.curve == lab::Head) continue;
-            const float back = from_norm(p, to_norm(p, p.def));
+            const float back = pdesc_from_norm(&p, pdesc_to_norm(&p, p.def));
             CHECK(near(back, p.def, 1e-3f * (p.max - p.min) + 1e-4f), "%s %s: default %g comes back as %g", s.name, p.name, (double)p.def, (double)back);
-            CHECK(near(from_norm(p, 0.f), p.min, 1e-4f * (p.max - p.min) + 1e-5f) && near(from_norm(p, 1.f), p.max, 1e-3f * (p.max - p.min)), "%s %s: the ends", s.name, p.name);
+            CHECK(near(pdesc_from_norm(&p, 0.f), p.min, 1e-4f * (p.max - p.min) + 1e-5f) && near(pdesc_from_norm(&p, 1.f), p.max, 1e-3f * (p.max - p.min)), "%s %s: the ends", s.name, p.name);
             char path[64];
             param_path(s, i, path, sizeof path);
             CHECK(find_param(s, path) == i, "%s: %s is not found back (%d)", s.name, path, find_param(s, path));
@@ -87,7 +87,7 @@ void test_macros() {
     m.d[db].max = 0.1f;                         // inverted
     std::snprintf(m.name, sizeof m.name, "Big Punch");
     macro_apply(s, m);
-    CHECK(near(synth_value(a), from_norm(s.params[a], dest_apply(m.d[0], 0.3f)), 1e-3f), "macro_apply sets the value");
+    CHECK(near(synth_value(a), pdesc_from_norm(&s.params[a], dest_apply(m.d[0], 0.3f)), 1e-3f), "macro_apply sets the value");
     CHECK(near(value_norm(b), 0.8f + (0.1f - 0.8f) * curve_eval(kS, 0.3f), 1e-3f), "an inverted S destination");
     MacroSet back;
     const std::string text = macros_to_text(s, set);

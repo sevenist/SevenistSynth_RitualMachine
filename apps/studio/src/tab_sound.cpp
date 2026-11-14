@@ -115,7 +115,7 @@ void draw_macros(wg_ctx_t &c, gui_rect_t area) {
         wg_fill(&c, r, j == st.dest_sel ? t.panel2 : (c.hot == id ? t.line : t.panel));
         char path[64], line[96], val[24];
         param_path(cur(), m.d[j].param, path, sizeof path);
-        format_value(cur().params[m.d[j].param], synth_value(m.d[j].param), val, sizeof val);
+        pdesc_format(&cur().params[m.d[j].param], synth_value(m.d[j].param), val, sizeof val);
         std::snprintf(line, sizeof line, "%.22s", path);
         wg_text_small(&c, r.x + 3, r.y + 9, line, j == st.dest_sel ? t.text : t.dim);
         wg_text_small(&c, r.x + r.w - 3 - wg_text_w(&c, val, true), r.y + 9, val, macro_color(st.macro_sel));
@@ -202,7 +202,7 @@ void draw_values(wg_ctx_t &c, gui_rect_t R) {
             }
             float v = value_norm(i);
             char val[24];
-            format_value(p, synth_value(i), val, sizeof val);
+            pdesc_format(&p, synth_value(i), val, sizeof val);
             Macro &sel = set.m[st.macro_sel];
             const int di = macro_find(sel, i);
             uint16_t dots[kMacros];
@@ -211,8 +211,8 @@ void draw_values(wg_ctx_t &c, gui_rect_t R) {
             wg_knob_t kd{};
             kd.label = p.name;
             kd.value = val;
-            kd.def = to_norm(p, p.def);
-            kd.steps = knob_steps(p);
+            kd.def = pdesc_to_norm(&p, p.def);
+            kd.steps = pdesc_choices(&p);
             if (di >= 0) { kd.ring = true; kd.ring_a = &sel.d[di].min; kd.ring_b = &sel.d[di].max; kd.ring_color = macro_color(st.macro_sel); }
             kd.dots = dots;
             kd.ndots = nd;

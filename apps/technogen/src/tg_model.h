@@ -8,6 +8,7 @@
 // how the others roll. Each value has a sweet spot (lo..hi, in 0..100) that RAW stays inside; TIGHT nudges the values and keeps the steps;
 // WEIRD goes to the edges. Rules then link values (tg_rules): a long kick decay caps its rumble, reso and drive of the bass stay under a limit.
 #include <cstdint>
+#include "control/param.h"
 
 namespace tg {
 
@@ -18,7 +19,13 @@ enum Depth : uint8_t { D_TIGHT, D_RAW, D_WEIRD, D_COUNT };
 // A step: off, a hit, an accent, or (the pad) the chord held on from the step before.
 enum StepKind : uint8_t { S_OFF, S_HIT, S_ACCENT, S_HOLD, S_KINDS };
 
-struct ParamDef { const char *label; uint8_t lo, hi, def; };   // label: 5 letters at most (the screen's knob legend)
+// A track's value: the library's descriptor (framework/control/param.h: a whole number 0..100, its start value; its name 5 letters at
+// most, the screen's knob legend) and its sweet spot lo..hi, where the dice's RAW roll stays.
+struct ParamDef {
+    param_desc_t desc;
+    uint8_t lo, hi;
+};
+constexpr ParamDef track_value(const char *name, uint8_t lo, uint8_t hi, uint8_t def) { return {{name, 0, 100, static_cast<float>(def), nullptr, PARAM_INT}, lo, hi}; }
 struct TrackDef {
     const char *name, *shortname;       // "KICK", "KCK"
     uint32_t color;                     // 0xRRGGBB: the row, the keys, the knob's LED

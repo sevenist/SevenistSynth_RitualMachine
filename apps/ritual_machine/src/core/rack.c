@@ -1,21 +1,14 @@
 #include "core/rack.h"
 #include "core/synth_params.h"
 #include "core/fine_step.h"
+#include "control/param.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
-typedef enum { K_ENUM, K_LIN, K_LOG } mp_kind_t;
-
-typedef struct {                // descriptor of one module parameter
-    const char *label;
-    mp_kind_t   kind;
-    float       min, max, step;     // K_LIN: added; K_LOG: multiplied
-    float       def;
-    const char *unit;               // "Hz" prints as kHz above 1000
-    uint8_t     decimals;
-    const char *const *names;       // K_ENUM
-} mp_t;
+// A module's own parameter: its descriptor (framework/control/param.h, the Ritual Machine's text style; def: what a new module
+// starts with).
+typedef param_desc_t mp_t;
 
 static const char *const wave_names[]   = {"Sine", "Pulse", "SawDn", "SawUp", "Tri", "Noise", "Karp", "Modal", "FM2", "Fold", "SSaw", "Vowel", "Add", "Dust", "Strng",
     // the Mutable Instruments models (OC_FIRST_MI..): the order of MiModel in engine/modules/mi_osc.h (a UI test compares them)
@@ -34,83 +27,83 @@ static const char *const out_names[]    = {"On", "Mute"};
 static const char *const lfo_names[]    = {"Sine", "Tri", "SawDn", "Pulse"};
 
 static const mp_t osc_mp[] = {
-    [MP_OC_WAVE]   = {"Wav",  K_ENUM, 0, OC_WAVE_COUNT - 1, 1, 2, "", 0, wave_names},
-    [MP_OC_PW]     = {"PW",   K_LIN, 0.05f, 0.95f, 0.05f, 0.5f, "", 2, 0},
-    [MP_OC_LEVEL]  = {"Lvl",  K_LIN, 0, 1, 0.05f, 1, "", 2, 0},
-    [MP_OC_COARSE] = {"Crs",  K_LIN, -24, 24, 1, 0, "st", 0, 0},
-    [MP_OC_FINE]   = {"Fine", K_LIN, -50, 50, 1, 0, "ct", 0, 0},
-    [MP_OC_MUTE]   = {"Out",  K_ENUM, 0, 1, 1, 0, "", 0, out_names},       // with a target: Mute silences the chain output, not the modulation
-    [MP_OC_DEPTH]  = {"Dpth", K_LIN, 0, 2, 0.05f, 1, "", 2, 0},            // with a target: modulation depth (in the target's unit, see rack_depth_*)
-    [MP_OC_MORPH]  = {"Mrph", K_LIN, 0, 1, 0.05f, 0.5f, "", 2, 0},         // engines only
-    [MP_OC_QUAL]   = {"Q",    K_ENUM, 0, 2, 1, 0, "", 0, qual_names},     // Saw / Pulse / Tri and Strng: PolyBLEP, mipmap table, naive
-    [MP_OC_HARM]   = {"Harm", K_LIN, 0, 1, 0.05f, 0.5f, "", 2, 0},         // MI models: Plaits' harmonics (Braids ignores it)
+    [MP_OC_WAVE]   = {"Wav", 0, OC_WAVE_COUNT - 1, 2, "", PARAM_ENUM, wave_names, 1, 0, PARAM_TEXT_FIXED},
+    [MP_OC_PW]     = {"PW", 0.05f, 0.95f, 0.5f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_OC_LEVEL]  = {"Lvl", 0, 1, 1, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_OC_COARSE] = {"Crs", -24, 24, 0, "st", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED},
+    [MP_OC_FINE]   = {"Fine", -50, 50, 0, "ct", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED},
+    [MP_OC_MUTE]   = {"Out", 0, 1, 0, "", PARAM_ENUM, out_names, 1, 0, PARAM_TEXT_FIXED},       // with a target: Mute silences the chain output, not the modulation
+    [MP_OC_DEPTH]  = {"Dpth", 0, 2, 1, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},            // with a target: modulation depth (in the target's unit, see rack_depth_*)
+    [MP_OC_MORPH]  = {"Mrph", 0, 1, 0.5f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},         // engines only
+    [MP_OC_QUAL]   = {"Q", 0, 2, 0, "", PARAM_ENUM, qual_names, 1, 0, PARAM_TEXT_FIXED},     // Saw / Pulse / Tri and Strng: PolyBLEP, mipmap table, naive
+    [MP_OC_HARM]   = {"Harm", 0, 1, 0.5f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},         // MI models: Plaits' harmonics (Braids ignores it)
 };
 _Static_assert(sizeof wave_names / sizeof wave_names[0] == OC_WAVE_COUNT, "wave_names: one name per Wav value (rack.h OC_WAVE_COUNT)");
 static const mp_t flt_mp[] = {
-    [MP_FL_TYPE]   = {"Typ", K_ENUM, 0, FILT_COUNT - 1, 1, 1, "", 0, filter_names},
-    [MP_FL_CUT]    = {"Cut", K_LOG, 20, 18000, 1.12f, 4000, "Hz", 0, 0},
-    [MP_FL_RES]    = {"Res", K_LIN, 0.5f, 10, 0.1f, 0.7f, "", 1, 0},
-    [MP_FL_ENVAMT] = {"Env", K_LIN, 0, 8, 0.25f, 0, "", 2, 0},
-    [MP_FL_A]      = {"Atk", K_LOG, 1, 5000, 1.2f, 5, "ms", 0, 0},
-    [MP_FL_D]      = {"Dec", K_LOG, 1, 5000, 1.2f, 300, "ms", 0, 0},
-    [MP_FL_S]      = {"Sus", K_LIN, 0, 1, 0.05f, 0, "", 2, 0},
-    [MP_FL_R]      = {"Rel", K_LOG, 1, 5000, 1.2f, 200, "ms", 0, 0},
-    [MP_FL_ACV]    = {"ACv", K_LIN, -100, 100, 5, 55, "%", 0, 0},
-    [MP_FL_DCV]    = {"DCv", K_LIN, -100, 100, 5, 60, "%", 0, 0},
-    [MP_FL_RCV]    = {"RCv", K_LIN, -100, 100, 5, 60, "%", 0, 0},
+    [MP_FL_TYPE]   = {"Typ", 0, FILT_COUNT - 1, 1, "", PARAM_ENUM, filter_names, 1, 0, PARAM_TEXT_FIXED},
+    [MP_FL_CUT]    = {"Cut", 20, 18000, 4000, "Hz", PARAM_LOG, NULL, 1.12f, 0, PARAM_TEXT_FIXED},
+    [MP_FL_RES]    = {"Res", 0.5f, 10, 0.7f, "", PARAM_LIN, NULL, 0.1f, 1, PARAM_TEXT_FIXED},
+    [MP_FL_ENVAMT] = {"Env", 0, 8, 0, "", PARAM_LIN, NULL, 0.25f, 2, PARAM_TEXT_FIXED},
+    [MP_FL_A]      = {"Atk", 1, 5000, 5, "ms", PARAM_LOG, NULL, 1.2f, 0, PARAM_TEXT_FIXED},
+    [MP_FL_D]      = {"Dec", 1, 5000, 300, "ms", PARAM_LOG, NULL, 1.2f, 0, PARAM_TEXT_FIXED},
+    [MP_FL_S]      = {"Sus", 0, 1, 0, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_FL_R]      = {"Rel", 1, 5000, 200, "ms", PARAM_LOG, NULL, 1.2f, 0, PARAM_TEXT_FIXED},
+    [MP_FL_ACV]    = {"ACv", -100, 100, 55, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},
+    [MP_FL_DCV]    = {"DCv", -100, 100, 60, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},
+    [MP_FL_RCV]    = {"RCv", -100, 100, 60, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},
 };
 static const mp_t sat_mp[] = {
-    [MP_SA_MODE]  = {"Mod", K_ENUM, 0, 9, 1, 1, "", 0, sat_names},
-    [MP_SA_DRIVE] = {"Drv", K_LOG, 1, 16, 1.25f, 4, "", 1, 0},
-    [MP_SA_MIX]   = {"Mix", K_LIN, 0, 1, 0.05f, 1, "", 2, 0},
+    [MP_SA_MODE]  = {"Mod", 0, 9, 1, "", PARAM_ENUM, sat_names, 1, 0, PARAM_TEXT_FIXED},
+    [MP_SA_DRIVE] = {"Drv", 1, 16, 4, "", PARAM_LOG, NULL, 1.25f, 1, PARAM_TEXT_FIXED},
+    [MP_SA_MIX]   = {"Mix", 0, 1, 1, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
 };
 static const mp_t lfo_mp[] = {
-    [MP_LF_SHAPE] = {"Shp", K_ENUM, 0, 3, 1, 0, "", 0, lfo_names},
-    [MP_LF_RATE]  = {"Rate", K_LOG, 0.05f, 30, 1.2f, 4, "Hz", 2, 0},
-    [MP_LF_DEPTH] = {"Dpth", K_LIN, 0, 2, 0.05f, 1, "", 2, 0},
+    [MP_LF_SHAPE] = {"Shp", 0, 3, 0, "", PARAM_ENUM, lfo_names, 1, 0, PARAM_TEXT_FIXED},
+    [MP_LF_RATE]  = {"Rate", 0.05f, 30, 4, "Hz", PARAM_LOG, NULL, 1.2f, 2, PARAM_TEXT_FIXED},
+    [MP_LF_DEPTH] = {"Dpth", 0, 2, 1, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
 };
 static const mp_t rs_mp[] = {
-    [MP_RS_TUNE] = {"Crs",  K_LIN, -24, 24, 1, 0, "st", 0, 0},
-    [MP_RS_FB]   = {"Fb",   K_LIN, -95, 95, 5, 80, "%", 0, 0},
-    [MP_RS_DAMP] = {"Dmp",  K_LOG, 200, 18000, 1.25f, 8000, "Hz", 0, 0},
-    [MP_RS_INT]  = {"Int",  K_LIN, 0, 24, 1, 0, "st", 0, 0},
-    [MP_RS_MIX]  = {"Mix",  K_LIN, 0, 1, 0.05f, 0.5f, "", 2, 0},
+    [MP_RS_TUNE] = {"Crs", -24, 24, 0, "st", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED},
+    [MP_RS_FB]   = {"Fb", -95, 95, 80, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},
+    [MP_RS_DAMP] = {"Dmp", 200, 18000, 8000, "Hz", PARAM_LOG, NULL, 1.25f, 0, PARAM_TEXT_FIXED},
+    [MP_RS_INT]  = {"Int", 0, 24, 0, "st", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED},
+    [MP_RS_MIX]  = {"Mix", 0, 1, 0.5f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
 };
 static const mp_t env_mp[] = {
-    [MP_EN_A]     = {"Atk", K_LOG, 1, 5000, 1.2f, 5, "ms", 0, 0},
-    [MP_EN_D]     = {"Dec", K_LOG, 1, 5000, 1.2f, 300, "ms", 0, 0},
-    [MP_EN_S]     = {"Sus", K_LIN, 0, 1, 0.05f, 0, "", 2, 0},
-    [MP_EN_DEPTH] = {"Dpth", K_LIN, 0, 2, 0.05f, 1, "", 2, 0},
-    [MP_EN_R]     = {"Rel", K_LOG, 1, 5000, 1.2f, 200, "ms", 0, 0},
-    [MP_EN_HOLD]  = {"Hld", K_LIN, 0, 2000, 5, 0, "ms", 0, 0},
-    [MP_EN_START] = {"Str", K_LIN, 0, 1, 0.05f, 0, "", 2, 0},
-    [MP_EN_ACV]   = {"ACv", K_LIN, -100, 100, 5, 55, "%", 0, 0},
-    [MP_EN_DCV]   = {"DCv", K_LIN, -100, 100, 5, 60, "%", 0, 0},
-    [MP_EN_RCV]   = {"RCv", K_LIN, -100, 100, 5, 60, "%", 0, 0},
+    [MP_EN_A]     = {"Atk", 1, 5000, 5, "ms", PARAM_LOG, NULL, 1.2f, 0, PARAM_TEXT_FIXED},
+    [MP_EN_D]     = {"Dec", 1, 5000, 300, "ms", PARAM_LOG, NULL, 1.2f, 0, PARAM_TEXT_FIXED},
+    [MP_EN_S]     = {"Sus", 0, 1, 0, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_EN_DEPTH] = {"Dpth", 0, 2, 1, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_EN_R]     = {"Rel", 1, 5000, 200, "ms", PARAM_LOG, NULL, 1.2f, 0, PARAM_TEXT_FIXED},
+    [MP_EN_HOLD]  = {"Hld", 0, 2000, 0, "ms", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},
+    [MP_EN_START] = {"Str", 0, 1, 0, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_EN_ACV]   = {"ACv", -100, 100, 55, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},
+    [MP_EN_DCV]   = {"DCv", -100, 100, 60, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},
+    [MP_EN_RCV]   = {"RCv", -100, 100, 60, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},
 };
 static const mp_t eg_mp[] = {            // labels are generic: the EG pages show the selected point (see ui_pages.c / ui_input.c)
-    [0]  = {"T1", K_LIN, 0, 2000, 1, 1, "ms", 0, 0},   [1]  = {"L1", K_LIN, 0, 100, 5, 100, "%", 0, 0}, [2]  = {"C1", K_LIN, -100, 100, 5, 0, "%", 0, 0},
-    [3]  = {"T2", K_LIN, 0, 2000, 1, 100, "ms", 0, 0}, [4]  = {"L2", K_LIN, 0, 100, 5, 20, "%", 0, 0},  [5]  = {"C2", K_LIN, -100, 100, 5, 60, "%", 0, 0},
-    [6]  = {"T3", K_LIN, 0, 2000, 1, 0, "ms", 0, 0},   [7]  = {"L3", K_LIN, 0, 100, 5, 0, "%", 0, 0},   [8]  = {"C3", K_LIN, -100, 100, 5, 60, "%", 0, 0},
-    [9]  = {"T4", K_LIN, 0, 2000, 1, 0, "ms", 0, 0},   [10] = {"L4", K_LIN, 0, 100, 5, 0, "%", 0, 0},   [11] = {"C4", K_LIN, -100, 100, 5, 60, "%", 0, 0},
-    [MP_EG_SUS]   = {"Sus",  K_LIN, 1, 4, 1, 2, "", 0, 0},
-    [MP_EG_REL]   = {"Rel",  K_LOG, 1, 5000, 1.2f, 200, "ms", 0, 0},
-    [MP_EG_RCV]   = {"RCv",  K_LIN, -100, 100, 5, 60, "%", 0, 0},
-    [MP_EG_ONE]   = {"Trig", K_ENUM, 0, 1, 1, 0, "", 0, trig_names},
-    [MP_EG_DEPTH] = {"Dpth", K_LIN, 0, 2, 0.05f, 1, "", 2, 0},
+    [0]  = {"T1", 0, 2000, 1, "ms", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED},   [1]  = {"L1", 0, 100, 100, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED}, [2]  = {"C1", -100, 100, 0, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},
+    [3]  = {"T2", 0, 2000, 100, "ms", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED}, [4]  = {"L2", 0, 100, 20, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},  [5]  = {"C2", -100, 100, 60, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},
+    [6]  = {"T3", 0, 2000, 0, "ms", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED},   [7]  = {"L3", 0, 100, 0, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},   [8]  = {"C3", -100, 100, 60, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},
+    [9]  = {"T4", 0, 2000, 0, "ms", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED},   [10] = {"L4", 0, 100, 0, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},   [11] = {"C4", -100, 100, 60, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},
+    [MP_EG_SUS]   = {"Sus", 1, 4, 2, "", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED},
+    [MP_EG_REL]   = {"Rel", 1, 5000, 200, "ms", PARAM_LOG, NULL, 1.2f, 0, PARAM_TEXT_FIXED},
+    [MP_EG_RCV]   = {"RCv", -100, 100, 60, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},
+    [MP_EG_ONE]   = {"Trig", 0, 1, 0, "", PARAM_ENUM, trig_names, 1, 0, PARAM_TEXT_FIXED},
+    [MP_EG_DEPTH] = {"Dpth", 0, 2, 1, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
 };
 
 static const mp_t sm_mp[] = {
-    [MP_SM_FILE]   = {"File",  K_LIN, 0, 32, 1, 0, "", 0, 0},                  // shown by name (ui_draw.c); 0 = none
-    [MP_SM_LEVEL]  = {"Lvl",   K_LIN, 0, 1, 0.05f, 1, "", 2, 0},
-    [MP_SM_COARSE] = {"Crs",   K_LIN, -24, 24, 1, 0, "st", 0, 0},
-    [MP_SM_FINE]   = {"Fine",  K_LIN, -50, 50, 1, 0, "ct", 0, 0},
-    [MP_SM_LOOP]   = {"Loop",  K_ENUM, 0, 3, 1, 0, "", 0, loop_names},
-    [MP_SM_REV]    = {"Dir",   K_ENUM, 0, 1, 1, 0, "", 0, dir_names},
-    [MP_SM_START]  = {"Start", K_LIN, 0, 5000, 10, 0, "ms", 0, 0},
-    [MP_SM_TRACK]  = {"Trk",   K_ENUM, 0, 1, 1, 0, "", 0, track_names},
-    [MP_SM_SLICE]  = {"Slc",   K_LIN, 0, 16, 1, 0, "", 0, 0},                  // 0 = all
-    [MP_SM_SMODE]  = {"Mode",  K_ENUM, 0, 1, 1, 0, "", 0, smode_names},
+    [MP_SM_FILE]   = {"File", 0, 32, 0, "", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED},                  // shown by name (ui_draw.c); 0 = none
+    [MP_SM_LEVEL]  = {"Lvl", 0, 1, 1, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_SM_COARSE] = {"Crs", -24, 24, 0, "st", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED},
+    [MP_SM_FINE]   = {"Fine", -50, 50, 0, "ct", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED},
+    [MP_SM_LOOP]   = {"Loop", 0, 3, 0, "", PARAM_ENUM, loop_names, 1, 0, PARAM_TEXT_FIXED},
+    [MP_SM_REV]    = {"Dir", 0, 1, 0, "", PARAM_ENUM, dir_names, 1, 0, PARAM_TEXT_FIXED},
+    [MP_SM_START]  = {"Start", 0, 5000, 0, "ms", PARAM_LIN, NULL, 10, 0, PARAM_TEXT_FIXED},
+    [MP_SM_TRACK]  = {"Trk", 0, 1, 0, "", PARAM_ENUM, track_names, 1, 0, PARAM_TEXT_FIXED},
+    [MP_SM_SLICE]  = {"Slc", 0, 16, 0, "", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED},                  // 0 = all
+    [MP_SM_SMODE]  = {"Mode", 0, 1, 0, "", PARAM_ENUM, smode_names, 1, 0, PARAM_TEXT_FIXED},
 };
 
 // FX modules (ADR-040 / 041): the ranges of the former FX rack, in the rack's units (0..1 for %, Hz, ms, dB).
@@ -123,79 +116,79 @@ static const char *const sp_modes[]   = {"Thru", "Freeze", "Gate", "Robot", "Whi
 static const char *const cb_names[]   = {"1x12", "4x12", "Bright", "Dark", "Acoust", "Violin", "Drum", "Phone"};
 
 static const mp_t tr_mp[] = {
-    [MP_TR_RATE]  = {"Rate", K_LOG, 0.05f, 20, 1.2f, 4, "Hz", 2, 0},
-    [MP_TR_DEPTH] = {"Dpth", K_LIN, 0, 1, 0.05f, 0.6f, "", 2, 0},
-    [MP_TR_SHAPE] = {"Shp",  K_ENUM, 0, 2, 1, 0, "", 0, tr_shapes},
-    [MP_TR_MODE]  = {"Mode", K_ENUM, 0, 1, 1, 0, "", 0, tr_modes},
+    [MP_TR_RATE]  = {"Rate", 0.05f, 20, 4, "Hz", PARAM_LOG, NULL, 1.2f, 2, PARAM_TEXT_FIXED},
+    [MP_TR_DEPTH] = {"Dpth", 0, 1, 0.6f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_TR_SHAPE] = {"Shp", 0, 2, 0, "", PARAM_ENUM, tr_shapes, 1, 0, PARAM_TEXT_FIXED},
+    [MP_TR_MODE]  = {"Mode", 0, 1, 0, "", PARAM_ENUM, tr_modes, 1, 0, PARAM_TEXT_FIXED},
 };
 static const mp_t eq_mp[] = {
-    [MP_EQ_LOW]  = {"Low",  K_LIN, -15, 15, 1, 0, "dB", 0, 0},
-    [MP_EQ_MID]  = {"Mid",  K_LIN, -15, 15, 1, 0, "dB", 0, 0},
-    [MP_EQ_MIDF] = {"MidF", K_LOG, 65, 8400, 1.12f, 1000, "Hz", 0, 0},
-    [MP_EQ_HIGH] = {"High", K_LIN, -15, 15, 1, 0, "dB", 0, 0},
+    [MP_EQ_LOW]  = {"Low", -15, 15, 0, "dB", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED},
+    [MP_EQ_MID]  = {"Mid", -15, 15, 0, "dB", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED},
+    [MP_EQ_MIDF] = {"MidF", 65, 8400, 1000, "Hz", PARAM_LOG, NULL, 1.12f, 0, PARAM_TEXT_FIXED},
+    [MP_EQ_HIGH] = {"High", -15, 15, 0, "dB", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED},
 };
 static const mp_t rg_mp[] = {
-    [MP_RG_MODE] = {"Mode", K_ENUM, 0, 2, 1, 0, "", 0, rg_modes},
-    [MP_RG_FREQ] = {"Freq", K_LOG, 1, 5000, 1.12f, 440, "Hz", 0, 0},
-    [MP_RG_MIX]  = {"Mix",  K_LIN, 0, 1, 0.05f, 0.5f, "", 2, 0},
+    [MP_RG_MODE] = {"Mode", 0, 2, 0, "", PARAM_ENUM, rg_modes, 1, 0, PARAM_TEXT_FIXED},
+    [MP_RG_FREQ] = {"Freq", 1, 5000, 440, "Hz", PARAM_LOG, NULL, 1.12f, 0, PARAM_TEXT_FIXED},
+    [MP_RG_MIX]  = {"Mix", 0, 1, 0.5f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
 };
 static const mp_t ph_mp[] = {
-    [MP_PH_RATE]  = {"Rate", K_LOG, 0.05f, 20, 1.2f, 0.4f, "Hz", 2, 0},
-    [MP_PH_DEPTH] = {"Dpth", K_LIN, 0, 1, 0.05f, 0.6f, "", 2, 0},
-    [MP_PH_FB]    = {"Fb",   K_LIN, -95, 95, 5, 40, "%", 0, 0},
-    [MP_PH_MIX]   = {"Mix",  K_LIN, 0, 1, 0.05f, 0.5f, "", 2, 0},
+    [MP_PH_RATE]  = {"Rate", 0.05f, 20, 0.4f, "Hz", PARAM_LOG, NULL, 1.2f, 2, PARAM_TEXT_FIXED},
+    [MP_PH_DEPTH] = {"Dpth", 0, 1, 0.6f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_PH_FB]    = {"Fb", -95, 95, 40, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},
+    [MP_PH_MIX]   = {"Mix", 0, 1, 0.5f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
 };
 static const mp_t fg_mp[] = {
-    [MP_PH_RATE]  = {"Rate", K_LOG, 0.05f, 20, 1.2f, 0.3f, "Hz", 2, 0},
-    [MP_PH_DEPTH] = {"Dpth", K_LIN, 0, 1, 0.05f, 0.6f, "", 2, 0},
-    [MP_PH_FB]    = {"Fb",   K_LIN, -95, 95, 5, 40, "%", 0, 0},
-    [MP_PH_MIX]   = {"Mix",  K_LIN, 0, 1, 0.05f, 0.6f, "", 2, 0},
+    [MP_PH_RATE]  = {"Rate", 0.05f, 20, 0.3f, "Hz", PARAM_LOG, NULL, 1.2f, 2, PARAM_TEXT_FIXED},
+    [MP_PH_DEPTH] = {"Dpth", 0, 1, 0.6f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_PH_FB]    = {"Fb", -95, 95, 40, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},
+    [MP_PH_MIX]   = {"Mix", 0, 1, 0.6f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
 };
 static const mp_t cp_mp[] = {
-    [MP_CP_THR]   = {"Thr",  K_LIN, -60, 0, 2, -18, "dB", 0, 0},
-    [MP_CP_RATIO] = {"Rat",  K_LIN, 1, 20, 1, 4, "", 0, 0},
-    [MP_CP_REL]   = {"Rel",  K_LOG, 10, 1000, 1.2f, 150, "ms", 0, 0},
-    [MP_CP_GAIN]  = {"Gain", K_LIN, 0, 24, 1, 0, "dB", 0, 0},
+    [MP_CP_THR]   = {"Thr", -60, 0, -18, "dB", PARAM_LIN, NULL, 2, 0, PARAM_TEXT_FIXED},
+    [MP_CP_RATIO] = {"Rat", 1, 20, 4, "", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED},
+    [MP_CP_REL]   = {"Rel", 10, 1000, 150, "ms", PARAM_LOG, NULL, 1.2f, 0, PARAM_TEXT_FIXED},
+    [MP_CP_GAIN]  = {"Gain", 0, 24, 0, "dB", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED},
 };
 static const mp_t dl_mp[] = {
-    [MP_DL_TIME] = {"Time", K_LIN, 20, 1000, 10, 350, "ms", 0, 0},
-    [MP_DL_FB]   = {"Fb",   K_LIN, 0, 0.95f, 0.05f, 0.4f, "", 2, 0},
-    [MP_DL_MIX]  = {"Mix",  K_LIN, 0, 1, 0.05f, 0.3f, "", 2, 0},
-    [MP_DL_PONG] = {"Pong", K_ENUM, 0, 1, 1, 0, "", 0, off_on},
+    [MP_DL_TIME] = {"Time", 20, 1000, 350, "ms", PARAM_LIN, NULL, 10, 0, PARAM_TEXT_FIXED},
+    [MP_DL_FB]   = {"Fb", 0, 0.95f, 0.4f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_DL_MIX]  = {"Mix", 0, 1, 0.3f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_DL_PONG] = {"Pong", 0, 1, 0, "", PARAM_ENUM, off_on, 1, 0, PARAM_TEXT_FIXED},
 };
 static const mp_t rv_mp[] = {
-    [MP_RV_MIX]  = {"Mix",  K_LIN, 0, 1, 0.05f, 0.3f, "", 2, 0},
-    [MP_RV_DEC]  = {"Dec",  K_LIN, 0, 0.98f, 0.02f, 0.6f, "", 2, 0},
-    [MP_RV_SIZE] = {"Size", K_LIN, 0, 1, 0.05f, 0.6f, "", 2, 0},
-    [MP_RV_DAMP] = {"Damp", K_LIN, 0, 1, 0.05f, 0.5f, "", 2, 0},
+    [MP_RV_MIX]  = {"Mix", 0, 1, 0.3f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_RV_DEC]  = {"Dec", 0, 0.98f, 0.6f, "", PARAM_LIN, NULL, 0.02f, 2, PARAM_TEXT_FIXED},
+    [MP_RV_SIZE] = {"Size", 0, 1, 0.6f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_RV_DAMP] = {"Damp", 0, 1, 0.5f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
 };
 static const mp_t ch_mp[] = {
-    [MP_CH_MODE] = {"Mode", K_ENUM, 0, 3, 1, 1, "", 0, ch_modes},
-    [MP_CH_MIX]  = {"Mix",  K_LIN, 0, 1, 0.05f, 0.75f, "", 2, 0},
+    [MP_CH_MODE] = {"Mode", 0, 3, 1, "", PARAM_ENUM, ch_modes, 1, 0, PARAM_TEXT_FIXED},
+    [MP_CH_MIX]  = {"Mix", 0, 1, 0.75f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
 };
 static const mp_t sp_mp[] = {
-    [MP_SP_MODE]  = {"Mode", K_ENUM, 0, 5, 1, 0, "", 0, sp_modes},
-    [MP_SP_SHIFT] = {"Shft", K_LIN, -24, 24, 1, 0, "st", 0, 0},
-    [MP_SP_AMT]   = {"Amt",  K_LIN, 0, 1, 0.01f, 0.12f, "", 2, 0},
-    [MP_SP_MIX]   = {"Mix",  K_LIN, 0, 1, 0.05f, 1, "", 2, 0},
-    [MP_SP_HOLD]  = {"Hold", K_ENUM, 0, 1, 1, 0, "", 0, off_on},
-    [MP_SP_LO]    = {"Lo",   K_LOG, 20, 20000, 1.12f, 20, "Hz", 0, 0},
-    [MP_SP_HI]    = {"Hi",   K_LOG, 20, 20000, 1.12f, 20000, "Hz", 0, 0},
+    [MP_SP_MODE]  = {"Mode", 0, 5, 0, "", PARAM_ENUM, sp_modes, 1, 0, PARAM_TEXT_FIXED},
+    [MP_SP_SHIFT] = {"Shft", -24, 24, 0, "st", PARAM_LIN, NULL, 1, 0, PARAM_TEXT_FIXED},
+    [MP_SP_AMT]   = {"Amt", 0, 1, 0.12f, "", PARAM_LIN, NULL, 0.01f, 2, PARAM_TEXT_FIXED},
+    [MP_SP_MIX]   = {"Mix", 0, 1, 1, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_SP_HOLD]  = {"Hold", 0, 1, 0, "", PARAM_ENUM, off_on, 1, 0, PARAM_TEXT_FIXED},
+    [MP_SP_LO]    = {"Lo", 20, 20000, 20, "Hz", PARAM_LOG, NULL, 1.12f, 0, PARAM_TEXT_FIXED},
+    [MP_SP_HI]    = {"Hi", 20, 20000, 20000, "Hz", PARAM_LOG, NULL, 1.12f, 0, PARAM_TEXT_FIXED},
 };
 static const mp_t cb_mp[] = {
-    [MP_CB_IR]    = {"IR",   K_ENUM, 0, 7, 1, 0, "", 0, cb_names},
-    [MP_CB_LEN]   = {"Len",  K_LIN, 64, 512, 32, 256, "", 0, 0},
-    [MP_CB_MIX]   = {"Mix",  K_LIN, 0, 1, 0.05f, 1, "", 2, 0},
-    [MP_CB_LEVEL] = {"Lvl",  K_LIN, 0, 1, 0.05f, 0.5f, "", 2, 0},
+    [MP_CB_IR]    = {"IR", 0, 7, 0, "", PARAM_ENUM, cb_names, 1, 0, PARAM_TEXT_FIXED},
+    [MP_CB_LEN]   = {"Len", 64, 512, 256, "", PARAM_LIN, NULL, 32, 0, PARAM_TEXT_FIXED},
+    [MP_CB_MIX]   = {"Mix", 0, 1, 1, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_CB_LEVEL] = {"Lvl", 0, 1, 0.5f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
 };
 static const mp_t es_mp[] = {
-    [MP_ES_RATE]  = {"Rate", K_LOG, 0.05f, 5, 1.2f, 0.6f, "Hz", 2, 0},
-    [MP_ES_DEPTH] = {"Dpth", K_LIN, 0, 1, 0.05f, 0.7f, "", 2, 0},
-    [MP_ES_SHIM]  = {"Shim", K_LIN, 0, 1, 0.05f, 0.35f, "", 2, 0},
-    [MP_ES_MIX]   = {"Mix",  K_LIN, 0, 1, 0.05f, 0.7f, "", 2, 0},
+    [MP_ES_RATE]  = {"Rate", 0.05f, 5, 0.6f, "Hz", PARAM_LOG, NULL, 1.2f, 2, PARAM_TEXT_FIXED},
+    [MP_ES_DEPTH] = {"Dpth", 0, 1, 0.7f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_ES_SHIM]  = {"Shim", 0, 1, 0.35f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_ES_MIX]   = {"Mix", 0, 1, 0.7f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
 };
 static const mp_t vel_mp[] = {
-    [MP_VL_DEPTH] = {"Dpth", K_LIN, 0, 2, 0.05f, 1, "", 2, 0},
+    [MP_VL_DEPTH] = {"Dpth", 0, 2, 1, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
 };
 #define NMP(a) ((int)(sizeof a / sizeof a[0]))
 
@@ -695,29 +688,20 @@ void rack_ms_toggle_step(ms_lane_t *l, int step) { l->active ^= (uint16_t)(1u <<
 /* ---------------- module parameters ---------------- */
 
 int rack_mparam_count(module_type_t t) { return info[t].nmp; }
-const char *rack_mparam_label(module_type_t t, int i) { return info[t].mp[i].label; }
+const char *rack_mparam_label(module_type_t t, int i) { return info[t].mp[i].name; }
 
 bool rack_mparam_adjust(rack_slot_t *s, int i, int dir) {
-    const mp_t *d = &info[s->type].mp[i];
-    float v = s->v[i], nv;
-    if (d->kind == K_ENUM)     nv = v + (float)dir;
-    else if (d->kind == K_LOG) nv = dir > 0 ? v * fine_log_step(d->step) : v / fine_log_step(d->step);
-    else                       nv = v + (float)dir * fine_lin_step(d->step, d->decimals);
-    if (nv < d->min) nv = d->min;
-    if (nv > d->max) nv = d->max;
-    if (nv == v) return false;
+    const float nv = pdesc_step(&info[s->type].mp[i], s->v[i], dir, g_fine_step);    // (an enumeration keeps its steps)
+    if (nv == s->v[i]) return false;
     s->v[i] = nv;
     return true;
 }
 
-bool rack_mparam_is_continuous(module_type_t t, int i) { return i >= 0 && i < info[t].nmp && info[t].mp[i].kind != K_ENUM; }
+bool rack_mparam_is_continuous(module_type_t t, int i) { return i >= 0 && i < info[t].nmp && pdesc_is_continuous(&info[t].mp[i]); }
 
 float rack_mparam_norm(const rack_slot_t *s, int i) {
     const mp_t *d = &info[s->type].mp[i];
-    if (d->kind == K_ENUM) return 0.0f;
-    const float v = s->v[i];
-    const float n = d->kind == K_LOG ? logf(v / d->min) / logf(d->max / d->min) : (v - d->min) / (d->max - d->min);
-    return n < 0.0f ? 0.0f : n > 1.0f ? 1.0f : n;
+    return pdesc_is_continuous(d) ? pdesc_to_norm(d, s->v[i]) : 0.0f;
 }
 
 // Back to the value a new module starts with (insert_raw). Not the sampler's File nor the motion sequencer's pool: they are not values.
@@ -740,11 +724,8 @@ bool rack_slot_reset(rack_t *r, int slot) {
 
 bool rack_mparam_set_norm(rack_slot_t *s, int i, float n) {
     const mp_t *d = &info[s->type].mp[i];
-    if (d->kind == K_ENUM) return false;
-    n = n < 0.0f ? 0.0f : n > 1.0f ? 1.0f : n;
-    const float q = powf(10.0f, (float)d->decimals);           // to the precision shown: semitones, cents, counts stay whole
-    float nv = roundf((d->kind == K_LOG ? d->min * powf(d->max / d->min, n) : d->min + n * (d->max - d->min)) * q) / q;
-    nv = nv < d->min ? d->min : nv > d->max ? d->max : nv;
+    if (!pdesc_is_continuous(d)) return false;
+    const float nv = pdesc_from_norm(d, n);                    // to the precision shown: semitones, cents, counts stay whole
     if (nv == s->v[i]) return false;
     s->v[i] = nv;
     return true;
@@ -752,9 +733,7 @@ bool rack_mparam_set_norm(rack_slot_t *s, int i, float n) {
 
 void rack_mparam_format(const rack_slot_t *s, int i, char *out, int n) {
     const mp_t *d = &info[s->type].mp[i];
-    float v = s->v[i];
-    if (d->kind == K_ENUM) { snprintf(out, n, "%s", d->names[(int)v]); return; }
-    if (s->type == MOD_SAMPLER && i == MP_SM_SLICE && v < 0.5f) { snprintf(out, n, "All"); return; }
-    if (d->unit[0] == 'H' && v >= 1000) snprintf(out, n, "%.1fkHz", v / 1000.0f);
-    else snprintf(out, n, "%.*f%s", d->decimals, v, d->unit);
+    const float v = s->v[i];
+    if (d->curve != PARAM_ENUM && s->type == MOD_SAMPLER && i == MP_SM_SLICE && v < 0.5f) { snprintf(out, n, "All"); return; }
+    pdesc_format(d, v, out, (size_t)n);
 }

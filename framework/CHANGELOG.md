@@ -2,6 +2,17 @@
 
 What changed in the library (`framework/`) and in the repo as a whole. Each app keeps its own update log.
 
+## 2026-11-14: one parameter descriptor
+
+- **`control/param.h`** (new, C, header only): `param_desc_t`, a value's range, curve (Lin, Log, Int, Enum, a section's Head), step,
+  unit, labels, decimals and text style, and the `pdesc_*` functions that step it (fine steps included), move it by encoder detents,
+  place it 0..1 and write it. Two text styles, each an app's own: the Ritual Machine's ("4.0kHz", "350ms") and SynthLab's ("4.00k Hz",
+  "1.20 s"). Every app's values use it: the Ritual Machine's sound, rack-module and sequencer tables (`synth_params.c`, `rack.c`,
+  `seq.c`; `fine_step.h` takes its formulas), SynthLab's `lab::Param` (now a `param_desc_t`; the synths' files are unchanged), SynthLab
+  Studio's helpers (`to_norm` ... `format_value` gone), TechnoGen's track values (a descriptor and the dice's sweet spot). No screen
+  changes: checked against the old functions on every row of the Ritual Machine's tables and on SynthLab-style values (2.77 million
+  comparisons, none differ); `tests/test_param.cpp` (new).
+
 ## 2026-11-14: the apps' copies in the library
 
 What the template, TechnoGen and SynthLab each had a copy of (and SynthLab Studio took from SynthLab) is the library's. No behaviour

@@ -8,7 +8,7 @@ using namespace tg;
 namespace {
 Track fresh(int t) {
     Track tr;
-    for (int k = 0; k < kParams; k++) tr.value[k] = track_def(t).param[k].def;
+    for (int k = 0; k < kParams; k++) tr.value[k] = static_cast<uint8_t>(track_def(t).param[k].desc.def);
     return tr;
 }
 bool same_steps(const Track &a, const Track &b) { return std::memcmp(a.step, b.step, sizeof a.step) == 0; }
@@ -23,8 +23,8 @@ TEST(model_the_design_tracks) {
         CHECK(std::strlen(d.shortname) == 3);
         CHECK(d.lanes >= 1 && d.lanes <= kLanes);
         for (int k = 0; k < kParams; k++) {
-            CHECK(std::strlen(d.param[k].label) <= 5);
-            CHECK(d.param[k].lo <= d.param[k].def && d.param[k].def <= d.param[k].hi && d.param[k].hi <= 100);
+            CHECK(std::strlen(d.param[k].desc.name) <= 5);
+            CHECK(d.param[k].lo <= d.param[k].desc.def && d.param[k].desc.def <= d.param[k].hi && d.param[k].hi <= 100);
         }
     }
     CHECK_EQ(track_def(T_DRUM).lanes, 6);

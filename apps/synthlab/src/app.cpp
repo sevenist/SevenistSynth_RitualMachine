@@ -72,41 +72,6 @@ int find_named(const char *name) {
     return INPUT_NO_CONTROL;
 }
 
-// A value moved by `detents` of the encoder, as its curve says (lab.h, Curve).
-float step_value(const lab::Param &p, float v, int detents) {
-    switch (p.curve) {
-    case lab::Int: return std::floor(v + 0.5f) + static_cast<float>(detents);
-    case lab::Exp:
-        if (p.min > 0.f) return v * std::pow(p.max / p.min, static_cast<float>(detents) / 100.f);
-        [[fallthrough]];
-    default: {
-        const float step = (p.max - p.min) / 100.f;
-        return p.min + step * std::floor((v - p.min) / step + 0.5f + static_cast<float>(detents));   // (snapped: no drift)
-    }
-    }
-}
-
-// The value as the screen writes it: a label, or a number with as many digits as fit, then the unit.
-void format_value(const lab::Param &p, float v, char *out, size_t size) {
-    if (p.curve == lab::Int) {
-        const int i = static_cast<int>(std::floor(v + 0.5f));
-        if (p.labels) std::snprintf(out, size, "%s", p.labels[i - static_cast<int>(p.min)]);
-        else std::snprintf(out, size, "%d%s%s", i, p.unit ? " " : "", p.unit ? p.unit : "");
-        return;
-    }
-    const char *unit = p.unit;
-    if (unit && std::strcmp(unit, "ms") == 0 && std::fabs(v) >= 1000.f) { v /= 1000.f; unit = "s"; }    // 1.20 s, not 1.20k ms
-    const float a = std::fabs(v);
-    char num[16];
-    if (a < 1000.f && std::fabs(v - std::floor(v + 0.5f)) < 0.005f) std::snprintf(num, sizeof num, "%d", static_cast<int>(std::floor(v + 0.5f)));
-    else if (a >= 10000.f) std::snprintf(num, sizeof num, "%.1fk", v / 1000.f);
-    else if (a >= 1000.f) std::snprintf(num, sizeof num, "%.2fk", v / 1000.f);
-    else if (a >= 100.f) std::snprintf(num, sizeof num, "%.0f", v);
-    else if (a >= 10.f) std::snprintf(num, sizeof num, "%.1f", v);
-    else std::snprintf(num, sizeof num, "%.2f", v);
-    std::snprintf(out, size, "%s%s%s", num, unit ? " " : "", unit ? unit : "");
-}
-
 void release_hold() {
     if (hold_note >= 0) synth_note_off(hold_note);
     hold_note = -1;
@@ -126,7 +91,7 @@ void edit(int detents) {
     if (row == 0) { select_synth(synth_selected() + detents); return; }
     if (is_title(row)) return;
     const lab::Param &p = cur().params[row - 1];
-    synth_set_value(row - 1, step_value(p, synth_value(row - 1), detents));
+    synth_set_value(row - 1, pdesc_detents(&p, synth_value(row - 1), detents));
 }
 
 void key_event(int r, int c, bool pressed) {
@@ -253,7 +218,7 @@ void app_draw() {
             if (tx + tw + gap < gui_right(field)) u8g2_DrawHLine(g, static_cast<u8g2_uint_t>(tx + tw + gap), static_cast<u8g2_uint_t>(mid), static_cast<u8g2_uint_t>(gui_right(field) - tx - tw - gap));
             continue;
         }
-        format_value(p, synth_value(i - 1), text, sizeof text);
+        pdesc_format(&p, synth_value(i - 1), text, sizeof text);
         gui_draw_field(g, &style, field, p.name, text, i == row);
     }
     display_send(g);

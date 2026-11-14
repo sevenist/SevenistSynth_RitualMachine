@@ -5,7 +5,7 @@
 #include <cstring>
 #include <mutex>
 #include <thread>
-#include "engine/core/engine.h"
+#include "engine/core/host.h"
 #include "engine/modules/builtin.h"
 #include "engine/modules/dx7_voice.h"
 #include "engine/modules/fx_modules.h"
@@ -27,14 +27,11 @@ using namespace sc;
 namespace {
 
 struct Synth {
-    Heap fast, bulk;
-    Engine eng;
+    EngineHost host;                          // the heaps, the engine, the hand-out of its blocks (engine/core/host.h)
+    Engine &eng = host.engine;
     RackGraph *last = nullptr, *cur = nullptr;   // the graph loaded and the one being built: control data, 6.4 KB each, in the bulk heap (engine_synth_init)
     bool have_last = false;
     bool pads_have_last = false;              // `last` holds the pads graph (the Pads section; have_last stays false: the synth's is gone)
-    q15 bl[kBlock], br[kBlock];
-    int bpos = kBlock;                 // frames of the current block already handed out (kBlock = need a new block)
-    Memory mem;
     bool (*importer)(int) = nullptr;
     SampleBank bank;
     bool bank_on = false;
@@ -63,7 +60,7 @@ struct Synth {
 };
 
 Synth s_synth;
-bool s_ready = false;
+bool ready() { return s_synth.host.ready(); }      // the engine runs: from engine_synth_init on, until engine_synth_shutdown
 
 // Converts the pending .wav / .mp3 files the rack uses (outside the lock: the importer updates the catalog through engine_synth_catalog_set).
 void prepare_samples(const rack_t &rack) {
@@ -243,14 +240,11 @@ extern "C" {
 
 int engine_synth_init(void *fast, size_t fast_bytes, void *bulk, size_t bulk_bytes) {
     Synth &s = s_synth;
-    s.fast.init(fast, fast_bytes);
-    s.bulk.init(bulk, bulk_bytes);
-    if (fast != bulk) s.fast.set_spill(&s.bulk);              // a full fast heap falls back to the big one instead of failing to create a module
-    s.mem = Memory{&s.fast, &s.bulk, &s.bank};
-    s.last = s.bulk.make<RackGraph>();
-    s.cur = s.bulk.make<RackGraph>();
+    s.host.init_memory(fast, fast_bytes, bulk, bulk_bytes, &s.bank);  // (a full fast heap falls back to the big one instead of failing to create a module)
+    s.last = s.host.bulk_heap().make<RackGraph>();
+    s.cur = s.host.bulk_heap().make<RackGraph>();
     if (!s.last || !s.cur) return -1;
-    s.eng.init(s.mem, SYNTH_MAX_VOICES);
+    if (!s.host.start(SYNTH_MAX_VOICES)) return -1;
     s.bank_on = false; s.cat_n = 0;
     for (auto &v : s.slot_of) v = -1;
     register_sampler_modules(s.eng.registry());
@@ -264,7 +258,6 @@ int engine_synth_init(void *fast, size_t fast_bytes, void *bulk, size_t bulk_byt
     register_osc_engines(s.eng.registry());
     register_mi_osc(s.eng.registry());
     s.have_last = false;
-    s.bpos = kBlock;
     s.click = false;
     s.resident_bytes = 0;
     s.clk_bpm = 110; s.clk_run = 0;                         // a new engine: set_clock compares with these
@@ -272,15 +265,13 @@ int engine_synth_init(void *fast, size_t fast_bytes, void *bulk, size_t bulk_byt
     s.seq_taken_seen = 0;
     s.pseq_sent = false; s.pseq_taken_seen = 0;
     s.eng.set_transport(s.clk_bpm, false, false);          // the machine clock: stopped, at the default tempo
-    s_ready = true;
     return 0;
 }
 
 void engine_synth_shutdown(void) {
-    if (!s_ready) return;
-    s_ready = false;                  // the platform stops its audio callback before calling this
+    if (!ready()) return;
     std::lock_guard<std::mutex> lk(s_synth.mx);
-    s_synth.eng.shutdown();
+    s_synth.host.shutdown();          // (the platform stops its audio callback before calling this)
     if (s_synth.bank_on) s_synth.bank.shutdown();
     s_synth.bank_on = false;
 }
@@ -319,7 +310,7 @@ static void retire_samples() {
 
 void engine_synth_housekeeping(void) {
     Synth &s = s_synth;
-    if (!s_ready) return;
+    if (!ready()) return;
     if (s.retire_n > 0) retire_samples();
     if (!s.gc_due || s.eng.switching()) return;
     std::lock_guard<std::mutex> lk(s.mx);                                       // (a freed Sampler leaves the loader's stream list)
@@ -328,15 +319,15 @@ void engine_synth_housekeeping(void) {
 }
 
 void engine_synth_heap_stats(size_t *fast_used, size_t *fast_cap, size_t *fast_high, size_t *bulk_used, size_t *spilled) {
-    if (spilled) *spilled = s_synth.fast.spilled();
-    if (fast_used) *fast_used = s_synth.fast.used();
-    if (fast_cap) *fast_cap = s_synth.fast.capacity();
-    if (fast_high) *fast_high = s_synth.fast.high_water();
-    if (bulk_used) *bulk_used = s_synth.bulk.used();
+    if (spilled) *spilled = s_synth.host.fast_heap().spilled();
+    if (fast_used) *fast_used = s_synth.host.fast_heap().used();
+    if (fast_cap) *fast_cap = s_synth.host.fast_heap().capacity();
+    if (fast_high) *fast_high = s_synth.host.fast_heap().high_water();
+    if (bulk_used) *bulk_used = s_synth.host.bulk_heap().used();
 }
 
 void engine_synth_set_osc_engine(int index, int engine) {
-    if (!s_ready) return;
+    if (!ready()) return;
     Synth &s = s_synth;
     if (!s.have_last) return;
     int k = 0;
@@ -347,7 +338,7 @@ void engine_synth_set_osc_engine(int index, int engine) {
 }
 
 void engine_synth_build(const rack_t *rack, const synth_params_t *params) {
-    if (!s_ready) return;
+    if (!ready()) return;
     s_builds++;
     Synth &s = s_synth;
     const bool from_pads = s.pads_mode;
@@ -370,7 +361,7 @@ void engine_synth_build(const rack_t *rack, const synth_params_t *params) {
 }
 
 void engine_synth_set_params(const rack_t *rack, const synth_params_t *params) {
-    if (!s_ready) return;
+    if (!ready()) return;
     Synth &s = s_synth;
     if (s.pads_mode) { pads_master(*rack); return; }       // the Pads section: only the master volume is the synth's
     if (!s.have_last) { engine_synth_build(rack, params); return; }
@@ -409,7 +400,7 @@ void engine_synth_set_params(const rack_t *rack, const synth_params_t *params) {
 }
 
 void engine_synth_set_clock(int bpm, int running) {
-    if (!s_ready) return;
+    if (!ready()) return;
     Synth &s = s_synth;
     const int run = running ? 1 : 0;
     if (bpm == s.clk_bpm && run == s.clk_run) return;                           // called every UI step
@@ -446,7 +437,7 @@ SeqSetup seq_setup_of(int run, int steps, int rate, int dir, int swing, int tran
 // The pattern goes over in chunks of kSeqChunk steps, the settings after it (a run then starts on the steps it was given). What the
 // command queue did not take is sent again at the next call.
 void engine_synth_seq_set(const seq_t *q) {
-    if (!s_ready) return;
+    if (!ready()) return;
     Synth &s = s_synth;
     bool all = true;
     for (int first = 0; first < kSeqSteps; first += kSeqChunk) {
@@ -462,11 +453,11 @@ void engine_synth_seq_set(const seq_t *q) {
     if (all) s.seq_sent = true;
 }
 
-int engine_synth_seq_record(int skip, int stop) { return s_ready && s_synth.eng.seq_record(skip, stop != 0) ? 1 : 0; }
-uint32_t engine_synth_seq_halts(void) { return s_ready ? s_synth.eng.seq_halts() : 0; }
+int engine_synth_seq_record(int skip, int stop) { return ready() && s_synth.eng.seq_record(skip, stop != 0) ? 1 : 0; }
+uint32_t engine_synth_seq_halts(void) { return ready() ? s_synth.eng.seq_halts() : 0; }
 
 int engine_synth_seq_queue(const seq_pattern_t *p, int id) {
-    if (!s_ready) return 0;
+    if (!ready()) return 0;
     Synth &s = s_synth;
     SeqSetup su;
     if (!p) { su.queue = SEQ_UNQUEUE; return s.eng.seq_setup(su) ? 1 : 0; }
@@ -484,7 +475,7 @@ int engine_synth_seq_queue(const seq_pattern_t *p, int id) {
 // The audio thread went on to the queued pattern: what seq_set believes the engine holds is no longer true, so it sends everything
 // again (the application hands it that pattern from now on: the engine ends up with exactly what the application shows).
 int engine_synth_seq_taken(void) {
-    if (!s_ready) return -1;
+    if (!ready()) return -1;
     Synth &s = s_synth;
     const uint32_t t = s.eng.seq_taken();
     if (t == s.seq_taken_seen) return -1;
@@ -514,7 +505,7 @@ bool send_pad_pattern(const pseq_pattern_t *p, bool queue) {                 // 
 }  // namespace
 
 void engine_synth_pseq_set(const pseq_pattern_t *p, int run) {
-    if (!s_ready) return;
+    if (!ready()) return;
     Synth &s = s_synth;
     const uint32_t h = pseq_hash(p);
     run = run ? 1 : 0;
@@ -525,7 +516,7 @@ void engine_synth_pseq_set(const pseq_pattern_t *p, int run) {
 }
 
 int engine_synth_pseq_queue(const pseq_pattern_t *p, int id) {
-    if (!s_ready) return 0;
+    if (!ready()) return 0;
     Synth &s = s_synth;
     SeqSetup su;
     if (!p) { su.queue = SEQ_UNQUEUE; return s.eng.pseq_setup(su, RP_PADS) ? 1 : 0; }
@@ -537,7 +528,7 @@ int engine_synth_pseq_queue(const pseq_pattern_t *p, int id) {
 }
 
 int engine_synth_pseq_taken(void) {
-    if (!s_ready) return -1;
+    if (!ready()) return -1;
     Synth &s = s_synth;
     const uint32_t t = s.eng.pseq_taken();
     if (t == s.pseq_taken_seen) return -1;
@@ -546,32 +537,32 @@ int engine_synth_pseq_taken(void) {
     return static_cast<int>(t & 0xFF);
 }
 
-int engine_synth_pseq_pos(void) { return s_ready ? s_synth.eng.pseq_step() : -1; }
-int engine_synth_pseq_where(int *step, int *frac, uint32_t *count) { return s_ready && s_synth.eng.pseq_where(step, frac, count) ? 1 : 0; }
+int engine_synth_pseq_pos(void) { return ready() ? s_synth.eng.pseq_step() : -1; }
+int engine_synth_pseq_where(int *step, int *frac, uint32_t *count) { return ready() && s_synth.eng.pseq_where(step, frac, count) ? 1 : 0; }
 
-int engine_synth_seq_pos(void) { return s_ready ? s_synth.eng.seq_step() : -1; }
-int engine_synth_seq_where(int *step, int *frac, uint32_t *count) { return s_ready && s_synth.eng.seq_where(step, frac, count) ? 1 : 0; }
+int engine_synth_seq_pos(void) { return ready() ? s_synth.eng.seq_step() : -1; }
+int engine_synth_seq_where(int *step, int *frac, uint32_t *count) { return ready() && s_synth.eng.seq_where(step, frac, count) ? 1 : 0; }
 
 void engine_synth_set_metronome(int on) {
-    if (!s_ready || (on != 0) == s_synth.click) return;
+    if (!ready() || (on != 0) == s_synth.click) return;
     s_synth.click = on != 0;
     s_synth.eng.set_transport(s_synth.clk_bpm, s_synth.clk_run != 0, s_synth.click);
 }
 
 int engine_synth_transport(int *bar, int *beat, int *frac) {
-    const uint64_t b = s_ready ? s_synth.eng.transport_beat() : 0;
+    const uint64_t b = ready() ? s_synth.eng.transport_beat() : 0;
     const uint64_t whole = b >> 32;
     if (bar) *bar = static_cast<int>(whole / 4) + 1;
     if (beat) *beat = static_cast<int>(whole % 4) + 1;
     if (frac) *frac = static_cast<int>((b >> 24) & 0xFF);
-    return s_ready && s_synth.eng.transport_running() ? 1 : 0;
+    return ready() && s_synth.eng.transport_running() ? 1 : 0;
 }
 
-void engine_synth_note_on(int note)  { if (s_ready) s_synth.eng.note_on(note, 100); }
-void engine_synth_note_off(int note) { if (s_ready) s_synth.eng.note_off(note); }
+void engine_synth_note_on(int note)  { if (ready()) s_synth.eng.note_on(note, 100); }
+void engine_synth_note_off(int note) { if (ready()) s_synth.eng.note_off(note); }
 
 void engine_synth_pads_build(const pads_t *pads, const rack_t *rack) {
-    if (!s_ready) return;
+    if (!ready()) return;
     Synth &s = s_synth;
     s_builds++;
     std::snprintf(s_reason, sizeof s_reason, "pads");
@@ -598,7 +589,7 @@ void engine_synth_pads_build(const pads_t *pads, const rack_t *rack) {
 // The FX chains changed (a module added, removed or moved, the routing, a value). The same shape: only the values that moved are sent
 // (no stall); another shape: the graph is loaded again (the player and the untouched effects keep their state, engine.h).
 void engine_synth_pads_fx(const pads_t *pads, const rack_t *rack) {
-    if (!s_ready || !s_synth.pads_mode) return;
+    if (!ready() || !s_synth.pads_mode) return;
     Synth &s = s_synth;
     std::lock_guard<std::mutex> lk(s.mx);
     if (!pads_graph_build(pads->fx, rack->cfg, s.eng.registry(), *s.cur)) return;
@@ -625,7 +616,7 @@ void engine_synth_pads_fx(const pads_t *pads, const rack_t *rack) {
 }
 
 void engine_synth_pad_set(int pad, const pad_t *p) {
-    if (!s_ready || !s_synth.pads_mode || pad < 0 || pad >= PAD_COUNT) return;
+    if (!ready() || !s_synth.pads_mode || pad < 0 || pad >= PAD_COUNT) return;
     pad_prepare(*p);
     std::lock_guard<std::mutex> lk(s_synth.mx);
     const PadBlob b = pad_blob(pad, *p);
@@ -633,7 +624,7 @@ void engine_synth_pad_set(int pad, const pad_t *p) {
 }
 
 static void pad_event(int idx, int pad) {
-    if (!s_ready || !s_synth.pads_mode) return;
+    if (!ready() || !s_synth.pads_mode) return;
     s_synth.pad_events = (s_synth.pad_events + 1) & 0x7FFFFF;
     if (!s_synth.pad_events) s_synth.pad_events = 1;
     s_synth.eng.set_param(RP_PADS, idx, (s_synth.pad_events << 8) | (pad & 0xFF));
@@ -642,18 +633,18 @@ static void pad_event(int idx, int pad) {
 void engine_synth_pad_push(int pad)    { if (pad >= 0 && pad < PAD_COUNT) pad_event(PADS_PUSH, pad); }
 void engine_synth_pad_release(int pad) { if (pad >= 0 && pad < PAD_COUNT) pad_event(PADS_RELEASE, pad); }
 void engine_synth_pads_stop(void)      { pad_event(PADS_STOP, 0); }
-uint64_t engine_synth_pads_playing(void) { return s_ready && s_synth.pads_mode ? pads_playing() : 0; }
-int32_t engine_synth_pad_position(int pad) { return s_ready && s_synth.pads_mode ? pads_position(pad) : -1; }
+uint64_t engine_synth_pads_playing(void) { return ready() && s_synth.pads_mode ? pads_playing() : 0; }
+int32_t engine_synth_pad_position(int pad) { return ready() && s_synth.pads_mode ? pads_position(pad) : -1; }
 
 int64_t engine_synth_sample_zero(int index, uint32_t frame, int dir) {
-    if (!s_ready) return -1;
+    if (!ready()) return -1;
     std::lock_guard<std::mutex> lk(s_synth.mx);
     if (index < 0 || index >= s_synth.cat_n || s_synth.slot_of[index] < 0) return -1;
     return s_synth.bank.zero_near(s_synth.slot_of[index], frame, dir);
 }
 
 int engine_synth_sample_onsets(int index, uint32_t *frames, uint16_t *strength, int max) {
-    if (!s_ready) return 0;
+    if (!ready()) return 0;
     Synth &s = s_synth;
     std::lock_guard<std::mutex> lk(s.mx);
     if (!s.bank_on || index < 0 || index >= s.cat_n || s.cat[index].pending) return 0;
@@ -671,18 +662,9 @@ int engine_synth_sample_onsets(int index, uint32_t *frames, uint16_t *strength, 
     return n;
 }
 
-void engine_synth_render(int16_t *stereo, int frames) {
-    if (!s_ready) { std::memset(stereo, 0, static_cast<size_t>(frames) * 4); return; }
-    Synth &s = s_synth;
-    for (int i = 0; i < frames; i++) {
-        if (s.bpos >= kBlock) { s.eng.render(s.bl, s.br); s.bpos = 0; }
-        stereo[2 * i] = s.bl[s.bpos];
-        stereo[2 * i + 1] = s.br[s.bpos];
-        s.bpos++;
-    }
-}
+void engine_synth_render(int16_t *stereo, int frames) { s_synth.host.render(stereo, frames); }
 
-int engine_synth_sample_count(void) { return s_ready ? s_synth.cat_n : 0; }
+int engine_synth_sample_count(void) { return ready() ? s_synth.cat_n : 0; }
 
 int engine_synth_osc_preview(int model, float timbre, float morph, float harm, int period, int16_t *out, int n) {
     if (model < 0 || model >= MI_MODELS || period < 2 || n <= 0) return 0;
@@ -695,7 +677,7 @@ int engine_synth_osc_preview(int model, float timbre, float morph, float harm, i
 }
 
 bool engine_synth_sample_info(int index, audio_sample_info_t *out) {
-    if (!s_ready) return false;
+    if (!ready()) return false;
     std::lock_guard<std::mutex> lk(s_synth.mx);
     if (index < 0 || index >= s_synth.cat_n) return false;
     *out = s_synth.cat[index];
@@ -703,7 +685,7 @@ bool engine_synth_sample_info(int index, audio_sample_info_t *out) {
 }
 
 bool engine_synth_io_pump(void) {
-    if (!s_ready) return false;
+    if (!ready()) return false;
     Synth &s = s_synth;
     std::lock_guard<std::mutex> lk(s.mx);
     if (!s.bank_on) return false;
@@ -712,7 +694,7 @@ bool engine_synth_io_pump(void) {
 }
 
 void engine_synth_catalog_reset(void) {
-    if (!s_ready) return;
+    if (!ready()) return;
     std::lock_guard<std::mutex> lk(s_synth.mx);
     s_synth.cat_n = 0;
     for (auto &v : s_synth.slot_of) v = -1;
@@ -721,7 +703,7 @@ void engine_synth_catalog_reset(void) {
 }
 
 void engine_synth_sampler_stats(uint32_t *underruns, uint32_t *block_reads) {
-    const bool on = s_ready && s_synth.bank_on;
+    const bool on = ready() && s_synth.bank_on;
     const SamplerStats &st = s_synth.bank.stats;
     if (underruns) *underruns = on ? st.underruns.load(std::memory_order_relaxed) : 0;
     if (block_reads) *block_reads = on ? st.block_reads.load(std::memory_order_relaxed) : 0;
@@ -730,7 +712,7 @@ void engine_synth_sampler_stats(uint32_t *underruns, uint32_t *block_reads) {
 #ifdef ENGINE_PROFILE
 void engine_synth_profile(void (*cb)(const char *, uint32_t, uint32_t, void *), void *user, uint32_t *blocks) {
     Engine::ProfEntry e[Engine::kProfMax];
-    const int n = s_ready ? s_synth.eng.prof_take(e, Engine::kProfMax, blocks) : 0;
+    const int n = ready() ? s_synth.eng.prof_take(e, Engine::kProfMax, blocks) : 0;
     if (!n) { *blocks = 0; return; }
     const uint32_t b = *blocks ? *blocks : 1;
     for (int i = 0; i < n; i++) cb(e[i].name, static_cast<uint32_t>(e[i].cycles / b), e[i].calls / b, user);
@@ -746,9 +728,9 @@ uint32_t engine_synth_millis(void) {
 }  // extern "C"
 
 bool engine_synth_attach_storage(StorageDevice *dev) {
-    if (!s_ready || !dev) return false;
+    if (!ready() || !dev) return false;
     std::lock_guard<std::mutex> lk(s_synth.mx);
-    s_synth.bank_on = s_synth.bank.init(*dev, s_synth.mem);
+    s_synth.bank_on = s_synth.bank.init(*dev, s_synth.host.memory());
     return s_synth.bank_on;
 }
 
@@ -758,7 +740,7 @@ void engine_synth_set_importer(bool (*convert)(int index)) {
 }
 
 void engine_synth_catalog_set(const audio_sample_info_t *infos, int n) {
-    if (!s_ready) return;
+    if (!ready()) return;
     std::lock_guard<std::mutex> lk(s_synth.mx);
     if (n > AUDIO_SAMPLES_MAX) n = AUDIO_SAMPLES_MAX;
     for (int i = 0; i < n; i++) s_synth.cat[i] = infos[i];
@@ -766,13 +748,13 @@ void engine_synth_catalog_set(const audio_sample_info_t *infos, int n) {
 }
 
 int engine_synth_catalog_find(const char *name) {
-    if (!s_ready) return -1;
+    if (!ready()) return -1;
     std::lock_guard<std::mutex> lk(s_synth.mx);
     return catalog_find(name);
 }
 
 int engine_synth_catalog_add(const audio_sample_info_t *info) {
-    if (!s_ready || !info || !info->name[0]) return -1;
+    if (!ready() || !info || !info->name[0]) return -1;
     Synth &s = s_synth;
     std::lock_guard<std::mutex> lk(s.mx);
     int i = catalog_find(info->name);
@@ -784,7 +766,7 @@ int engine_synth_catalog_add(const audio_sample_info_t *info) {
 }
 
 void engine_synth_catalog_remove(int index) {
-    if (!s_ready) return;
+    if (!ready()) return;
     Synth &s = s_synth;
     std::lock_guard<std::mutex> lk(s.mx);
     if (index < 0 || index >= s.cat_n) return;

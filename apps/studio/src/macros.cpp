@@ -1,8 +1,5 @@
 #include "macros.h"
-#include <cmath>
 #include <cstdio>
-#include <cstdlib>
-#include <cstring>
 #include "params.h"
 #include "synth.h"
 #include "ui/canvas.h"
@@ -78,85 +75,23 @@ void macro_apply(const lab::Synth &s, MacroSet &set, int k) {
     mac_apply(set.m, nullptr, k, set.m[k].pos, set_value, const_cast<lab::Synth *>(&s));
 }
 
-std::string macros_to_text(const lab::Synth &s, const MacroSet &set) {
-    std::string out = "# SynthLab Studio macros: ";
-    out += s.name;
-    out += "\n# macro N \"name\" position     dest SECTION/Value min max curve     link M min max curve (macro M driven by it)"
-           "   (positions 0..1 along the range)\n";
-    char line[160], path[64];
-    for (int k = 0; k < kMacros; k++) {
-        const Macro &m = set.m[k];
-        std::snprintf(line, sizeof line, "macro %d \"%s\" %.3f\n", k + 1, m.name, m.pos);
-        out += line;
-        for (int i = 0; i < m.n; i++) {
-            const Dest &d = m.d[i];
-            if (dest_macro(d) >= 0) {
-                std::snprintf(line, sizeof line, "link %d %.3f %.3f %s\n", dest_macro(d) + 1, d.min, d.max, curve_name(d.curve));
-            } else {
-                quote_path(s, dest_param(d), path, sizeof path);
-                std::snprintf(line, sizeof line, "dest %s %.3f %.3f %s\n", path, d.min, d.max, curve_name(d.curve));
-            }
-            out += line;
-        }
-    }
+std::string sound_text(const pset_sound_t &ps, const std::string &title) {
+    const int n = pset_to_text(&ps, title.c_str(), nullptr, 0);
+    std::string out(static_cast<size_t>(n) + 1, '\0');
+    pset_to_text(&ps, title.c_str(), &out[0], n + 1);
+    out.resize(static_cast<size_t>(n));
     return out;
+}
+
+std::string macros_to_text(const lab::Synth &s, const MacroSet &set) {
+    const pset_sound_t ps = {s.params, s.n_params, nullptr, nullptr, nullptr, const_cast<mac_t *>(set.m)};
+    return sound_text(ps, std::string("SynthLab Studio macros: ") + s.name);
 }
 
 bool macros_from_text(const lab::Synth &s, MacroSet &set, const char *text, int *dropped) {
     MacroSet r;
-    int cur = -1, lost = 0;
-    bool any = false;
-    const char *p = text;
-    while (*p) {
-        const char *e = std::strchr(p, '\n');
-        const size_t n = e ? static_cast<size_t>(e - p) : std::strlen(p);
-        char line[200];
-        std::snprintf(line, sizeof line, "%.*s", static_cast<int>(n < sizeof line ? n : sizeof line - 1), p);
-        p += n + (e ? 1 : 0);
-        int k;
-        if (std::sscanf(line, "macro %d", &k) == 1 && k >= 1 && k <= kMacros) {
-            cur = k - 1;
-            any = true;
-            Macro &m = r.m[cur];
-            const char *q1 = std::strchr(line, '"'), *q2 = q1 ? std::strchr(q1 + 1, '"') : nullptr;
-            if (q1 && q2) {
-                std::snprintf(m.name, sizeof m.name, "%.*s", static_cast<int>(q2 - q1 - 1), q1 + 1);
-                m.pos = static_cast<float>(std::atof(q2 + 1));
-            }
-            m.pos = m.pos < 0.f ? 0.f : m.pos > 1.f ? 1.f : m.pos;
-        } else if (cur >= 0 && std::strncmp(line, "dest ", 5) == 0) {
-            char path[64], w[3][16];
-            const char *q = line + 5;
-            if (!read_word(q, path, sizeof path) || !read_word(q, w[0], sizeof w[0]) || !read_word(q, w[1], sizeof w[1])) continue;
-            if (!read_word(q, w[2], sizeof w[2])) std::snprintf(w[2], sizeof w[2], "Lin");
-            const float mn = static_cast<float>(std::atof(w[0])), mx = static_cast<float>(std::atof(w[1]));
-            const char *cname = w[2];
-            const int prm = find_param(s, path);
-            Macro &m = r.m[cur];
-            if (prm < 0 || s.params[prm].curve == lab::Head || m.n >= kDests) { lost++; continue; }
-            Dest &d = m.d[m.n++];
-            d = ctl_map_plain(ctl_target(kValueTarget, 0, prm));
-            d.min = mn < 0.f ? 0.f : mn > 1.f ? 1.f : mn;
-            d.max = mx < 0.f ? 0.f : mx > 1.f ? 1.f : mx;
-            const int c = curve_by_name(cname);
-            d.curve = c < 0 ? kLin : c;
-        } else if (cur >= 0 && std::strncmp(line, "link ", 5) == 0) {
-            char w[4][16];
-            const char *q = line + 5;
-            if (!read_word(q, w[0], sizeof w[0]) || !read_word(q, w[1], sizeof w[1]) || !read_word(q, w[2], sizeof w[2])) continue;
-            if (!read_word(q, w[3], sizeof w[3])) std::snprintf(w[3], sizeof w[3], "Lin");
-            const int j = std::atoi(w[0]) - 1;
-            const float mn = static_cast<float>(std::atof(w[1])), mx = static_cast<float>(std::atof(w[2]));
-            Dest d = ctl_map_plain(mac_target(j < 0 ? kMacros : j));
-            d.min = mn < 0.f ? 0.f : mn > 1.f ? 1.f : mn;
-            d.max = mx < 0.f ? 0.f : mx > 1.f ? 1.f : mx;
-            const int c = curve_by_name(w[3]);
-            d.curve = c < 0 ? kLin : c;
-            if (mac_add(r.m, cur, d) < 0) lost++;   // not a macro, full, or a loop
-        }
-    }
-    if (dropped) *dropped = lost;
-    if (!any) return false;
+    const pset_sound_t ps = {s.params, s.n_params, nullptr, nullptr, nullptr, r.m};
+    if (!(pset_from_text(&ps, text, dropped) & PSET_HAD_MACROS)) return false;
     set = r;
     return true;
 }

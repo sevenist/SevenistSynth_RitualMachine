@@ -147,8 +147,10 @@ The status line at the bottom says what the control under the pointer is and wha
 
 Saved in `apps/studio/presets/`, one pair per synth. They are plain text, readable and editable by hand:
 
-- `<synth>.sound`: the values (`value BODY/Tune 50`) and the macros (`macro 1 "Punch" 0.500`, then `dest BODY/Tune 0.20 0.80 Exp`;
-  Min and Max are positions 0..1 along the value's range, the way its knob shows it; `link 2 0.00 0.50 Lin`: macro 2, driven by it).
+- `<synth>.sound`: the values (`value BODY/Tune 50`; a name with a space in quotes: `value "RUMBLE/Dly Mix" 0.3`) and the macros
+  (`macro 1 "Punch" 0.500`, then `dest BODY/Tune 0.200 0.800 Exp`; Min and Max are positions 0..1 along the value's range, the way its
+  knob shows it; `link 2 0.000 0.500 Lin`: macro 2, driven by it). The format is the library's (`framework/control/preset.h`): values by
+  name, so a sound still opens after its synth gains, loses or reorders values, and a board running the synth reads the same file.
 - `<synth>.layout`: the pages (`page`), then an element a line: `row BODY/Tune 0 14 128 10` (the kind, the value, x y w h; a title
   shows a section by its name, `-` is the synth's name). Then, when it has one, its text in quotes (`knob BODY/Tune 0 24 32 34
   "Pitch"`), and a label's alignment (`label - 0 60 128 10 "Hello" center`). The kinds: row, knob, bar, big, fader, toggle, choice,

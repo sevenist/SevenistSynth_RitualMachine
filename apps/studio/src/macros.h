@@ -4,20 +4,21 @@
 // chain; a macro never drives itself back, the link that would loop is refused). Each destination maps the knob's travel through a curve
 // onto Min..Max of its range (Min > Max inverts). Positions are 0..1 along a value's range as its knob shows it (params.h: to_norm), or a
 // macro's travel.
-// Saved as text, one file per synth (presets/<synth>.macros):
+// Saved in the synth's sound file (presets/<synth>.sound), in the library's text (framework/control/preset.h, what a board reads):
 //   macro 1 "Punch" 0.500
-//   dest BODY/Tune 0.20 0.80 Exp
-//   link 2 0.00 0.50 Lin                  (macro 2, driven by macro 1)
+//   dest BODY/Tune 0.200 0.800 Exp
+//   link 2 0.000 0.500 Lin                (macro 2, driven by macro 1)
 #include <string>
 #include "control/curve.h"
 #include "control/macro.h"
+#include "control/preset.h"
 #include "lab.h"
 
 namespace studio {
 
 constexpr int kMacros = MAC_MAX;
 constexpr int kDests = MAC_DESTS;
-constexpr int kValueTarget = 1;                     // a destination's kind: one of the synth's values (prm: its index)
+constexpr int kValueTarget = PSET_KIND_VALUE;       // a destination's kind: one of the synth's values (prm: its index)
 
 // The curves: the library's built-ins (framework/control/curve.h, the Ritual Machine's own: the same tables), no user curves.
 enum Curve { kLin = CRV_LIN, kExp = CRV_EXP, kLog = CRV_LOG, kS = CRV_S, kCurveCount = CRV_BUILTIN };
@@ -51,6 +52,8 @@ void  macro_remove(Macro &m, int k);
 // Puts every destination of macro k where its position says (values through synth_set_value), and the macros it drives with theirs.
 void  macro_apply(const lab::Synth &s, MacroSet &set, int k);
 
+// A sound's text (framework/control/preset.h) as a string, `title` its first comment.
+std::string sound_text(const pset_sound_t &ps, const std::string &title);
 std::string macros_to_text(const lab::Synth &s, const MacroSet &set);
 // Replaces `set` with the text's macros. Destinations whose value the synth does not have, and links that would loop, are dropped
 // (counted in *dropped).

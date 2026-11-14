@@ -2,6 +2,14 @@
 
 The library's changes: [framework/CHANGELOG.md](../../framework/CHANGELOG.md).
 
+## 2026-11-15: the sound file is the library's
+
+- **Fixed: a value whose name holds a space** (RUMBLE/Dly Mix, Env Amt, High Hz ...) did not come back when a sound was opened: it
+  was written without quotes and read only up to the space. It is now written in quotes, and the sounds saved before read right
+  (in a value line the number is the last word, the path everything before it).
+- The `.sound` file's reader and writer are the library's (`framework/control/preset.h`), the text a board will read; nothing else
+  changes in the file. `params.cpp`'s paths and words are the library's too.
+
 ## 2026-11-14: a macro can drive another macro
 
 - SOUND: drop a macro's handle on another macro's knob and the first drives the second (and the second its own values); the

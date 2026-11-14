@@ -2,6 +2,17 @@
 
 What changed in the library (`framework/`) and in the repo as a whole. Each app keeps its own update log.
 
+## 2026-11-15: a sound as text
+
+- **`control/preset.h`** (new, C, header only): a synth's sound as text, its values by path (`value BODY/Tune 50`; "SECTION/Name",
+  the section being the `PARAM_HEAD` before the value, in quotes when it holds a space) and its macros (`macro`, `dest`, `link`
+  lines, control/macro.h). Values by name, not by place: a synth that gains, loses or reorders values still reads its sounds, so a
+  sound made in SynthLab Studio loads on a board whose engine was exported (and fixed) since. `pset_to_text` / `pset_from_text` over
+  any list of `param_desc_t` (the app reads and sets its values), the words and lines (`pset_word`, `pset_line`: quoted words, CRLF),
+  the paths (`pset_path`, `pset_find`). It is SynthLab Studio's `.sound` file, moved: the same text, but a value whose name holds a
+  space is now quoted (Studio lost such values when it read a sound back; the older unquoted lines still read). `tests/test_preset.cpp`
+  (new).
+
 ## 2026-11-14: macros, and a macro that drives another
 
 - **`control/macro.h`** (new, C, header only): one control that moves several targets, each through a mapping (`ctl_map_t`: a

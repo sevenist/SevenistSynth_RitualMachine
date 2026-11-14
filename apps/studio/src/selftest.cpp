@@ -120,6 +120,53 @@ void test_macros() {
           dropped == 2 && back.m[0].n == 1 && back.m[1].n == 0, "a link that loops, or to no macro, is dropped (%d)", dropped);
 }
 
+// The sound file (framework/control/preset.h, what a board reads), on every synth: the values come back, a name with a space too (its
+// path quoted: until 2026-11-15 it was not, and the value was lost on reading), and a line of that older kind still reads.
+void test_sound_file() {
+    for (int si = 0; si < lab::kSynthCount; si++) {
+        const lab::Synth &s = *lab::kSynths[si];
+        synth_select(si);
+        std::vector<float> keep(static_cast<size_t>(s.n_params)), want(static_cast<size_t>(s.n_params));
+        int spaced = -1;
+        for (int i = 0; i < s.n_params; i++) {
+            if (s.params[i].curve == lab::Head) continue;
+            keep[i] = synth_value(i);
+            set_value_norm(i, std::fmod(0.37f * static_cast<float>(i + 1) + 0.11f * static_cast<float>(si), 1.f));
+            want[i] = synth_value(i);
+            char path[64];
+            param_path(s, i, path, sizeof path);
+            if (spaced < 0 && std::strchr(path, ' ')) spaced = i;
+        }
+        const std::string text = sound_to_text(si);
+        int lines = 0;
+        for (int i = 0; i < s.n_params; i++) {
+            if (s.params[i].curve == lab::Head) continue;
+            char q[72], line[120];
+            quote_path(s, i, q, sizeof q);
+            std::snprintf(line, sizeof line, "\nvalue %s %g\n", q, static_cast<double>(want[i]));
+            lines += text.find(line) != std::string::npos;
+            set_value_norm(i, 0.5f);
+        }
+        CHECK(lines == s.n_params - std::count_if(s.params, s.params + s.n_params, [](const lab::Param &p) { return p.curve == lab::Head; }),
+              "%s: every value has its line (%d)", s.name, lines);
+        sound_from_text(si, text.c_str());
+        int back = 0;
+        for (int i = 0; i < s.n_params; i++)
+            if (s.params[i].curve != lab::Head) back += near(synth_value(i), want[i], 1e-5f * (s.params[i].max - s.params[i].min) + 1e-6f);
+        CHECK(back == lines, "%s: %d of %d values come back from the text", s.name, back, lines);
+        if (spaced >= 0) {
+            char path[64], old[120];
+            param_path(s, spaced, path, sizeof path);
+            const lab::Param &p = s.params[spaced];
+            std::snprintf(old, sizeof old, "value %s %g\n", path, static_cast<double>(p.max));     // (unquoted, as before)
+            sound_from_text(si, old);
+            CHECK(near(synth_value(spaced), p.max, 1e-6f), "%s: the unquoted %s reads", s.name, path);
+        }
+        for (int i = 0; i < s.n_params; i++) if (s.params[i].curve != lab::Head) synth_set_value(i, keep[i]);
+    }
+    synth_select(0);
+}
+
 // The widgets, with input written by hand: a frame is wg_begin, the widgets, wg_end.
 struct Rig {
     uint16_t px[200 * 104];
@@ -970,6 +1017,7 @@ int studio_selftest(wg_ctx_t &c, const char *shot) {
     test_params();
     test_layouts();
     test_macros();
+    test_sound_file();
     test_widgets();
     test_app(c, shot);
     test_keys(c);

@@ -92,38 +92,17 @@ bool write_file(const std::string &path, const std::string &text) {
 }
 }  // namespace
 
+// The sound file (framework/control/preset.h): the values by path, then the macros.
 std::string sound_to_text(int synth) {
     const lab::Synth &s = *lab::kSynths[synth];
-    std::string out = "# SynthLab Studio sound: ";
-    out += s.name;
-    out += "\n";
-    char line[160], path[64];
-    for (int i = 0; i < s.n_params; i++) {
-        if (s.params[i].curve == lab::Head) continue;
-        param_path(s, i, path, sizeof path);
-        std::snprintf(line, sizeof line, "value %s %g\n", path, static_cast<double>(synth_value(i)));
-        out += line;
-    }
-    return out + macros_to_text(s, st.macros[synth]);
+    const pset_sound_t ps = {s.params, s.n_params, [](void *, int i) { return synth_value(i); }, nullptr, nullptr, nullptr};
+    return sound_text(ps, std::string("SynthLab Studio sound: ") + s.name) + macros_to_text(s, st.macros[synth]);
 }
 
 bool sound_from_text(int synth, const char *text) {
     const lab::Synth &s = *lab::kSynths[synth];
-    for (const char *p = text; *p;) {
-        const char *e = std::strchr(p, '\n');
-        const size_t n = e ? static_cast<size_t>(e - p) : std::strlen(p);
-        char line[200], path[64];
-        float v;
-        std::snprintf(line, sizeof line, "%.*s", static_cast<int>(n < sizeof line ? n : sizeof line - 1), p);
-        p += n + (e ? 1 : 0);
-        const char *q = line;
-        char word[16];
-        if (read_word(q, word, sizeof word) && std::strcmp(word, "value") == 0 && read_word(q, path, sizeof path) && read_word(q, word, sizeof word)) {
-            v = static_cast<float>(std::atof(word));
-            const int i = find_param(s, path);
-            if (i >= 0) synth_set_value(i, v);
-        }
-    }
+    const pset_sound_t ps = {s.params, s.n_params, nullptr, [](void *, int i, float v) { synth_set_value(i, v); }, nullptr, nullptr};
+    pset_from_text(&ps, text, nullptr);
     return macros_from_text(s, st.macros[synth], text);
 }
 

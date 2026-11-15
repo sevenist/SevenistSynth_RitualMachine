@@ -27,6 +27,15 @@ bool export_patch(const mod::Patch &p, const std::string &id, std::string &path,
 //                  picked; its values as export_synth's; added to synth_list.cpp.
 bool export_engine_synth(const mod::Patch &p, const std::string &id, std::string &path, std::string &err);
 
+// A float module as its engine twin `rm` (the merged list's switch, tab_patch.cpp): its values converted as Export > Engine converts
+// them (the engine's defaults where it has no rule), its ports by the export's names: input k -> rm's input (or a value it modulates
+// instead: in_param), output o -> rm's output, value j's modulations -> rm's value. -1: none (a cable there is dropped).
+struct ImplMap {
+    float v[mod::kMaxParams];
+    int in[mod::kMaxIn], in_param[mod::kMaxIn], out[mod::kMaxOut], prm[mod::kMaxParams];
+};
+ImplMap float_to_engine(const mod::Node &n, const mod::ModuleDef *rm);
+
 // The texts themselves (the self-test checks them; `synth_name` is the patch's name).
 std::string synth_source(const mod::Patch &p, const std::string &id);
 std::string engine_source(const mod::Patch &p, const std::string &id);

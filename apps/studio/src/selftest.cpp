@@ -304,6 +304,44 @@ void test_export_keeps_names() {
     synth_select(0);
 }
 
+// The merged list: one entry per function, a float module or its engine twin. The twin leaves the list; a module switches between the
+// two (values converted, cables kept on the matching ports) and back to the values it had; a new module takes the cheaper one.
+void test_merged_list() {
+    const int mi = modular_index();
+    if (mi < 0) return;
+    const mod::ModuleDef *osc = mod::find_module("Osc"), *rmosc = mod::find_module("RMOsc"), *chorus = mod::find_module("RMChorus");
+    CHECK(osc && rmosc && mod::engine_twin(osc) == rmosc && mod::has_float_twin(rmosc) && !mod::has_float_twin(osc) &&
+          (!chorus || !mod::has_float_twin(chorus)) && mod::has_float_twin(mod::find_module("RMReverb")),
+          "Osc's twin is RMOsc (out of the list); Room's is RMReverb; RMChorus has none (it stays)");
+    if (!osc || !rmosc) return;
+    synth_select(mi);
+    const mod::Patch keep = st.patch;
+    st.patch.init_default();                            // Note, Osc 2 -> Filter 3 -> VCA 5 (ADSR 4) -> VoiceOut 6
+    patch_apply();
+    mod::Node *o = st.patch.find(2);
+    CHECK(o && o->def == osc, "the starting patch's Osc 2");
+    if (!o) { st.patch = keep; patch_apply(); synth_select(0); return; }
+    o->v[mod::P::OSC_WAVE] = 3.f;                       // a square
+    o->v[mod::P::OSC_TUNE] = 7.f;
+    const float before[2] = {o->v[mod::P::OSC_WAVE], o->v[mod::P::OSC_TUNE]};
+    const int cables = st.patch.n_cables;
+    CHECK(switch_module(2, true) && st.patch.find(2)->def == rmosc && st.patch.n_cables == cables, "Osc 2 -> RMOsc: its cable into the Filter kept");
+    const mod::Node *e = st.patch.find(2);
+    const int wave = mod::param_index(*rmosc, "wave"), pitch = mod::param_index(*rmosc, "pitch");
+    CHECK(wave >= 0 && pitch >= 0 && std::lround(e->v[wave]) == 2 && std::fabs(e->v[pitch] - 67.f) < 0.01f,
+          "its values as Export > Engine converts them (wave %g: the pulse; pitch %g st: middle C + 7)", wave >= 0 ? static_cast<double>(e->v[wave]) : -1.0,
+          pitch >= 0 ? static_cast<double>(e->v[pitch]) : -1.0);
+    bool to_filter = false;
+    for (int k = 0; k < st.patch.n_cables; k++) if (st.patch.cable[k].src == 2 && st.patch.cable[k].dst == 3 && !st.patch.cable[k].to_param) to_filter = true;
+    CHECK(to_filter, "RMOsc 2's out goes into the Filter's input");
+    CHECK(switch_module(2, false) && st.patch.find(2)->def == osc && st.patch.find(2)->v[mod::P::OSC_WAVE] == before[0] &&
+          st.patch.find(2)->v[mod::P::OSC_TUNE] == before[1] && st.patch.n_cables == cables, "and back: the values it had, its cables");
+    CHECK(!switch_module(st.patch.node[0].id, true), "Note has no twin");
+    st.patch = keep;
+    patch_apply();
+    synth_select(0);
+}
+
 // The cycles wallet (framework/modular/cost.h): a patch's cost on the board from the table measured there (module_costs.h), by module,
 // cable and voice; a module at its slowest value costs its worst; the voices the budget fits; the patch's voice count through its text,
 // into the exported synth (its Options) and into the Modular synth (the studio plays it as the board will).
@@ -1400,6 +1438,7 @@ int studio_selftest(wg_ctx_t &c, const char *shot) {
     test_export_keeps_names();
     test_patch_macros();
     test_patch_wallet();
+    test_merged_list();
     test_widgets();
     test_app(c, shot);
     test_keys(c);

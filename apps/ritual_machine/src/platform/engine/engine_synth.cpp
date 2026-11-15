@@ -308,6 +308,8 @@ static void retire_samples() {
     }
 }
 
+int engine_synth_switching(void) { return ready() && s_synth.eng.switching() ? 1 : 0; }
+
 void engine_synth_housekeeping(void) {
     Synth &s = s_synth;
     if (!ready()) return;

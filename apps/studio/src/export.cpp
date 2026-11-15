@@ -807,6 +807,26 @@ bool export_engine_synth(const mod::Patch &p, const std::string &id, std::string
     return add_to_list("synth_eng_" + id, err);
 }
 
+ImplMap float_to_engine(const mod::Node &n, const mod::ModuleDef *rm) {
+    ImplMap m;
+    for (int j = 0; j < mod::kMaxParams; j++) { m.v[j] = j < rm->n_param ? rm->param[j].def : 0.f; m.prm[j] = -1; }
+    for (int k = 0; k < mod::kMaxIn; k++) m.in[k] = m.in_param[k] = -1;
+    for (int o = 0; o < mod::kMaxOut; o++) m.out[o] = -1;
+    const EngNode e = engine_node(n);
+    if (!e.type) return m;
+    auto pidx = [&](const char *name) { for (int j = 0; name && j < rm->n_param; j++) if (!std::strcmp(rm->param[j].name, name)) return j; return -1; };
+    auto iidx = [&](const char *name) { for (int k = 0; name && k < rm->n_in; k++) if (!std::strcmp(rm->in_name[k], name)) return k; return -1; };
+    auto oidx = [&](const char *name) { for (int o = 0; name && o < rm->n_out; o++) if (!std::strcmp(rm->out_name[o], name)) return o; return -1; };
+    for (const EngSet &s : e.sets) {
+        const int j = pidx(s.param);
+        if (j >= 0) m.v[j] = mod::engine_shown_value(rm, j, static_cast<int32_t>(s.value));
+    }
+    for (int k = 0; k < n.def->n_in; k++) { m.in[k] = iidx(e.in[k]); m.in_param[k] = pidx(e.in_mod[k]); }
+    for (int o = 0; o < n.def->n_out; o++) m.out[o] = oidx(e.out[o]);
+    for (int j = 0; j < n.def->n_param; j++) m.prm[j] = pidx(e.prm[j]);
+    return m;
+}
+
 bool export_engine(const mod::Patch &p, const std::string &id, std::string &path, std::string &err) {
     path = st.preset_dir + "../exports/" + id + "_graph.cpp";
     return write_text(path, engine_source(p, id), err);

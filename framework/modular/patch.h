@@ -38,6 +38,10 @@ struct Node {
     float v[kMaxParams] = {};           // its values, in units
     int16_t x = 0, y = 0;               // where the studio draws it
     char name[16] = "";                 // a Macro's name ("": "Macro <id>")
+    // Its other implementation (the merged list: a float module or its engine twin, the studio's switch), with the values it had there:
+    // switching back gives them again. Not in the text form.
+    const ModuleDef *alt = nullptr;
+    float alt_v[kMaxParams] = {};
 };
 
 struct Cable {

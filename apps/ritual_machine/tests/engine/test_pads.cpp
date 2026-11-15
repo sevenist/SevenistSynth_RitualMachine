@@ -608,7 +608,13 @@ TEST(pads_a_section_switch_builds_the_new_graph_in_the_fast_heap) {
         int16_t buf[64 * 2];
         while (!stop.load()) { engine_synth_render(buf, 64); std::this_thread::sleep_for(std::chrono::microseconds(200)); }
     });
-    auto settle = [] { std::this_thread::sleep_for(std::chrono::milliseconds(20)); engine_synth_housekeeping(); };
+    // until the audio thread has taken the new graph (a fixed 20 ms was sometimes too short on a busy PC: the old graph not yet freed,
+    // the next one spilled out of the fast heap), then the old one freed
+    auto settle = [] {
+        for (int i = 0; i < 400 && engine_synth_switching(); i++) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        engine_synth_housekeeping();
+    };
     size_t to_pads = 0, back = 0;
     engine_synth_build(&rack, &params);
     settle();

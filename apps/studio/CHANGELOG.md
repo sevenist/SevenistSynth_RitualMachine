@@ -2,6 +2,14 @@
 
 The library's changes: [framework/CHANGELOG.md](../../framework/CHANGELOG.md).
 
+## 2026-11-15: the merged list
+
+- **PATCH: one list entry per function.** An engine module with a float twin (RMOsc, RMEg, RMLfo, RMFilter, RMShaper, RMVca, RMMix4,
+  RMMult, RMConst, RMDelay, RMReverb) leaves the list. A new module takes the cheaper implementation on the board.
+- **The inspector's Float / Engine tabs** switch a module between its two implementations, each with its cost. Its values are
+  converted as Export > Engine does and its cables kept where the ports match; switching back restores its values. The user picks per
+  function later, by ear and by the wallet.
+
 ## 2026-11-15: the wallet prices an engine synth
 
 - The cycles wallet also shows the patch as an engine synth: "CPU 45 % (engine 63 %)", a dotted tick on the bar and its cycles in

@@ -25,6 +25,7 @@ const char *engine_synth_build_reason(void);
 // freed (a build can only free what the running plan no longer uses: before, they stayed until the next build, so a Synth <-> Pads switch
 // kept both graphs in memory).
 void engine_synth_housekeeping(void);                                      // why the last set_params had to rebuild ("first" = an explicit build)
+int  engine_synth_switching(void);                                         // 1 while a built graph waits for the audio thread to take it
 void engine_synth_set_osc_engine(int index, int engine);                          // dev: switch the index-th oscillator engine of the loaded graph (the next rack edit may undo it)
 void engine_synth_heap_stats(size_t *fast_used, size_t *fast_cap, size_t *fast_high, size_t *bulk_used, size_t *spilled);   // dev: how full the two heaps are
 unsigned engine_synth_build_count(void);                                           // how many full graph (re)loads happened (a rebuild is slow: tests and diagnostics watch it)

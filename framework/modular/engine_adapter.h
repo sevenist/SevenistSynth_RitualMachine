@@ -31,6 +31,11 @@ int register_engine_modules(const sc::Registry &reg);
 bool is_engine_module(const ModuleDef *d);                  // an "RM" entry: d->engine is the engine type's name
 int32_t engine_raw_value(const ModuleDef *d, int param, float v);   // value `param` at v (as shown) in the engine's own units
 const char *engine_param_name(const ModuleDef *d, int param);       // its name in the engine (the export uses it)
+float engine_shown_value(const ModuleDef *d, int param, int32_t raw);   // the engine's raw value as shown (engine_raw_value's inverse)
+// The merged list (one entry per function): a float module's engine twin, its `engine` type's "RM" entry (nullptr: none); and whether
+// an "RM" entry has a float twin that stands for it in the list (the inspector switches a module between the two).
+const ModuleDef *engine_twin(const ModuleDef *d);
+bool has_float_twin(const ModuleDef *rm);
 // The engine registers `type` (an engine module's name: "Eg", "Delay") in the scope of `area` (kVoiceArea: Voice, kFxArea: Global).
 // False also for a type it does not have, or before register_engine_modules.
 bool engine_type_in(const char *type, int area);

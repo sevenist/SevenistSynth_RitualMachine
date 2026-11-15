@@ -357,6 +357,33 @@ int32_t engine_raw_value(const ModuleDef *d, int j, float v) {
     return static_cast<int32_t>(std::lround(v));
 }
 
+float engine_shown_value(const ModuleDef *d, int j, int32_t raw) {
+    for (int k = 0; k < g_n; k++) {
+        const Slot &sl = g_slots[k];
+        if (d != &sl.def) continue;
+        float v = static_cast<float>(raw);
+        if (sl.show[j] == kPercent) v = v / 327.67f;
+        else if (sl.show[j] == kSemis) v = v / 256.f;
+        const Param &q = d->param[j];
+        return v < q.min ? q.min : (v > q.max ? q.max : v);
+    }
+    return static_cast<float>(raw);
+}
+
+const ModuleDef *engine_twin(const ModuleDef *d) {
+    if (!d || !d->engine || is_engine_module(d)) return nullptr;
+    for (int k = 0; k < g_n; k++) if (g_slots[k].info && !std::strcmp(g_slots[k].info->name, d->engine)) return &g_slots[k].def;
+    return nullptr;
+}
+
+bool has_float_twin(const ModuleDef *rm) {
+    if (!is_engine_module(rm)) return false;
+    int n = 0;
+    const ModuleDef *const *all = catalog(&n);
+    for (int i = 0; i < n; i++) if (engine_twin(all[i]) == rm) return true;
+    return false;
+}
+
 const char *engine_param_name(const ModuleDef *d, int j) { return d->param[j].name; }
 
 int engine_names_unused(const char **first) {

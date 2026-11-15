@@ -116,6 +116,14 @@ The status line at the bottom says what the control under the pointer is and wha
   drag from its Out onto values to move them, or onto another Macro's Value (a layer: one Macro that turns others). Its name is the
   parameter's (the inspector's Rename; names must differ). The Macros come first in the Modular synth's values (`MACROS/<name>`),
   and **Export > Synth of a patch with Macros keeps them alone**: every other value is fixed in the generated code as the patch has it.
+- **One entry per function** (the merged list): where a catalog module has an engine twin (Osc / RMOsc, ADSR and Perc / RMEg, LFO /
+  RMLfo, Filter / RMFilter, Drive / RMShaper, VCA / RMVca, Mixer / RMMix4, Ring / RMMult, Const and Macro / RMConst, Delay / RMDelay,
+  Room / RMReverb), the twin leaves the list.
+  - A new module takes the cheaper of the two on the board (today the float one each time: an engine module in the studio pays its
+    conversions).
+  - The inspector's **Float / Engine** tabs switch a module between them, each tab showing its cost. Its values are converted as
+    Export > Engine converts them, and its cables stay where the other has the same ports. Switching back gives the values it had.
+  - The engine's modules with no float twin (Chorus, Phaser, Strings, MiOsc ...) keep their own entries.
 - **The cycles wallet** (the strip above the canvas, right of VOICE / FX): what the synth exported from the patch costs on the
   board, against the board's budget (`framework/modular/cost.h`, from the costs measured on HWV1).
   - **The stepper** sets the patch's **voice count** (1..6): the exported synth plays at most that many, and so does the Modular

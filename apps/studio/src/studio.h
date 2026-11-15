@@ -98,6 +98,7 @@ void set_el_text(const std::string &text);       // the LAYOUT tab: the typed te
 void patch_apply();
 void patch_sync();
 void rename_macro(int id, const char *name);    // the PATCH tab's Macro `id` (its row in the list keeps its place; "" refused, a twin too)
+bool switch_module(int id, bool to_engine);     // the PATCH tab's module `id` to its float or engine implementation (false: it has no twin)
 bool save_patch(const std::string &path);
 bool load_patch(const std::string &path);
 bool read_patch_file(const std::string &path, mod::Patch &out);   // a .patch file, not applied (false: unreadable)

@@ -623,9 +623,88 @@ void draw_canvas(wg_ctx_t &c, gui_rect_t area) {
 
 /* ---------------- the catalog and the patch's file ---------------- */
 
+/* ---------------- the merged list: a function, two implementations ---------------- */
+
+// A node's two implementations (the merged list): its float module and that module's engine twin (an "RM" entry). nullptr: no twin.
+void twins_of(const mod::Node &n, const mod::ModuleDef *&fl, const mod::ModuleDef *&en) {
+    fl = en = nullptr;
+    if (!mod::is_engine_module(n.def)) { fl = n.def; en = mod::engine_twin(n.def); return; }
+    en = n.def;
+    if (n.alt && !mod::is_engine_module(n.alt) && mod::engine_twin(n.alt) == en) { fl = n.alt; return; }
+    int count = 0;
+    const mod::ModuleDef *const *all = mod::catalog(&count);
+    for (int i = 0; i < count && !fl; i++) if (mod::engine_twin(all[i]) == en) fl = all[i];
+}
+
+uint32_t cost_of(const mod::ModuleDef *d) {
+    const mod::ModuleCost *mc = d ? mod::module_cost(d->name) : nullptr;
+    return mc ? mc->cycles : 0;
+}
+
+// The implementation a new module of that function gets: the cheaper of the two on the board (module_costs.h), the float one at a tie
+const mod::ModuleDef *cheaper(const mod::ModuleDef *d) {
+    const mod::ModuleDef *en = mod::engine_twin(d);
+    if (!en || !mod::module_cost(en->name) || !mod::module_cost(d->name)) return d;
+    return cost_of(en) < cost_of(d) ? en : d;
+}
+
+// Switches node n to its other implementation `to`: its values converted as Export > Engine converts them (or the ones it had there
+// before: kept in alt), its cables moved to the matching ports (by the export's names); a cable with no place there is dropped.
+void switch_impl(mod::Node &n, const mod::ModuleDef *to) {
+    mod::Patch &p = st.patch;
+    const mod::ModuleDef *from = n.def;
+    const bool to_engine = mod::is_engine_module(to);
+    mod::Node fl = n;                                   // the float side, with its values: the maps are float -> engine
+    if (!to_engine) {
+        fl.def = to;
+        if (n.alt == to) std::memcpy(fl.v, n.alt_v, sizeof fl.v);
+        else for (int j = 0; j < to->n_param; j++) fl.v[j] = to->param[j].def;
+    }
+    const ImplMap m = float_to_engine(fl, to_engine ? to : from);
+    float nv[mod::kMaxParams];
+    if (n.alt == to) std::memcpy(nv, n.alt_v, sizeof nv);
+    else if (to_engine) std::memcpy(nv, m.v, sizeof nv);
+    else std::memcpy(nv, fl.v, sizeof nv);
+    int dropped = 0;
+    for (int k = p.n_cables - 1; k >= 0; k--) {
+        mod::Cable &cb = p.cable[k];
+        bool keep = true;
+        if (cb.src == n.id) {
+            int port = -1;
+            if (to_engine) port = cb.src_port < mod::kMaxOut ? m.out[cb.src_port] : -1;
+            else for (int o = 0; o < to->n_out; o++) if (m.out[o] == cb.src_port) port = o;
+            if (port < 0) keep = false; else cb.src_port = static_cast<uint8_t>(port);
+        }
+        if (keep && cb.dst == n.id) {
+            int port = -1;
+            bool param = cb.to_param;
+            if (to_engine) {
+                if (cb.to_param) port = m.prm[cb.dst_port];
+                else if ((port = m.in[cb.dst_port]) < 0 && m.in_param[cb.dst_port] >= 0) { port = m.in_param[cb.dst_port]; param = true; }
+            } else if (cb.to_param) {
+                for (int j = 0; j < to->n_param; j++) if (m.prm[j] == cb.dst_port) port = j;
+                for (int q = 0; port < 0 && q < to->n_in; q++) if (m.in_param[q] == cb.dst_port) { port = q; param = false; }
+            } else {
+                for (int q = 0; q < to->n_in; q++) if (m.in[q] == cb.dst_port) port = q;
+            }
+            if (port < 0) keep = false;
+            else { cb.dst_port = static_cast<uint8_t>(port); cb.to_param = param; }
+        }
+        if (!keep) { p.disconnect(k); dropped++; }
+    }
+    n.alt = from;
+    std::memcpy(n.alt_v, n.v, sizeof n.v);
+    n.def = to;
+    std::memcpy(n.v, nv, sizeof nv);
+    patch_apply();
+    mark_dirty();
+    if (dropped) message("%s %d is now %s: %d cable(s) had no place there (dropped)", from->name, n.id, to->name, dropped);
+    else message("%s %d is now %s (its cables kept)", from->name, n.id, to->name);
+}
+
 void add_module(int which) {
     int n;
-    const mod::ModuleDef *d = mod::catalog(&n)[which];
+    const mod::ModuleDef *d = cheaper(mod::catalog(&n)[which]);     // (the merged list: the function's cheaper implementation)
     const int a = allowed(d, st.patch_area) ? st.patch_area : (st.patch_area == mod::kVoiceArea ? mod::kFxArea : mod::kVoiceArea);
     int x = 40 + st.pan_x[a], y = 40 + st.pan_y[a];
     for (int i = 0; i < st.patch.n_nodes; i++)          // (not on top of another one)
@@ -651,6 +730,7 @@ void draw_left(wg_ctx_t &c, gui_rect_t area) {
     std::vector<Row> rows;
     const char *last = nullptr;
     for (int i = 0; i < n; i++) {
+        if (mod::has_float_twin(cat[i])) continue;      // (the merged list: its float twin stands for the function; the inspector switches)
         if (!last || std::strcmp(last, cat[i]->category)) { rows.push_back(Row{cat[i]->category, -1}); last = cat[i]->category; }
         rows.push_back(Row{nullptr, i});
     }
@@ -816,6 +896,24 @@ void draw_inspector(wg_ctx_t &c, gui_rect_t r) {
         if (c.hot == rid) wg_set_hint(&c, "The Macro's name: the exported synth's parameter (MACROS/<name>); Enter keeps it, Esc drops it");
     }
     y += 16;
+    // its implementation (the merged list): the float module or the engine's, each with its cost on the board
+    {
+        const mod::ModuleDef *fl, *en;
+        twins_of(n, fl, en);
+        if (fl && en) {
+            char a[24], b[24];
+            std::snprintf(a, sizeof a, "Float %.1fk", static_cast<double>(cost_of(fl)) / 1000.0);
+            std::snprintf(b, sizeof b, "Engine %.1fk", static_cast<double>(cost_of(en)) / 1000.0);
+            const int w2 = (r.w - 12) / 2;
+            const bool is_en = mod::is_engine_module(d);
+            if (wg_tab(&c, WG_ID(F_PINSP, 405), gui_rect(x, y - 8, w2, 12), a, !is_en) && is_en) { switch_impl(n, fl); return; }
+            if (wg_tab(&c, WG_ID(F_PINSP, 406), gui_rect(x + w2 + 2, y - 8, w2, 12), b, is_en) && !is_en) { switch_impl(n, en); return; }
+            if (c.hot == WG_ID(F_PINSP, 405) || c.hot == WG_ID(F_PINSP, 406))
+                wg_set_hint(&c, "Its implementation: the catalog's float %s or the engine's %s (cycles a block on the board); a switch converts its values "
+                                "and keeps its cables where the other has the same ports", fl->name, en->name);
+            y += 10;
+        }
+    }
     // its doc, cut into lines
     {
         const char *s = d->doc;
@@ -924,6 +1022,17 @@ std::string patch_ident(const char *name) {               // "Hollow Kick" -> "h
 
 
 void patch_sync() { modular_pull_values(st.patch); }
+
+bool switch_module(int id, bool to_engine) {
+    mod::Node *n = st.patch.find(id);
+    if (!n) return false;
+    const mod::ModuleDef *fl, *en;
+    twins_of(*n, fl, en);
+    if (!fl || !en) return false;
+    const mod::ModuleDef *to = to_engine ? en : fl;
+    if (to != n->def) switch_impl(*n, to);
+    return true;
+}
 
 void rename_macro(int id, const char *name) {
     mod::Node *n = st.patch.find(id);

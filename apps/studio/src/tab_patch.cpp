@@ -469,19 +469,22 @@ void draw_wallet(wg_ctx_t &c, gui_rect_t r) {
     for (int v = 0; v < p.voices; v++) slice(pc.voice, wg_mix(t.panel2, col, v % 2 ? 70 : 100));
     if (pc.fx) slice(pc.fx, wg_mix(t.panel2, category_color("Effects"), 80));
     if (pc.worst > pc.total) wg_fill(&c, gui_rect(std::min(x_of(pc.worst), bar.x + bar.w - 1), bar.y, 1, bar.h), t.text);
+    const int ex = std::min(x_of(pc.engine_total), bar.x + bar.w - 1);   // the same patch as an engine synth: a dotted tick
+    for (int y = bar.y; y < bar.y + bar.h; y += 2) wg_fill(&c, gui_rect(ex, y, 1, 1), category_color("Effects"));
     wg_frame(&c, bar, used > 1.f ? t.warn : t.line);
-    const int pct = static_cast<int>(used * 100.f + 0.5f);
-    std::snprintf(text, sizeof text, "CPU %d %%%s   %uk of %uk", pct, used > 1.f ? " OVER" : "", static_cast<unsigned>((pc.total + 500) / 1000),
-                  static_cast<unsigned>((pc.budget + 500) / 1000));
+    const int pct = static_cast<int>(used * 100.f + 0.5f), epct = static_cast<int>(static_cast<float>(pc.engine_total) / budget * 100.f + 0.5f);
+    std::snprintf(text, sizeof text, "CPU %d %%%s (engine %d %%)   %uk of %uk", pct, used > 1.f ? " OVER" : "", epct,
+                  static_cast<unsigned>((pc.total + 500) / 1000), static_cast<unsigned>((pc.budget + 500) / 1000));
     if (wg_text_w(&c, text, true) > bar.w - 8) std::snprintf(text, sizeof text, "CPU %d %%%s", pct, used > 1.f ? " OVER" : "");   // (a narrow window)
     const int tw = wg_text_w(&c, text, true);
     wg_fill(&c, gui_rect(bar.x + bar.w - 6 - tw, bar.y + 1, tw + 4, bar.h - 2), t.bg);    // (readable over the slices)
     wg_text_small(&c, bar.x + bar.w - 4 - tw, bar.y + 9, text, used > 1.f ? t.warn : t.text);
     if (inside(bar, in.x, in.y))
-        wg_set_hint(&c, "On %s (measured %s): engine %u + %d x voice %u + FX %u = %u of %u cycles a block; up to %u at the slowest values; fits %d voice(s)%s",
+        wg_set_hint(&c, "On %s (measured %s): engine %u + %d x voice %u + FX %u = %u of %u cycles a block; up to %u at the slowest values; fits %d voice(s); "
+                        "as an engine synth (Export > Engine synth, the dotted tick): %u%s",
                     mod::kBoardCost.board, mod::kBoardCost.measured, static_cast<unsigned>(pc.fixed), p.voices, static_cast<unsigned>(pc.voice),
                     static_cast<unsigned>(pc.fx), static_cast<unsigned>(pc.total), static_cast<unsigned>(pc.budget), static_cast<unsigned>(pc.worst), fit,
-                    pc.unmeasured ? "; some modules are not measured (RM): counted as 0" : "");
+                    static_cast<unsigned>(pc.engine_total), pc.unmeasured ? "; some modules are not measured: counted as 0" : "");
 }
 
 void draw_canvas(wg_ctx_t &c, gui_rect_t area) {

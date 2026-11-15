@@ -23,7 +23,12 @@ struct PatchCost {
     uint32_t voice_bytes = 0;           // the modules' state in one voice
     uint32_t fx_bytes = 0;
     int unmeasured = 0;                 // modules the table does not have (counted as 0)
+    // The same patch exported as an engine synth (Export > Engine synth: its modules as engine types, engine_modules.h): each module's
+    // `engine` cycles (their ports converted to q15; a module not measured that way: its own + kWrapper). Checked on HWV1: the default
+    // patch at 3 voices, 62 000 estimated, 57 598 measured (the estimate errs on the safe side).
+    uint32_t engine_voice = 0, engine_fx = 0, engine_total = 0;
 };
+constexpr uint32_t kWrapper = 1800;     // what the engine type adds to a module not measured as one (the measured ones: 1 300 to 2 200)
 
 // One module with its values (worst: at its slowest values, whatever they are). 0 when the table does not have it.
 uint32_t node_cycles(const Node &n, bool worst = false);

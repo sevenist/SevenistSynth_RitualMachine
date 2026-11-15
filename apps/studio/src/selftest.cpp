@@ -326,6 +326,11 @@ void test_patch_wallet() {
           pc.worst >= pc.total, "3 voices of Note -> Osc -> VoiceOut: %u = %u + 3 x %u", static_cast<unsigned>(pc.total),
           static_cast<unsigned>(b.engine_fixed), static_cast<unsigned>(voice));
 
+    // as an engine synth: each module at its engine type's cycles (measured), no generated voice's glue
+    const uint32_t ev = b.engine_voice + mod::module_cost("Osc")->engine;
+    CHECK(mod::module_cost("Osc")->engine > mod::module_cost("Osc")->cycles && pc.engine_voice == ev && pc.engine_total == b.engine_fixed + 3 * ev,
+          "as an engine synth: %u = %u + 3 x %u", static_cast<unsigned>(pc.engine_total), static_cast<unsigned>(b.engine_fixed), static_cast<unsigned>(ev));
+
     // the cables: a modulation by the curve of the value it moves, an input at a depth other than 1 (summed)
     const int lfo = p.add(mod::find_module("LFO"), mod::kVoiceArea, 0, 120)->id;
     const int flt = p.add(mod::find_module("Filter"), mod::kVoiceArea, 140, 120)->id;

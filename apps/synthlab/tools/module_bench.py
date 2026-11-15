@@ -68,6 +68,8 @@ def parse(lines):
             mods.append(d)
         elif w[0] == 'glue':
             glue.append((w[1], int(w[2])))
+        elif w[0] == 'ftype' and len(w) >= 3 and w[2].isdigit():
+            head.setdefault('ftype', {})[w[1]] = int(w[2])     # (the module as an engine type: engine_modules.h)
         elif w[0] == 'synth':
             # synth <name...> voice V bytes B fx F bytes FB render-idle I render-1 R1 voices N render-6 R6 voices N6
             k = w.index('voice')
@@ -126,6 +128,7 @@ def write_header(path, board, head, mods, glue, synths, voices):
     o.append('//   worst    the slowest of its values one at a time at their minimum / maximum (and each choice); worst_at: which')
     o.append('//   cold     the same block with the instruction cache emptied first: what code left in flash costs at worst')
     o.append('//   start    a note starting (once a note, not a block)        bytes: its state (a voice holds one per instance)')
+    o.append('//   engine   the module as an engine type (modular/engine_modules.h, what an engine synth plays), q15 ports; 0: not measured')
     o.append('// The code is in internal RAM (SC_HOT, modules.h), so `cycles` is what a voice pays; what is left in flash (the C library\'s')
     o.append('// expf, powf, tanf ...) is why `cold` stays above it for some.')
     o.append('#include <cstdint>')
@@ -133,7 +136,7 @@ def write_header(path, board, head, mods, glue, synths, voices):
     o.append('')
     o.append('namespace mod {')
     o.append('')
-    o.append('struct ModuleCost { const char *name; uint32_t cycles, worst; const char *worst_at; uint32_t cold, start, bytes; };')
+    o.append('struct ModuleCost { const char *name; uint32_t cycles, worst; const char *worst_at; uint32_t cold, start, bytes, engine; };')
     o.append('struct BoardCost {')
     o.append('    const char *board, *measured;     // where and when')
     o.append('    int cpu_mhz, rate, block;')
@@ -156,7 +159,8 @@ def write_header(path, board, head, mods, glue, synths, voices):
         base = max(d['def'], d['driven'])
         worst = d['max'] if d['max'] > base * 1.1 else base           # (within 10 %: the timing's noise, not a costlier value)
         at = d['max_at'] if worst > base and not d['max_at'].startswith('-') else ''
-        o.append('    {"%s", %d, %d, "%s", %d, %d, %d},' % (d['name'], base, worst, at, d['cold'], d['start'], d['size']))
+        o.append('    {"%s", %d, %d, "%s", %d, %d, %d, %d},' % (d['name'], base, worst, at, d['cold'], d['start'], d['size'],
+                                                       head.get('ftype', {}).get(d['name'], 0)))
     o.append('};')
     o.append('')
     o.append('inline const ModuleCost *module_cost(const char *name) {')

@@ -20,7 +20,15 @@ bool at_worst(const Node &n, const char *worst_at) {
     return k >= 0 && std::fabs(n.v[k] - static_cast<float>(std::atof(eq + 1))) < 1e-3f;
 }
 
-struct AreaSum { uint32_t cycles = 0, worst = 0, bytes = 0; int nodes = 0, unmeasured = 0; };
+struct AreaSum { uint32_t cycles = 0, worst = 0, bytes = 0, engine = 0; int nodes = 0, unmeasured = 0; };
+
+// A module as an engine synth plays it: the In / Out ones are the engine's own (in its fixed and per-voice costs), the others their
+// engine type's cycles
+uint32_t engine_cycles(const Node &n, const ModuleCost &mc) {
+    const char *nm = n.def->name;
+    if (!std::strcmp(nm, "Note") || !std::strcmp(nm, "VoiceOut") || !std::strcmp(nm, "Voices") || !std::strcmp(nm, "Output")) return 0;
+    return mc.engine ? mc.engine : mc.cycles + kWrapper;
+}
 
 AreaSum area_sum(const Patch &p, int area) {
     AreaSum s;
@@ -34,6 +42,7 @@ AreaSum area_sum(const Patch &p, int area) {
         s.cycles += node_cycles(n) + cab;
         s.worst += mc->worst + cab;
         s.bytes += mc->bytes;
+        s.engine += engine_cycles(n, *mc) + cab;
     }
     return s;
 }
@@ -92,6 +101,9 @@ PatchCost patch_cost(const Patch &p, int voices) {
     r.voice_bytes = v.bytes;
     r.fx_bytes = f.bytes;
     r.unmeasured = v.unmeasured + f.unmeasured;
+    r.engine_voice = b.engine_voice + v.engine;         // (no generated voice's glue: the engine runs the graph)
+    r.engine_fx = fx ? f.engine : 0;
+    r.engine_total = r.fixed + static_cast<uint32_t>(voices) * r.engine_voice + r.engine_fx;
     return r;
 }
 

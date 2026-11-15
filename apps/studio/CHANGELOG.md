@@ -2,6 +2,11 @@
 
 The library's changes: [framework/CHANGELOG.md](../../framework/CHANGELOG.md).
 
+## 2026-11-15: the wallet prices an engine synth
+
+- The cycles wallet also shows the patch as an engine synth: "CPU 45 % (engine 63 %)", a dotted tick on the bar and its cycles in
+  the hint. These are the modules' measured costs as engine types (module_costs.h `engine`).
+
 ## 2026-11-15: Export > Engine synth
 
 - **PATCH > EXPORT > Engine synth**: the patch as a SynthLab synth whose voices are an engine graph (`apps/synthlab/src/synths/

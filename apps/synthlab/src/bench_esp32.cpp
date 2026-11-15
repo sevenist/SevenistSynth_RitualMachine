@@ -29,6 +29,7 @@
 #include "engine/modules/synth_modules.h"
 #include "lab.h"                           // (before Arduino.h: its F() macro would hit lab.h's template parameter F)
 #include "modular/engine_adapter.h"
+#include "modular/engine_modules.h"
 #include "modular/modular.h"
 #include "modular/patch.h"
 #include "synth.h"
@@ -319,6 +320,52 @@ void bench_engine() {
     synth_select(keep);
 }
 
+// The catalog's modules as engine types (framework/modular/engine_modules.h: what an engine synth plays), each one alone: built by the
+// engine's own registry in its heaps, process() timed with the engine's q15 ports, a voice's note (60, velocity 100, the key held). An
+// input that is audio by default gets a saw; the others are unplugged (the module reads its default: ProcessCtx::silence). The
+// difference from the module's own cycles is the wrapper's: its conversions.
+void bench_ftypes() {
+    static sc::Registry reg;
+    static bool registered = false;
+    if (!registered) { mod::register_modular_types(reg); registered = true; }
+    static sc::Heap fast_heap, bulk_heap;
+    constexpr size_t kFast = 16 * 1024, kBulk = 256 * 1024;  // (a module's state over 8 KB goes to the bulk heap: engine_modules.cpp)
+    static void *fast_mem = alloc_in(kFast, false), *bulk_mem = alloc_in(kBulk, true);
+    if (!fast_mem || !bulk_mem) { Serial.printf("[MBENCH] ftype no-memory\n"); return; }
+    static sc::q15 silence[kFrames], saw[kFrames], outs[sc::kMaxOut][kFrames];
+    for (int i = 0; i < kFrames; i++) { silence[i] = 0; saw[i] = static_cast<sc::q15>(g_sig[i] * 32767.f); }
+    for (int id = mod::kModularTypeFirst; id < sc::Registry::kMax; id += 2) {
+        const sc::ModuleType *t = reg.get(id);
+        if (!t) continue;
+        const mod::ModuleDef *d = mod::modular_def_of(t->info);
+        if (!d) continue;
+        fast_heap.init(fast_mem, kFast);
+        bulk_heap.init(bulk_mem, kBulk);
+        sc::Memory mem{&fast_heap, &bulk_heap, nullptr};
+        sc::Module *m = t->create(mem);
+        if (!m) { Serial.printf("[MBENCH] ftype %s no-memory\n", d->name); continue; }
+        sc::VoiceState vs;
+        vs.note = 60;
+        vs.pitch = vs.target_pitch = 60 * 256;
+        vs.velocity = static_cast<sc::q15>(100 * 32767 / 127);
+        vs.gate = vs.active = true;
+        vs.started = true;
+        sc::ProcessCtx ctx{kFrames, 0, &vs, nullptr, nullptr, nullptr, nullptr};
+        ctx.silence = silence;
+        ctx.keys_held = 1;
+        sc::Ports p{};
+        for (int k = 0; k < sc::kMaxIn; k++)
+            p.in[k] = k < d->n_in && d->in_def[k] == mod::kZero && std::strcmp(d->in_name[k], "Pitch") != 0 ? saw : silence;
+        for (int o = 0; o < sc::kMaxOut; o++) p.out[o] = outs[o];
+        for (int j = 0; j < sc::kMaxParams; j++) p.mod[j] = nullptr;
+        for (int j = 0; j < d->n_param; j++) m->set_param(j, t->info->param[j].def);
+        const uint32_t c = time_med([&] { m->process(ctx, p); ctx.time++; vs.started = false; });
+        Serial.printf("[MBENCH] ftype %s %u\n", d->name, (unsigned)c);
+        m->~Module();
+        vTaskDelay(1);
+    }
+}
+
 void bench_all() {
     for (int i = 0; i < kFrames; i++) {
         g_zero[i] = 0.f;
@@ -357,6 +404,7 @@ void bench_all() {
     int n = 0;
     const mod::ModuleDef *const *all = mod::catalog(&n);
     for (int i = 0; i < n; i++) bench_module(*all[i]);
+    bench_ftypes();
     bench_glue();
     bench_engine();
 #endif

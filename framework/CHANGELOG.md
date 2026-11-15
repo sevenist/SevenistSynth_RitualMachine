@@ -2,6 +2,15 @@
 
 What changed in the library (`framework/`) and in the repo as a whole. Each app keeps its own update log.
 
+## 2026-11-15: the engine types measured; the wallet prices an engine synth
+
+- `modular/module_costs.h`: an `engine` column, each catalog module as an engine type (engine_modules.h) on HWV1. The wrapper adds
+  about 1 300 cycles a block plus about 300 per port (Osc 2 049 -> 3 994, ADSR 1 578 -> 3 046, VCA 446 -> 2 272).
+- `modular/cost.h`: `PatchCost::engine_total` (with `engine_voice`, `engine_fx`) is the patch exported as an engine synth. It errs on
+  the safe side: the default patch at 3 voices is estimated at 62 000, measured at 57 598.
+- `modular/engine_modules.cpp`: one shared host for every type (64 copies in internal RAM did not fit the board); a type's
+  description is made when it is registered.
+
 ## 2026-11-15: the catalog's modules in the engine
 
 - `modular/engine_modules.h` (new): every catalog module (the In / Out ones aside) is an engine module type, "F" + its name (FBody,

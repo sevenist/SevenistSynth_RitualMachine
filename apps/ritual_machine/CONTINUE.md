@@ -5,6 +5,13 @@ The library's notes, the user's working style and the traps of the environment a
 
 ## Session todo (updated 2026-11-10)
 
+**2026-11-15 (from the `synthlab` branch's work, nothing of the app's behaviour changed):**
+- The engine has `Registry::kMax` 192 (was 128) and `ProcessCtx::silence`.
+- `engine_synth_switching()` (engine_synth.h) is 1 while a built graph waits for the audio thread.
+- The test `pads_a_section_switch_builds_the_new_graph_in_the_fast_heap` failed now and then: it waited a fixed 20 ms for the switch.
+  It now waits on that, and 4 runs of 4 pass.
+- The firmware still builds (RAM 48 %); not flashed.
+
 - [ ] **The knob resolver (ADR-047)**, from an architecture review (2026-11-08): built on `gui-reorg`, now in `main`, host-tested (216 UI tests with
   the legend tick's fix, `cb56f41`: the tick follows a knob that has not caught), NOT flashed. To try: Shift / Mod held in Pads (the knobs, the legend, the "S"); on GRV-mini the pot LEDs on the SEQUENCER, CURVES, Pads
   (the value), PERFORM / SETUP over the pads (dark). Other candidates of the review, not started: one screen navigator for both

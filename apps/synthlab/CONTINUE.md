@@ -5,6 +5,24 @@ library's notes, the user's working style and the traps of the environment are i
 
 ## Session todo (updated 2026-11-12)
 
+**2026-11-15 (commits de94e75 .. da059be):** what changed for SynthLab, and what waits on the user.
+- **44.1 kHz on HWV2 too** (the `hwv2` environment), one budget with HWV1.
+- **Synths in internal RAM** (`SC_HOT` in lab.h, `-mtext-section-literals` in platformio.ini): the Kick and DrumLab take half the CPU.
+- **Lighter modular modules** (the user allowed the sound to change): Osc, ADSR, Perc, LFO, `decay_coef`. **Not heard yet by the user:**
+  play Basic and the drums on HWV1, and a patch with an LFO or a Perc (they are now computed every 8 samples).
+- **A synth's own voice count**, `lab::Options::voices` (last in Options), sent with the voice mode.
+- **Engine synths** (`lab::make_graph_synth`, written by SynthLab Studio's Export > Engine synth): picking one loads its graph (up to
+  200 ms of silence, the user's OK), and its values go to its nodes.
+  - The tests play them through the engine (`test_graph_synth`).
+  - The default patch at 3 voices measured 57 598 cycles a block with 3 notes, about 2 300 a voice more than the float export.
+  - None is in the list yet: the user exports their own.
+- **Benches:**
+  - `hwv1_bench`: the modules, their engine types, the synths in the engine.
+  - `hwv1_bench_rm`: the Ritual Machine's modules alone (linked with the rest, SynthLab's engine has no internal RAM left to start).
+  - Then `tools/module_bench.py --from bench.txt bench_rm.txt --write framework/modular/module_costs.h`.
+  - HWV1 uploads on COM9 (its CH343) and prints on COM8 (native USB).
+- On the board now: the normal `hwv1` build.
+
 **Where things stand (2026-11-12):** the user asked for an environment to test home-made synths and oscillator algorithms: a collection of
 small all-in-one synths for specific sounds, with a minimal screen (the parameters' names and values, encoder A selects, encoder B
 edits) and a file to write the synths' designs in. **The app was made on the new branch `synthlab`** (from `main`): the synth API

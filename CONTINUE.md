@@ -14,6 +14,33 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
 
 ## Session todo (updated 2026-11-10)
 
+**2026-11-15 (branch `synthlab`, commits de94e75 .. da059be): the library's side of SynthLab Studio's cycles wallet and module work.**
+The app-side details are in [apps/studio/CONTINUE.md](apps/studio/CONTINUE.md) and [apps/synthlab/CONTINUE.md](apps/synthlab/CONTINUE.md);
+the decisions are in DESIGN.md, ADR-049 addenda 6 and 7.
+- **Measured on HWV1: code from flash costs up to 2.5 times its own cycles.** The flash's 16 KB cache is shared with the screen's code
+  on the other core, so a block starts cold. The fixes:
+  - SynthLab's synths' render (`lab.h`), the modular modules (`modules.h`, `mdsp.h`) and a generated synth's render are `SC_HOT`.
+  - Code defined in a header can only go to internal RAM with `-mtext-section-literals` (the user chose to add it to SynthLab's
+    platformio.ini; without it the link fails with "l32r: literal placed after use").
+  - Result: the Kick with one note went from 86 500 to 44 100 cycles a block.
+  - Still in flash: the C library (`expf`, `powf`, `tanf`). `decay_coef` now uses `fast_exp2`.
+- **Both prototypes run at 44.1 kHz** (one MCU, one budget: 174 149 cycles a 32-frame block). SynthLab and TechnoGen join the Ritual
+  Machine there.
+- **Engine:**
+  - `set_voice_mode(..., max_voices)` caps the poly allocator (a synth's own voice count, no reload).
+  - `ProcessCtx::silence` lets a module tell an unplugged input from a silent one.
+  - `Registry::kMax` went from 128 to 192.
+- **The engine is the one module system (the user's direction).** `framework/modular/engine_modules.h` makes every catalog module an
+  engine type "F<name>": one shared host around its float code, its description made at registration, ids 128..191. Each nulls
+  against the modular runner between -66 and -99 dB (`framework/tests/test_modular_types.cpp`; the library's test build now compiles
+  modular/catalog, patch, engine_modules).
+- **The modules' cost table** `framework/modular/module_costs.h` is generated from the board by apps/synthlab's bench.
+  `framework/modular/cost.h` adds it up for a patch.
+- **Trap found:** an `SC_HOT` function in a class template is instantiated once per template argument, every copy in internal RAM (64
+  hosts did not fit). Keep a hot function out of templates, or shared.
+- **Trap, the shell:** a heredoc loses one level of backslashes (a `\\n` written in the script reaches the file as a real newline). Write edit scripts with the Write tool, or
+  use Edit, for any C string.
+
 **Since (2026-11-09 / 10):** the user committed the HWV2 card reader in the `hwv2` build (`63e034d`), removed `apps/HWV2_scanner` (the
 CH32V006's firmware is no longer in this repo; the frame it sends is described in `framework/boards/hwv2/hwv2_layout.h`) and added the
 guide `BUILDING.md` (building any app's desktop program) and the project skill `improve-codebase-architecture`. **On 2026-11-10 the

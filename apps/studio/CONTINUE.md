@@ -3,7 +3,16 @@
 The app's state and todo. Its controls and files are in [README.md](README.md). The library's notes, the user's working style and
 the traps of the environment are in the root [CONTINUE.md](../../CONTINUE.md).
 
-## Session todo (updated 2026-11-14)
+## Session todo (updated 2026-11-15)
+
+**Latest (2026-11-15, committed de94e75 .. da059be on `synthlab`):** the cycles wallet and the patch's voice count; the modules
+measured on HWV1 (module_costs.h); Export > Engine writes every module; Export > Engine synth; the merged list (Float / Engine per
+module); switch groups. The details and the open items are in the dated sections at the end of this file ("the voice count and a
+cycles wallet", "the user's next batch"). **Waiting on the user:**
+- try the PATCH tab's new parts by hand (the wallet, the Float / Engine tabs, the groups);
+- listen to the lighter modules on HWV1;
+- pick the implementation per function;
+- say whether groups should reach the engine exports.
 
 **Where things stand (2026-11-14):** the user asked for two tools: a UI editor to try arrangements of the screen for different
 engines, and a sound design tool with macros in a Vital-like UI (the Ritual Machine's macro building), with the mouse and the

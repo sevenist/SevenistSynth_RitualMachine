@@ -2,6 +2,17 @@
 
 The library's changes: [framework/CHANGELOG.md](../../framework/CHANGELOG.md).
 
+## 2026-11-15: engine synths
+
+- **A synth can be an engine graph** (`lab::make_graph_synth`, `lab::GraphSynth`: SynthLab Studio's Export > Engine synth writes
+  them). Picking one loads its graph, which can mean up to 200 ms of silence (the user's OK). Picking a Voice synth after it loads
+  SynthLab's own graph again. Its values go to the graph's nodes (`GraphValue`), and only the ones you moved are sent at the switch.
+  The volume knob keeps working (the master at node 255). At the start it registers only the module types its graphs use.
+- The tests play an engine synth through the engine: its defaults, each value at its min and max on the piano's lowest and highest
+  notes, its voices ending, and its WAV.
+- Builds: `framework/modular/catalog.cpp` and `engine_modules.cpp` are in the firmware (dropped by the linker when no engine synth
+  uses them), in the desktop program and in the tests.
+
 ## 2026-11-15: 44.1 kHz on HWV2 too; the engine's modules measured
 
 - **HWV2 runs at 44.1 kHz** (environment `hwv2`), as HWV1. It is the same MCU, so there is one budget (174 149 cycles a block) and

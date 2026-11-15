@@ -2,6 +2,18 @@
 
 The library's changes: [framework/CHANGELOG.md](../../framework/CHANGELOG.md).
 
+## 2026-11-15: Export > Engine synth
+
+- **PATCH > EXPORT > Engine synth**: the patch as a SynthLab synth whose voices are an engine graph (`apps/synthlab/src/synths/
+  eng_<name>.cpp`, added to SynthLab's list). It has the same values as Synth's export, its voice count, and registers only its
+  modules. Played on HWV1 (the default patch at 3 voices: 57 598 cycles a block with 3 notes held) and through SynthLab's tests.
+
+## 2026-11-15: Export > Engine writes every module
+
+- **Export > Engine:** a module the engine has nothing like (Body, Metal, Perc, Ratchet, Glue, Gate, Math ...) is no longer listed as
+  "new modules needed". It goes into the graph as the catalog's own module made an engine type (`FBody`: its float code, its values;
+  framework/modular/engine_modules.h). The file's `register_<name>_types(reg)` registers exactly the ones it uses.
+
 ## 2026-11-15: the cycles wallet
 
 - **PATCH: the cycles wallet**, in the strip above the canvas: what the synth exported from the patch costs on the board, against

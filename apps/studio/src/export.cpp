@@ -1,5 +1,6 @@
 // The PATCH tab's exports (export.h).
 #include "export.h"
+#include <algorithm>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -8,6 +9,7 @@
 #include <filesystem>
 #include <vector>
 #include "modular/engine_adapter.h"
+#include "modular/engine_modules.h"
 #include "modular/modules.h"
 #include "studio.h"
 
@@ -158,6 +160,51 @@ int synth_slots(const mod::Patch &p, int *base) {
     return 1 + macros;
 }
 
+// The exported synth's list of values (labels, then kParams): the Macros first in MACROS, then a section per other module; rows (when
+// given) gets each row's node id and value index (0, -1: a title).
+std::string param_list(const mod::Patch &p, const int *base, std::vector<std::pair<int, int>> *rows) {
+    std::string o;
+    const bool macros = mod::macro_count(p) > 0;
+    // the labels, the list
+    for (int i = 0; i < p.n_nodes; i++) {
+        const mod::ModuleDef &d = *p.node[i].def;
+        for (int j = 0; j < d.n_param && base[i] >= 0; j++) {
+            const mod::Param &q = d.param[j];
+            if (!q.labels) continue;
+            o += fmt("const char *const kL%d_%d[] = {", p.node[i].id, j);
+            for (int k = 0; k <= static_cast<int>(q.max - q.min); k++) o += (k ? ", " : "") + cstr(q.labels[k]);
+            o += "};\n";
+        }
+    }
+    o += "\nconst lab::Param kParams[] = {\n";
+    static const char *const curves[] = {"lab::Lin", "lab::Exp", "lab::Int"};
+    if (macros) { o += fmt("    lab::section(%s),\n", cstr(mod::kMacroSection).c_str()); if (rows) rows->push_back({0, -1}); }
+    for (int i = 0; i < p.n_nodes; i++) {           // the Macros, a row each
+        const mod::Node &n = p.node[i];
+        if (!mod::is_macro(n) || base[i] < 0) continue;
+        const mod::Param &q = n.def->param[0];
+        char name[24];
+        mod::macro_name(n, name, sizeof name);
+        o += fmt("    {%s, %s, %s, %s, %s, %s, nullptr},   // Macro %d\n", cstr(name).c_str(), lit(q.min).c_str(), lit(q.max).c_str(), lit(n.v[0]).c_str(),
+                 q.unit ? cstr(q.unit).c_str() : "nullptr", curves[q.curve], n.id);
+        if (rows) rows->push_back({n.id, 0});
+    }
+    for (int i = 0; i < p.n_nodes; i++) {
+        if (base[i] < 0 || mod::is_macro(p.node[i])) continue;
+        const mod::Node &n = p.node[i];
+        o += fmt("    lab::section(\"%s %d\"),\n", n.def->name, n.id);
+        if (rows) rows->push_back({0, -1});
+        for (int j = 0; j < n.def->n_param; j++) {
+            const mod::Param &q = n.def->param[j];
+            o += fmt("    {%s, %s, %s, %s, %s, %s, %s},\n", cstr(q.name).c_str(), lit(q.min).c_str(), lit(q.max).c_str(), lit(n.v[j]).c_str(),
+                     q.unit ? cstr(q.unit).c_str() : "nullptr", curves[q.curve], q.labels ? fmt("kL%d_%d", n.id, j).c_str() : "nullptr");
+            if (rows) rows->push_back({n.id, j});
+        }
+    }
+    o += "};\n\n";
+    return o;
+}
+
 }  // namespace
 
 std::string synth_source(const mod::Patch &p, const std::string &id) {
@@ -172,40 +219,7 @@ std::string synth_source(const mod::Patch &p, const std::string &id) {
     else o += "// are a section per module, as the studio's Modular synth lists them, their defaults the patch's values.\n";
     o += "// Exporting again overwrites this file: copy it under another name before changing it by hand (then optimise it as the Kick).\n";
     o += "#include \"lab.h\"\n#include \"modular/modules.h\"\n\nnamespace {\n\n";
-    // the labels, the list
-    for (int i = 0; i < p.n_nodes; i++) {
-        const mod::ModuleDef &d = *p.node[i].def;
-        for (int j = 0; j < d.n_param && base[i] >= 0; j++) {
-            const mod::Param &q = d.param[j];
-            if (!q.labels) continue;
-            o += fmt("const char *const kL%d_%d[] = {", p.node[i].id, j);
-            for (int k = 0; k <= static_cast<int>(q.max - q.min); k++) o += (k ? ", " : "") + cstr(q.labels[k]);
-            o += "};\n";
-        }
-    }
-    o += "\nconst lab::Param kParams[] = {\n";
-    static const char *const curves[] = {"lab::Lin", "lab::Exp", "lab::Int"};
-    if (macros) o += fmt("    lab::section(%s),\n", cstr(mod::kMacroSection).c_str());
-    for (int i = 0; i < p.n_nodes; i++) {           // the Macros, a row each
-        const mod::Node &n = p.node[i];
-        if (!mod::is_macro(n) || base[i] < 0) continue;
-        const mod::Param &q = n.def->param[0];
-        char name[24];
-        mod::macro_name(n, name, sizeof name);
-        o += fmt("    {%s, %s, %s, %s, %s, %s, nullptr},   // Macro %d\n", cstr(name).c_str(), lit(q.min).c_str(), lit(q.max).c_str(), lit(n.v[0]).c_str(),
-                 q.unit ? cstr(q.unit).c_str() : "nullptr", curves[q.curve], n.id);
-    }
-    for (int i = 0; i < p.n_nodes; i++) {
-        if (base[i] < 0 || mod::is_macro(p.node[i])) continue;
-        const mod::Node &n = p.node[i];
-        o += fmt("    lab::section(\"%s %d\"),\n", n.def->name, n.id);
-        for (int j = 0; j < n.def->n_param; j++) {
-            const mod::Param &q = n.def->param[j];
-            o += fmt("    {%s, %s, %s, %s, %s, %s, %s},\n", cstr(q.name).c_str(), lit(q.min).c_str(), lit(q.max).c_str(), lit(n.v[j]).c_str(),
-                     q.unit ? cstr(q.unit).c_str() : "nullptr", curves[q.curve], q.labels ? fmt("kL%d_%d", n.id, j).c_str() : "nullptr");
-        }
-    }
-    o += "};\n\n";
+    o += param_list(p, base, nullptr);
     o += "// A value moved along its range (lo..hi, its curve) by a modulation: the runner's rule\n";
     o += "[[maybe_unused]] float modulate(float lo, float hi, int curve, float v, float amount) {\n";
     o += "    const mod::Param q{\"\", lo, hi, lo, nullptr, static_cast<mod::Curve>(curve)};\n";
@@ -432,7 +446,9 @@ std::string engine_source(const mod::Patch &p, const std::string &id) {
     o += "// with their values and cables. Read the notes: a few conversions are approximations.\n";
     o += "// The registry must hold the synth and FX modules (register_synth_modules, register_fx_modules: the Ritual Machine's\n";
     o += "// engine_synth.cpp does it); a module type it lacks makes build_*_graph return false.\n";
-    o += "#include <cstring>\n#include \"engine/core/graph.h\"\n\nnamespace {\n\n";
+    o += "// The catalog's own modules (Body, Metal, Perc ... where the engine has nothing like them) are its \"F\" types: register them with\n";
+    o += "// register_<id>_types below (modular/engine_modules.h).\n";
+    o += "#include <cstring>\n#include \"engine/core/graph.h\"\n#include \"modular/engine_modules.h\"\n\nnamespace {\n\n";
     o += "// The type of that name, in that scope if it has one there (Osc, Filter, Lfo ... are registered in both)\n";
     o += "int type_of(const sc::Registry &reg, const char *name, sc::Scope scope) {\n    int any = -1;\n";
     o += "    for (int t = 0; t < sc::Registry::kMax; t++) {\n        if (!reg.get(t) || std::strcmp(reg.get(t)->info->name, name)) continue;\n";
@@ -460,6 +476,22 @@ std::string engine_source(const mod::Patch &p, const std::string &id) {
             e.reason = fmt("the engine's %s is %s: a %s %s to write", e.type, n.area == mod::kVoiceArea ? "global only" : "per voice only",
                            n.area == mod::kVoiceArea ? "per-voice" : "global", e.type);
             e.type = nullptr;
+        }
+        if (!e.type && !mod::is_engine_module(n.def)) {           // nothing like it in the engine: the catalog's own module, as an engine
+            const char *ft = mod::modular_type_name(n.def->name);  // type (modular/engine_modules.h: the same float code, every value)
+            const sc::Scope sc_ = n.area == mod::kFxArea ? sc::Scope::Global : sc::Scope::Voice;
+            if (ft && mod::modular_type_id(n.def->name, sc_) >= 0) {
+                const mod::ModuleDef &d = *n.def;
+                e = EngNode{};
+                e.type = ft;
+                for (int j = 0; j < d.n_param; j++)
+                    e.sets.push_back({d.param[j].name, static_cast<long>(mod::modular_raw(d.param[j], n.v[j])),
+                                      fmt("%s %g%s%s", d.param[j].name, static_cast<double>(n.v[j]), d.param[j].unit ? " " : "", d.param[j].unit ? d.param[j].unit : "")});
+                for (int k = 0; k < d.n_in; k++) e.in[k] = d.in_name[k];
+                for (int o = 0; o < d.n_out; o++) e.out[o] = d.out_name[o];
+                for (int j = 0; j < d.n_param; j++) e.prm[j] = d.param[j].name;
+                e.note = "the catalog's module itself (an unplugged input reads its default: the gate, the note's pulse ...)";
+            }
         }
         if (n.area == mod::kFxArea && (e.note_pitch || e.note_gate)) {   // the engine's global scope has no note: the studio's last note
             e.note_pitch = e.note_gate = false;
@@ -525,6 +557,18 @@ std::string engine_source(const mod::Patch &p, const std::string &id) {
         if (e.note_gate && !taken(e.gate_port)) o += fmt("    ok &= cable(g, reg, %d, \"gate\", %d, \"gate\", 1.f);   // %s %d on the voice's gate\n", note_id, p.node[i].id, p.node[i].def->name, p.node[i].id);
     }
     o += "    return ok;\n}\n";
+
+    // the catalog's modules it uses: registered alone (an app links only those; each one's code sits in internal RAM on the board)
+    std::vector<std::string> ftypes;
+    for (int i = 0; i < p.n_nodes; i++) {
+        const EngNode &e = en[static_cast<size_t>(i)];
+        if (!e.type || !mod::modular_type_name(p.node[i].def->name) || std::strcmp(e.type, mod::modular_type_name(p.node[i].def->name)) != 0) continue;
+        if (std::find(ftypes.begin(), ftypes.end(), p.node[i].def->name) == ftypes.end()) ftypes.push_back(p.node[i].def->name);
+    }
+    o += fmt("\n// Registers the catalog's modules the graph uses (framework/modular/engine_modules.h): call it before build_%s_graph.\n", id.c_str());
+    o += fmt("bool register_%s_types(sc::Registry &reg) {\n    bool ok = true;\n", id.c_str());
+    for (const std::string &f : ftypes) o += fmt("    ok &= mod::register_modular_type(reg, \"%s\");\n", f.c_str());
+    o += "    (void)reg;\n    return ok;\n}\n";
 
     // what the engine lacks
     std::string lack;
@@ -595,6 +639,172 @@ bool export_synth(const mod::Patch &p, const std::string &id, std::string &path,
         if (!write_text(list, text, err)) return false;
     }
     return true;
+}
+
+/* ---------------- an engine synth for SynthLab ---------------- */
+
+namespace {
+constexpr int kBusId = 254, kMasterId = 255;            // the graph's BusIn and MasterOut when the patch has none at that place
+
+// A port of the patch, as the engine graph's: node id and port index (-1: none)
+struct GPort { int node, port; };
+GPort out_of(const mod::Patch &p, const mod::Cable &cb) {
+    const mod::Node *s = p.find(cb.src);
+    const std::string nm = s->def->name;
+    if (nm == "Note") { static const int map[4] = {1, -1, 2, 0}; return {cb.src, map[cb.src_port & 3]}; }   // Gate, Trig, Vel, Pitch -> NoteIn's
+    if (nm == "Voices") return {cb.src, 0};             // BusIn's L (the voices are mono: L = R)
+    return {cb.src, cb.src_port};
+}
+}  // namespace
+
+std::string engine_synth_source(const mod::Patch &p, const std::string &id) {
+    int base[mod::kMaxNodes];
+    synth_slots(p, base);
+    std::vector<std::pair<int, int>> rows;
+    const std::string list = param_list(p, base, &rows);
+    std::string o;
+    o += fmt("// %s: an engine synth generated by SynthLab Studio from its patch on %s (the PATCH tab's Export > Engine synth). Its voices\n", p.name, today().c_str());
+    o += "// are an engine graph: the patch's modules as the engine's types of the catalog's modules (framework/modular/engine_modules.h: the\n";
+    o += "// same float code), NoteIn, VoiceOut, BusIn and MasterOut for its ends. SynthLab loads the graph when the synth is picked (up to\n";
+    o += "// 200 ms of silence) and sends each value to its node (kWhere). types() registers only the modules it uses. Exporting again\n";
+    o += "// overwrites this file.\n";
+    o += "#include \"lab.h\"\n#include \"engine/core/graph.h\"\n#include \"engine/modules/builtin.h\"\n#include \"modular/engine_modules.h\"\n\nnamespace {\n\n";
+    o += list;
+    // where each value goes
+    o += "const lab::GraphValue kWhere[] = {\n";
+    for (const auto &r : rows) {
+        const mod::Node *n = r.first ? p.find(r.first) : nullptr;
+        if (!n || r.second < 0) { o += "    {0, 0, lab::GV_NONE},\n"; continue; }
+        const std::string nm = n->def->name;
+        if (nm == "VoiceOut") o += fmt("    {%d, sc::VO_LEVEL, lab::GV_VOICE},   // VoiceOut %d Level\n", n->id, n->id);
+        else if (nm == "Output") o += fmt("    {lab::kGraphMaster, 0, lab::GV_MASTER},   // Output %d Level\n", n->id);
+        else {
+            const mod::Param &q = n->def->param[r.second];
+            o += fmt("    {%d, %d, lab::%s},   // %s %d %s\n", n->id, r.second, q.curve == mod::Int ? "GV_X1" : "GV_X100", nm.c_str(), n->id, q.name);
+        }
+    }
+    o += "};\nstatic_assert(sizeof kWhere / sizeof kWhere[0] == sizeof kParams / sizeof kParams[0], \"a place for each value\");\n\n";
+    // the types it uses
+    std::vector<std::string> ftypes;
+    for (int i = 0; i < p.n_nodes; i++)
+        if (mod::modular_type_name(p.node[i].def->name) && std::find(ftypes.begin(), ftypes.end(), p.node[i].def->name) == ftypes.end())
+            ftypes.push_back(p.node[i].def->name);
+    o += "bool types(sc::Registry &reg) {\n    bool ok = true;\n";
+    for (const std::string &f : ftypes) o += fmt("    ok &= mod::register_modular_type(reg, \"%s\");\n", f.c_str());
+    o += "    (void)reg;\n    return ok;\n}\n\n";
+    // the graph
+    o += "bool build(sc::GraphDesc &g, const sc::Registry &reg) {\n    sc::NodeDesc *n = nullptr;\n    bool ok = true;\n";
+    int voices_id = -1, output_id = -1;
+    for (int i = 0; i < p.n_nodes; i++) {
+        const mod::Node &nd = p.node[i];
+        const std::string nm = nd.def->name;
+        if (nm == "Note") { o += fmt("    if (!g.add_node(reg, %d, sc::T_NOTE_IN)) return false;   // Note %d\n", nd.id, nd.id); continue; }
+        if (nm == "VoiceOut") {
+            o += fmt("    if (!(n = g.add_node(reg, %d, sc::T_VOICE_OUT))) return false;   // VoiceOut %d\n", nd.id, nd.id);
+            o += fmt("    n->param[sc::VO_LEVEL] = %ld;   // Level %g %% (half scale at 100 %%, as every SynthLab voice)\n    n->param[sc::VO_TAIL_MS] = 30000;\n",
+                     static_cast<long>(std::lround(nd.v[0] * 0.01f * 16384.f)), static_cast<double>(nd.v[0]));
+            continue;
+        }
+        if (nm == "Voices") { voices_id = nd.id; o += fmt("    if (!g.add_node(reg, %d, sc::T_BUS_IN)) return false;   // Voices %d\n", nd.id, nd.id); continue; }
+        if (nm == "Output") {
+            output_id = nd.id;
+            o += fmt("    if (!(n = g.add_node(reg, lab::kGraphMaster, sc::T_MASTER_OUT))) return false;   // Output %d\n", nd.id);
+            o += fmt("    n->param[0] = %ld;   // Level %g %% of SynthLab's master\n", static_cast<long>(std::lround(nd.v[0] * 0.01f * 26000.f)), static_cast<double>(nd.v[0]));
+            continue;
+        }
+        const char *scope = nd.area == mod::kFxArea ? "sc::Scope::Global" : "sc::Scope::Voice";
+        o += fmt("    if (!(n = g.add_node(reg, %d, mod::modular_type_id(\"%s\", %s)))) return false;   // %s %d\n", nd.id, nm.c_str(), scope, nm.c_str(), nd.id);
+        for (int j = 0; j < nd.def->n_param; j++)
+            o += fmt("    n->param[%d] = %ld;   // %s %g%s%s\n", j, static_cast<long>(mod::modular_raw(nd.def->param[j], nd.v[j])), nd.def->param[j].name,
+                     static_cast<double>(nd.v[j]), nd.def->param[j].unit ? " " : "", nd.def->param[j].unit ? nd.def->param[j].unit : "");
+    }
+    if (output_id < 0) {                                // (no Output: the voices' sum straight to the master)
+        if (voices_id < 0) { voices_id = kBusId; o += fmt("    if (!g.add_node(reg, %d, sc::T_BUS_IN)) return false;   // the voices' sum\n", kBusId); }
+        o += "    if (!(n = g.add_node(reg, lab::kGraphMaster, sc::T_MASTER_OUT))) return false;\n    n->param[0] = lab::kMasterLevel;\n";
+        o += fmt("    ok &= g.connect(%d, 0, lab::kGraphMaster, sc::Dst::In, 0);\n    ok &= g.connect(%d, 1, lab::kGraphMaster, sc::Dst::In, 1);\n", voices_id, voices_id);
+    }
+    o += "\n    // the cables\n";
+    for (int k = 0; k < p.n_cables; k++) {
+        const mod::Cable &cb = p.cable[k];
+        const mod::Node *s = p.find(cb.src), *d = p.find(cb.dst);
+        if (!s || !d) continue;
+        const std::string what = fmt("%s %d.%s -> %s %d.%s", s->def->name, s->id, s->def->out_name[cb.src_port], d->def->name, d->id,
+                                     cb.to_param ? d->def->param[cb.dst_port].name : d->def->in_name[cb.dst_port]);
+        const GPort src = out_of(p, cb);
+        if (src.port < 0) {                             // (Note's Trig: the module reads the note's pulse itself when nothing is plugged in)
+            o += fmt("    // %s: the engine's note has no pulse out; %s\n", what.c_str(),
+                     !cb.to_param && d->def->in_def[cb.dst_port] == mod::kTrig ? "left out: its input's default is that pulse" : "left out (no equivalent)");
+            continue;
+        }
+        float depth = cb.depth > 1.f ? 1.f : (cb.depth < -1.f ? -1.f : cb.depth);
+        const std::string dq = fmt("static_cast<sc::q15>(%ld)", static_cast<long>(std::lround(depth * 32767.f)));
+        const std::string dn = d->def->name;
+        if (cb.to_param) {
+            if (dn == "VoiceOut" || dn == "Output") { o += fmt("    // %s: a modulation of a level: left out\n", what.c_str()); continue; }
+            o += fmt("    ok &= g.connect(%d, %d, %d, sc::Dst::Param, %d, %s);   // %s (modulation)\n", src.node, src.port, d->id, cb.dst_port, dq.c_str(), what.c_str());
+        } else if (dn == "Output") {
+            o += fmt("    ok &= g.connect(%d, %d, lab::kGraphMaster, sc::Dst::In, 0, %s);   // %s\n", src.node, src.port, dq.c_str(), what.c_str());
+            o += fmt("    ok &= g.connect(%d, %d, lab::kGraphMaster, sc::Dst::In, 1, %s);   //   (and the right)\n", src.node, src.port, dq.c_str());
+        } else {
+            o += fmt("    ok &= g.connect(%d, %d, %d, sc::Dst::In, %d, %s);   // %s%s\n", src.node, src.port, d->id, cb.dst_port, dq.c_str(), what.c_str(),
+                     cb.depth > 1.f || cb.depth < -1.f ? " (depth held at 1: the engine's cables go to full scale)" : "");
+        }
+    }
+    o += "    return ok;\n}\n\n";
+    o += "const lab::GraphSynth kGraph = {types, build, kWhere};\n\n";
+    o += fmt("lab::Options options() {\n    lab::Options o;\n    o.voices = %d;   // the patch's voices (the cycles wallet: framework/modular/cost.h)\n    return o;\n}\n\n", p.voices);
+    o += "}  // namespace\n\n";
+    o += fmt("extern const lab::Synth synth_eng_%s = lab::make_graph_synth(%s, kParams, kGraph, options());\n", id.c_str(), cstr(p.name).c_str());
+    return o;
+}
+
+namespace {
+// The synth's line in SynthLab's list (synth_list.cpp), once
+bool add_to_list(const std::string &sym, std::string &err) {
+    const std::string list = st.preset_dir + "../../synthlab/src/synths/synth_list.cpp";
+    FILE *f = std::fopen(list.c_str(), "rb");
+    if (!f) { err = "cannot read " + list; return false; }
+    std::string text;
+    char buf[4096];
+    size_t n;
+    while ((n = std::fread(buf, 1, sizeof buf, f)) > 0) text.append(buf, n);
+    std::fclose(f);
+    if (text.find(sym + ";") != std::string::npos) return true;
+    const bool crlf = text.find("\r\n") != std::string::npos;
+    const std::string nl = crlf ? "\r\n" : "\n";
+    const std::string m1 = "// (synths exported from a patch by SynthLab Studio are added above this line)";
+    const std::string m2 = "    // (exported synths: above this line)";
+    const size_t a = text.find(m1);
+    if (a == std::string::npos || text.find(m2) == std::string::npos) { err = "synth_list.cpp has no place for exported synths"; return false; }
+    text.insert(a, "extern const lab::Synth " + sym + ";" + nl);
+    text.insert(text.find(m2), "    &" + sym + "," + nl);
+    return write_text(list, text, err);
+}
+}  // namespace
+
+bool export_engine_synth(const mod::Patch &p, const std::string &id, std::string &path, std::string &err) {
+    const int twin = mod::macro_twin(p);
+    if (twin >= 0) {
+        char name[24];
+        mod::macro_name(p.node[twin], name, sizeof name);
+        err = std::string("two Macros are named \"") + name + "\": the synth's parameters need names of their own (Rename one)";
+        return false;
+    }
+    for (int i = 0; i < p.n_nodes; i++) {
+        if (mod::is_engine_module(p.node[i].def)) {
+            err = std::string(p.node[i].def->name) + " is the Ritual Machine's own module: not in an engine synth yet (its float module, or Export > Engine)";
+            return false;
+        }
+        if (p.node[i].id >= kBusId) { err = "a module's id is 254 or 255 (the graph's own): delete and add it again"; return false; }
+    }
+    if (synth_values(p) > kBoardMaxParams) {
+        err = "the patch has " + std::to_string(synth_values(p)) + " values (a title per module included), the board's synths " +
+              std::to_string(kBoardMaxParams) + " at most: fewer modules";
+        return false;
+    }
+    path = st.preset_dir + "../../synthlab/src/synths/eng_" + id + ".cpp";
+    if (!write_text(path, engine_synth_source(p, id), err)) return false;
+    return add_to_list("synth_eng_" + id, err);
 }
 
 bool export_engine(const mod::Patch &p, const std::string &id, std::string &path, std::string &err) {

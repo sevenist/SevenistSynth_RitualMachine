@@ -159,7 +159,15 @@ The status line at the bottom says what the control under the pointer is and wha
     of one name are refused. The synth keeps the patch's voice count (the wallet's stepper), and its render runs from internal RAM
     on the board (`SC_HOT`), as the measured costs assume.
   - **Engine** writes `apps/studio/exports/<name>_graph.cpp`: a function that builds the patch as the engine's graph, values
-    converted, notes on the approximations, and at the end the modules the engine lacks with their values and cables.
+    converted, notes on the approximations. A module the engine has nothing like (Body, Metal, Perc, Glue ...) goes in as the
+    catalog's own module made an engine type (`FBody`: the same float code, framework/modular/engine_modules.h), and the file's
+    `register_<name>_types(reg)` registers exactly those. Only a Ritual Machine module used in the scope the engine lacks is still
+    listed at the end as a module to write.
+  - **Engine synth** writes `apps/synthlab/src/synths/eng_<name>.cpp`, a SynthLab synth whose voices are an engine graph: the patch's
+    modules as the engine's types of the catalog's modules (`FOsc`, `FBody` ...: the same float code), with the same values as Synth's
+    and the patch's voice count. It is added to SynthLab's list. Picking it on the board loads its graph (up to 200 ms of silence),
+    and its file registers only the modules it uses. On HWV1 it costs about 2 300 cycles a voice more than Synth's export, the
+    conversion at each module's ports; the wallet counts Synth's. Ritual Machine modules ("RM ...") are refused for now.
   - **Patch file** writes `apps/studio/exports/<name>.patch`.
 - The Modular synth's values are the patch's (its Macros in MACROS, then a section per module: "Osc 2", "Filter 3" ...): the SOUND tab's knobs and macros
   and the LAYOUT tab work on it. After a change of modules, the macros and the layout keep the values whose module is still

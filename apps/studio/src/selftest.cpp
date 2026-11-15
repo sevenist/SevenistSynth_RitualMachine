@@ -766,8 +766,21 @@ void test_modular() {
     const int body = drum.add(mod::find_module("Body"), mod::kVoiceArea, 0, 0)->id;
     const int vo = drum.add(mod::find_module("VoiceOut"), mod::kVoiceArea, 0, 0)->id;
     drum.connect(body, 0, vo, 0, false, 1.f);
-    CHECK(engine_source(drum, "d").find("NEW MODULES NEEDED") != std::string::npos && engine_source(drum, "d").find("Body 2") != std::string::npos,
-          "a module the engine lacks is listed");
+    const std::string de = engine_source(drum, "d");
+    CHECK(de.find("add(g, reg, 2, \"FBody\", sc::Scope::Voice)") != std::string::npos && de.find("NEW MODULES NEEDED") == std::string::npos &&
+          de.find("ok &= mod::register_modular_type(reg, \"Body\");") != std::string::npos && de.find("bool register_d_types(") != std::string::npos &&
+          de.find("ok &= set(reg, n, \"Tune\", 5000);") != std::string::npos,
+          "a module the engine has nothing like: the catalog's own as an engine type (FBody, its values x 100, registered alone)");
+    // an engine synth for SynthLab: its graph, its types, a place for each value of the list
+    const std::string es = engine_synth_source(st.patch, "init");
+    const size_t wa = es.find("const lab::GraphValue kWhere[] = {"), we = es.find("};", wa);
+    int where_rows = 0;
+    for (size_t at = es.find("\n    {", wa); at != std::string::npos && at < we; at = es.find("\n    {", at + 1)) where_rows++;
+    CHECK(es.find("extern const lab::Synth synth_eng_init = lab::make_graph_synth(") != std::string::npos &&
+          es.find("mod::register_modular_type(reg, \"Osc\")") != std::string::npos && es.find("mod::modular_type_id(\"Osc\", sc::Scope::Voice)") != std::string::npos &&
+          es.find("lab::kGraphMaster, sc::T_MASTER_OUT") != std::string::npos && where_rows == synth_values(st.patch) &&
+          es.find("o.voices = ") != std::string::npos,
+          "Export > Engine synth: the graph, its types, a place for each of the %d values (%d)", synth_values(st.patch), where_rows);
 }
 
 // The Ritual Machine's own modules in a patch (modular/engine_adapter.h): they follow the key, sound, and export as themselves.

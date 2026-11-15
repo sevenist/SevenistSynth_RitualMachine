@@ -20,6 +20,7 @@ try {
     New-Item -ItemType Directory -Force "build/wav", "build/wav/null" | Out-Null
     $appSrc = @(Get-ChildItem src/*.cpp) + @(Get-ChildItem src/synths/*.cpp)   # (the entry points are the library's, framework/app: the tests have their own main)
     $cppSrc = @(Get-ChildItem tests/*.cpp) + $appSrc + @(Get-EngineSources) + @(Get-Item "$fw/tests/stubs/stub_hwv2.cpp")
+    $cppSrc += @(Get-Item "$fw/modular/catalog.cpp", "$fw/modular/engine_modules.cpp")   # (an engine synth: the catalog's modules as engine types)
     $cSrc = @(Get-UiSources) + @(Get-Item "$fw/boards/hwv2/hwv2_controls.c", "$fw/boards/hwv1/hwv1_controls.c") + @(Get-ChildItem $u8g2/csrc/*.c)
     $flags = @("-O2", "-DPLATFORM_SIM", "-DPLATFORM_TEST", "-DDISPLAY_HEIGHT=160", "-Isrc", "-I.", "-I$fw", "-I$u8g2/csrc")
     if (-not (Invoke-SimBuild -CSources $cSrc -CppSources $cppSrc -Flags $flags -ObjDir $objDir -Out "build/tests.exe" -Libs @("-lm"))) { exit 2 }

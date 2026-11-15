@@ -3,8 +3,11 @@
 //   voice:   LabVoice (it reads the voice's note, gate and velocity itself) --> VoiceOut
 //   global:  BusIn (the sum of the voices) --> LabFx (the synth's effect, if it has one) --> MasterOut
 //
-// The graph never changes: picking a synth is a parameter of LabVoice (lab_voice.h), so it is live, without a reload.
+// The graph does not change between the synths written as a Voice: picking one is a parameter of LabVoice (lab_voice.h), live. An
+// engine synth (lab.h GraphSynth: SynthLab Studio's Export > Engine synth) has its own graph: picking it loads that one (up to 200 ms of
+// silence, the user's OK), picking a Voice synth after it loads this one again. Its values go to its graph's nodes (GraphValue).
 #include "synth.h"
+#include <cmath>
 #include "engine/core/host.h"
 #include "engine/modules/builtin.h"
 #include "lab.h"
@@ -119,7 +122,48 @@ void send_mode() {
     const lab::Options &o = lab::kSynths[selected]->opt;
     eng.set_voice_mode(o.mono ? VoiceMode::Mono : VoiceMode::Poly, o.legato, o.glide_ms, o.voices);   // (its voice count: under kVoices)
 }
+
+// Engine synths (lab.h GraphSynth): their own graph. `loaded` is the synth whose graph is loaded, -1 the LabVoice graph (every Voice
+// synth plays in it: picking one of them is a parameter, live), -2 none yet.
+int loaded = -2;
+float volume = -1.f;                                // the volume knob's (-1: not moved: the graph's own master level)
+bool is_graph(int i) { return lab::kSynths[i]->graph != nullptr; }
+int master_node() { return loaded >= 0 ? lab::kGraphMaster : N_MASTER; }
+
+bool load_for(int index) {                          // [CONTROL] the graph that plays `index` (a rebuild: up to 200 ms of silence)
+    const int want = is_graph(index) ? index : -1;
+    if (want == loaded) return true;
+    GraphDesc &g = host.new_graph();
+    const bool ok = want >= 0 ? lab::kSynths[index]->graph->build(g, eng.registry()) : build_graph(g);
+    if (!ok || !host.load(g, kVoices)) return false;
+    loaded = want;
+    if (volume >= 0.f) eng.set_param(master_node(), 0, static_cast<int32_t>(volume * 32767.f));
+    return true;
+}
+
+// An engine synth's values: to their nodes. all: only the ones moved from the patch's (its graph is built with the patch's values: few
+// commands, the ring holds 64)
+void send_graph_values(int first, int count, bool all) {
+    const lab::Synth &s = *lab::kSynths[selected];
+    for (int i = first; i < first + count && i < s.n_params; i++) {
+        const lab::GraphValue &w = s.graph->where[i];
+        if (w.kind == lab::GV_NONE || !w.node) continue;
+        if (!all && values[selected][i] == s.params[i].def) continue;
+        if (w.kind == lab::GV_MASTER && volume >= 0.f) continue;     // (the volume knob has the master)
+        eng.set_param(w.node, w.param, lab::graph_raw(w, values[selected][i]));
+    }
+}
 }  // namespace
+
+int32_t lab::graph_raw(const GraphValue &w, float v) {
+    switch (w.kind) {
+    case GV_X100: return static_cast<int32_t>(std::lround(v * 100.f));
+    case GV_X1: return static_cast<int32_t>(std::lround(v));
+    case GV_VOICE: return static_cast<int32_t>(std::lround(v * 0.01f * static_cast<float>(kVoiceLevel)));
+    case GV_MASTER: return static_cast<int32_t>(std::lround(v * 0.01f * static_cast<float>(kMasterLevel)));
+    default: return 0;
+    }
+}
 
 bool synth_init(void *fast, size_t fast_bytes, void *bulk, size_t bulk_bytes) {
     if (lab::kSynthCount < 1 || lab::kSynthCount > lab::kMaxSynths) return false;      // (lab.h: kMaxSynths)
@@ -127,8 +171,11 @@ bool synth_init(void *fast, size_t fast_bytes, void *bulk, size_t bulk_bytes) {
         for (int i = 0; i < lab::kSynths[s]->n_params; i++) values[s][i] = lab::kSynths[s]->params[i].def;
     if (!host.init(fast, fast_bytes, bulk, bulk_bytes, kVoices)) return false;
     lab::register_lab_modules(eng.registry());
-    GraphDesc &g = host.new_graph();
-    if (!build_graph(g) || !host.load(g, kVoices)) return false;
+    for (int s = 0; s < lab::kSynthCount; s++)       // the engine synths' module types: only those (each one's code in internal RAM)
+        if (is_graph(s) && !lab::kSynths[s]->graph->types(eng.registry())) return false;
+    loaded = -2;                                    // (a new engine: nothing loaded yet, whatever an earlier start had)
+    volume = -1.f;
+    if (!load_for(selected)) return false;
     send_mode();
     return true;
 }
@@ -174,9 +221,14 @@ void synth_select(int index) {
     if (!host.ready()) return;
     if (looping) synth_loop_stop();
     eng.all_notes_off();
-    eng.set_param(N_LAB, lab::LV_SYNTH, index);     // first: the voices build the new synth's Voice (and the effect its Fx), then take its values
-    eng.set_param(N_FX, lab::LV_SYNTH, index);
-    send_values(0, lab::kSynths[index]->n_params);
+    if (!load_for(index)) return;                   // (an engine synth, or back from one: its graph)
+    if (is_graph(index)) {
+        send_graph_values(0, lab::kSynths[index]->n_params, false);
+    } else {
+        eng.set_param(N_LAB, lab::LV_SYNTH, index); // first: the voices build the new synth's Voice (and the effect its Fx), then take its values
+        eng.set_param(N_FX, lab::LV_SYNTH, index);
+        send_values(0, lab::kSynths[index]->n_params);
+    }
     send_mode();
 }
 int synth_selected() { return selected; }
@@ -187,7 +239,8 @@ void synth_set_value(int param, float value) {
     if (param < 0 || param >= s.n_params) return;
     values[selected][param] = clamp_value(s.params[param], value);
     if (!host.ready()) return;
-    send_values(param, 1);
+    if (is_graph(selected)) send_graph_values(param, 1, true);
+    else send_values(param, 1);
     if (looping && groove()) {                      // the loop's values, live
         const lab::Options &o = s.opt;
         if (param == o.groove_param) {              // the new groove from the end of the playing one
@@ -205,9 +258,10 @@ void synth_set_value(int param, float value) {
 }
 float synth_value(int param) { return param >= 0 && param < lab::kMaxParams ? values[selected][param] : 0.f; }
 
-void synth_set_volume(float volume) {
-    const float v = volume < 0.f ? 0.f : (volume > 1.f ? 1.f : volume);
-    if (host.ready()) eng.set_param(N_MASTER, 0, static_cast<int32_t>(v * 32767.f));
+void synth_set_volume(float level) {
+    const float v = level < 0.f ? 0.f : (level > 1.f ? 1.f : level);
+    volume = v;                                     // (kept: an engine synth's graph gets it when it loads)
+    if (host.ready()) eng.set_param(master_node(), 0, static_cast<int32_t>(v * 32767.f));
 }
 void synth_loop_start(int midi_note, int bpm) {
     if (!host.ready()) return;

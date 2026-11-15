@@ -33,6 +33,11 @@
 #include "control/param.h"
 #include "engine/dsp/config.h"            // SC_HOT: a voice's render in internal RAM on the board (no flash cache misses)
 
+namespace sc {                          // (an engine synth's graph: engine/core/module.h, graph.h)
+class Registry;
+struct GraphDesc;
+}
+
 namespace lab {
 
 // The values of a synth, its section titles included (sent to the engine 63 at a time: lab_voice.h). A desktop program may raise it
@@ -87,6 +92,26 @@ struct Options {
                                         //   (6, src/synth.cpp kVoices), and never more than that. (Last: some synths fill Options in order.)
 };
 
+// An engine synth (SynthLab Studio's PATCH > EXPORT > Engine synth): its voices are an engine graph (the patch's modules as engine
+// types, framework/modular/engine_modules.h) instead of a Voice. Picking it loads its graph (up to 200 ms of silence: the user's OK);
+// its values go to the graph's modules one by one. kWhere has one entry per value of the list:
+enum GraphKind : uint8_t {
+    GV_NONE,                            // nothing (a section's title)
+    GV_X100,                            // the value x 100 (a catalog module's value: modular_raw)
+    GV_X1,                              // the value as it is (a whole number: a choice, a count)
+    GV_VOICE,                           // 0..100 % of a voice's output (VoiceOut: half scale at 100 %, as every SynthLab voice)
+    GV_MASTER,                          // 0..100 % of the master's level (Output; the volume knob sets it too)
+};
+struct GraphValue { uint8_t node, param; GraphKind kind; };
+constexpr int kGraphMaster = 255;       // an engine synth's MasterOut: its node id (the volume knob's)
+constexpr int32_t kVoiceLevel = 16384, kMasterLevel = 26000;   // SynthLab's levels (q15): a voice half scale, the master about -2 dB
+struct GraphSynth {
+    bool (*types)(sc::Registry &);      // registers the module types it uses (at the start: only those are linked)
+    bool (*build)(sc::GraphDesc &, const sc::Registry &);     // its graph, every value at the patch's
+    const GraphValue *where;            // a value's place: n_params entries
+};
+int32_t graph_raw(const GraphValue &w, float v);       // the value as that node's parameter (synth.cpp)
+
 // A synth as the app sees it. make_synth fills it from the Voice type (and the Fx type).
 struct Synth {
     const char *name;
@@ -103,6 +128,7 @@ struct Synth {
     void (*fx_construct)(void *);
     void (*fx_destroy)(void *);
     void (*fx_render)(void *, float *, int, float, const float *);
+    const GraphSynth *graph = nullptr;  // an engine synth (make_graph_synth): its graph; nullptr: its Voice plays
 };
 
 template <typename V>
@@ -137,6 +163,19 @@ constexpr Synth make_synth(const char *name, const Param (&params)[N], Options o
     s.fx_construct = &FxOps<F>::construct;
     s.fx_destroy = &FxOps<F>::destroy;
     s.fx_render = &FxOps<F>::render;
+    return s;
+}
+
+// An engine synth: no Voice (a silent one stands in, should anything ask LabVoice to build it), its graph instead.
+struct NoVoice {
+    void start(const Note &, const float *) {}
+    void release(const Note &, const float *) {}
+    bool render(float *, int, const Note &, const float *) { return false; }
+};
+template <int N>
+Synth make_graph_synth(const char *name, const Param (&params)[N], const GraphSynth &graph, Options opt = {}) {
+    Synth s = make_synth<NoVoice, N>(name, params, opt);
+    s.graph = &graph;
     return s;
 }
 

@@ -28,6 +28,8 @@ int register_modular_types(sc::Registry &reg);
 bool register_modular_type(sc::Registry &reg, const char *name);
 // The engine's type id of a catalog module in that scope (-1: none, or an In / Out module).
 int modular_type_id(const char *name, sc::Scope scope);
+// The engine type's name of a catalog module ("Body" -> "FBody"; nullptr: none, or an In / Out module).
+const char *modular_type_name(const char *name);
 // The catalog module an engine type wraps (nullptr: an engine module of its own).
 const ModuleDef *modular_def_of(const sc::ModuleInfo *info);
 // A value of the catalog's (in its units) as the engine type's int32, and back.

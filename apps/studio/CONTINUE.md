@@ -180,8 +180,12 @@ exported synth on the board; sound changes of the optimizations: free; switch gr
 - [x] **Direction chosen (2026-11-15): the engine is the one module system** (ADR-049 addendum 7). The user: "rewrite the
       functionally new modules to match those of the Ritual Machine engine and keep the new functionalities"; "wrapper first".
       Done: modular/engine_modules.h, every catalog module an engine type "F<name>", null-tested (-66..-99 dB).
-- [ ] Next on that road: Export > Engine writes a float module as its F type where the engine has none (no more "the engine lacks");
-      SynthLab plays an exported engine graph, registering only its types (register_modular_type); measure the F types natively on
+- [x] Export > Engine writes a float module as its F type where the engine has none (no more "the engine lacks"), with
+      register_<id>_types(reg) for exactly those (a generated graph compiled with -Wall -Wextra; self-test 6756).
+- [x] SynthLab plays an exported engine graph (Export > Engine synth, lab::make_graph_synth; the user OK'd up to 200 ms of
+      silence at the switch): tested through the engine, played on HWV1 (default patch, 3 voices: 57 598 cycles a block with 3
+      notes, about 2 300 a voice more than the float export: the wrapper's conversions). The wallet counts the float export's.
+- [ ] Next on that road: registering only its types (register_modular_type); measure the F types natively on
       the board (ENGINE_PROFILE in a graph); then the merged catalog (a choice per function, the cheaper by default).
 - [ ] (Superseded by the above) RM modules in an exported synth on the board. Blocker found: the engine's families linked into SynthLab put all their code in
       internal RAM (SC_HOT) and SynthLab's own 64 KB fast heap no longer fits (the bench saw 83 KB free). Options to put to the user:

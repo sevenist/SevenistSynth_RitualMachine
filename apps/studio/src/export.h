@@ -22,9 +22,14 @@ int  synth_values(const mod::Patch &p);          // how many values (section tit
 bool export_synth(const mod::Patch &p, const std::string &id, std::string &path, std::string &err);
 bool export_engine(const mod::Patch &p, const std::string &id, std::string &path, std::string &err);
 bool export_patch(const mod::Patch &p, const std::string &id, std::string &path, std::string &err);
+//   export_engine_synth  apps/synthlab/src/synths/eng_<id>.cpp: a SynthLab engine synth (lab.h GraphSynth): the patch as an engine
+//                  graph of the catalog's modules as engine types (framework/modular/engine_modules.h), loaded when the synth is
+//                  picked; its values as export_synth's; added to synth_list.cpp.
+bool export_engine_synth(const mod::Patch &p, const std::string &id, std::string &path, std::string &err);
 
 // The texts themselves (the self-test checks them; `synth_name` is the patch's name).
 std::string synth_source(const mod::Patch &p, const std::string &id);
 std::string engine_source(const mod::Patch &p, const std::string &id);
+std::string engine_synth_source(const mod::Patch &p, const std::string &id);
 
 }  // namespace studio

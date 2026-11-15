@@ -355,6 +355,68 @@ void write_wav(const lab::Synth &s) {
                 seconds_rendered > 0 ? 1000.0 * seconds_spent / seconds_rendered : 0.0);
 }
 
+// An engine synth (lab.h GraphSynth) has no Voice to play alone: the same checks through the app's engine (synth_select loads its graph).
+// Each value at its min and at its max (and the defaults), the piano's lowest and highest notes held then let go: it sounds (with the
+// defaults), it does not stick at full scale, and its voices end after the release. Then its WAV: the phrase of write_wav, from the engine.
+void test_graph_synth(int index) {
+    const lab::Synth &s = *lab::kSynths[index];
+    static std::vector<unsigned char> fast(1u << 20), bulk(1u << 20);
+    CHECK(synth_init(fast.data(), fast.size(), bulk.data(), bulk.size()), "%s: the engine did not start", s.name);
+    int16_t buf[2 * 256];
+    auto play = [&](int note, int blocks, int &peak, int &clip) {
+        synth_note_on(note);
+        for (int b = 0; b < blocks; b++) {
+            synth_render(buf, 256);
+            for (int i = 0; i < 512; i++) { const int a = std::abs(static_cast<int>(buf[i])); if (a > peak) peak = a; if (a >= 32767) clip++; }
+            synth_update();
+        }
+        synth_note_off(note);
+        int b = 0;
+        for (; b < 6000 && synth_active_voices() > 0; b++) { synth_render(buf, 256); synth_update(); }
+        return b < 6000;
+    };
+    synth_select(index);
+    int peak = 0, clip = 0;
+    CHECK(play(57, 100, peak, clip), "%s (engine synth): its voice is not freed after release", s.name);
+    CHECK(peak > 300, "%s (engine synth): silent with its defaults (peak %d)", s.name, peak);
+    for (int k = 0; k < s.n_params; k++) {
+        if (s.params[k].curve == lab::Head) continue;
+        for (int end = 0; end < 2; end++) {
+            synth_select(index);
+            for (int j = 0; j < s.n_params; j++) synth_set_value(j, s.params[j].def);
+            synth_set_value(k, end ? s.params[k].max : s.params[k].min);
+            int pk = 0, cl = 0;
+            bool freed = true;
+            for (const int note : {21, 108}) freed &= play(note, 400, pk, cl);
+            CHECK(freed, "%s (engine synth): a voice sticks with %s at its %s", s.name, s.params[k].name, end ? "max" : "min");
+            CHECK(cl < 400 * 512, "%s (engine synth): full scale throughout with %s at its %s", s.name, s.params[k].name, end ? "max" : "min");
+        }
+    }
+    // the WAV: write_wav's phrase, from the engine
+    synth_select(index);
+    for (int j = 0; j < s.n_params; j++) synth_set_value(j, s.params[j].def);
+    struct Ev { float at, len; int note; };
+    const Ev phrase[] = {{0.f, 1.2f, 48}, {0.f, 1.2f, 55}, {0.f, 1.2f, 63}, {1.6f, 0.2f, 60}, {1.9f, 0.2f, 63}, {2.2f, 0.2f, 67}, {2.5f, 0.6f, 72}};
+    std::vector<int16_t> pcm;
+    const int frames = static_cast<int>(4.5f * kSr);
+    for (int f = 0; f < frames; f += 256) {
+        const float t0 = static_cast<float>(f) / kSr, t1 = static_cast<float>(f + 256) / kSr;
+        for (const Ev &e : phrase) {
+            if (e.at >= t0 && e.at < t1) synth_note_on(e.note);
+            if (e.at + e.len >= t0 && e.at + e.len < t1) synth_note_off(e.note);
+        }
+        synth_render(buf, 256);
+        synth_update();
+        for (int i = 0; i < 256; i++) pcm.push_back(buf[2 * i]);
+    }
+    char path[160];
+    std::snprintf(path, sizeof path, "build/wav/%s.wav", s.name);
+    for (char *c = path + 10; *c; c++) if (*c == ' ' || *c == '/') *c = '_';
+    CHECK(wav_write_pcm16(path, pcm.data(), pcm.size(), 1, static_cast<int>(kSr)), "could not write %s", path);
+    std::printf("  %-12s %s   (an engine synth: played by the engine)\n", s.name, path);
+    synth_shutdown();
+}
+
 }  // namespace
 
 int main(int argc, char **argv) {
@@ -373,6 +435,10 @@ int main(int argc, char **argv) {
     std::printf("SynthLab: %d synth(s)\n", lab::kSynthCount);
     for (int s = 0; s < lab::kSynthCount; s++) {
         const lab::Synth &syn = *lab::kSynths[s];
+        if (syn.graph) {                                                                // an engine synth: through the engine
+            if (wanted("voice", syn.name) || wanted("extremes", syn.name) || wanted("wav", syn.name)) test_graph_synth(s);
+            continue;
+        }
         if (wanted("voice", syn.name)) test_voice(syn);
         if (wanted("extremes", syn.name)) test_extremes(syn);
         if (syn.fx_render && wanted("fx", syn.name)) test_fx(syn);
@@ -382,12 +448,12 @@ int main(int argc, char **argv) {
     if (wanted("bench", nullptr) || filter) {
         std::printf("bench:\n");
         for (int s = 0; s < lab::kSynthCount; s++)
-            if (wanted("bench", lab::kSynths[s]->name)) bench(*lab::kSynths[s]);
+            if (!lab::kSynths[s]->graph && wanted("bench", lab::kSynths[s]->name)) bench(*lab::kSynths[s]);   // (an engine synth: no Voice to time)
     }
     if (wanted("wav", nullptr) || filter) {
         std::printf("wav:\n");
         for (int s = 0; s < lab::kSynthCount; s++)
-            if (wanted("wav", lab::kSynths[s]->name)) write_wav(*lab::kSynths[s]);
+            if (!lab::kSynths[s]->graph && wanted("wav", lab::kSynths[s]->name)) write_wav(*lab::kSynths[s]);   // (an engine synth: test_graph_synth's)
     }
     std::printf("%s: %d checks, %d failed\n", tst::failures() ? "FAILED" : "passed", tst::checks(), tst::failures());
     return tst::failures() ? 1 : 0;

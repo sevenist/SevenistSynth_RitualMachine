@@ -17,7 +17,8 @@ try {
     if (-not $simBoard) { exit 1 }
     $objDir = "build/obj$($simBoard.Suffix)"
     if ($Clean -and (Test-Path $objDir)) { Remove-Item -Recurse -Force $objDir }
-    $cppSrc = @(Get-EngineSources) + @(Get-AppMainSources) + @(Get-ChildItem src/*.cpp) + @(Get-ChildItem src/synths/*.cpp)        # (the entry point is the library's: framework/app)
+    $cppSrc = @(Get-EngineSources) + @(Get-AppMainSources) + @(Get-ChildItem src/*.cpp) + @(Get-ChildItem src/synths/*.cpp)
+    $cppSrc += @(Get-Item "$fw/modular/catalog.cpp", "$fw/modular/engine_modules.cpp")   # (an engine synth: the catalog's modules as engine types)        # (the entry point is the library's: framework/app)
     # the library's drawing kit and its desktop board (the display and panel windows, the PC keyboard as the keys, SDL audio), and u8g2
     $cSrc = @(Get-UiSources) + @(Get-DesktopBoardSources) + $simBoard.Sources + @(Get-ChildItem $u8g2/csrc/*.c) + @(Get-ChildItem $u8g2/sys/sdl/common/*.c)
     $flags = @("-O2", "-DPLATFORM_SIM", "-Isrc", "-I$fw", "-I$u8g2/csrc", "-IC:/msys64/ucrt64/include/SDL2") + $simBoard.Flags

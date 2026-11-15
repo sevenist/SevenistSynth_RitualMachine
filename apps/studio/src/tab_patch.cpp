@@ -750,7 +750,15 @@ void draw_left(wg_ctx_t &c, gui_rect_t area) {
     }
     if (c.hot == WG_ID(F_PATCH_BTN, 6)) wg_set_hint(&c, "The engine's graph (C++ for the Ritual Machine), and what the engine lacks: apps/studio/exports/");
     fb.next();
-    if (fb.button(WG_ID(F_PATCH_BTN, 7), "Patch file", -1)) {
+    if (fb.button(WG_ID(F_PATCH_BTN, 10), "Engine synth", 0)) {
+        patch_sync();
+        if (export_engine_synth(st.patch, patch_ident(st.patch.name), out, err)) message("Wrote %s (built at SynthLab's next build)", out.c_str());
+        else message("Export failed: %s", err.c_str());
+    }
+    if (c.hot == WG_ID(F_PATCH_BTN, 10))
+        wg_set_hint(&c, "A SynthLab synth whose voices are an engine graph (apps/synthlab/src/synths/eng_<name>.cpp): the patch's modules as the "
+                        "engine's; picking it on the board loads its graph (up to 200 ms of silence)");
+    if (fb.button(WG_ID(F_PATCH_BTN, 7), "Patch file", 1)) {
         patch_sync();
         if (export_patch(st.patch, patch_ident(st.patch.name), out, err)) message("Wrote %s", out.c_str());
         else message("Export failed: %s", err.c_str());

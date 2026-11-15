@@ -25,7 +25,7 @@ enum Family { F_BAR = 1, F_KNOB, F_MACRO, F_HANDLE, F_DEST, F_DEST_X, F_DEST_ED,
               F_PALETTE, F_NODE, F_JACK, F_PROW, F_PATCH_BTN, F_CANVAS, F_PINSP, F_PMENU, F_FILE };
 
 // What the keyboard types into (st.editing): a macro's name, the patch's, a layout element's text, the sound's name.
-enum EditWhat { kEditMacro = 0, kEditPatch = 1, kEditElText = 2, kEditSound = 3, kEditNode = 4 };
+enum EditWhat { kEditMacro = 0, kEditPatch = 1, kEditElText = 2, kEditSound = 3, kEditNode = 4, kEditGroup = 5 };   // kEditGroup: edit_node = a group's id (> 0) or a selector's (-id)
 constexpr int kSoundName = 32;                  // a sound's name, its end included
 
 struct State {
@@ -99,6 +99,8 @@ void patch_apply();
 void patch_sync();
 void rename_macro(int id, const char *name);    // the PATCH tab's Macro `id` (its row in the list keeps its place; "" refused, a twin too)
 bool switch_module(int id, bool to_engine);     // the PATCH tab's module `id` to its float or engine implementation (false: it has no twin)
+void rename_group(int id, const char *name);    // a switch group (id > 0) or a selector (-id): its name, the switch's in the list ("" refused)
+void flip_group(int id);                        // a switch group's switch: a bypass group On <-> Bypass; a selector's group: chosen
 bool save_patch(const std::string &path);
 bool load_patch(const std::string &path);
 bool read_patch_file(const std::string &path, mod::Patch &out);   // a .patch file, not applied (false: unreadable)

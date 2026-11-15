@@ -487,6 +487,46 @@ void draw_wallet(wg_ctx_t &c, gui_rect_t r) {
                     static_cast<unsigned>(pc.engine_total), pc.unmeasured ? "; some modules are not measured: counted as 0" : "");
 }
 
+// The switch groups of the area shown: a frame around their modules, a title tab with the group's name and its switch (click: a bypass
+// group On <-> Bypass; a selector's group: this one plays). A group switched off is drawn dim.
+void draw_groups(wg_ctx_t &c, const View &v, int area) {
+    const wg_theme_t &t = c.theme;
+    const wg_input_t &in = *c.in;
+    mod::Patch &p = st.patch;
+    bool on[mod::kMaxGroups] = {};
+    int first = 0, count = 0;
+    mod::patch_switches(p, &first, &count);
+    float vals[lab::kMaxParams] = {};
+    if (synth_selected() == modular_index()) for (int r = 0; r < count && first + r < lab::kMaxParams; r++) vals[first + r] = synth_value(first + r);
+    else { const float *own = switch_values(p); for (int r = 0; r < count && first + r < lab::kMaxParams; r++) vals[first + r] = own[r]; }
+    mod::groups_on(p, vals, on);
+    for (int g = 0; g < p.n_groups; g++) {
+        int x0 = 1 << 30, y0 = 1 << 30, x1 = -(1 << 30), y1 = -(1 << 30);
+        for (int i = 0; i < p.n_nodes; i++) {
+            const mod::Node &n = p.node[i];
+            if (n.group != p.group[g].id || n.area != area) continue;
+            const gui_rect_t b = v.box(n);
+            x0 = std::min(x0, b.x); y0 = std::min(y0, b.y); x1 = std::max(x1, b.x + b.w); y1 = std::max(y1, b.y + b.h);
+        }
+        if (x1 < x0) continue;
+        const gui_rect_t fr = gui_rect(x0 - 6, y0 - 18, x1 - x0 + 12, y1 - y0 + 24);
+        const uint16_t col = p.group[g].selector ? CANVAS_HEX(0x5ED6E8) : CANVAS_HEX(0xF5C542);
+        const uint16_t line = on[g] ? col : wg_mix(t.bg, col, 40);
+        wg_frame(&c, fr, line);
+        char title[48];
+        const mod::Selector *sl = p.group[g].selector ? p.find_selector(p.group[g].selector) : nullptr;
+        if (sl) std::snprintf(title, sizeof title, "%s %s: %s", on[g] ? ">" : " ", sl->name, p.group[g].name);
+        else std::snprintf(title, sizeof title, "%s  [%s]", p.group[g].name, on[g] ? "On" : "Bypass");
+        const gui_rect_t tab = gui_rect(fr.x, fr.y, wg_text_w(&c, title, true) + 8, 11);
+        const int tid = WG_ID(F_CANVAS, 100 + p.group[g].id);
+        if (inside(v.cv, in.x, in.y) && !menu_blocks(in)) wg_behavior(&c, tid, tab, false);
+        wg_fill(&c, tab, c.hot == tid ? wg_mix(t.panel2, col, 90) : wg_mix(t.panel2, line, 60));
+        wg_text_small(&c, tab.x + 4, tab.y + 8, title, on[g] ? t.text : t.dim);
+        if (c.active == tid && (in.released & WG_BTN_LEFT) && inside(tab, in.x, in.y)) flip_group(p.group[g].id);
+        if (c.hot == tid) wg_set_hint(&c, sl ? "%s: one of %s's choices (click: this one plays; the others do not run)" : "%s: click to switch it On / Bypass (bypassed: its modules do not run, its input goes through)", p.group[g].name, sl ? sl->name : "");
+    }
+}
+
 void draw_canvas(wg_ctx_t &c, gui_rect_t area) {
     const wg_theme_t &t = c.theme;
     const wg_input_t &in = *c.in;
@@ -501,6 +541,7 @@ void draw_canvas(wg_ctx_t &c, gui_rect_t area) {
     for (int x = v.cv.x + ((-st.pan_x[a]) % 24 + 24) % 24; x < v.cv.x + v.cv.w; x += 24)
         for (int y = v.cv.y + ((-st.pan_y[a]) % 24 + 24) % 24; y < v.cv.y + v.cv.h; y += 24) wg_fill(&c, gui_rect(x, y, 1, 1), t.panel2);
 
+    draw_groups(c, v, a);                               // (under the modules)
     // The modules are not clipped: one scrolled under the area tabs, the left panel or the inspector is drawn over by them (they come
     // after; a module takes the pointer only on the canvas, draw_node).
     for (int i = 0; i < p.n_nodes; i++) {
@@ -914,6 +955,75 @@ void draw_inspector(wg_ctx_t &c, gui_rect_t r) {
             y += 10;
         }
     }
+    // its switch group: make one of the selection, or the group's name, its switch, a selector, ungroup
+    {
+        const int w2 = (r.w - 12) / 2;
+        mod::Group *g = n.group ? p.find_group(n.group) : nullptr;
+        if (!g) {
+            std::snprintf(text, sizeof text, "Group the selection (%d)", static_cast<int>(st.sel.empty() ? 1 : st.sel.size()));
+            if (wg_button(&c, WG_ID(F_PINSP, 410), gui_rect(x, y - 6, r.w - 12, 12), text, false)) {
+                patch_sync();
+                std::vector<int> ids = st.sel;
+                if (ids.empty()) ids.push_back(n.id);
+                char gname[16];
+                std::snprintf(gname, sizeof gname, "Group %d", p.n_groups + 1);
+                if (p.make_group(ids.data(), static_cast<int>(ids.size()), gname)) structural("A switch group: its switch is in the list (SWITCHES)");
+                else message("Not grouped: %d groups at most, all of one area", mod::kMaxGroups);
+                return;
+            }
+            if (c.hot == WG_ID(F_PINSP, 410)) wg_set_hint(&c, "A switch group of the selected modules: On / Bypass (or one choice of a selector), a switch of the synth");
+            y += 14;
+        } else {
+            const bool naming = st.editing && st.edit_what == kEditGroup && st.edit_node == g->id;
+            std::snprintf(text, sizeof text, naming ? "Group: %s_" : "Group: %s", naming ? st.edit_text.c_str() : g->name);
+            wg_text_small(&c, x, y + 1, text, naming ? t.accent : t.text);
+            if (wg_button(&c, WG_ID(F_PINSP, 411), gui_rect(r.x + r.w - 92, y - 6, 44, 12), naming ? "Done" : "Rename", naming)) {
+                if (naming) { st.editing = false; rename_group(g->id, st.edit_text.c_str()); }
+                else { st.editing = true; st.edit_what = kEditGroup; st.edit_node = g->id; st.edit_text = g->name; }
+            }
+            if (wg_button(&c, WG_ID(F_PINSP, 412), gui_rect(r.x + r.w - 46, y - 6, 42, 12), "Ungroup", false)) {
+                patch_sync();
+                p.ungroup(g->id);
+                structural("Ungrouped");
+                return;
+            }
+            y += 14;
+            if (!g->selector) {
+                if (wg_tab(&c, WG_ID(F_PINSP, 413), gui_rect(x, y - 6, w2, 12), "On", g->on) && !g->on) { flip_group(g->id); return; }
+                if (wg_tab(&c, WG_ID(F_PINSP, 414), gui_rect(x + w2 + 2, y - 6, w2, 12), "Bypass", !g->on) && g->on) { flip_group(g->id); return; }
+                y += 14;
+                const char *join = p.n_selectors ? p.selector[0].name : "a new selector";
+                std::snprintf(text, sizeof text, "Make it a choice of %s", join);
+                if (wg_button(&c, WG_ID(F_PINSP, 415), gui_rect(x, y - 6, r.w - 12, 12), text, false)) {
+                    patch_sync();
+                    int sel = p.n_selectors ? p.selector[0].id : p.add_selector("Select");
+                    if (sel) { g->selector = static_cast<uint8_t>(sel); structural("A selector's choice: one of its groups plays"); }
+                    return;
+                }
+                y += 14;
+            } else if (mod::Selector *sl = p.find_selector(g->selector)) {
+                bool on[mod::kMaxGroups] = {};
+                mod::groups_on(p, nullptr, on);
+                const int gi = static_cast<int>(g - p.group);
+                std::snprintf(text, sizeof text, "%s: %s", sl->name, on[gi] ? "this one plays" : "plays another");
+                wg_text_small(&c, x, y + 1, text, on[gi] ? t.text : t.dim);
+                if (!on[gi] && wg_button(&c, WG_ID(F_PINSP, 416), gui_rect(r.x + r.w - 46, y - 6, 42, 12), "Play it", false)) { flip_group(g->id); return; }
+                y += 14;
+                if (wg_button(&c, WG_ID(F_PINSP, 417), gui_rect(x, y - 6, r.w - 12, 12), "Leave the selector (bypass group)", false)) {
+                    patch_sync();
+                    const int was = g->selector;
+                    g->selector = 0;
+                    bool used = false;
+                    for (int k = 0; k < p.n_groups; k++) if (p.group[k].selector == was) used = true;
+                    if (!used) for (int k = 0; k < p.n_selectors; k++)
+                        if (p.selector[k].id == was) { for (int q = k; q + 1 < p.n_selectors; q++) p.selector[q] = p.selector[q + 1]; p.n_selectors--; break; }
+                    structural("A bypass group again");
+                    return;
+                }
+                y += 14;
+            }
+        }
+    }
     // its doc, cut into lines
     {
         const char *s = d->doc;
@@ -1022,6 +1132,32 @@ std::string patch_ident(const char *name) {               // "Hollow Kick" -> "h
 
 
 void patch_sync() { modular_pull_values(st.patch); }
+
+void rename_group(int id, const char *name) {
+    if (!name || !*name) { message("A name is needed: the switch's in the synth's list"); return; }
+    patch_sync();
+    if (id > 0) { if (mod::Group *g = st.patch.find_group(id)) std::snprintf(g->name, sizeof g->name, "%s", name); }
+    else if (mod::Selector *s = st.patch.find_selector(-id)) std::snprintf(s->name, sizeof s->name, "%s", name);
+    patch_apply();
+    mark_dirty();
+}
+
+void flip_group(int id) {
+    patch_sync();                                       // (the switches as the list has them)
+    mod::Group *g = st.patch.find_group(id);
+    if (!g) return;
+    if (!g->selector) g->on = !g->on;
+    else if (mod::Selector *s = st.patch.find_selector(g->selector)) {
+        int r = 0;
+        for (int k = 0; k < st.patch.n_groups; k++) {
+            if (st.patch.group[k].selector != s->id) continue;
+            if (st.patch.group[k].id == id) s->value = static_cast<uint8_t>(r);
+            r++;
+        }
+    }
+    modular_push_values(st.patch);                      // (the list's switches: what the synth plays)
+    mark_dirty();
+}
 
 bool switch_module(int id, bool to_engine) {
     mod::Node *n = st.patch.find(id);

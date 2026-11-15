@@ -91,6 +91,10 @@ AreaCode area_code(const mod::Patch &p, int area, const int *base) {
     AreaCode a;
     const std::vector<int> order = area_order(p, area);
     a.any = !order.empty();
+    auto gidx = [&](int gid) { for (int g = 0; g < p.n_groups; g++) if (p.group[g].id == gid) return g; return -1; };
+    bool grouped = false;
+    for (int i : order) if (p.node[i].group) grouped = true;
+    if (grouped) a.body += fmt("            bool gon[%d];   // the switch groups that play (the SWITCHES values)\n            groups_on(p, gon);\n", p.n_groups);
     for (int i : order) {
         const mod::Node &n = p.node[i];
         const mod::ModuleDef &d = *n.def;
@@ -101,7 +105,8 @@ AreaCode area_code(const mod::Patch &p, int area, const int *base) {
     for (int i : order) {
         const mod::Node &n = p.node[i];
         const mod::ModuleDef &d = *n.def;
-        std::string code = fmt("            {   // %s %d\n", d.name, n.id);
+        const int g = n.group ? gidx(n.group) : -1;
+        std::string code = g >= 0 ? fmt("            if (gon[%d]) {   // %s %d (group %s)\n", g, d.name, n.id, p.group[g].name) : fmt("            {   // %s %d\n", d.name, n.id);
         // its values: the synth's list (p[]), or the patch's when the list has no room for them
         code += "                float v[mod::kMaxParams] = {";
         for (int j = 0; j < d.n_param; j++)
@@ -145,6 +150,27 @@ AreaCode area_code(const mod::Patch &p, int area, const int *base) {
         code += "}, {";
         for (int k = 0; k < mod::kMaxOut; k++) code += (k ? ", " : "") + (k < d.n_out ? fmt("o%d_%d", n.id, k) : std::string("nullptr"));
         code += fmt("}, v, n};\n                m%d.process(c, io_);\n            }\n", n.id);
+        if (g >= 0) {                                   // switched off: silence, or at a bypass group's exit what came into the group
+            code += "            else {\n";
+            for (int o = 0; o < d.n_out; o++) {
+                bool exit = false;
+                for (int k = 0; k < p.n_cables && !p.group[g].selector; k++) {
+                    const mod::Cable &cb = p.cable[k];
+                    const mod::Node *dn = p.find(cb.dst);
+                    if (cb.src == n.id && cb.src_port == o && !cb.to_param && dn && dn->group != n.group) exit = true;
+                }
+                std::string expr;
+                for (int k = 0; exit && k < p.n_cables; k++) {
+                    const mod::Cable &cb = p.cable[k];
+                    const mod::Node *sn = p.find(cb.src), *dn = p.find(cb.dst);
+                    if (!sn || !dn || cb.to_param || dn->group != n.group || sn->group == n.group) continue;
+                    expr += fmt("%so%d_%d[i] * %s", expr.empty() ? "" : " + ", cb.src, cb.src_port, lit(cb.depth).c_str());
+                }
+                code += fmt("                for (int i = 0; i < n; i++) o%d_%d[i] = %s;%s\n", n.id, o, expr.empty() ? "0.f" : expr.c_str(),
+                            exit ? "   // (bypassed: the group's input)" : "");
+            }
+            code += "            }\n";
+        }
         a.body += code;
     }
     return a;
@@ -157,7 +183,9 @@ int synth_slots(const mod::Patch &p, int *base) {
     const int macros = mod::macro_count(p);
     if (!macros) return n;
     for (int i = 0; i < p.n_nodes; i++) if (!mod::is_macro(p.node[i])) base[i] = -1;
-    return 1 + macros;
+    int first = 0, count = 0;                           // (the switches stay: the player's too)
+    mod::patch_switches(p, &first, &count);
+    return count ? first + count : 1 + macros;
 }
 
 // The exported synth's list of values (labels, then kParams): the Macros first in MACROS, then a section per other module; rows (when
@@ -176,6 +204,16 @@ std::string param_list(const mod::Patch &p, const int *base, std::vector<std::pa
             o += "};\n";
         }
     }
+    int sw_first = 0, sw_count = 0;                     // the switches' labels
+    mod::patch_switches(p, &sw_first, &sw_count);
+    for (int r = 0; r < sw_count; r++) {
+        const char *name, *names[mod::kMaxGroups];
+        int nc = 0;
+        mod::switch_row(p, r, &name, names, &nc);
+        o += fmt("const char *const kSw%d[] = {", r);
+        for (int k = 0; k < nc; k++) o += (k ? ", " : "") + cstr(names[k]);
+        o += "};\n";
+    }
     o += "\nconst lab::Param kParams[] = {\n";
     static const char *const curves[] = {"lab::Lin", "lab::Exp", "lab::Int"};
     if (macros) { o += fmt("    lab::section(%s),\n", cstr(mod::kMacroSection).c_str()); if (rows) rows->push_back({0, -1}); }
@@ -188,6 +226,22 @@ std::string param_list(const mod::Patch &p, const int *base, std::vector<std::pa
         o += fmt("    {%s, %s, %s, %s, %s, %s, nullptr},   // Macro %d\n", cstr(name).c_str(), lit(q.min).c_str(), lit(q.max).c_str(), lit(n.v[0]).c_str(),
                  q.unit ? cstr(q.unit).c_str() : "nullptr", curves[q.curve], n.id);
         if (rows) rows->push_back({n.id, 0});
+    }
+    if (sw_count) {                                     // the switches: a section, a row each
+        o += fmt("    lab::section(%s),\n", cstr(mod::kSwitchSection).c_str());
+        if (rows) rows->push_back({0, -1});
+        int nb = 0;
+        for (int g = 0; g < p.n_groups; g++) if (!p.group[g].selector) nb++;
+        for (int r = 0; r < sw_count; r++) {
+            const char *name, *names[mod::kMaxGroups];
+            int nc = 0;
+            mod::switch_row(p, r, &name, names, &nc);
+            float def = 0.f;
+            if (r < nb) { int k = 0; for (int g = 0; g < p.n_groups; g++) if (!p.group[g].selector && k++ == r) def = p.group[g].on ? 1.f : 0.f; }
+            else def = static_cast<float>(p.selector[r - nb].value);
+            o += fmt("    {%s, 0, %d, %s, nullptr, lab::Int, kSw%d},   // a switch\n", cstr(name).c_str(), nc > 0 ? nc - 1 : 0, lit(def).c_str(), r);
+            if (rows) rows->push_back({0, -1});
+        }
     }
     for (int i = 0; i < p.n_nodes; i++) {
         if (base[i] < 0 || mod::is_macro(p.node[i])) continue;
@@ -220,6 +274,22 @@ std::string synth_source(const mod::Patch &p, const std::string &id) {
     o += "// Exporting again overwrites this file: copy it under another name before changing it by hand (then optimise it as the Kick).\n";
     o += "#include \"lab.h\"\n#include \"modular/modules.h\"\n\nnamespace {\n\n";
     o += param_list(p, base, nullptr);
+    if (p.n_groups) {                                   // which switch groups play, from the SWITCHES values (patch.h groups_on)
+        int first = 0, count = 0, rank = 0;
+        mod::patch_switches(p, &first, &count);
+        o += "// Which switch groups play: their switches in the list (a bypass group: On; a selector: its choice)\n";
+        o += "void groups_on(const float *p, bool *on) {\n";
+        for (int g = 0; g < p.n_groups; g++)
+            if (!p.group[g].selector) o += fmt("    on[%d] = p[%d] >= 0.5f;   // %s\n", g, first + rank++, p.group[g].name);
+        for (int sl = 0; sl < p.n_selectors; sl++) {
+            o += fmt("    {   // %s\n        const int s = static_cast<int>(p[%d] + 0.5f);\n", p.selector[sl].name, first + rank++);
+            int r = 0;
+            for (int g = 0; g < p.n_groups; g++)
+                if (p.group[g].selector == p.selector[sl].id) o += fmt("        on[%d] = s == %d;   // %s\n", g, r++, p.group[g].name);
+            o += "    }\n";
+        }
+        o += "}\n\n";
+    }
     o += "// A value moved along its range (lo..hi, its curve) by a modulation: the runner's rule\n";
     o += "[[maybe_unused]] float modulate(float lo, float hi, int curve, float v, float amount) {\n";
     o += "    const mod::Param q{\"\", lo, hi, lo, nullptr, static_cast<mod::Curve>(curve)};\n";
@@ -783,6 +853,7 @@ bool add_to_list(const std::string &sym, std::string &err) {
 }  // namespace
 
 bool export_engine_synth(const mod::Patch &p, const std::string &id, std::string &path, std::string &err) {
+    if (p.n_groups) { err = "switch groups are not in engine synths yet (Export > Synth plays them)"; return false; }
     const int twin = mod::macro_twin(p);
     if (twin >= 0) {
         char name[24];
@@ -828,6 +899,7 @@ ImplMap float_to_engine(const mod::Node &n, const mod::ModuleDef *rm) {
 }
 
 bool export_engine(const mod::Patch &p, const std::string &id, std::string &path, std::string &err) {
+    if (p.n_groups) { err = "switch groups are not in the engine's graphs yet (Export > Synth plays them)"; return false; }
     path = st.preset_dir + "../exports/" + id + "_graph.cpp";
     return write_text(path, engine_source(p, id), err);
 }

@@ -30,19 +30,44 @@ uint32_t engine_cycles(const Node &n, const ModuleCost &mc) {
     return mc.engine ? mc.engine : mc.cycles + kWrapper;
 }
 
+// The area's modules added up. A selector's groups play one at a time: only the dearest of them counts (the budget must hold the worst
+// choice); a bypass group counts as on (its switch may be).
 AreaSum area_sum(const Patch &p, int area) {
     AreaSum s;
+    AreaSum grp[kMaxGroups];                            // the modules of each selector's group, apart
+    auto in_selector = [&](const Node &n, int &g) {
+        g = -1;
+        if (!n.group) return false;
+        for (int k = 0; k < p.n_groups; k++) if (p.group[k].id == n.group) g = k;
+        return g >= 0 && p.group[g].selector != 0;
+    };
     for (int i = 0; i < p.n_nodes; i++) {
         const Node &n = p.node[i];
         if (n.area != area) continue;
         s.nodes++;
         const ModuleCost *mc = module_cost(n.def->name);
         if (!mc) { s.unmeasured++; continue; }
+        int g;
+        AreaSum &t = in_selector(n, g) ? grp[g] : s;
         const uint32_t cab = cable_cycles(p, n);
-        s.cycles += node_cycles(n) + cab;
-        s.worst += mc->worst + cab;
-        s.bytes += mc->bytes;
-        s.engine += engine_cycles(n, *mc) + cab;
+        t.cycles += node_cycles(n) + cab;
+        t.worst += mc->worst + cab;
+        t.bytes += mc->bytes;                           // (each group's state is there, playing or not)
+        t.engine += engine_cycles(n, *mc) + cab;
+    }
+    for (int sl = 0; sl < p.n_selectors; sl++) {
+        AreaSum dear;
+        for (int g = 0; g < p.n_groups; g++) {
+            if (p.group[g].selector != p.selector[sl].id) continue;
+            if (grp[g].cycles > dear.cycles) dear.cycles = grp[g].cycles;
+            if (grp[g].worst > dear.worst) dear.worst = grp[g].worst;
+            if (grp[g].engine > dear.engine) dear.engine = grp[g].engine;
+            dear.bytes += grp[g].bytes;
+        }
+        s.cycles += dear.cycles;
+        s.worst += dear.worst;
+        s.engine += dear.engine;
+        s.bytes += dear.bytes;
     }
     return s;
 }

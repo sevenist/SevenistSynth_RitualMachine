@@ -42,6 +42,30 @@ struct Node {
     // switching back gives them again. Not in the text form.
     const ModuleDef *alt = nullptr;
     float alt_v[kMaxParams] = {};
+    uint8_t group = 0;                  // the switch group it is in (Group::id; 0: none)
+};
+
+// Switch groups (the user, 2026-11-15: "a container that can be bypassed and offer a switch widget"; both a bypass and a selector).
+// A group is a set of modules of one area.
+//   - A bypass group has its own switch, On / Bypass. Bypassed, its modules do not run (no CPU), and the signal coming into the group
+//     from outside (the cables into its modules from the others) goes out where the group's own outputs went; a group with nothing
+//     coming in goes silent.
+//   - The groups of a selector share its switch, which picks the one that plays (by their order in the patch); the others do not run
+//     and send silence.
+// The switches are the synth's values: a section SWITCHES after the Macros (patch_slots), a row each (Bypass / On; a selector: its
+// groups' names), so a layout shows them as a switch, a list or a knob, and an exported synth keeps them.
+constexpr int kMaxGroups = 8, kMaxSelectors = 4;
+constexpr const char *kSwitchSection = "SWITCHES";
+struct Group {
+    uint8_t id = 0;                     // 1..255, kept across edits
+    char name[16] = "";
+    uint8_t selector = 0;               // 0: a bypass group; else the id of the selector it is a choice of
+    bool on = true;                     // a bypass group's switch in the patch (the list's value overrides it)
+};
+struct Selector {
+    uint8_t id = 0;
+    char name[16] = "";
+    uint8_t value = 0;                  // the rank of its group that plays (in the patch's order of its groups)
 };
 
 struct Cable {
@@ -58,6 +82,10 @@ struct Patch {
     int n_nodes = 0;
     Cable cable[kMaxCables];
     int n_cables = 0;
+    Group group[kMaxGroups];
+    int n_groups = 0;
+    Selector selector[kMaxSelectors];
+    int n_selectors = 0;
 
     int index_of(int id) const;
     Node *find(int id);
@@ -67,7 +95,17 @@ struct Patch {
     // A cable (the same one again: its depth is changed). False: full, an unknown port, or across areas.
     bool connect(int src, int src_port, int dst, int dst_port, bool to_param, float depth);
     void disconnect(int k);
-    void clear();                       // no module, no cable, the voices back to kMaxPatchVoices
+    void clear();                       // no module, no cable, no group, the voices back to kMaxPatchVoices
+    // Switch groups. make_group: a bypass group of these modules (one area; a module leaves the group it was in), or a choice of
+    // selector `sel` (0: a bypass group). Returns its id, 0 when full or the modules are of two areas. ungroup: its modules free, the
+    // group gone (and its selector, when it was its last group).
+    int  make_group(const int *ids, int n, const char *name, int sel = 0);
+    void ungroup(int id);
+    int  add_selector(const char *name);    // its id; 0 when full
+    Group *find_group(int id);
+    const Group *find_group(int id) const;
+    Selector *find_selector(int id);
+    const Selector *find_selector(int id) const;
     void init_default();                // Note -> Osc -> Filter -> VCA (ADSR) -> VoiceOut; Voices -> Output
 };
 
@@ -85,9 +123,17 @@ int  macro_count(const Patch &p);
 int  macro_twin(const Patch &p);
 
 // The values as a synth's list. Value j of node k is at base[k] + 1 + j: the Macros first, in a section MACROS at 0 (the Macro's row at
-// base[k] + 1, named by macro_name), then a section per other module (its title at base[k]) and its values. Returns the list's length
-// (at most kMaxSlots: the modules beyond it get base -1, they play their values in the patch).
+// base[k] + 1, named by macro_name), then the switches (below), then a section per other module (its title at base[k]) and its values.
+// Returns the list's length (at most kMaxSlots: the modules beyond it get base -1, they play their values in the patch).
 int patch_slots(const Patch &p, int *base);
+// The switches in the list: a section SWITCHES (its title at *first - 1), then a row each: the bypass groups in the patch's order, then
+// the selectors. *count 0: none (no section).
+void patch_switches(const Patch &p, int *first, int *count);
+// A switch's row (rank: 0.. as above): its name and its choices (a bypass group: "Bypass", "On"; a selector: its groups' names, *n of
+// them; names points into the patch's groups, up to kMaxGroups).
+void switch_row(const Patch &p, int rank, const char **name, const char **names, int *n);
+// Which groups play (their index in p.group): the list's switches (values: the synth's list; nullptr: the patch's own).
+void groups_on(const Patch &p, const float *values, bool *on);
 
 // The text form (see above). to_text returns the length written (the text is cut at cap - 1); from_text replaces the patch (false: not a
 // patch, `err` says why; lines it cannot read are skipped and counted in *skipped).
@@ -126,10 +172,22 @@ private:
         int base;                           // its section in the value list (-1: none)
         float v[kMaxParams];                // its patch values (when no list is given)
         bool is_out, is_voices;
+        int8_t grp;                         // its switch group (an index in grp_; -1: none)
+        uint8_t exit;                       // the outputs that leave its group (bit o): a bypassed group's input goes out there
+    };
+    // A switch group as the runner plays it: the cables into it from outside (summed: what a bypass lets through)
+    struct GroupRt {
+        Ref entry[kRefs];
+        uint8_t n_entry;
     };
     void run_chunk(const Ctx &c, const float *values, const float *in, float *out, int frames, float &peak);
     Inst inst_[kMaxNodes] = {};
     int n_ = 0;
+    GroupRt grp_[kMaxGroups] = {};
+    Group gdef_[kMaxGroups];                // the patch's groups and selectors (copies), where its switches are in the list
+    Selector sdef_[kMaxSelectors];
+    int n_gdef_ = 0, n_sdef_ = 0, sw_first_ = 0;
+    float entry_[kMaxFrames] = {};
     bool trig_ = false;
     float zero_[kMaxFrames] = {}, one_[kMaxFrames] = {}, gate_[kMaxFrames] = {}, trigbuf_[kMaxFrames] = {}, pitchbuf_[kMaxFrames] = {};
 };

@@ -116,6 +116,14 @@ The status line at the bottom says what the control under the pointer is and wha
   drag from its Out onto values to move them, or onto another Macro's Value (a layer: one Macro that turns others). Its name is the
   parameter's (the inspector's Rename; names must differ). The Macros come first in the Modular synth's values (`MACROS/<name>`),
   and **Export > Synth of a patch with Macros keeps them alone**: every other value is fixed in the generated code as the patch has it.
+- **Switch groups:** select modules, then the inspector's **Group the selection**. The group is a frame on the canvas whose title holds
+  its switch (click it).
+  - A **bypass group** is On / Bypass. Bypassed, its modules do not run and its input goes straight through.
+  - **Make it a choice of a selector** puts several groups on one switch, which picks the group that plays. **Play it** chooses this one,
+    and **Leave the selector** makes it a bypass group again.
+  - Rename a group (its switch's name); Ungroup.
+  - The switches are the synth's values (SWITCHES/<name>), so the SOUND and LAYOUT tabs take them as any value: a switch, a list, a
+    knob. Export > Synth plays them; the engine exports refuse groups for now.
 - **One entry per function** (the merged list): where a catalog module has an engine twin (Osc / RMOsc, ADSR and Perc / RMEg, LFO /
   RMLfo, Filter / RMFilter, Drive / RMShaper, VCA / RMVca, Mixer / RMMix4, Ring / RMMult, Const and Macro / RMConst, Delay / RMDelay,
   Room / RMReverb), the twin leaves the list.

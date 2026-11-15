@@ -21,6 +21,7 @@ int  modular_index();                                   // its place in lab::kSy
 void modular_publish(const mod::Patch &p);
 void modular_push_values(const mod::Patch &p);          // the patch's values -> the synth's (synth_set_value; the Modular synth selected)
 void modular_pull_values(mod::Patch &p);                // the synth's values -> the patch (before an edit changes the list's layout)
+const float *switch_values(const mod::Patch &p);        // the patch's switches as the list's rows (patch_switches' order): On 1 / Bypass 0, a selector's choice
 int  modular_slot(const mod::Patch &p, int node_index, int param);  // the value's index in the synth's list (-1: beyond the list)
 
 }  // namespace studio

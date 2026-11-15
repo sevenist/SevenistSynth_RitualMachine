@@ -57,6 +57,21 @@ The patch's list of values starts with the Macros, in a section MACROS (`MACROS/
 exported from a patch with Macros has the MACROS section alone: its player turns the Macros, and every other value is fixed in the
 code as the patch has it. Without Macros, every value is exported, as before.
 
+### Switch groups: a bypass, a selector
+
+A group is a set of modules of one area (`Patch::make_group`), with one of two kinds of switch:
+- **Bypass group:** its own switch, On / Bypass. Bypassed, its modules do not run (no CPU), and what comes into the group from outside
+  goes out where the group's outputs went. A group with nothing coming in goes silent.
+- **A choice of a selector:** a selector's groups share its switch, which picks the one that plays. The others do not run and send
+  silence.
+
+The switches are the synth's values: a section SWITCHES after MACROS, a row each. A bypass group's row is Bypass / On; a selector's
+row lists its groups' names. A layout shows them as any value (a switch, a list, a knob), and an exported synth keeps them, Macros or
+not.
+
+The modular runner and Export > Synth play them; the engine exports refuse a patch with groups for now. The wallet counts a bypass
+group as on and a selector's dearest group.
+
 ### The cycles wallet: what a patch costs on the board
 
 `module_costs.h` holds what each module costs on the board, in CPU cycles per 32-frame block. It also holds the engine's costs: its
@@ -162,6 +177,9 @@ the first sample). These rules are written in each module's comment.
 ```
 patch "Hollow Kick"
 voices 4                                        the synth's voice count, 1..6 (an older file has none: 6)
+selector 1 "Env" 0                              a selector: id, name, the rank of its group that plays
+group 1 "Tone" on                               a bypass group (on / bypass), or: group 2 "Slow" sel 1 (a selector's choice)
+node 3 voice Filter 290 20 @1                   @1: the module is in group 1
 node 1 voice Note 20 40                         id, area, module, x y (where the studio draws it)
 node 2 voice Body 180 40 Tune=48 Harm=10        then its values by name (the ones not given: their defaults)
 node 7 voice Macro 20 200 "Punch" Value=40      a name in quotes (a Macro's)

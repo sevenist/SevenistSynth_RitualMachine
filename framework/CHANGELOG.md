@@ -2,6 +2,14 @@
 
 What changed in the library (`framework/`) and in the repo as a whole. Each app keeps its own update log.
 
+## 2026-11-15: switch groups
+
+- `modular/patch.h`: `Group`, `Selector`, `Node::group`; `make_group`, `ungroup`, `add_selector`; `patch_switches`, `switch_row`,
+  `groups_on`. The list gets a SWITCHES section after MACROS. The text form has `selector` and `group` lines and a node's `@<group>`;
+  an older reader skips them.
+- The runner skips a group switched off. A bypass group's exits get what came into the group; a selector's other groups send silence.
+- `modular/cost.h`: a selector's groups count as their dearest.
+
 ## 2026-11-15: the engine types measured; the wallet prices an engine synth
 
 - `modular/module_costs.h`: an `engine` column, each catalog module as an engine type (engine_modules.h) on HWV1. The wrapper adds

@@ -117,6 +117,21 @@ void modular_publish(const mod::Patch &p) {
             g_params[base[i] + 1 + j] = lab::Param{q.name, q.min, q.max, nd.v[j], q.unit, static_cast<lab::Curve>(q.curve), q.labels};   // (its default: the patch's value)
         }
     }
+    {   // the switches: a section, a row each (Bypass / On; a selector: its groups' names)
+        static const char *labels[mod::kMaxGroups + mod::kMaxSelectors][mod::kMaxGroups];
+        int first = 0, count = 0;
+        mod::patch_switches(p, &first, &count);
+        if (count && first - 1 < n) {
+            g_params[first - 1] = lab::section(mod::kSwitchSection);
+            const float *own = switch_values(p);        // the patch's own settings, in the rows' order
+            for (int r = 0; r < count && first + r < n; r++) {
+                const char *name;
+                int choices = 0;
+                mod::switch_row(p, r, &name, labels[r], &choices);
+                g_params[first + r] = lab::Param{name, 0.f, static_cast<float>(choices > 0 ? choices - 1 : 0), own[r], nullptr, lab::Int, labels[r]};
+            }
+        }
+    }
     synth_modular.n_params = n;
     if (synth_modular.opt.voices != p.voices) {         // the patch's voice count: the studio plays it as the board will
         synth_modular.opt.voices = p.voices;
@@ -135,6 +150,10 @@ void modular_push_values(const mod::Patch &p) {
             const int s = modular_slot(p, i, j);
             if (s >= 0) synth_set_value(s, p.node[i].v[j]);
         }
+    int first = 0, count = 0;                           // the switches
+    mod::patch_switches(p, &first, &count);
+    const float *own = switch_values(p);
+    for (int r = 0; r < count && first + r < lab::kMaxParams; r++) synth_set_value(first + r, own[r]);
 }
 
 void modular_pull_values(mod::Patch &p) {
@@ -144,6 +163,20 @@ void modular_pull_values(mod::Patch &p) {
             const int s = modular_slot(p, i, j);
             if (s >= 0) p.node[i].v[j] = synth_value(s);
         }
+    int first = 0, count = 0, rank = 0;                 // the switches: back into the groups and selectors
+    mod::patch_switches(p, &first, &count);
+    for (int g = 0; g < p.n_groups && first + rank < lab::kMaxParams; g++)
+        if (!p.group[g].selector) p.group[g].on = synth_value(first + rank++) >= 0.5f;
+    for (int s = 0; s < p.n_selectors && first + rank < lab::kMaxParams; s++)
+        p.selector[s].value = static_cast<uint8_t>(synth_value(first + rank++) + 0.5f);
+}
+
+const float *switch_values(const mod::Patch &p) {
+    static float v[mod::kMaxGroups + mod::kMaxSelectors];
+    int r = 0;
+    for (int g = 0; g < p.n_groups; g++) if (!p.group[g].selector) v[r++] = p.group[g].on ? 1.f : 0.f;
+    for (int s = 0; s < p.n_selectors; s++) v[r++] = static_cast<float>(p.selector[s].value);
+    return v;
 }
 
 }  // namespace studio

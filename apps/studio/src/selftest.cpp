@@ -304,6 +304,123 @@ void test_export_keeps_names() {
     synth_select(0);
 }
 
+// Switch groups (patch.h): a bypass group lets its input through when off, a selector plays one of its groups; their switches are the
+// list's SWITCHES rows; the text keeps them; the float export plays them, the engine exports refuse them; the wallet counts a selector's
+// dearest group.
+void test_switch_groups() {
+    const mod::ModuleDef *oscd = mod::find_module("Osc"), *drv = mod::find_module("Drive"), *vo = mod::find_module("VoiceOut");
+    // run a voice area for 8 blocks: the output
+    auto render = [](const mod::Patch &p, const float *values) {
+        std::vector<float> y;
+        alignas(16) static unsigned char mem[256 * 1024];
+        static mod::Runner r;
+        if (!r.build(p, mod::kVoiceArea, mem, sizeof mem)) return y;
+        mod::Ctx c;
+        c.gate = true;
+        r.start(c);
+        float buf[64];
+        for (int b = 0; b < 8; b++) { for (float &x : buf) x = 0.f; r.process(c, values, nullptr, buf, 64); y.insert(y.end(), buf, buf + 64); }
+        r.clear();
+        return y;
+    };
+    auto same = [](const std::vector<float> &a, const std::vector<float> &b) {
+        if (a.size() != b.size() || a.empty()) return false;
+        for (size_t i = 0; i < a.size(); i++) if (std::fabs(a[i] - b[i]) > 1e-6f) return false;
+        return true;
+    };
+    // a bypass group: Osc -> [Drive] -> VoiceOut
+    mod::Patch p;
+    p.clear();
+    const int o = p.add(oscd, mod::kVoiceArea, 0, 0)->id, d = p.add(drv, mod::kVoiceArea, 150, 0)->id, out = p.add(vo, mod::kVoiceArea, 300, 0)->id;
+    p.find(d)->v[mod::P::DRV_DRIVE] = 24.f;
+    p.connect(o, 0, d, 0, false, 1.f);
+    p.connect(d, 0, out, 0, false, 1.f);
+    const int g = p.make_group(&d, 1, "Dirt");
+    int first = 0, count = 0, base[mod::kMaxNodes];
+    mod::patch_switches(p, &first, &count);
+    const int n = mod::patch_slots(p, base);
+    CHECK(g > 0 && first == 1 && count == 1 && base[p.index_of(o)] == 2 && n == 2 + 1 + oscd->n_param + 1 + drv->n_param + 1 + vo->n_param,
+          "a bypass group: its switch the list's row 1 (SWITCHES at 0), the modules after it");
+    float values[mod::kMaxSlots] = {};
+    for (int i = 0; i < p.n_nodes; i++) for (int j = 0; j < p.node[i].def->n_param; j++) values[base[i] + 1 + j] = p.node[i].v[j];
+    values[first] = 1.f;
+    const std::vector<float> driven = render(p, values);
+    values[first] = 0.f;
+    const std::vector<float> bypassed = render(p, values);
+    mod::Patch bare;                                    // the same without the Drive: what a bypass gives
+    bare.clear();
+    const int bo = bare.add(oscd, mod::kVoiceArea, 0, 0)->id, bout = bare.add(vo, mod::kVoiceArea, 300, 0)->id;
+    bare.connect(bo, 0, bout, 0, false, 1.f);
+    CHECK(!same(driven, bypassed) && same(bypassed, render(bare, nullptr)), "bypassed: the Osc goes straight out (the Drive does not run)");
+    CHECK(same(render(p, nullptr), driven), "without a list: the group's own switch (On)");
+
+    // a selector: a saw and a sine, one choice each, both into the VoiceOut
+    mod::Patch s;
+    s.clear();
+    const int s1 = s.add(oscd, mod::kVoiceArea, 0, 0)->id, s2 = s.add(oscd, mod::kVoiceArea, 0, 120)->id, so = s.add(vo, mod::kVoiceArea, 300, 0)->id;
+    s.find(s2)->v[mod::P::OSC_WAVE] = 0.f;              // a sine
+    s.connect(s1, 0, so, 0, false, 1.f);
+    s.connect(s2, 0, so, 0, false, 1.f);
+    const int sel = s.add_selector("Wave");
+    const int ga = s.make_group(&s1, 1, "Saw", sel), gb = s.make_group(&s2, 1, "Sine", sel);
+    mod::patch_switches(s, &first, &count);
+    const char *swname, *names[mod::kMaxGroups];
+    int nc = 0;
+    mod::switch_row(s, 0, &swname, names, &nc);
+    CHECK(ga && gb && count == 1 && nc == 2 && !std::strcmp(swname, "Wave") && !std::strcmp(names[1], "Sine"), "a selector: one switch, its groups' names");
+    mod::patch_slots(s, base);
+    float sv[mod::kMaxSlots] = {};
+    for (int i = 0; i < s.n_nodes; i++) for (int j = 0; j < s.node[i].def->n_param; j++) sv[base[i] + 1 + j] = s.node[i].v[j];
+    mod::Patch only_saw = s, only_sine = s;
+    only_saw.remove(s2);
+    only_sine.remove(s1);
+    sv[first] = 0.f;
+    const std::vector<float> a0 = render(s, sv);
+    sv[first] = 1.f;
+    const std::vector<float> a1 = render(s, sv);
+    CHECK(same(a0, render(only_saw, nullptr)) && same(a1, render(only_sine, nullptr)), "the selector plays one group: the saw, then the sine");
+    // the wallet: one choice counts (the dearest)
+    CHECK(mod::patch_cost(s, 1).voice == mod::patch_cost(only_saw, 1).voice + mod::kBoardCost.summed_input,
+          "the wallet counts one Osc of the selector's two (and the VoiceOut's two cables, summed)");
+
+    // the text keeps them; an emptied group goes
+    static char text[8192];
+    mod::patch_to_text(s, text, sizeof text);
+    static mod::Patch back;
+    char err[64];
+    int skipped = -1;
+    CHECK(mod::patch_from_text(back, text, err, sizeof err, &skipped) && skipped == 0 && back.n_groups == 2 && back.n_selectors == 1 &&
+          back.find(s2)->group == gb && !std::strcmp(back.find_group(gb)->name, "Sine") && back.find_group(gb)->selector == sel,
+          "the text keeps the groups, the selector, who is in which");
+    back.remove(s2);
+    CHECK(back.n_groups == 1 && back.n_selectors == 1, "its last module gone: the group goes");
+
+    // exports: the float synth plays them; the engine ones refuse
+    const std::string src = synth_source(p, "t");
+    CHECK(src.find("void groups_on(const float *p, bool *on)") != std::string::npos && src.find("if (gon[0]) {") != std::string::npos &&
+          src.find("lab::section(\"SWITCHES\")") != std::string::npos && src.find("kSw0[] = {\"Bypass\", \"On\"}") != std::string::npos &&
+          src.find("(bypassed: the group's input)") != std::string::npos, "Export > Synth: the switches, the groups in its code");
+    std::string path, why;
+    CHECK(!export_engine_synth(p, "t", path, why) && why.find("switch groups") != std::string::npos, "Export > Engine synth refuses them for now");
+
+    // the Modular synth: SWITCHES/Dirt, flip_group
+    const int mi = modular_index();
+    if (mi < 0) return;
+    synth_select(mi);
+    const mod::Patch keep = st.patch;
+    st.patch = p;
+    patch_apply();
+    const lab::Synth &ms = *lab::kSynths[mi];
+    const int row = find_param(ms, "SWITCHES/Dirt");
+    CHECK(row == 1 && ms.params[row].curve == lab::Int && ms.params[row].labels && !std::strcmp(ms.params[row].labels[1], "On") && synth_value(row) == 1.f,
+          "the Modular synth's list: SWITCHES/Dirt (Bypass / On), On");
+    flip_group(g);
+    CHECK(!st.patch.find_group(g)->on && synth_value(row) == 0.f, "flip_group: bypassed, in the patch and in the list");
+    st.patch = keep;
+    patch_apply();
+    synth_select(0);
+}
+
 // The merged list: one entry per function, a float module or its engine twin. The twin leaves the list; a module switches between the
 // two (values converted, cables kept on the matching ports) and back to the values it had; a new module takes the cheaper one.
 void test_merged_list() {
@@ -1439,6 +1556,7 @@ int studio_selftest(wg_ctx_t &c, const char *shot) {
     test_patch_macros();
     test_patch_wallet();
     test_merged_list();
+    test_switch_groups();
     test_widgets();
     test_app(c, shot);
     test_keys(c);

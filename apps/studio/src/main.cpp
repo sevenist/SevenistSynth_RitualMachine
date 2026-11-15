@@ -322,6 +322,7 @@ void edit_keys(const wg_input_t &in) {
     if (wg_key_pressed(&in, WG_KEY_ENTER)) {
         if (st.edit_what == kEditElText) { set_el_text(st.edit_text); return; }
         if (st.edit_what == kEditNode) { st.editing = false; rename_macro(st.edit_node, st.edit_text.c_str()); return; }
+        if (st.edit_what == kEditGroup) { st.editing = false; rename_group(st.edit_node, st.edit_text.c_str()); return; }
         if (st.edit_what == kEditPatch) std::snprintf(st.patch.name, sizeof st.patch.name, "%s", st.edit_text.c_str());
         else if (st.edit_what == kEditSound) std::snprintf(st.sound_name[synth_selected()], kSoundName, "%s", st.edit_text.c_str());
         else std::snprintf(cur_macro().name, sizeof cur_macro().name, "%s", st.edit_text.c_str());

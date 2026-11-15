@@ -2,6 +2,14 @@
 
 The library's changes: [framework/CHANGELOG.md](../../framework/CHANGELOG.md).
 
+## 2026-11-15: switch groups
+
+- **PATCH: switch groups.** A bypass group (On / Bypass: bypassed, its modules do not run and its input goes through), or several
+  groups on one selector (one plays). They are drawn as frames whose title holds the switch.
+- The switches are the synth's values (SWITCHES/<name>), so the SOUND and LAYOUT tabs show them as any value. Export > Synth plays
+  them (and keeps them as parameters with Macros too). The wallet counts a selector's dearest group. The engine exports refuse groups
+  for now.
+
 ## 2026-11-15: the merged list
 
 - **PATCH: one list entry per function.** An engine module with a float twin (RMOsc, RMEg, RMLfo, RMFilter, RMShaper, RMVca, RMMix4,

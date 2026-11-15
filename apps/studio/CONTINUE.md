@@ -193,5 +193,9 @@ exported synth on the board; sound changes of the optimizations: free; switch gr
       (ENGINE_NO_IRAM for them: slower, cold misses), or a smaller fast heap.
 - [ ] The merged catalog: one palette entry per function (pairs by ModuleDef::engine), an implementation choice in the inspector
       (values mapped by name), the cheaper by the table as default.
-- [ ] The switch group: a bypass container (In -> Out, its modules skipped) and a selector (one of N groups plays); the switch a
-      synth parameter like a Macro (the layout shows it as a switch, a list or a knob).
+- [x] The switch group (2026-11-15): bypass groups and selectors (patch.h), the SWITCHES rows, the runner, Export > Synth,
+      the wallet, the canvas frames and the inspector; self-test 6777 (a bypass equals the bare chain, a selector each choice
+      alone); two generated group synths played in SynthLab's tests. Not tried by hand.
+- [ ] Switch groups in the engine exports (Export > Engine / Engine synth refuse them now): a bypass needs the engine to skip
+      nodes and route around them per block.
+- [ ] The merged list's choice per function: the user listens and picks (today the float module is the default everywhere).

@@ -225,7 +225,8 @@ std::string synth_source(const mod::Patch &p, const std::string &id) {
     o += "    void start(const lab::Note &note, const float *) {\n        ctx(note);\n" + voice.start + "        trig = true;\n        quiet = 0;\n" +
          (fx.any ? "        g_last.note_start(this, note.hz, note.velocity);\n" : "") + "    }\n";
     o += "    void release(const lab::Note &, const float *) {}\n";
-    o += "    bool render(float *out, int frames, const lab::Note &note, const float *p) {\n        ctx(note);\n";
+    // SC_HOT: on the board in internal RAM, as the modules it calls (from flash, through the cache the screen shares, it would cost more)
+    o += "    SC_HOT bool render(float *out, int frames, const lab::Note &note, const float *p) {\n        ctx(note);\n";
     if (fx.any) o += "        g_last.voice_block(this, c.gate, c.hz);\n";
     o += "        float peak = 0.f;\n";
     o += "        for (int off = 0; off < frames; off += mod::kMaxFrames) {\n";
@@ -244,7 +245,7 @@ std::string synth_source(const mod::Patch &p, const std::string &id) {
         o += "    float zero[mod::kMaxFrames] = {}, one[mod::kMaxFrames] = {}, gate[mod::kMaxFrames] = {}, trg[mod::kMaxFrames] = {};\n";
         o += fx.members;
         o += "\n    Fx() { for (float &x : one) x = 1.f; }\n";
-        o += "    void render(float *io, int frames, float sr, const float *p) {\n        c.sr = sr;\n        c.inv_sr = 1.f / sr;\n";
+        o += "    SC_HOT void render(float *io, int frames, float sr, const float *p) {\n        c.sr = sr;\n        c.inv_sr = 1.f / sr;\n";
         o += "        if (g_last.fx_block(c, seen)) {   // a new note: the FX's modules start on it\n" + fx.start + "            trig = true;\n        }\n";
         o += "        for (int off = 0; off < frames; off += mod::kMaxFrames) {\n";
         o += "            const int n = frames - off < mod::kMaxFrames ? frames - off : mod::kMaxFrames;\n";
@@ -256,8 +257,10 @@ std::string synth_source(const mod::Patch &p, const std::string &id) {
             if (p.node[i].area == mod::kFxArea && !std::strcmp(p.node[i].def->name, "Output")) o += fmt("                y += o%d_0[i];\n", p.node[i].id);
         o += "                io[off + i] = y == y ? y : 0.f;\n            }\n        }\n    }\n};\n\n";
     }
+    // its voice count: the patch's (its designer's choice, from the PATCH tab's cycles wallet)
+    o += fmt("lab::Options options() {\n    lab::Options o;\n    o.voices = %d;   // the patch's voices (the cycles wallet: framework/modular/cost.h)\n    return o;\n}\n\n", p.voices);
     o += "}  // namespace\n\n";
-    o += fmt("extern const lab::Synth synth_gen_%s = lab::make_synth<Voice%s>(%s, kParams);\n", id.c_str(), fx.any ? ", Fx" : "", cstr(p.name).c_str());
+    o += fmt("extern const lab::Synth synth_gen_%s = lab::make_synth<Voice%s>(%s, kParams, options());\n", id.c_str(), fx.any ? ", Fx" : "", cstr(p.name).c_str());
     return o;
 }
 

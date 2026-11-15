@@ -33,6 +33,10 @@
 #include "synth.h"
 #include "ui/gui.h"
 
+#if defined(SYNTHLAB_BENCH) && defined(ARDUINO_ARCH_ESP32)
+void bench_start();                         // src/bench_esp32.cpp: the modules' cycles, printed on the console (a dev build)
+#endif
+
 namespace {
 u8g2_t *g = nullptr;
 gui_style_t style;
@@ -215,6 +219,9 @@ void app_start(u8g2_t *display) {
     gui_style_init(&style, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
     storage_set_folders(kFolders, 2);
     dirty = true;
+#if defined(SYNTHLAB_BENCH) && defined(ARDUINO_ARCH_ESP32)
+    bench_start();
+#endif
 }
 
 void app_event(const input_event_t &e) {

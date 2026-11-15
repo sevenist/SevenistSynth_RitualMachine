@@ -15,6 +15,7 @@ void synth_note_off(int midi_note);
 void synth_all_notes_off();
 void synth_select(int index);                   // lab::kSynths[index] plays: its voice mode, then its values (synth_value)
 int  synth_selected();
+void synth_mode_changed();                      // the selected synth's Options changed (the studio's Modular synth: its voices): sent again
 void synth_set_value(int param, float value);   // a value of the selected synth (clamped to its range), applied live
 float synth_value(int param);                   // as the screen shows it; each synth keeps its own values while another plays
 void synth_set_volume(float volume);            // the master, 0..1

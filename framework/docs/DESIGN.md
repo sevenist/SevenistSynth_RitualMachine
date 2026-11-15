@@ -986,6 +986,48 @@ Chosen by me while building (say if one is wrong):
   - Checked: the self-test (6741: a two-layer chain on known values, from the patch and from the list; the names through the text;
     the list's MACROS rows; Rename's refusals; the exported list, its fixed values, its sound; the engine's Const; twins refused); a
     generated Macro synth compiled with -Wall -Wextra. Not tried by hand.
+- **Addendum 6 (2026-11-15): what the modules cost on the board, and their code in internal RAM.** The user: "the voice count will
+  be locked by the patch designer according to estimation of budget ... make measurements of cycles per block to estimate a cost per
+  module, and add to the ui a cycles wallet". Step one, measured on HWV1 (240 MHz, 44.1 kHz: 174 149 cycles a 32-frame block):
+  - apps/synthlab's bench (`hwv1_bench`) times each catalog module alone on a block, and the engine around each SynthLab synth; the
+    table is `modular/module_costs.h` (generated: `module_bench.py --write`). Engine 7 691 a block + 3 310 a voice; a generated
+    voice's own work 915; a modulation cable 270 (Lin) / 1 534 (Exp: a log and a pow each block).
+  - **Found: code from flash costs up to 2.5 times its cycles.** With one note, the Kick's voice cost 53 500 in the engine against
+    21 900 alone: the flash's 16 KB cache, shared with the screen's code on the other core, is cold at each block (the reason the
+    engine's modules are `SC_HOT`, engine/dsp/config.h). Fixed the same way: `SC_HOT` on lab.h's render wrappers and on the modules'
+    `process()` and helpers. Code defined in a header can only go to internal RAM with `-mtext-section-literals` (otherwise the link
+    fails: "l32r: literal placed after use"); the user chose to add it to SynthLab's firmware. The Kick with one note: 86 500 -> 44 100
+    a block; internal RAM: +28 KB (the five synths) and +13 KB (every module, the bench's build; a firmware links only what it uses).
+  - Left in flash: the C library (expf, powf, tanf) the modules call once a block (`cold` in the table: up to 50 000 for Comp3 and
+    Glue with the cache emptied). Faster forms would change the sound slightly: the user's call.
+  - Step two, the same day: **the cycles wallet**.
+    - `modular/cost.h` adds a patch up: the engine's fixed cost, then each voice (its modules with their values, their cables, the
+      engine's share, a generated voice's own work), then the FX area once.
+    - The PATCH tab shows it as a bar against the budget, with a stepper for **the patch's voice count** (`Patch::voices`, 1..6, a
+      `voices` line in the text).
+    - Export > Synth writes the count into `lab::Options::voices`. SynthLab gives it to the engine as a cap on its voice allocator
+      (`set_voice_mode(..., max_voices)`): no reload, no memory, so a change of synth stays a command.
+    - The generated render is `SC_HOT` too: without it, 4.6 KB of the default patch's voice stayed in flash.
+    - Checked on HWV1 with the default patch exported at 3 voices. Estimated 68 512 cycles a block, measured 69 408 (1.3 %). With
+      no note, 14 851 against 15 059. Six notes held played on 3 voices.
+  - Not done: a memory wallet. LabVoice gives every voice the largest Voice among the synths, so one big exported synth costs every
+    synth its memory. The fast heap is 64 KB; the bench showed 52 864 used and 14 596 spilled into PSRAM with the default patch added.
+- **Addendum 7 (2026-11-15): the engine is the one module system; the catalog's float modules join it through a wrapper.**
+  - The question: the float catalog and the engine (q15) each had modules the other lacked. Hosting the engine's in a synth exported to
+    SynthLab linked whole families into internal RAM, and SynthLab's own engine no longer started. The user chose the engine as the
+    one system: "rewrite the functionally new modules to match those of the Ritual Machine engine and keep the new functionalities".
+    Then "wrapper first", a hand rewrite in q15 later only where the bench shows it is worth it.
+  - `modular/engine_modules.h`: each catalog module (the In / Out ones aside) is an engine module type "F" + its name (FBody,
+    FOsc ...). Ids are 128 + 2 x its rank, +1 for its Global type; `Registry::kMax` went from 128 to 192.
+    - One host around the module's description: q15 in and out, the float code inside (every feature kept). Values are int32 x 100
+      (x 1 for whole numbers). A modulation input moves a value as the modular runner does.
+    - An unplugged input reads the catalog's default (1, the gate, the note's pulse, the pitch). The engine passes
+      `ProcessCtx::silence`, so a module can tell an unplugged input from a silent one.
+    - `register_modular_type(reg, name)` registers one type, so an app links only what it plays.
+  - Checked: each module plays in the engine against the runner (`test_modular_types.cpp`). 25 null between -66 and -99 dB, which is
+    the q15 rounding; 3 send nothing in that chain (Macro, Const at 0, Ring with one input).
+  - Next: Export > Engine writes a float module as its F type where the engine has nothing; SynthLab plays an exported engine graph
+    (registering only its types); the wrapped modules measured natively on the board; the merged catalog (a choice per function).
 
 ## Known limits and ideas for later
 

@@ -97,6 +97,8 @@ struct ProcessCtx {
     int keys_held = 0;          // voices whose key is down
     int32_t *bus2_l = nullptr, *bus2_r = nullptr;   // the second voice bus (VoiceOut's input 2, BusIn with bus 1): the rack's branch 2 (ADR-041)
     const Transport *transport = nullptr;           // the machine clock at the start of this block
+    const q15 *silence = nullptr;                   // what an unplugged input reads: a module may tell it from a silent signal (the
+                                                    //   catalog's modules read a default there: framework/modular/engine_modules.h)
     const SeqPos *seq = nullptr;                    // the step sequencer's place at the end of this block
 };
 
@@ -164,7 +166,7 @@ ModuleType module_type_of() {
 // Module type table: type ids are chosen by the application (builtins use the low ids, see builtin.h).
 class Registry {
 public:
-    static constexpr int kMax = 128;
+    static constexpr int kMax = 192;        // (128..191: the modular catalog's modules, framework/modular/engine_modules.h)
     bool add(int id, const ModuleType &t) {
         if (id < 0 || id >= kMax || t_[id].info) return false;
         t_[id] = t;

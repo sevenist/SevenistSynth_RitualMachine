@@ -236,3 +236,24 @@ TEST(back_to_poly_after_mono_gives_every_key_its_own_voice) {
     rig.run(2);
     CHECK_EQ(rig.eng.active_voices(), 3);
 }
+
+// A synth's own voice count under the graph's (set_voice_mode's max_voices: SynthLab Studio's cycles wallet): the allocator plays on the
+// first max_voices voices only, a new note steals among them; no reload. 0 gives every voice back.
+TEST(a_voice_cap_keeps_poly_on_fewer_voices_without_a_reload) {
+    DspRig rig(6);
+    GraphDesc g;
+    sine_patch(rig, g);
+    CHECK(rig.eng.load(g, 6) == Err::Ok);
+    CHECK(rig.eng.set_voice_mode(VoiceMode::Poly, false, 0, 2));
+    rig.run(3);
+    for (int n : {60, 64, 67, 71}) rig.eng.note_on(n);
+    rig.run(2);
+    CHECK_EQ(rig.eng.active_voices(), 2);
+    for (int v = 2; v < 6; v++) CHECK(!rig.eng.voice(v).active);        // (only the first two)
+    rig.eng.all_notes_off();
+    CHECK(rig.eng.set_voice_mode(VoiceMode::Poly, false, 0, 0));
+    rig.run(3);
+    for (int n : {60, 64, 67, 71}) rig.eng.note_on(n);
+    rig.run(2);
+    CHECK_EQ(rig.eng.active_voices(), 4);
+}

@@ -1,5 +1,6 @@
 // The engine's modules in the modular catalog (engine_adapter.h).
 #include "modular/engine_adapter.h"
+#include "modular/engine_modules.h"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -233,11 +234,14 @@ const char *kind_of(const sc::ModuleInfo &info) {
     return "Effects";                                   // (the rest: delay, reverb, chorus, ensemble, spectral, vocoder, phaser ...)
 }
 
-// The memory one module asks for when it starts (its heap's high water), with room to spare.
-size_t measure(sc::Module *(*create)(sc::Memory &)) {
-    static void *scratch = nullptr;
-    constexpr size_t kScratch = 16u << 20;
-    if (!scratch) scratch = std::malloc(kScratch);
+// The memory one module asks for when it starts (its heap's high water), with room to spare. The scratch is taken for the registration
+// and given back after it: 16 MB on the desktop, 1 MB on the board (its 2 MB of PSRAM; the biggest module, the Reverb, fits).
+#if defined(ARDUINO_ARCH_ESP32)
+constexpr size_t kScratch = 1u << 20;
+#else
+constexpr size_t kScratch = 16u << 20;
+#endif
+size_t measure(void *scratch, sc::Module *(*create)(sc::Memory &)) {
     if (!scratch || !create) return 0;
     sc::Heap h;
     h.init(scratch, kScratch);
@@ -255,11 +259,12 @@ int register_engine_modules(const sc::Registry &reg) {
     static const auto ctors = table(std::make_integer_sequence<int, kSlots>{});
     g_reg = &reg;
     int added = 0;
+    void *scratch = std::malloc(kScratch);              // (measure's: given back below)
     for (int t = 0; t < sc::Registry::kMax; t++) {
         const sc::ModuleType *mt = reg.get(t);
         if (!mt || !mt->info) continue;
         const sc::ModuleInfo &info = *mt->info;
-        bool skip = false;
+        bool skip = modular_def_of(&info) != nullptr;      // (a catalog module wrapped for the engine, engine_modules.h: it is in the list already)
         for (const char *s : kSkip) if (!std::strcmp(info.name, s)) skip = true;
         if (skip) continue;
         Slot *sl = nullptr;                                 // the same name in the other scope: the same entry
@@ -271,9 +276,10 @@ int register_engine_modules(const sc::Registry &reg) {
         }
         if (info.scope == sc::Scope::Voice) { sl->type_v = t; sl->create_v = mt->create; }
         else { sl->type_g = t; sl->create_g = mt->create; }
-        const size_t need = measure(mt->create);
+        const size_t need = measure(scratch, mt->create);
         if (need > sl->pool) sl->pool = need;
     }
+    std::free(scratch);
     for (int k = 0; k < g_n; k++) {
         Slot &sl = g_slots[k];
         const sc::ModuleInfo &info = *sl.info;

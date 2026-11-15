@@ -11,6 +11,7 @@
 //
 // The text form (a .patch file):
 //   patch "Hollow Kick"
+//   voices 4                                        the synth's voice count (its designer's, from the cycles wallet; absent: 6)
 //   node 1 voice Note 20 40                         id, area, module, x y (where the studio draws it)
 //   node 2 voice Body 180 40 Tune=48 Harm=10 ...    then its values by name (the ones not given: their defaults)
 //   node 7 voice Macro 20 200 "Punch" Value=40      a name in quotes (a Macro's: the synth's parameter)
@@ -26,6 +27,7 @@ constexpr int kMaxNodes = 48;
 constexpr int kMaxCables = 192;
 constexpr int kMaxFanIn = 8;            // cables into one input, or onto one value
 constexpr int kMaxSlots = 256;          // the values of a patch as a synth's list (titles included)
+constexpr int kMaxPatchVoices = 6;      // the most voices a synth plays on SynthLab (apps/synthlab/src/synth.cpp kVoices)
 
 enum Area : uint8_t { kVoiceArea, kFxArea };
 
@@ -47,6 +49,7 @@ struct Cable {
 
 struct Patch {
     char name[32] = "Init";
+    int voices = kMaxPatchVoices;       // 1..kMaxPatchVoices: what the synth exported from it plays at most (its CPU budget, cost.h)
     Node node[kMaxNodes];
     int n_nodes = 0;
     Cable cable[kMaxCables];
@@ -60,7 +63,7 @@ struct Patch {
     // A cable (the same one again: its depth is changed). False: full, an unknown port, or across areas.
     bool connect(int src, int src_port, int dst, int dst_port, bool to_param, float depth);
     void disconnect(int k);
-    void clear();
+    void clear();                       // no module, no cable, the voices back to kMaxPatchVoices
     void init_default();                // Note -> Osc -> Filter -> VCA (ADSR) -> VoiceOut; Voices -> Output
 };
 

@@ -2,6 +2,17 @@
 
 The library's changes: [framework/CHANGELOG.md](../../framework/CHANGELOG.md).
 
+## 2026-11-15: the cycles wallet
+
+- **PATCH: the cycles wallet**, in the strip above the canvas: what the synth exported from the patch costs on the board, against
+  its budget. The bar shows the engine, a slice per voice and the FX, a tick for the modules' slowest values, and turns amber or red
+  as it fills. Its hint gives the numbers and how many voices fit. The costs were measured on HWV1. Checked on the board: the
+  default patch at 3 voices was estimated within 1.3 %.
+- **The patch's voice count** (the stepper, 1..6, saved in the `.patch`): the patch's designer sets it from the wallet. Export >
+  Synth writes it into the synth (it plays at most that many voices), and the Modular synth plays it here too.
+- Each module's header shows its cost in thousands of cycles a block ("?": an engine module, not measured).
+- Export > Synth: the generated render runs from internal RAM on the board (`SC_HOT`), as the measured costs assume.
+
 ## 2026-11-15: Macros in the patch
 
 - **A Macro module** (PATCH, the list's Macros kind): a named knob, Value 0..100 % out as 0..1. Cable it onto values, or onto

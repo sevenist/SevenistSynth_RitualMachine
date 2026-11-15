@@ -12,6 +12,7 @@
 #include "engine/modules/osc_engines.h"
 #include "export.h"
 #include "file_block.h"
+#include "modular/cost.h"
 #include "modular/engine_adapter.h"
 #include "modular/modules.h"
 #include "modular_synth.h"
@@ -300,6 +301,114 @@ void test_export_keeps_names() {
     fs::remove_all(root, ec);
     st.patch = keep;
     patch_apply();
+    synth_select(0);
+}
+
+// The cycles wallet (framework/modular/cost.h): a patch's cost on the board from the table measured there (module_costs.h), by module,
+// cable and voice; a module at its slowest value costs its worst; the voices the budget fits; the patch's voice count through its text,
+// into the exported synth (its Options) and into the Modular synth (the studio plays it as the board will).
+void test_patch_wallet() {
+    const mod::BoardCost &b = mod::kBoardCost;
+    CHECK(b.budget > 100000 && b.engine_voice > 0 && b.voice_block > 0 && mod::module_cost("Osc") && mod::module_cost("VoiceOut"),
+          "the cost table is there (%s, %s: %u cycles a block)", b.board, b.measured, static_cast<unsigned>(b.budget));
+
+    // Note -> Osc -> VoiceOut, no FX: the table's numbers added up
+    mod::Patch p;
+    p.clear();
+    p.add(mod::find_module("Note"), mod::kVoiceArea, 0, 0);
+    const int osc = p.add(mod::find_module("Osc"), mod::kVoiceArea, 140, 0)->id;
+    const int out = p.add(mod::find_module("VoiceOut"), mod::kVoiceArea, 280, 0)->id;
+    p.connect(osc, 0, out, 0, false, 1.f);
+    const uint32_t voice = b.engine_voice + b.voice_block + mod::module_cost("Note")->cycles + mod::module_cost("Osc")->cycles +
+                           mod::module_cost("VoiceOut")->cycles;
+    const mod::PatchCost pc = mod::patch_cost(p, 3);
+    CHECK(pc.voice == voice && pc.fx == 0 && pc.total == b.engine_fixed + 3 * voice && pc.budget == b.budget && pc.unmeasured == 0 &&
+          pc.worst >= pc.total, "3 voices of Note -> Osc -> VoiceOut: %u = %u + 3 x %u", static_cast<unsigned>(pc.total),
+          static_cast<unsigned>(b.engine_fixed), static_cast<unsigned>(voice));
+
+    // the cables: a modulation by the curve of the value it moves, an input at a depth other than 1 (summed)
+    const int lfo = p.add(mod::find_module("LFO"), mod::kVoiceArea, 0, 120)->id;
+    const int flt = p.add(mod::find_module("Filter"), mod::kVoiceArea, 140, 120)->id;
+    const mod::ModuleDef &od = *p.find(osc)->def, &fd = *p.find(flt)->def;
+    const int level = mod::param_index(od, "Level"), cutoff = mod::param_index(fd, "Cutoff");
+    CHECK(level >= 0 && cutoff >= 0 && od.param[level].curve == mod::Lin && fd.param[cutoff].curve == mod::Exp, "Osc Level (Lin), Filter Cutoff (Exp)");
+    p.connect(lfo, 0, osc, level, true, 0.5f);
+    p.connect(lfo, 0, osc, 0, false, 0.5f);
+    p.connect(lfo, 0, flt, cutoff, true, 0.5f);
+    CHECK(mod::cable_cycles(p, *p.find(osc)) == b.cable_lin + b.summed_input && mod::cable_cycles(p, *p.find(flt)) == b.cable_exp,
+          "a modulation onto a Lin value %u, onto an Exp value %u, a summed input %u", static_cast<unsigned>(b.cable_lin),
+          static_cast<unsigned>(b.cable_exp), static_cast<unsigned>(b.summed_input));
+    CHECK(mod::cable_cycles(p, *p.find(out)) == 0, "one cable at depth 1 into an input costs nothing more");
+
+    // every module whose slowest value the table names: set it, it costs its worst
+    int named = 0, right = 0;
+    for (const mod::ModuleCost &mc : mod::kModuleCosts) {
+        const char *eq = std::strchr(mc.worst_at, '=');
+        const mod::ModuleDef *d = mod::find_module(mc.name);
+        if (!eq || !d) continue;
+        mod::Node n;
+        n.def = d;
+        for (int k = 0; k < d->n_param; k++) n.v[k] = d->param[k].def;
+        const int k = mod::param_index(*d, std::string(mc.worst_at, eq).c_str());
+        if (k < 0) continue;
+        named++;
+        const bool was_default = std::fabs(n.v[k] - static_cast<float>(std::atof(eq + 1))) < 1e-3f;
+        n.v[k] = static_cast<float>(std::atof(eq + 1));
+        if (mod::node_cycles(n) == mc.worst && (was_default || mc.worst > mc.cycles)) right++;
+    }
+    CHECK(named > 0 && right == named, "a module at its slowest value costs its worst (%d of %d)", right, named);
+
+    // the voices the budget fits
+    const int fit = mod::voices_in_budget(p, mod::kMaxPatchVoices);
+    CHECK(fit >= 1 && mod::patch_cost(p, fit).total <= b.budget && (fit == mod::kMaxPatchVoices || mod::patch_cost(p, fit + 1).total > b.budget),
+          "the budget fits %d voice(s) of this patch", fit);
+    // an engine module (RM ...): measured through the adapter (hwv1_bench_rm), counted like the others
+    if (const mod::ModuleDef *rm = mod::find_module("RMOsc")) {
+        const uint32_t before_rm = mod::patch_cost(p, 1).voice;
+        const int id = p.add(rm, mod::kVoiceArea, 0, 300)->id;
+        const mod::ModuleCost *rc = mod::module_cost("RMOsc");
+        CHECK(rc && mod::patch_cost(p, 1).unmeasured == 0 && mod::patch_cost(p, 1).voice == before_rm + rc->cycles,
+              "an engine module has its measured cost (%u)", rc ? static_cast<unsigned>(rc->cycles) : 0u);
+        p.remove(id);
+    }
+    {   // a module the table does not have: counted as 0 and reported
+        mod::ModuleDef fake = *mod::find_module("VCA");
+        fake.name = "NotMeasured";
+        mod::Patch q;
+        q.clear();
+        q.add(&fake, mod::kVoiceArea, 0, 0);
+        CHECK(mod::patch_cost(q, 1).unmeasured == 1, "a module not in the table is reported");
+    }
+
+    // the voice count through the text; an older file: 6; a count out of range: skipped
+    p.voices = 3;
+    static char text[8192];
+    mod::patch_to_text(p, text, sizeof text);
+    static mod::Patch back;
+    char err[64];
+    int skipped = -1;
+    CHECK(std::strstr(text, "\nvoices 3\n") && mod::patch_from_text(back, text, err, sizeof err, &skipped) && back.voices == 3 && skipped == 0,
+          "the voice count comes back from the text");
+    CHECK(mod::patch_from_text(back, "patch \"Old\"\nnode 1 voice Note 0 0\n", err, sizeof err, &skipped) && back.voices == mod::kMaxPatchVoices,
+          "a patch without the line: %d voices", mod::kMaxPatchVoices);
+    CHECK(mod::patch_from_text(back, "patch \"Big\"\nvoices 9\nnode 1 voice Note 0 0\n", err, sizeof err, &skipped) &&
+          back.voices == mod::kMaxPatchVoices && skipped == 1, "9 voices: the line skipped");
+
+    // exported: the synth's Options carry the count
+    const std::string src = synth_source(p, "t");
+    CHECK(src.find("o.voices = 3;") != std::string::npos && src.find("kParams, options())") != std::string::npos, "Export > Synth writes the voices");
+
+    // the Modular synth plays the patch's voices
+    const int mi = modular_index();
+    if (mi < 0) return;
+    synth_select(mi);
+    const mod::Patch keep = st.patch;
+    st.patch = p;
+    patch_apply();
+    CHECK(lab::kSynths[mi]->opt.voices == 3, "the Modular synth plays 3 voices (%d)", lab::kSynths[mi]->opt.voices);
+    st.patch = keep;
+    patch_apply();
+    CHECK(lab::kSynths[mi]->opt.voices == keep.voices, "back to the patch's %d", keep.voices);
     synth_select(0);
 }
 
@@ -1272,6 +1381,7 @@ int studio_selftest(wg_ctx_t &c, const char *shot) {
     test_sound_library();
     test_export_keeps_names();
     test_patch_macros();
+    test_patch_wallet();
     test_widgets();
     test_app(c, shot);
     test_keys(c);

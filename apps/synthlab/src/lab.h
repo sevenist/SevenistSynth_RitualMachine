@@ -31,6 +31,7 @@
 #include <cstdint>
 #include <new>
 #include "control/param.h"
+#include "engine/dsp/config.h"            // SC_HOT: a voice's render in internal RAM on the board (no flash cache misses)
 
 namespace lab {
 
@@ -82,6 +83,8 @@ struct Options {
     const Groove *grooves = nullptr;
     int n_grooves = 0;
     int groove_param = -1, tempo_param = -1, swing_param = -1;
+    int voices = 0;                     // poly: at most this many voices (its CPU budget: SynthLab Studio's cycles wallet); 0: the app's
+                                        //   (6, src/synth.cpp kVoices), and never more than that. (Last: some synths fill Options in order.)
 };
 
 // A synth as the app sees it. make_synth fills it from the Voice type (and the Fx type).
@@ -108,14 +111,14 @@ struct VoiceOps {
     static void destroy(void *m) { static_cast<V *>(m)->~V(); }
     static void start(void *m, const Note &n, const float *p) { static_cast<V *>(m)->start(n, p); }
     static void release(void *m, const Note &n, const float *p) { static_cast<V *>(m)->release(n, p); }
-    static bool render(void *m, float *out, int frames, const Note &n, const float *p) { return static_cast<V *>(m)->render(out, frames, n, p); }
+    static SC_HOT bool render(void *m, float *out, int frames, const Note &n, const float *p) { return static_cast<V *>(m)->render(out, frames, n, p); }
 };
 
 template <typename F>
 struct FxOps {
     static void construct(void *m) { new (m) F(); }
     static void destroy(void *m) { static_cast<F *>(m)->~F(); }
-    static void render(void *m, float *io, int frames, float sr, const float *p) { static_cast<F *>(m)->render(io, frames, sr, p); }
+    static SC_HOT void render(void *m, float *io, int frames, float sr, const float *p) { static_cast<F *>(m)->render(io, frames, sr, p); }
 };
 
 template <typename V, int N>

@@ -2,6 +2,32 @@
 
 The library's changes: [framework/CHANGELOG.md](../../framework/CHANGELOG.md).
 
+## 2026-11-15: 44.1 kHz on HWV2 too; the engine's modules measured
+
+- **HWV2 runs at 44.1 kHz** (environment `hwv2`), as HWV1. It is the same MCU, so there is one budget (174 149 cycles a block) and
+  one cost table for both.
+- The synths are lighter: `decay_coef` no longer calls `expf`. Basic with 6 voices on HWV1 went from 75 726 to 66 510 cycles a block.
+- For developers: `hwv1_bench_rm` measures the Ritual Machine's engine modules through the modular adapter. Linking every family
+  leaves too little internal RAM for SynthLab's own engine, so this build times them alone. `module_bench.py --from bench.txt
+  bench_rm.txt` merges the two logs.
+
+## 2026-11-15: a synth's own voice count
+
+- `lab::Options::voices` (last in Options): at most that many voices for this synth (its CPU budget). 0, the default, keeps the app's
+  6. A synth exported from SynthLab Studio carries its patch's count, chosen with the PATCH tab's cycles wallet. The engine caps its
+  voice allocator at the change of synth: no reload, no memory change. `synth_mode_changed()` sends it again (the studio's
+  Modular synth, when its patch changes).
+
+## 2026-11-15: measured on the board; the synths in internal RAM
+
+- **The Kick and DrumLab take half the CPU they did on the board** (one note: 86 500 -> 44 100 cycles a block on HWV1), the same
+  sound: a synth's render now runs from internal RAM (`SC_HOT` in `lab.h`, 28 KB of it for the five synths) instead of flash, whose
+  16 KB cache the screen's code shares. Basic, FM2 and the Snare gain 10 to 30 %.
+- The firmware is compiled with `-mtext-section-literals` (platformio.ini), which lets code defined in a header sit in internal RAM.
+- For developers: **the modules' bench**, environments `hwv1_bench` / `hwv2_bench` (`src/bench_esp32.cpp`, `tools/module_bench.py`,
+  README "The modules' bench"): each modular module's cycles per block, the engine's cost per voice, each synth in the engine. The
+  numbers: docs/SYNTHS.md "Measured on the board", `framework/modular/module_costs.h`.
+
 ## 2026-11-15: back to five synths
 
 - **Kick Lite is gone**, with its null test against the Kick (`tests/test_null.cpp`): SynthLab starts fresh from Basic, FM2, Kick,

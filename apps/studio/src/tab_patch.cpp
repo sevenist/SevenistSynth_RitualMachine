@@ -15,6 +15,7 @@
 #include <vector>
 #include "export.h"
 #include "file_block.h"
+#include "modular/cost.h"
 #include "modular/engine_adapter.h"
 #include "nulltest.h"
 #include "modular_synth.h"
@@ -276,6 +277,12 @@ void draw_node(wg_ctx_t &c, const View &v, mod::Node &n, int idx) {
     // the header: a click selects (Ctrl / Shift: adds or takes away), a drag moves the selection; its x removes the module
     const int hid = WG_ID(F_NODE, n.id);
     const gui_rect_t xr = gui_rect(head.x + head.w - 10, head.y + 1, 9, 10);
+    // its cost on the board (the cycles wallet, cost.h): the module with its values, and the cables into it; a voice's, or the FX's once
+    const uint32_t cycles = mod::node_cycles(n) + mod::cable_cycles(p, n);
+    char cost[16];
+    if (mod::module_cost(d->name)) std::snprintf(cost, sizeof cost, "%.1fk", static_cast<double>(cycles) / 1000.0);
+    else std::snprintf(cost, sizeof cost, "?");
+    wg_text_small(&c, xr.x - 2 - wg_text_w(&c, cost, true), head.y + 8, cost, t.dim);
     const bool was = c.active == hid;
     const bool add_key = (in.mods & (WG_MOD_CTRL | WG_MOD_SHIFT)) != 0;
     if (pin) wg_behavior(&c, hid, head, false);
@@ -301,7 +308,12 @@ void draw_node(wg_ctx_t &c, const View &v, mod::Node &n, int idx) {
         return;
     }
     if (was && (in.released & WG_BTN_LEFT) && still && !add_key && st.sel.size() > 1) select_only(n.id);
-    if (c.hot == hid) wg_set_hint(&c, "%s: %s   (Ctrl / Shift click: more modules; drag: moves them)", d->name, d->doc);
+    if (c.hot == hid) {
+        if (mod::module_cost(d->name))
+            wg_set_hint(&c, "%s: %s   %u cycles a block on the board%s   (Ctrl / Shift click: more modules; drag: moves them)", d->name, d->doc,
+                        static_cast<unsigned>(cycles), n.area == mod::kVoiceArea ? ", each voice" : "");
+        else wg_set_hint(&c, "%s: %s   (not measured on the board)   (Ctrl / Shift click: more modules; drag: moves them)", d->name, d->doc);
+    }
 
     // the jacks
     for (int side = 0; side < 2; side++) {
@@ -413,6 +425,65 @@ void draw_node(wg_ctx_t &c, const View &v, mod::Node &n, int idx) {
     }
 }
 
+// The cycles wallet: what the synth exported from this patch costs on the board (modular/cost.h, from the table measured there:
+// module_costs.h), for the voice count its designer sets here. The bar: the engine, then a slice per voice, then the FX; a tick where the
+// modules' slowest values would take it. Over 75 % amber, over 90 % red (the audio task needs some room: the codec, the screen's cache).
+void set_voices(int v) {
+    mod::Patch &p = st.patch;
+    v = std::max(1, std::min(mod::kMaxPatchVoices, v));
+    if (v == p.voices) return;
+    p.voices = v;
+    patch_apply();
+    mark_dirty();
+}
+
+void draw_wallet(wg_ctx_t &c, gui_rect_t r) {
+    const wg_theme_t &t = c.theme;
+    const wg_input_t &in = *c.in;
+    mod::Patch &p = st.patch;
+    char text[96];
+    std::snprintf(text, sizeof text, "%d voice%s", p.voices, p.voices > 1 ? "s" : "");
+    const int sid = WG_ID(F_CANVAS, 3);
+    if (const int dv = wg_stepper(&c, sid, gui_rect(r.x, r.y, 78, r.h), text)) set_voices(p.voices + dv);
+    const mod::PatchCost pc = mod::patch_cost(p, p.voices);
+    const int fit = mod::voices_in_budget(p, mod::kMaxPatchVoices);
+    if (c.hot == sid)
+        wg_set_hint(&c, "The synth's voice count on the board (at most %d): %s", mod::kMaxPatchVoices,
+                    fit ? (fit >= mod::kMaxPatchVoices ? "the budget fits them all" : "the budget fits fewer (see the bar)") : "the budget does not fit one voice");
+
+    const gui_rect_t bar = gui_rect(r.x + 84, r.y + 1, std::max(40, r.w - 84 - 2), r.h - 2);
+    const float budget = static_cast<float>(pc.budget ? pc.budget : 1);
+    const float used = static_cast<float>(pc.total) / budget;
+    const uint16_t col = used > 0.9f ? t.warn : (used > 0.75f ? CANVAS_HEX(0xF5C542) : t.accent);
+    auto x_of = [&](uint32_t cyc) { return bar.x + static_cast<int>(std::min(1.f, static_cast<float>(cyc) / budget) * static_cast<float>(bar.w)); };
+    wg_fill(&c, bar, t.bg);
+    // the engine, each voice, the FX: slices of the bar
+    uint32_t at = 0;
+    auto slice = [&](uint32_t cyc, uint16_t color) {
+        const int x0 = x_of(at), x1 = x_of(at + cyc);
+        if (x1 > x0) wg_fill(&c, gui_rect(x0, bar.y, x1 - x0, bar.h), color);
+        if (x1 > x0 + 1) wg_fill(&c, gui_rect(x1 - 1, bar.y, 1, bar.h), t.bg);     // (a gap between slices)
+        at += cyc;
+    };
+    slice(pc.fixed, t.line);
+    for (int v = 0; v < p.voices; v++) slice(pc.voice, wg_mix(t.panel2, col, v % 2 ? 70 : 100));
+    if (pc.fx) slice(pc.fx, wg_mix(t.panel2, category_color("Effects"), 80));
+    if (pc.worst > pc.total) wg_fill(&c, gui_rect(std::min(x_of(pc.worst), bar.x + bar.w - 1), bar.y, 1, bar.h), t.text);
+    wg_frame(&c, bar, used > 1.f ? t.warn : t.line);
+    const int pct = static_cast<int>(used * 100.f + 0.5f);
+    std::snprintf(text, sizeof text, "CPU %d %%%s   %uk of %uk", pct, used > 1.f ? " OVER" : "", static_cast<unsigned>((pc.total + 500) / 1000),
+                  static_cast<unsigned>((pc.budget + 500) / 1000));
+    if (wg_text_w(&c, text, true) > bar.w - 8) std::snprintf(text, sizeof text, "CPU %d %%%s", pct, used > 1.f ? " OVER" : "");   // (a narrow window)
+    const int tw = wg_text_w(&c, text, true);
+    wg_fill(&c, gui_rect(bar.x + bar.w - 6 - tw, bar.y + 1, tw + 4, bar.h - 2), t.bg);    // (readable over the slices)
+    wg_text_small(&c, bar.x + bar.w - 4 - tw, bar.y + 9, text, used > 1.f ? t.warn : t.text);
+    if (inside(bar, in.x, in.y))
+        wg_set_hint(&c, "On %s (measured %s): engine %u + %d x voice %u + FX %u = %u of %u cycles a block; up to %u at the slowest values; fits %d voice(s)%s",
+                    mod::kBoardCost.board, mod::kBoardCost.measured, static_cast<unsigned>(pc.fixed), p.voices, static_cast<unsigned>(pc.voice),
+                    static_cast<unsigned>(pc.fx), static_cast<unsigned>(pc.total), static_cast<unsigned>(pc.budget), static_cast<unsigned>(pc.worst), fit,
+                    pc.unmeasured ? "; some modules are not measured (RM): counted as 0" : "");
+}
+
 void draw_canvas(wg_ctx_t &c, gui_rect_t area) {
     const wg_theme_t &t = c.theme;
     const wg_input_t &in = *c.in;
@@ -453,7 +524,7 @@ void draw_canvas(wg_ctx_t &c, gui_rect_t area) {
     if (wg_tab(&c, WG_ID(F_CANVAS, 2), gui_rect(strip.x + 74, strip.y + 1, 70, kStripH - 2), "FX", a == mod::kFxArea)) st.patch_area = mod::kFxArea;
     if (c.hot == WG_ID(F_CANVAS, 1)) wg_set_hint(&c, "Copied for each voice: from Note to VoiceOut");
     if (c.hot == WG_ID(F_CANVAS, 2)) wg_set_hint(&c, "Once, on the sum of the voices: from Voices to Output");
-    wg_text_small(&c, strip.x + 152, strip.y + 11, a == mod::kVoiceArea ? "per voice: Note -> ... -> VoiceOut" : "on the sum: Voices -> ... -> Output", t.dim);
+    draw_wallet(c, gui_rect(strip.x + 150, strip.y + 1, strip.w - 152, kStripH - 2));
 
     // the canvas itself: a drag draws a zone (its modules: the selection; Ctrl / Shift: added to it), Alt + drag or the middle button
     // looks around, a click on nothing drops the selection; a module dropped on it

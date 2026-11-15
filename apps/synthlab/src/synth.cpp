@@ -117,7 +117,7 @@ void loop_pattern(int note, bool queue = false) {
 
 void send_mode() {
     const lab::Options &o = lab::kSynths[selected]->opt;
-    eng.set_voice_mode(o.mono ? VoiceMode::Mono : VoiceMode::Poly, o.legato, o.glide_ms);
+    eng.set_voice_mode(o.mono ? VoiceMode::Mono : VoiceMode::Poly, o.legato, o.glide_ms, o.voices);   // (its voice count: under kVoices)
 }
 }  // namespace
 
@@ -134,7 +134,35 @@ bool synth_init(void *fast, size_t fast_bytes, void *bulk, size_t bulk_bytes) {
 }
 
 void synth_shutdown() { host.shutdown(); }
+#if defined(SYNTHLAB_BENCH) && defined(ARDUINO_ARCH_ESP32)
+#include <esp_cpu.h>
+volatile uint32_t g_bench_render_cycles = 0, g_bench_render_frames = 0;     // (src/bench_esp32.cpp reads them)
+void bench_heap(size_t *used, size_t *cap, size_t *spilled) {
+    *used = host.fast_heap().used();
+    *cap = host.fast_heap().capacity();
+    *spilled = host.fast_heap().spilled();
+}
+#ifdef ENGINE_PROFILE
+volatile int g_bench_prof_req = 0;                  // set by the bench: the audio thread takes the engine's profile (and clears it)
+Engine::ProfEntry g_bench_prof[Engine::kProfMax];
+volatile int g_bench_prof_n = 0;
+uint32_t g_bench_prof_blocks = 0;
+#endif
+void synth_render(int16_t *stereo, int frames) {
+    const uint32_t t0 = esp_cpu_get_cycle_count();
+    host.render(stereo, frames);
+    g_bench_render_cycles += esp_cpu_get_cycle_count() - t0;
+    g_bench_render_frames += static_cast<uint32_t>(frames);
+#ifdef ENGINE_PROFILE
+    if (g_bench_prof_req) {
+        g_bench_prof_n = eng.prof_take(g_bench_prof, Engine::kProfMax, &g_bench_prof_blocks);
+        g_bench_prof_req = 0;
+    }
+#endif
+}
+#else
 void synth_render(int16_t *stereo, int frames) { host.render(stereo, frames); }
+#endif
 void synth_update() { host.update(); }
 void synth_note_on(int midi_note, int velocity127) { if (host.ready()) eng.note_on(midi_note, velocity127); }
 void synth_note_off(int midi_note) { if (host.ready()) eng.note_off(midi_note); }
@@ -152,6 +180,7 @@ void synth_select(int index) {
     send_mode();
 }
 int synth_selected() { return selected; }
+void synth_mode_changed() { if (host.ready()) send_mode(); }
 
 void synth_set_value(int param, float value) {
     const lab::Synth &s = *lab::kSynths[selected];

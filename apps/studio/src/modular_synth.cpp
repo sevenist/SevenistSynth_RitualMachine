@@ -118,6 +118,10 @@ void modular_publish(const mod::Patch &p) {
         }
     }
     synth_modular.n_params = n;
+    if (synth_modular.opt.voices != p.voices) {         // the patch's voice count: the studio plays it as the board will
+        synth_modular.opt.voices = p.voices;
+        if (synth_selected() == modular_index()) synth_mode_changed();
+    }
     const int next = 1 - g_cur.load();
     g_pub[next] = p;
     g_cur.store(next, std::memory_order_release);

@@ -116,6 +116,14 @@ The status line at the bottom says what the control under the pointer is and wha
   drag from its Out onto values to move them, or onto another Macro's Value (a layer: one Macro that turns others). Its name is the
   parameter's (the inspector's Rename; names must differ). The Macros come first in the Modular synth's values (`MACROS/<name>`),
   and **Export > Synth of a patch with Macros keeps them alone**: every other value is fixed in the generated code as the patch has it.
+- **The cycles wallet** (the strip above the canvas, right of VOICE / FX): what the synth exported from the patch costs on the
+  board, against the board's budget (`framework/modular/cost.h`, from the costs measured on HWV1).
+  - **The stepper** sets the patch's **voice count** (1..6): the exported synth plays at most that many, and so does the Modular
+    synth here.
+  - **The bar** shows the engine's share, then a slice per voice, then the FX. A tick marks where the modules' slowest values
+    would take it. It turns amber over 75 % and red over 90 %. Its hint gives the numbers and how many voices the budget fits.
+  - **Each module's header** shows its cost in thousands of cycles a block, with the cables into it. A voice's modules are paid
+    once per voice, the FX's once. "?" means the module was not measured (an engine module, "RM ...").
 - **A module:** click its header to select it (Ctrl / Shift click: add it to the selection or take it away), drag the header to
   move the selection; its x removes it. Its values are rows: drag sideways (Shift: finer), use the wheel or the arrows when
   focused; a double click sets the default.
@@ -148,7 +156,8 @@ The status line at the bottom says what the control under the pointer is and wha
     (these values, the macros, the sound's name) when there is none yet, so the synth starts as the patch sounded; then SOUND >
     EXPORT > To the card takes it to the board. A patch of more than 128 values (a title per module included) is refused: the
     board's synths have 128 at most. A patch with Macros exports its Macros alone (and its sound their values alone); two Macros
-    of one name are refused.
+    of one name are refused. The synth keeps the patch's voice count (the wallet's stepper), and its render runs from internal RAM
+    on the board (`SC_HOT`), as the measured costs assume.
   - **Engine** writes `apps/studio/exports/<name>_graph.cpp`: a function that builds the patch as the engine's graph, values
     converted, notes on the approximations, and at the end the modules the engine lacks with their values and cables.
   - **Patch file** writes `apps/studio/exports/<name>.patch`.

@@ -7,10 +7,26 @@ stay short.
 **The loop:** an idea (in "Ideas" at the end) → an entry, from the template below → the code → `tools/build_tests.ps1 <name>` (it
 sounds, no NaN, it ends; a WAV in `build/wav/`) → play it in the simulator → tune → write down what was learned → on the board.
 
-**The budget on the board (HWV2, ESP32-S3 at 240 MHz, 48 kHz):** the audio core has 160 000 cycles per 32-frame block for everything,
-which is about 5 000 cycles per sample. With 6 voices and room for the rest, aim at **500 to 700 cycles per voice per sample**. That is
+**The budget on the board (HWV1 and HWV2: the same ESP32-S3 at 240 MHz, both at 44.1 kHz):** the audio core has 174 149 cycles per
+32-frame block for everything, which is about 5 400 cycles per sample. With 6 voices and room for the rest, aim at **500 to 700 cycles per voice per sample**. That is
 a few oscillators, one filter and the envelopes. A `sinf` or `expf` costs about 100 cycles: keep them out of the sample loop. The host's
 time printed by the tests (µs per voice per ms of sound) compares synths with each other; it does not predict the board.
+
+**Measured on the board (HWV1, 44.1 kHz: 174 149 cycles a block; 2026-11-15, the bench `hwv1_bench`, README "The modules' bench"):**
+cycles per 32-frame block, the voice alone and what one voice costs inside the engine (the voice, its LabVoice, the engine's share).
+The engine with no note costs about 7 700 a block, and about 3 300 more per voice playing.
+
+| Synth | voice alone | a voice in the engine | its effect | in the engine, per sample |
+| --- | --- | --- | --- | --- |
+| Basic | 7 800 | 13 300 | - | 415 |
+| FM2 | 7 300 | 11 300 | - | 355 |
+| Kick | 21 100 | 24 400 | 10 700 | 760 |
+| Snare | 18 200 | 16 800 | 12 700 | 525 |
+| DrumLab | 22 600 | 25 700 | 11 000 | 805 |
+
+A voice's render runs from internal RAM (`SC_HOT` in `lab.h`). From flash, through the 16 KB cache that the screen's code shares, the
+Kick cost 53 500 a voice and DrumLab 58 900: keep it so. What still runs from flash is the C library (`expf`, `powf`, `tanf` ...): a
+call once a block is cheap when the cache is warm, about 1 000 to 3 000 cycles when the screen has just evicted it.
 
 ---
 

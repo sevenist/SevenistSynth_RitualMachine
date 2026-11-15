@@ -14,6 +14,8 @@ $outDir = "build"
 New-Item -ItemType Directory -Force $outDir | Out-Null
 
 $cpp = @(Get-ChildItem "$fw/tests/*.cpp" | Resolve-Path -Relative) + @(Get-ChildItem "$fw/engine" -Recurse -Filter *.cpp | Resolve-Path -Relative)
+# the modular catalog's modules as engine modules (modular/engine_modules.h: test_modular_types.cpp plays them against the runner)
+$cpp += @("$fw/modular/catalog.cpp", "$fw/modular/patch.cpp", "$fw/modular/engine_modules.cpp")
 
 function Run-One($sr, $block) {
     $out = ".\$outDir\engine_tests_${sr}_${block}.exe"

@@ -93,7 +93,14 @@ heap (it spills into PSRAM beyond): one voice for a mono synth would fix it. Pro
   "Kick", then PLAY or the keys) and says what to change, in the sound and in the screen. One reading to confirm: their "user
   parametrable env" became the amplitude envelope.
 - [x] **The first real synth:** the Kick (2026-11-12).
-- [ ] **Flash it on HWV2** (VS Code, folder `synthlab`, env `hwv2`), then measure the cycles per voice of each synth on the board (a
-  cycle counter around LabVoice / LabFx's process, printed once a second, would give the real numbers: not built yet).
+- [x] **Measured on the board** (2026-11-15, HWV1, the bench `hwv1_bench`: README "The modules' bench"): every synth in the engine
+  (docs/SYNTHS.md "Measured on the board") and every modular module (`framework/modular/module_costs.h`). Found: a synth's code from
+  flash cost up to 2.5 times its cycles (the 16 KB cache the screen's code shares); now `SC_HOT` (lab.h, modules.h) with
+  `-mtext-section-literals` (platformio.ini): the Kick 86 500 -> 44 100 a block with one note. Regular hwv1 and hwv2 builds pass; the
+  regular hwv1 build is on the board (not heard since). HWV2 not measured (no codec yet; the bench does not need one).
+- [ ] What still runs from flash each block: the C library's expf / powf / tanf (ADSR, Comp3, Glue, Drive, Slew, Svf::set ...): cold,
+  1 000 to 50 000 cycles a block (module_costs.h `cold`). Faster forms (fast_exp2, tables) would change the sound slightly: the user's call.
+- [ ] The engine at 1 note costs more than at the next notes (Basic: the first voice +20 000, the others +10 500): the first voice of a
+  block finds the code cold. Not looked into further.
 - [ ] FM2 still calls `expf` 4 times a block (its envelopes' `set`): fine, but the Kick's `update()` pattern would remove them.
 - [ ] Possibly later: save the values to the card; a scope or spectrum view; the seven knobs on the first seven values.

@@ -57,6 +57,24 @@ The patch's list of values starts with the Macros, in a section MACROS (`MACROS/
 exported from a patch with Macros has the MACROS section alone: its player turns the Macros, and every other value is fixed in the
 code as the patch has it. Without Macros, every value is exported, as before.
 
+### The cycles wallet: what a patch costs on the board
+
+`module_costs.h` holds what each module costs on the board, in CPU cycles per 32-frame block. It also holds the engine's costs: its
+fixed cost, its share per voice, a generated voice's own work, and a modulation cable by curve. All were measured on HWV1 by
+apps/synthlab's bench (its README, "The modules' bench"), which writes the table. `cost.h` adds them up for a patch:
+- each voice pays the VOICE area's modules with their values (a module set to its slowest value costs its worst), their cables and
+  the engine's share;
+- the FX area is paid once;
+- the engine's fixed cost is paid on top.
+
+A patch has a **voice count** (`Patch::voices`, 1..6, the `voices` line of its text). Its designer chooses it in SynthLab Studio's
+PATCH tab, next to the wallet's bar. The synth exported from the patch plays at most that many voices (`lab::Options::voices`, the
+engine's `set_voice_mode(..., max_voices)`).
+
+The estimate was checked on HWV1 with the default patch exported at 3 voices: 68 512 estimated, 69 408 measured (1.3 %). An engine
+module ("RM ...") is not in the table: it counts 0 and the wallet says so. The modules' code is in internal RAM on the board
+(`SC_HOT`), so their measured cycles are what a voice pays. From flash it was up to 2.5 times more (DESIGN.md ADR-049 addendum 6).
+
 ## The Ritual Machine's modules
 
 `modular/engine_adapter.h` adds the engine's own modules to the catalog: **34 entries**, named "RM" + the engine's name, each filed
@@ -143,6 +161,7 @@ the first sample). These rules are written in each module's comment.
 
 ```
 patch "Hollow Kick"
+voices 4                                        the synth's voice count, 1..6 (an older file has none: 6)
 node 1 voice Note 20 40                         id, area, module, x y (where the studio draws it)
 node 2 voice Body 180 40 Tune=48 Harm=10        then its values by name (the ones not given: their defaults)
 node 7 voice Macro 20 200 "Punch" Value=40      a name in quotes (a Macro's)

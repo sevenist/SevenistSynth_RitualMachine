@@ -25,6 +25,22 @@ The firmware: open `oled_sim.code-workspace` in VS Code, pick the folder `synthl
 `C:\.platformio\penv\Scripts\pio.exe run -d apps/synthlab -e hwv1`, never a bare `pio`. The desktop program drawn as HWV1:
 `.\build.ps1 -App synthlab -Board hwv1`, then `.\run.ps1 -App synthlab -Board hwv1`.
 
+### The modules' bench (a dev build)
+
+What each module of the modular catalog (framework/modular) costs on the chip, and the engine around each synth: environment
+`hwv1_bench` or `hwv2_bench` (`src/bench_esp32.cpp`, `-DSYNTHLAB_BENCH`). The app runs as usual; 6 s after the start the bench prints
+`[MBENCH]` lines on the console (the board's native USB port: COM8 for HWV1 on this machine, not its CH343 UART) and plays notes by
+itself for about a minute (do not touch the board). Then:
+
+```powershell
+.\upload.ps1 -App synthlab -Env hwv1_bench -Port COM9      # build and flash (HWV1 uploads through its CH343, COM9)
+C:\.platformio\penv\Scripts\python.exe apps\synthlab\tools\module_bench.py --port COM8 --write framework\modular\module_costs.h --board hwv1
+```
+
+`module_bench.py` prints the tables (sends `b` to run the bench again if it ran before) and writes the cost table SynthLab Studio's
+cycles wallet reads. Close any serial monitor first. Add `-DENGINE_PROFILE` (`$env:PLATFORMIO_BUILD_FLAGS`) for the engine's own
+cycles per module type in each phase (`[MBENCH] prof` lines).
+
 ## The controls
 
 | Control | On the desktop | On HWV1 | What it does |
@@ -113,4 +129,5 @@ thread); use floats, not doubles (`0.5f`), because the ESP32-S3's FPU is single 
 | (the entry points) | The library's: `framework/app/main_sim.cpp` and `main_esp32.cpp` (memory, the loop, the board's start-up) call the app's functions listed in `framework/app/app_main.h`. |
 | `tests/` | The host tests (`tools/build_tests.ps1`): every synth and its Fx, the engine, the screen (`build/screen_*.png`), the WAVs, the host's time per sample (`bench`). The checks, the HWV2 board's stub, the PNG and WAV writers are the library's (`framework/tests/test.h`, `tests/stubs/stub_hwv2.h`, `host/png.h`, `host/wav.h`). |
 | `tools/esp32_report.ps1` | What a synth costs on the ESP32-S3, from the compiler: its render's instructions and every call (a float division, a libm function). |
+| `src/bench_esp32.cpp`, `tools/module_bench.py` | The modules' bench on the board (above): cycles per block of each modular module and of each synth in the engine; the cost table `framework/modular/module_costs.h`. |
 | `docs/SYNTHS.md` | The design notebook: every synth's idea, algorithm and parameters, and the ideas still to try. |

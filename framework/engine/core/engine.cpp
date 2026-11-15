@@ -213,14 +213,15 @@ bool Engine::set_blob(int node_id, const void *data, size_t bytes) {
 
 int Engine::alloc_voice(int note) {
     int best = -1;
-    for (int v = 0; v < nvoices_; v++)                                  // same note: retrigger that voice
+    const int n = voice_cap_ > 0 && voice_cap_ < nvoices_ ? voice_cap_ : nvoices_;     // (a synth's own voice count)
+    for (int v = 0; v < n; v++)                                         // same note: retrigger that voice
         if (voices_[v].active && voices_[v].note == note) return v;
-    for (int v = 0; v < nvoices_; v++) if (!voices_[v].active) return v;
-    for (int v = 0; v < nvoices_; v++)                                  // steal: longest-released, else oldest
+    for (int v = 0; v < n; v++) if (!voices_[v].active) return v;
+    for (int v = 0; v < n; v++)                                         // steal: longest-released, else oldest
         if (!voices_[v].gate && (best < 0 || voices_[v].release_age > voices_[best].release_age)) best = v;
     if (best >= 0) return best;
     best = 0;
-    for (int v = 1; v < nvoices_; v++) if (voices_[v].age > voices_[best].age) best = v;
+    for (int v = 1; v < n; v++) if (voices_[v].age > voices_[best].age) best = v;
     return best;
 }
 
@@ -285,11 +286,12 @@ void Engine::do_note_off(int note) {
         if (voices_[v].active && voices_[v].gate && voices_[v].note == note) voices_[v].gate = false;
 }
 
-bool Engine::set_voice_mode(VoiceMode mode, bool legato, int glide_ms) {
+bool Engine::set_voice_mode(VoiceMode mode, bool legato, int glide_ms, int max_voices) {
     Command c;
     c.type = Cmd::VoiceMode;
     c.node = static_cast<uint8_t>(mode);
     c.idx = legato ? 1 : 0;
+    c.note = static_cast<uint8_t>(max_voices < 0 ? 0 : (max_voices > kMaxVoices ? kMaxVoices : max_voices));
     // the fraction of the remaining distance covered per block, for a time constant of glide_ms: 1 - exp(-block_ms / glide_ms)
     const double block_ms = 1000.0 * kBlock / kSampleRate;
     c.value = glide_ms <= 0 ? 0 : static_cast<int32_t>(std::lround(32767.0 * (1.0 - std::exp(-block_ms / glide_ms))));
@@ -407,6 +409,7 @@ void Engine::apply(const Command &c) {
         mode_ = c.node == static_cast<uint8_t>(VoiceMode::Mono) ? VoiceMode::Mono : VoiceMode::Poly;
         legato_ = c.idx != 0;
         glide_k_ = c.value;
+        voice_cap_ = c.note;
         stack_n_ = 0;
         break;
     case Cmd::SetParam:
@@ -571,6 +574,7 @@ void Engine::render(q15 *l, q15 *r) {
     ProcessCtx ctx{kBlock, t, nullptr, bus_l_, bus_r_, l, r};
     ctx.bus2_l = bus2_l_; ctx.bus2_r = bus2_r_;
     ctx.transport = &tr_;
+    ctx.silence = pl->silence;
     ctx.seq = &seq_.pos();
     ctx.voices = voices_;
     ctx.nvoices = nvoices_;

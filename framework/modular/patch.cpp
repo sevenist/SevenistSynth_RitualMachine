@@ -75,6 +75,7 @@ bool Patch::connect(int src, int src_port, int dst, int dst_port, bool to_param,
 void Patch::clear() {
     n_nodes = 0;
     n_cables = 0;
+    voices = kMaxPatchVoices;
 }
 
 void Patch::init_default() {
@@ -207,6 +208,7 @@ int patch_to_text(const Patch &p, char *buf, int cap) {
     if (cap > 0) buf[0] = 0;
     o.add("# SynthLab Studio patch (framework/modular/patch.h)\n");
     o.add("patch \"%s\"\n", p.name);
+    o.add("voices %d\n", p.voices);
     for (int i = 0; i < p.n_nodes; i++) {
         const Node &n = p.node[i];
         o.add("node %d %s %s %d %d", n.id, n.area == kFxArea ? "fx" : "voice", n.def->name, n.x, n.y);
@@ -242,6 +244,13 @@ bool patch_from_text(Patch &out, const char *text, char *err, int err_cap, int *
         char w[64];
         if (!word(q, w, sizeof w) || w[0] == '#') continue;
         if (!std::strcmp(w, "patch")) { word(q, r.name, sizeof r.name); any = true; continue; }
+        if (!std::strcmp(w, "voices")) {                        // the synth's voice count (an older file: none, 6)
+            char v[8];
+            const int n = word(q, v, sizeof v) ? std::atoi(v) : 0;
+            if (n < 1 || n > kMaxPatchVoices) { bad++; continue; }
+            r.voices = n;
+            continue;
+        }
         if (!std::strcmp(w, "node")) {
             char id[8], area[8], type[32], x[8], y[8];
             if (!word(q, id, sizeof id) || !word(q, area, sizeof area) || !word(q, type, sizeof type) || !word(q, x, sizeof x) || !word(q, y, sizeof y)) { bad++; continue; }

@@ -36,7 +36,9 @@ public:
     // `nvoices` (1..kMaxVoices, 0 = the count given to init) is how many copies of every voice-scope module this graph gets: memory and CPU scale with it.
     // Changing it creates new voice instances (their state starts clean; the old ones are freed by gc()) and silences the voices at the switch.
     Err load(const GraphDesc &g, int nvoices = 0);      // [CONTROL]
-    bool set_voice_mode(VoiceMode mode, bool legato, int glide_ms);   // [CONTROL] posted like a note; glide_ms 0 = jump
+    // [CONTROL] posted like a note; glide_ms 0 = jump. max_voices (Poly): the allocator uses the first max_voices voices only (0: all of
+    // them), a synth's own voice count under the graph's: no reload, no memory change (a voice past it ends as it would).
+    bool set_voice_mode(VoiceMode mode, bool legato, int glide_ms, int max_voices = 0);
     void gc();                                          // [CONTROL]
     bool switching() const { return pending_.load(std::memory_order_acquire) != nullptr; }   // a loaded plan waits for the audio thread
 
@@ -124,6 +126,7 @@ private:
     VoiceMode mode_ = VoiceMode::Poly;                  // audio thread
     bool legato_ = false;
     int32_t glide_k_ = 0;                               // q15 fraction of the distance covered per block (0 = jump)
+    int voice_cap_ = 0;                                 // audio thread: Poly plays on the first voice_cap_ voices (0: all)
     uint8_t stack_[kMonoStack] = {};                    // held keys, last on top (Mono)
     int stack_n_ = 0;
     Rec rec_[kMaxRecs] = {};

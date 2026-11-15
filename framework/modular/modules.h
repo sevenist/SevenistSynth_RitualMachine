@@ -2,6 +2,8 @@
 // The catalog's modules (modular.h), header only: the runner (patch.h) plays them through their descriptions (catalog.cpp), a synth
 // generated from a patch (apps/studio's export) calls them directly. Each comes from a SynthLab synth or from mdsp.h; where it comes from
 // is in its description (`origin`). Values arrive in io.p in the units shown (Hz, ms, %, dB), once a block.
+// Their process() is SC_HOT (engine/dsp/config.h): on the board it sits in internal RAM, as the engine's modules. From flash, through the
+// 16 KB cache the screen's code shares, a voice cost up to 2.5 times its own cycles (measured on HWV1, 2026-11-15: apps/synthlab's bench).
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -56,7 +58,7 @@ struct Edge {
 struct NoteM {
     bool trig = false;
     void start(const Ctx &) { trig = true; }
-    void process(const Ctx &c, const IO &io) {
+    SC_HOT void process(const Ctx &c, const IO &io) {
         const float g = c.gate ? 1.f : 0.f, pitch = fast_log2(c.hz * (1.f / kC4));
         for (int i = 0; i < io.frames; i++) {
             io.out[0][i] = g;
@@ -71,7 +73,7 @@ struct NoteM {
 // The end of a chain: what comes in is the voice's sound (VoiceOut) or the machine's (Output). Its out is what the runner takes.
 struct OutM {
     void start(const Ctx &) {}
-    void process(const Ctx &, const IO &io) {
+    SC_HOT void process(const Ctx &, const IO &io) {
         const float g = io.p[0] * 0.01f;
         for (int i = 0; i < io.frames; i++) io.out[0][i] = io.in[0][i] * g;
     }
@@ -80,39 +82,69 @@ struct OutM {
 // The voices' sum, in the FX area: the runner writes it into the out.
 struct VoicesM {
     void start(const Ctx &) {}
-    void process(const Ctx &, const IO &) {}
+    SC_HOT void process(const Ctx &, const IO &) {}
 };
 
 /* ---------------- sources ---------------- */
 
 // The classic shapes (mdsp.h Osc's, PolyBLEP), the voice's pitch (Track) or middle C, moved by Tune / Fine, by the Pitch input (octaves x
 // PMod / 12: 12 = one octave per unit) and by FM (linear, through zero: the FM input times FM %, x the frequency).
+// The Pitch input is read at the block's two ends and the step glides in a line between them (a vibrato, an envelope's sweep: 2^x twice
+// a block, not every sample); FM stays a sample at a time. One loop per wave. (2026-11-15: 8 160 -> see module_costs.h.)
 struct OscM {
     float ph = 0.f;
     void start(const Ctx &) {}
-    void process(const Ctx &c, const IO &io) {
+    static float advance(float ph, float d) { ph += d; if (ph >= 1.f) ph -= 1.f; else if (ph < 0.f) ph += 1.f; return ph; }   // (|d| < 0.5)
+    SC_HOT void process(const Ctx &c, const IO &io) {
         const float *p = io.p;
+        const int n = io.frames;
         const int wave = static_cast<int>(p[P::OSC_WAVE] + 0.5f);
-        const float base = (p[P::OSC_TRACK] >= 0.5f ? c.hz : kC4) * fast_exp2((p[P::OSC_TUNE] + p[P::OSC_FINE] * 0.01f) * (1.f / 12.f));
+        const float base = (p[P::OSC_TRACK] >= 0.5f ? c.hz : kC4) * fast_exp2((p[P::OSC_TUNE] + p[P::OSC_FINE] * 0.01f) * (1.f / 12.f)) * c.inv_sr;
         const float pmod = p[P::OSC_PMOD] * (1.f / 12.f), fm = p[P::OSC_FM] * 0.01f, level = p[P::OSC_LEVEL] * 0.01f;
-        const float pw = clampf(p[P::OSC_PW] * 0.01f, 0.02f, 0.98f), nyq = 0.45f;
-        for (int i = 0; i < io.frames; i++) {
-            float dt = base * c.inv_sr;
-            if (pmod != 0.f) dt *= fast_exp2(io.in[0][i] * pmod);
-            if (fm != 0.f) dt *= 1.f + io.in[1][i] * fm;
-            dt = clampf(dt, -nyq, nyq);
-            const float adt = dt < 0.f ? -dt : dt;
-            const float t = ph;
-            float y;
-            switch (wave) {
-            case 1: y = t < 0.5f ? 4.f * t - 1.f : 3.f - 4.f * t; break;
-            case 2: y = 2.f * t - 1.f - poly_blep(t, adt); break;
-            case 3: y = (t < pw ? 1.f : -1.f) + poly_blep(t, adt) - poly_blep(wrap01(t - pw + 1.f), adt); break;
-            default: y = sin01(t); break;
-            }
-            ph = wrap01(ph + dt);
-            io.out[0][i] = y * level;
+        const float pw = clampf(p[P::OSC_PW] * 0.01f, 0.02f, 0.98f);
+        const float *pin = io.in[0], *fin = io.in[1];
+        float *out = io.out[0];
+        float dt = base, ddt = 0.f;
+        if (pmod != 0.f && n > 0) {
+            const float e0 = pin[0], e1 = pin[n - 1];
+            if (e0 != 0.f) dt = base * fast_exp2(e0 * pmod);
+            if (e1 != e0 && n > 1) ddt = (base * fast_exp2(e1 * pmod) - dt) / static_cast<float>(n - 1);
         }
+        const bool f = fm != 0.f;
+        switch (wave) {
+        case 1: f ? run<1, true>(dt, ddt, fin, fm, pw, level, out, n) : run<1, false>(dt, ddt, fin, fm, pw, level, out, n); break;
+        case 2: f ? run<2, true>(dt, ddt, fin, fm, pw, level, out, n) : run<2, false>(dt, ddt, fin, fm, pw, level, out, n); break;
+        case 3: f ? run<3, true>(dt, ddt, fin, fm, pw, level, out, n) : run<3, false>(dt, ddt, fin, fm, pw, level, out, n); break;
+        default: f ? run<0, true>(dt, ddt, fin, fm, pw, level, out, n) : run<0, false>(dt, ddt, fin, fm, pw, level, out, n); break;
+        }
+    }
+    // One wave (0 sine, 1 triangle, 2 saw, 3 square), with or without FM: no choice left inside the sample loop.
+    template <int W, bool FM>
+    SC_HOT void run(float dt, float ddt, const float *fin, float fm, float pw, float level, float *out, int n) {
+        float t = ph;
+        for (int i = 0; i < n; i++) {
+            const float d = clampf(FM ? dt * (1.f + fin[i] * fm) : dt, -0.45f, 0.45f);
+            float y;
+            if (W == 2) {
+                y = 2.f * t - 1.f;
+                const float adt = d < 0.f ? -d : d;
+                if (t < adt || t > 1.f - adt) y -= poly_blep(t, adt);
+            } else if (W == 3) {
+                y = t < pw ? 1.f : -1.f;
+                const float adt = d < 0.f ? -d : d;
+                if (t < adt || t > 1.f - adt) y += poly_blep(t, adt);
+                const float t2 = t >= pw ? t - pw : t - pw + 1.f;
+                if (t2 < adt || t2 > 1.f - adt) y -= poly_blep(t2, adt);
+            } else if (W == 1) {
+                y = t < 0.5f ? 4.f * t - 1.f : 3.f - 4.f * t;
+            } else {
+                y = sin01(t);
+            }
+            t = advance(t, d);
+            dt += ddt;
+            out[i] = y * level;
+        }
+        ph = t;
     }
 };
 
@@ -121,7 +153,7 @@ struct OscM {
 struct OpM {
     float ph = 0.f, m1 = 0.f, m2 = 0.f;
     void start(const Ctx &) { ph = m1 = m2 = 0.f; }
-    void process(const Ctx &c, const IO &io) {
+    SC_HOT void process(const Ctx &c, const IO &io) {
         const float *p = io.p;
         const float dt = clampf((p[P::OP_TRACK] >= 0.5f ? c.hz : kC4) * p[P::OP_RATIO] * c.inv_sr, 0.f, 0.45f);
         const float depth = p[P::OP_DEPTH] * (1.f / (2.f * kPi)), fb = p[P::OP_FEEDBACK] * 0.004f, level = p[P::OP_LEVEL] * 0.01f;
@@ -140,7 +172,7 @@ struct OpM {
 struct BodyM {
     float ph = 0.f;
     void start(const Ctx &) { ph = 0.f; }                   // (a drum starts its cycle at 0: every hit the same)
-    void process(const Ctx &c, const IO &io) {
+    SC_HOT void process(const Ctx &c, const IO &io) {
         const float *p = io.p;
         const float base = p[P::BODY_TUNE] * (p[P::BODY_TRACK] >= 0.5f ? c.hz * (1.f / 130.8128f) : 1.f);
         const float pmod = p[P::BODY_PMOD] * (1.f / 12.f), level = p[P::BODY_LEVEL] * 0.01f, harm = p[P::BODY_HARM] * 0.01f;
@@ -183,7 +215,7 @@ struct NoiseM {
     float lp = 0.f;
     bool reseed = false;
     void start(const Ctx &) { reseed = true; }      // (the seed is a value: applied at the note's first block)
-    void process(const Ctx &c, const IO &io) {
+    SC_HOT void process(const Ctx &c, const IO &io) {
         const float *p = io.p;
         const int s = static_cast<int>(p[P::NOISE_SEED] + 0.5f);
         uint32_t seed = s > 0 ? static_cast<uint32_t>(s) * 2654435761u + 0x9E3779B9u : 0u;
@@ -209,7 +241,7 @@ struct MetalM {
     float ph[6] = {}, pc = 0.f, pm = 0.f;
     Svf bp1, bp2;
     void start(const Ctx &) { for (int k = 0; k < 6; k++) ph[k] = kPhases[k]; pc = pm = 0.f; }
-    void process(const Ctx &c, const IO &io) {
+    SC_HOT void process(const Ctx &c, const IO &io) {
         const float *p = io.p;
         const float base = p[P::METAL_TUNE] * (p[P::METAL_TRACK] >= 0.5f ? c.hz * (1.f / kC4) : 1.f);
         const float index = p[P::METAL_INDEX] * 0.01f, level = p[P::METAL_LEVEL] * 0.01f * 3.5f;
@@ -243,19 +275,39 @@ struct MetalM {
 
 /* ---------------- envelopes and modulators ---------------- */
 
-// ADSR, analog style (mdsp.h Adsr), on its Gate input (by default the voice's gate).
+// ADSR, analog style (mdsp.h Adsr), on its Gate input (by default the voice's gate). Its rates are computed again only when a value
+// changes; a block with no edge on its gate while the envelope rests (Sustain, Idle) is filled at once.
 struct AdsrM {
     Adsr env;
     Edge g;
+    float pv[4] = {-1.f, -1.f, -1.f, -1.f}, psr = 0.f;
     void start(const Ctx &) {}
-    void process(const Ctx &c, const IO &io) {
-        env.set(io.p[P::ADSR_A], io.p[P::ADSR_D], io.p[P::ADSR_S] * 0.01f, io.p[P::ADSR_R], c.sr);
-        for (int i = 0; i < io.frames; i++) {
-            const float x = io.in[0][i];
+    SC_HOT void process(const Ctx &c, const IO &io) {
+        const float *p = io.p;
+        if (p[P::ADSR_A] != pv[0] || p[P::ADSR_D] != pv[1] || p[P::ADSR_S] != pv[2] || p[P::ADSR_R] != pv[3] || c.sr != psr) {
+            env.set(p[P::ADSR_A], p[P::ADSR_D], p[P::ADSR_S] * 0.01f, p[P::ADSR_R], c.sr);
+            for (int k = 0; k < 4; k++) pv[k] = p[k];
+            psr = c.sr;
+        }
+        const float *gin = io.in[0];
+        float *out = io.out[0];
+        const int n = io.frames;
+        if (env.stage == Adsr::Sustain || env.stage == Adsr::Idle) {
+            const bool h = g.high;
+            int i = 0;
+            while (i < n && (gin[i] > 0.5f) == h) i++;
+            if (i == n) {                                   // no edge: the level holds
+                const float v = env.stage == Adsr::Sustain ? (env.level = env.sus) : 0.f;
+                for (int k = 0; k < n; k++) out[k] = v;
+                return;
+            }
+        }
+        for (int i = 0; i < n; i++) {
+            const float x = gin[i];
             const bool was = g.high;
             if (g.rise(x)) env.gate_on();
             else if (was && !g.high) env.gate_off();
-            io.out[0][i] = env.next();
+            out[i] = env.next();
         }
     }
 };
@@ -270,7 +322,7 @@ struct PercM {
     Edge e;
     float att = 0.f, hold = 0.f, inv_att = 0.f, inv_dec = 1.f, curve = 0.f, k = 1.f;
     bool power = false;
-    float at(float tt) const {                              // the envelope tt samples after the trigger (0 before it)
+    SC_HOT float at(float tt) const {                       // the envelope tt samples after the trigger (0 before it)
         if (tt < 0.f) return 0.f;
         if (tt < att) return tt * inv_att;
         if (tt < att + hold) return 1.f;
@@ -280,7 +332,7 @@ struct PercM {
         return curve <= 0.f ? lin : lin + (fast_exp2(-9.966f * u) - lin) * curve;
     }
     void start(const Ctx &) {}
-    void process(const Ctx &c, const IO &io) {
+    SC_HOT void process(const Ctx &c, const IO &io) {
         const float ms = c.sr * 0.001f, dec = io.p[P::PERC_DECAY] * ms;
         att = io.p[P::PERC_ATTACK] * ms;
         hold = io.p[P::PERC_HOLD] * ms;
@@ -290,18 +342,22 @@ struct PercM {
         power = io.p[P::PERC_LAW] >= 0.5f;
         k = 1.f + 7.f * curve;                              // Power: (1 - u)^k, the Kick's amp envelope (kick.cpp amp_at)
         const float amount = io.p[P::PERC_AMOUNT] * 0.01f;
-        if (io.p[P::PERC_STEPS] >= 0.5f) {                  // Block
-            for (int i = 0; i < io.frames; i++) if (e.rise(io.in[0][i])) t = -static_cast<float>(i);
-            const float y0 = at(t), y1 = at(t + static_cast<float>(io.frames)), dy = (y1 - y0) / static_cast<float>(io.frames);
-            for (int i = 0; i < io.frames; i++) io.out[0][i] = (y0 + dy * static_cast<float>(i)) * amount;
-            if (t < 1e9f) t += static_cast<float>(io.frames);
-            return;
+        // Block: the block's two ends, a line between. Sample: every 8 samples, a line between (2026-11-15: the curve 5 times a block
+        // instead of 32; at 44.1 kHz a segment is 0.18 ms). A trigger counts from where it falls; before it the block reads 0.
+        const int n = io.frames, seg = io.p[P::PERC_STEPS] >= 0.5f ? n : 8;
+        for (int i = 0; i < n; i++) if (e.rise(io.in[0][i])) t = -static_cast<float>(i);
+        float *out = io.out[0];
+        if (t >= 1e9f) { for (int i = 0; i < n; i++) out[i] = 0.f; return; }        // (no hit yet: silent)
+        float y0 = at(t);
+        for (int s = 0; s < n; s += seg) {
+            const int m = n - s < seg ? n - s : seg;
+            const float y1 = at(t + static_cast<float>(s + m));
+            const float dy = (y1 - y0) * (m == 8 ? 0.125f : 1.f / static_cast<float>(m));
+            for (int k = 0; k < m; k++) out[s + k] = (y0 + dy * static_cast<float>(k)) * amount;
+            y0 = y1;
         }
-        for (int i = 0; i < io.frames; i++) {
-            if (e.rise(io.in[0][i])) t = 0.f;
-            io.out[0][i] = at(t) * amount;
-            if (t < 1e9f) t += 1.f;
-        }
+        t += static_cast<float>(n);
+        if (t > 1e8f) t = 1e9f;                             // (long past: silent, no float creeping)
     }
 };
 
@@ -314,7 +370,7 @@ struct RatchetM {
     int gaps[kMax] = {};
     Edge e;
     void start(const Ctx &) {}
-    void process(const Ctx &c, const IO &io) {
+    SC_HOT void process(const Ctx &c, const IO &io) {
         const float *p = io.p, ms = c.sr * 0.001f;
         const int count = static_cast<int>(clampf(p[P::RAT_COUNT] + 0.5f, 1.f, static_cast<float>(kMax)));
         const float acc = fast_exp2(p[P::RAT_ACCEL] * 0.01f);
@@ -333,30 +389,45 @@ struct RatchetM {
 
 // A low frequency oscillator: sine, triangle, saw up / down, square, sample and hold; bipolar (-1..1) or unipolar (0..1); restarted by
 // its Trig input when Retrig is on (by default: the note's start).
+// Computed every 8 samples (5.5 kHz at 44.1: an LFO is at most 50 Hz) with a line between; a square's or an S&H's step is a line of 8
+// samples (0.18 ms). A Trig restarts it at the start of its 8 samples. (2026-11-15: from a sample at a time.)
 struct LfoM {
-    float ph = 0.f, sh = 0.f;
+    float ph = 0.f, sh = 0.f, last = 0.f;
+    bool primed = false;
     Noise n;
     Edge e;
     void start(const Ctx &) {}
-    void process(const Ctx &c, const IO &io) {
+    static SC_HOT float shape(int wave, float ph, float sh) {
+        switch (wave) {
+        case 1: return ph < 0.5f ? 4.f * ph - 1.f : 3.f - 4.f * ph;
+        case 2: return 2.f * ph - 1.f;
+        case 3: return 1.f - 2.f * ph;
+        case 4: return ph < 0.5f ? 1.f : -1.f;
+        case 5: return sh;
+        default: return sin01(ph);
+        }
+    }
+    SC_HOT void process(const Ctx &c, const IO &io) {
         const float *p = io.p;
-        const int wave = static_cast<int>(p[P::LFO_WAVE] + 0.5f);
+        const int wave = static_cast<int>(p[P::LFO_WAVE] + 0.5f), nf = io.frames;
         const float dt = p[P::LFO_RATE] * c.inv_sr, level = p[P::LFO_LEVEL] * 0.01f;
         const bool retrig = p[P::LFO_RETRIG] >= 0.5f, uni = p[P::LFO_UNIPOLAR] >= 0.5f;
-        for (int i = 0; i < io.frames; i++) {
-            if (e.rise(io.in[0][i]) && retrig) { ph = 0.f; sh = n.next(); }
-            float y;
-            switch (wave) {
-            case 1: y = ph < 0.5f ? 4.f * ph - 1.f : 3.f - 4.f * ph; break;
-            case 2: y = 2.f * ph - 1.f; break;
-            case 3: y = 1.f - 2.f * ph; break;
-            case 4: y = ph < 0.5f ? 1.f : -1.f; break;
-            case 5: y = sh; break;
-            default: y = sin01(ph); break;
-            }
-            ph += dt;
-            if (ph >= 1.f) { ph -= 1.f; sh = n.next(); }
-            io.out[0][i] = (uni ? 0.5f * y + 0.5f : y) * level;
+        const float gain = uni ? 0.5f * level : level, offset = uni ? 0.5f * level : 0.f;
+        const float *tin = io.in[0];
+        float *out = io.out[0];
+        for (int s = 0; s < nf; s += 8) {
+            const int m = nf - s < 8 ? nf - s : 8;
+            bool hit = false;
+            for (int k = 0; k < m; k++) hit |= e.rise(tin[s + k]);
+            if (hit && retrig) { ph = 0.f; sh = n.next(); primed = false; }
+            const float y0 = primed ? last : shape(wave, ph, sh);
+            ph += dt * static_cast<float>(m);
+            if (ph >= 1.f) { ph -= static_cast<float>(static_cast<int>(ph)); sh = n.next(); }
+            const float y1 = shape(wave, ph, sh);
+            const float dy = (y1 - y0) * (m == 8 ? 0.125f : 1.f / static_cast<float>(m));
+            for (int k = 0; k < m; k++) out[s + k] = (y0 + dy * static_cast<float>(k)) * gain + offset;
+            last = y1;
+            primed = true;
         }
     }
 };
@@ -369,7 +440,7 @@ struct LfoM {
 struct FilterM {
     Svf a, b;
     void start(const Ctx &) {}
-    void process(const Ctx &c, const IO &io) {
+    SC_HOT void process(const Ctx &c, const IO &io) {
         const float *p = io.p;
         const int type = static_cast<int>(p[P::FLT_TYPE] + 0.5f);
         // the Cutoff input at the block's first sample, as SynthLab's synths set their filters once a block (basic.cpp: the rebuild nulls
@@ -406,7 +477,7 @@ struct Eq3M {
     Eq3 eq;
     float pc[P::EQ_N] = {}, sr_ = 0.f;
     void start(const Ctx &) {}
-    void process(const Ctx &c, const IO &io) {
+    SC_HOT void process(const Ctx &c, const IO &io) {
         const float *p = io.p;
         if (sr_ != c.sr || std::memcmp(pc, p, sizeof pc) != 0) {
             eq.set(p[P::EQ_LOWHZ], p[P::EQ_LOWDB], p[P::EQ_MIDHZ], p[P::EQ_MIDDB], p[P::EQ_MIDQ], p[P::EQ_HIGHHZ], p[P::EQ_HIGHDB], c.sr);
@@ -425,7 +496,7 @@ struct Eq3M {
 struct DriveM {
     DcBlock dc;
     void start(const Ctx &) {}
-    void process(const Ctx &, const IO &io) {
+    SC_HOT void process(const Ctx &, const IO &io) {
         const float *p = io.p;
         const float g = fast_db(p[P::DRV_DRIVE]), tube = p[P::DRV_TUBE] * 0.01f, bias = 0.3f * tube, bias_y = soft_clip(bias);
         const float tube_n = 1.f / (soft_clip(g + bias) - bias_y), sat = p[P::DRV_SAT] * 0.01f, sat_n = 1.f / soft_clip(g);
@@ -446,7 +517,7 @@ struct DriveM {
 // In x CV x Level (CV: 1 when nothing comes in).
 struct VcaM {
     void start(const Ctx &) {}
-    void process(const Ctx &, const IO &io) {
+    SC_HOT void process(const Ctx &, const IO &io) {
         const float l = io.p[0] * 0.01f;
         for (int i = 0; i < io.frames; i++) io.out[0][i] = io.in[0][i] * io.in[1][i] * l;
     }
@@ -455,7 +526,7 @@ struct VcaM {
 // Four inputs, each at its level (-100..100 %: a negative level inverts).
 struct MixerM {
     void start(const Ctx &) {}
-    void process(const Ctx &, const IO &io) {
+    SC_HOT void process(const Ctx &, const IO &io) {
         const float l[4] = {io.p[0] * 0.01f, io.p[1] * 0.01f, io.p[2] * 0.01f, io.p[3] * 0.01f};
         for (int i = 0; i < io.frames; i++)
             io.out[0][i] = io.in[0][i] * l[0] + io.in[1][i] * l[1] + io.in[2][i] * l[2] + io.in[3][i] * l[3];
@@ -465,20 +536,20 @@ struct MixerM {
 // A x B: ring modulation, or one signal scaled by another.
 struct RingM {
     void start(const Ctx &) {}
-    void process(const Ctx &, const IO &io) { for (int i = 0; i < io.frames; i++) io.out[0][i] = io.in[0][i] * io.in[1][i]; }
+    SC_HOT void process(const Ctx &, const IO &io) { for (int i = 0; i < io.frames; i++) io.out[0][i] = io.in[0][i] * io.in[1][i]; }
 };
 
 // A steady value (-1..1): an offset for a modulation, a level to send somewhere.
 struct ConstM {
     void start(const Ctx &) {}
-    void process(const Ctx &, const IO &io) { for (int i = 0; i < io.frames; i++) io.out[0][i] = io.p[0]; }
+    SC_HOT void process(const Ctx &, const IO &io) { for (int i = 0; i < io.frames; i++) io.out[0][i] = io.p[0]; }
 };
 
 // A knob for the player of the synth made from the patch: its Value (0..100 %) out as 0..1, steady. Cabled onto values (modulation
 // cables), and onto other Macros' Values: a Macro that drives Macros is a layer. An exported synth's parameters are the patch's Macros.
 struct MacroM {
     void start(const Ctx &) {}
-    void process(const Ctx &, const IO &io) { const float v = io.p[0] * 0.01f; for (int i = 0; i < io.frames; i++) io.out[0][i] = v; }
+    SC_HOT void process(const Ctx &, const IO &io) { const float v = io.p[0] * 0.01f; for (int i = 0; i < io.frames; i++) io.out[0][i] = v; }
 };
 
 /* ---- math: signals as numbers (audio, control and pitch alike) ---- */
@@ -487,7 +558,7 @@ struct MacroM {
 // A>B gives 1 or 0 (a gate from a comparison).
 struct MathM {
     void start(const Ctx &) {}
-    void process(const Ctx &, const IO &io) {
+    SC_HOT void process(const Ctx &, const IO &io) {
         const int op = static_cast<int>(io.p[P::MATH_OP] + 0.5f);
         const float bv = io.p[P::MATH_B];
         const float *a = io.in[0], *b = io.in[1];
@@ -510,7 +581,7 @@ struct MathM {
 // in octaves = semitones), Wrap (into 0..1: a ramp from a rising signal).
 struct FuncM {
     void start(const Ctx &) {}
-    void process(const Ctx &, const IO &io) {
+    SC_HOT void process(const Ctx &, const IO &io) {
         const int fn = static_cast<int>(io.p[P::FUNC_FN] + 0.5f);
         const float steps = io.p[P::FUNC_STEPS] < 1.f ? 1.f : io.p[P::FUNC_STEPS], inv = 1.f / steps;
         const float *x = io.in[0];
@@ -543,7 +614,7 @@ struct FuncM {
 // above OutHi, turns it upside down.
 struct RangeM {
     void start(const Ctx &) {}
-    void process(const Ctx &, const IO &io) {
+    SC_HOT void process(const Ctx &, const IO &io) {
         const float *p = io.p;
         const float ilo = p[P::RANGE_INLO], ihi = p[P::RANGE_INHI], olo = p[P::RANGE_OUTLO], ohi = p[P::RANGE_OUTHI];
         const float span = ihi - ilo, k = std::fabs(span) < 1e-6f ? 0.f : 1.f / span;
@@ -564,7 +635,7 @@ struct SlewM {
     float y = 0.f;
     bool primed = false;
     void start(const Ctx &) {}
-    void process(const Ctx &c, const IO &io) {
+    SC_HOT void process(const Ctx &c, const IO &io) {
         const float *p = io.p;
         const float rise = p[P::SLEW_RISE] < 0.01f ? 0.01f : p[P::SLEW_RISE], fall = p[P::SLEW_FALL] < 0.01f ? 0.01f : p[P::SLEW_FALL];
         const float ms = c.sr * 0.001f;
@@ -589,7 +660,7 @@ struct Comp3M {
     Svf lo, hi;
     float det[3] = {}, gain[3] = {1.f, 1.f, 1.f}, sr_ = 0.f;
     void start(const Ctx &) {}
-    void process(const Ctx &c, const IO &io) {
+    SC_HOT void process(const Ctx &c, const IO &io) {
         const float *p = io.p;
         if (sr_ != c.sr) { lo.set(120.f, 0.f, c.sr); hi.set(2500.f, 0.f, c.sr); sr_ = c.sr; }
         const float amounts[3] = {p[P::CMP_LOW] * 0.01f, p[P::CMP_MID] * 0.01f, p[P::CMP_HIGH] * 0.01f};
@@ -641,7 +712,7 @@ struct Comp3M {
 // A soft limit (the Kick's last step): soft_clip(In x Gain) x Out.
 struct LimitM {
     void start(const Ctx &) {}
-    void process(const Ctx &, const IO &io) {
+    SC_HOT void process(const Ctx &, const IO &io) {
         const float g = fast_db(io.p[P::LIM_GAIN]), out = io.p[P::LIM_OUT] * 0.01f;
         for (int i = 0; i < io.frames; i++) io.out[0][i] = soft_clip(io.in[0][i] * g) * out;
     }
@@ -686,7 +757,7 @@ struct RumbleM {
         default: lp.run(x); return lp.lp - lp.hp;
         }
     }
-    float tick(float kick, bool noise_on, float vel, float a) {
+    SC_HOT float tick(float kick, bool noise_on, float vel, float a) {
         float r = 0.f;
         if (noise_on) {
             float src = 0.f;
@@ -728,7 +799,7 @@ struct RumbleM {
         kacc = 0.f;
         t = 0.f;
     }
-    void process(const Ctx &c, const IO &io) {
+    SC_HOT void process(const Ctx &c, const IO &io) {
         const float *p = io.p, ms = c.sr * 0.001f, tr = c.sr / kDecim;
         if (reseed) { noise.s = static_cast<uint32_t>(p[P::RUM_SEED]) * 2654435761u + 0x9E3779B9u; reseed = false; }
         ftype = static_cast<int>(p[P::RUM_FILTER] + 0.5f);
@@ -787,7 +858,7 @@ struct DelayM {
     int w = 0;
     float lp = 0.f;
     void start(const Ctx &) {}
-    void process(const Ctx &c, const IO &io) {
+    SC_HOT void process(const Ctx &c, const IO &io) {
         const float *p = io.p;
         int d = static_cast<int>(p[P::DLY_TIME] * 0.001f * c.sr);
         d = d < 1 ? 1 : (d > kLen - 1 ? kLen - 1 : d);
@@ -838,7 +909,7 @@ struct RoomM {
         }
         fb = fast_exp2(-9.966f * avg / (decay_ms * 0.001f * rate));
     }
-    float tick(float in) {
+    SC_HOT float tick(float in) {
         const float r0 = rd(l0, w[0], len[0], L0), r1 = rd(l1, w[1], len[1], L1);
         const float r2 = rd(l2, w[2], len[2], L2), r3 = rd(l3, w[3], len[3], L3);
         const float a = r0 + r1, b = r0 - r1, cc = r2 + r3, e = r2 - r3;
@@ -851,7 +922,7 @@ struct RoomM {
         return (r0 - r1 + r2 - r3) * 0.35f;
     }
     void start(const Ctx &) {}
-    void process(const Ctx &c, const IO &io) {
+    SC_HOT void process(const Ctx &c, const IO &io) {
         const float *p = io.p;
         if (sr_ != c.sr || std::memcmp(pc, p, sizeof pc) != 0) {
             set(clampf(p[P::ROOM_SIZE] * 0.01f, 0.05f, 1.f), p[P::ROOM_DECAY], p[P::ROOM_DAMP] * 0.01f, c.sr * 0.5f);
@@ -890,7 +961,7 @@ struct RoomM {
 struct GlueM {
     float det = 0.f, gain = 1.f, tilt_lp = 0.f;
     void start(const Ctx &) {}
-    void process(const Ctx &c, const IO &io) {
+    SC_HOT void process(const Ctx &c, const IO &io) {
         const float *p = io.p;
         const float glue = p[P::GLUE_GLUE] * 0.01f, tilt = p[P::GLUE_TILT] * 0.01f, sat = p[P::GLUE_SAT] * 0.01f;
         const bool glue_on = glue >= 0.005f, tilt_on = tilt >= 0.005f || tilt <= -0.005f;
@@ -930,7 +1001,7 @@ struct GateM {
     bool open = false;
     int held = 0;
     void start(const Ctx &) {}
-    void process(const Ctx &c, const IO &io) {
+    SC_HOT void process(const Ctx &c, const IO &io) {
         const float *p = io.p, ms = c.sr * 0.001f;
         const float depth = p[P::GATE_DEPTH] * 0.01f, floor_ = 1.f - depth;
         const float thr_open = fast_db(p[P::GATE_THRESH]), thr_close = thr_open * 0.70795f, kdet = decay_coef(10.f, c.sr);

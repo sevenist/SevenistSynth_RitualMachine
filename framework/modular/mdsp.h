@@ -7,6 +7,7 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
+#include "engine/dsp/config.h"            // SC_HOT: on the board, in internal RAM (the flash cache misses would double a voice's cost)
 
 namespace mod {
 
@@ -28,7 +29,7 @@ inline float semis(float st) { return exp2f(st * (1.f / 12.f)); }               
 inline float db(float decibels) { return powf(10.f, decibels * 0.05f); }                // a gain from decibels
 
 // sin(2 pi ph), any ph (in cycles; phase modulation drives it negative): a parabola corrected once (error under 0.001), no table.
-inline float sin01(float ph) {
+inline SC_HOT float sin01(float ph) {
     float x = ph - static_cast<float>(static_cast<int>(ph));                            // -1..1
     if (x < 0.f) x += 1.f;                                                              // 0..1
     x = x < 0.5f ? x : x - 1.f;                                                         // -0.5..0.5
@@ -38,7 +39,7 @@ inline float sin01(float ph) {
 
 // Soft saturation: a cubic, slope 1 at 0, flat at +-1 from +-1.5. No division: the ESP32-S3's FPU has none (a float division there is a
 // library call, __divsf3, dozens of cycles). Avoid `/` in a sample loop: multiply by an inverse computed once a block.
-inline float soft_clip(float x) {
+inline SC_HOT float soft_clip(float x) {
     if (x > 1.5f) return 1.f;
     if (x < -1.5f) return -1.f;
     return x - 0.148148148f * x * x * x;                                                // x - 4/27 x^3
@@ -46,7 +47,7 @@ inline float soft_clip(float x) {
 
 // 2^x and log2(x) from the float's bits and a polynomial: about 20 cycles where exp2f / log2f / powf cost a few hundred. Errors: 2^x
 // 5e-6 relative (0.01 cent of pitch), log2 3e-5 (0.0002 dB). For envelopes, pitch, gains in dB, x^y = fast_exp2(y * fast_log2(x)).
-inline float fast_exp2(float x) {
+inline SC_HOT float fast_exp2(float x) {
     x = clampf(x, -126.f, 126.f);
     int i = static_cast<int>(x);
     if (x < static_cast<float>(i)) i--;                                                 // floor
@@ -59,7 +60,7 @@ inline float fast_exp2(float x) {
     std::memcpy(&y, &bits, 4);
     return y;
 }
-inline float fast_log2(float x) {                                                       // x > 0 (smaller gives -126)
+inline SC_HOT float fast_log2(float x) {                                                // x > 0 (smaller gives -126)
     if (!(x > 1e-37f)) return -126.f;
     int32_t bits;
     std::memcpy(&bits, &x, 4);
@@ -81,7 +82,7 @@ inline float fast_tan(float w) {
 }
 
 // The correction that takes the aliasing out of a jump in a waveform (PolyBLEP): t the phase 0..1, dt the phase step per sample.
-inline float poly_blep(float t, float dt) {
+inline SC_HOT float poly_blep(float t, float dt) {
     if (t < dt) { t /= dt; return t + t - t * t - 1.f; }
     if (t > 1.f - dt) { t = (t - 1.f) / dt; return t * t + t + t + 1.f; }
     return 0.f;
@@ -109,7 +110,7 @@ struct Osc {
 struct Svf {
     float ic1 = 0.f, ic2 = 0.f, g = 0.f, k = 2.f, a1 = 0.f, a2 = 0.f, a3 = 0.f;
     float lp = 0.f, bp = 0.f, hp = 0.f;
-    void set(float hz, float res, float sr) { set_g(tanf(kPi * clampf(hz, 10.f, sr * 0.45f) / sr), res); }
+    SC_HOT void set(float hz, float res, float sr) { set_g(tanf(kPi * clampf(hz, 10.f, sr * 0.45f) / sr), res); }
     // The same with g = tan(pi hz / sr) given (fast_tan, for a cutoff that moves every block: no libm call; one division)
     void set_g(float g_, float res) {
         g = g_;
@@ -205,8 +206,9 @@ struct DcBlock {
     void flush() { mod::flush(x1); mod::flush(y1); }
 };
 
-// The per-sample multiplier that falls by 1/e in `ms` (an exponential's speed).
-inline float decay_coef(float ms, float sr) { return expf(-1000.f / (clampf(ms, 0.05f, 60000.f) * sr)); }
+// The per-sample multiplier that falls by 1/e in `ms` (an exponential's speed). fast_exp2, not expf: the C library's code sits in flash,
+// and a call each block cost 1 000 to 3 000 cycles when the screen had just evicted it from the cache (2026-11-15; 1442.695 = 1000 / ln 2).
+inline SC_HOT float decay_coef(float ms, float sr) { return fast_exp2(-1442.695f / (clampf(ms, 0.05f, 60000.f) * sr)); }
 
 // ADSR, analog style: the attack rises towards 1.3 and stops at 1 (a curve, not a line), decay and release fall exponentially.
 // set() once a block (times in ms, sustain 0..1); next() once a sample.

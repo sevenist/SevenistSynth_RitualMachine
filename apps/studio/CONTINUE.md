@@ -142,3 +142,52 @@ compiled. Not tried by hand. My choices to confirm:
 - With Macros, an exported synth has **only** them: a raw value the player should keep needs a Macro of its own (target at its
   min, depth 1: the whole range).
 - One Macro is one area: a Macro of the VOICE area cannot reach the FX (cables stay in their area).
+
+**2026-11-15: the user's note, the voice count and a cycles wallet** (for later, or this session): "the voice count will be locked by
+the patch designer according to estimation of budget ... make measurements of cycles per block to estimate a cost per module, and
+add to the ui a "cycles wallet" to help the designer to budget for voice count". Not started. The plan:
+- [x] **Done 2026-11-15** (HWV1; the table: `framework/modular/module_costs.h`, `mod::module_cost(name)`, `mod::kBoardCost`; how:
+      apps/synthlab README "The modules' bench"). The modules' code is in internal RAM on the board (SC_HOT), so a voice pays `cycles`.
+      Engine 7 691 a block + 3 310 a voice; a generated voice's own work 915; a modulation cable 270 (Lin) / 1 534 (Exp).
+      The plan as written: **Measure on the board:** a dev build of SynthLab (a build flag, as the Ritual Machine's HWV1_BENCH) that runs each catalog
+      module's process on a 32-frame block, with its default values, from the memory the engine would give it, and prints cycles per
+      block per module over serial (and the engine's own fixed cost: NoteIn, the voice mix, MasterOut, the codec task). The user
+      flashes it in VS Code; the table goes into the repo (framework/modular, a cost per ModuleDef, with the chip and the date). A cost
+      that depends on a value (a Delay's length in PSRAM, a filter's mode, Unison's count) is measured at its worst.
+- [x] **The wallet in the PATCH tab** (2026-11-15): the strip above the canvas (`draw_wallet`, `modular/cost.h`): the bar (engine,
+      a slice per voice, FX; amber > 75 %, red > 90 %; a tick at the slowest values), each module's cost in its header. Screenshots
+      looked right at 800 x 480 and 1200 x 700. **Not tried by hand.**
+- [x] **The voice count locked by the designer**: `Patch::voices` (the stepper, a `voices` line in the `.patch`), Export > Synth ->
+      `lab::Options::voices` -> the engine's allocator cap (`set_voice_mode(..., max_voices)`); the Modular synth plays it too.
+- [x] **The estimate checked on the board** (HWV1): the default patch exported at 3 voices, put in the bench build for the measure
+      (then taken out): 68 512 estimated, 69 408 measured (1.3 %); 6 notes held played 3 voices.
+- [ ] The fast heap the same way (a memory wallet): LabVoice gives each voice the largest Voice of all the synths, so the memory is
+      the firmware's, not the patch's alone. To design with the user.
+- [ ] HWV2's budget (48 kHz: 160 000): the table is HWV1's (44.1 kHz). Cycles per block barely depend on the rate; the wallet uses
+      the measured board's budget. A board choice in the wallet, or a bench run on HWV2, when the user asks.
+
+**2026-11-15: the user's next batch** ("both prototypes at 44.1 kHz; optimize the envelopes and the main osc; remove redundant modules,
+keep the optimized or lightweight ones; implement the last remaining modules for the esp32 (hwv1 for now); unify all modules; add a
+switch group module"). The user's choices: unify = merge the float and the engine (q15) catalogs, each function one entry with its
+implementation as an option, the cheaper one by default (the user will pick per function later); ESP32 = the RM modules usable in an
+exported synth on the board; sound changes of the optimizations: free; switch group: both a bypass container and a selector.
+- [x] 44.1 kHz on HWV2 (SynthLab, TechnoGen; the Ritual Machine already was): one budget for both prototypes.
+- [x] Osc 8 160 -> 2 047, ADSR 2 365 -> 1 573, Perc 7 742 -> 2 022, LFO 3 151 -> 1 529 (HWV1, cycles a block); decay_coef without expf.
+      Not heard yet by the user.
+- [x] The 33 engine modules measured through the adapter (hwv1_bench_rm), in module_costs.h: hosted, each costs more than its float
+      counterpart (the q15 <-> float conversion, about 1 300 a module): RMOsc 4 836 / Osc 2 047, RMEnv 4 216 / ADSR 1 573, RMFilter
+      7 736 / Filter 1 711, RMVca 3 040 / VCA 446, RMDelay 18 050 / Delay 2 212; RMReverb 63 407.
+- [x] **Direction chosen (2026-11-15): the engine is the one module system** (ADR-049 addendum 7). The user: "rewrite the
+      functionally new modules to match those of the Ritual Machine engine and keep the new functionalities"; "wrapper first".
+      Done: modular/engine_modules.h, every catalog module an engine type "F<name>", null-tested (-66..-99 dB).
+- [ ] Next on that road: Export > Engine writes a float module as its F type where the engine has none (no more "the engine lacks");
+      SynthLab plays an exported engine graph, registering only its types (register_modular_type); measure the F types natively on
+      the board (ENGINE_PROFILE in a graph); then the merged catalog (a choice per function, the cheaper by default).
+- [ ] (Superseded by the above) RM modules in an exported synth on the board. Blocker found: the engine's families linked into SynthLab put all their code in
+      internal RAM (SC_HOT) and SynthLab's own 64 KB fast heap no longer fits (the bench saw 83 KB free). Options to put to the user:
+      register only the types a synth uses (a registry per exported synth; families split), or those modules' code from flash
+      (ENGINE_NO_IRAM for them: slower, cold misses), or a smaller fast heap.
+- [ ] The merged catalog: one palette entry per function (pairs by ModuleDef::engine), an implementation choice in the inspector
+      (values mapped by name), the cheaper by the table as default.
+- [ ] The switch group: a bypass container (In -> Out, its modules skipped) and a selector (one of N groups plays); the switch a
+      synth parameter like a Macro (the layout shows it as a switch, a list or a knob).

@@ -2,6 +2,16 @@
 
 The library's changes: [framework/CHANGELOG.md](../../framework/CHANGELOG.md).
 
+## 2026-11-15: on the first prototype (HWV1)
+
+- **SynthLab runs on HWV1** (environment `hwv1`, the engine at 44.1 kHz as the Ritual Machine there), to hear the sounds on the
+  hardware while HWV2 waits for its codec. Pot 0 and pot 1 are encoders A and B, the joystick's push is encoder B's push (a value's
+  default; on the synth row, the sound read again from the card), the stick up is PLAY, down goes back to the synth row. The 32 keys
+  play notes (8 a row), F1..F4 as on HWV2. No VOLUME: the firmware's level.
+- For developers: the app still finds its controls by kind and name (`src/app.cpp`): a board without encoder pushes uses its first
+  button for B's push, and without PLAY or A's push the joystick's Y. `app_start` sizes the key matrix afresh each time. The tests
+  play the app on HWV1's table too (`stub_use_controls`, `framework/tests/stubs/stub_hwv2.h`).
+
 ## 2026-11-15: sounds from the card
 
 - **SynthLab Studio's sounds play on the board.** Copy `<Synth>.sound` from `apps/studio/presets/` to the card's `synthlab/sounds/`:

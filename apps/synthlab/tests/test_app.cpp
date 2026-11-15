@@ -9,6 +9,7 @@
 #include "lab.h"
 #include "synth.h"
 #include "host/png.h"
+#include "boards/hwv1/hwv1_controls.h"
 #include "tests/stubs/stub_hwv2.h"
 #include "tests/test.h"
 #include "ui/canvas.h"
@@ -249,5 +250,35 @@ void test_app() {
     CHECK(synth_value(0) == b.params[0].min, "the card out: nothing read (%g)", synth_value(0));
     shot("build/screen_no_card.png");
     stub_card_clear();
+
+    // the same app on HWV1's controls (framework/boards/hwv1/hwv1_controls.h): no encoders, no PLAY: pots 0 / 1 are encoders A / B, the
+    // joystick's push is B's push, the stick up PLAY, down back to the top
+    stub_use_controls(kHwv1Controls, HWV1_CONTROL_COUNT);
+    app_start(canvas_u8g2(&screen));
+    turn(HWV1_POT_1, -50);                                       // the first synth
+    CHECK(synth_selected() == 0, "HWV1: pot 1 on the synth row picks the synth (%d)", synth_selected());
+    turn(HWV1_POT_0, 1);
+    turn(HWV1_POT_1, 3);
+    CHECK(synth_value(0) == b.params[0].def + 3 || synth_value(0) == b.params[0].max, "HWV1: pot 0 the row, pot 1 its value (%g)", synth_value(0));
+    push(HWV1_JOY_SW);
+    CHECK(synth_value(0) == b.params[0].def, "HWV1: the joystick's push, the value's default (%g)", synth_value(0));
+    send(HWV1_KEY(4, 0), IN_PRESS);
+    send(HWV1_KEY(4, 0), IN_RELEASE);
+    for (int i = 0; i < 20000 && synth_active_voices() > 0; i++) { synth_render(buf, 64); synth_update(); }
+    send(HWV1_JOY_Y, IN_VALUE, 0);                               // up: PLAY holds the last note
+    for (int i = 0; i < 4; i++) synth_render(buf, 64);
+    CHECK(synth_active_voices() == 1, "HWV1: the stick up holds the note (%d voice)", synth_active_voices());
+    send(HWV1_JOY_Y, IN_VALUE, 100);                             // (still up: nothing more)
+    send(HWV1_JOY_Y, IN_VALUE, INPUT_AXIS_CENTER);
+    send(HWV1_JOY_Y, IN_VALUE, 0);                               // up again: lets it go
+    for (int i = 0; i < 20000 && synth_active_voices() > 0; i++) { synth_render(buf, 64); synth_update(); }
+    CHECK(synth_active_voices() == 0, "HWV1: up again lets it go (%d)", synth_active_voices());
+    send(HWV1_JOY_Y, IN_VALUE, INPUT_VALUE_MAX);                 // down: back to the synth row
+    turn(HWV1_POT_1, 1);
+    CHECK(synth_selected() == (lab::kSynthCount > 1 ? 1 : 0), "HWV1: the stick down goes back to the synth row (%d)", synth_selected());
+    shot("build/screen_hwv1.png");
+    send(HWV1_JOY_Y, IN_VALUE, INPUT_AXIS_CENTER);
+    stub_use_controls(nullptr, 0);
+    app_start(canvas_u8g2(&screen));
     synth_shutdown();
 }

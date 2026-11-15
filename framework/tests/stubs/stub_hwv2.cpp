@@ -16,7 +16,15 @@ extern "C" void display_send_rgb565(const uint16_t *frame) {
     stub_frames++;
 }
 extern "C" void display_send(u8g2_t *) { stub_frames++; }
-extern "C" const input_control_t *input_controls(int *count) { if (count) *count = HWV2_CONTROL_COUNT; return kHwv2Controls; }
+namespace {
+const input_control_t *g_table = nullptr;       // stub_use_controls (nullptr: HWV2's)
+int g_table_n = 0;
+}  // namespace
+void stub_use_controls(const input_control_t *table, int count) { g_table = table; g_table_n = count; }
+extern "C" const input_control_t *input_controls(int *count) {
+    if (count) *count = g_table ? g_table_n : HWV2_CONTROL_COUNT;
+    return g_table ? g_table : kHwv2Controls;
+}
 
 led_color_t stub_leds[HWV2_CONTROL_COUNT];
 int stub_led_shows = 0;

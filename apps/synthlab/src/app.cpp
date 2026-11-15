@@ -19,9 +19,12 @@
 //
 // The board's controls are found in its table (hal/hal_input.h), not by id: encoder A and B are the first two encoders (the first two
 // endless pots on a board without encoders), their pushes the buttons at the same place, PLAY and VOLUME by name. So the app runs on
-// any board of the library.
+// any board of the library. A board without them (HWV1: seven endless pots, a joystick, no PLAY, no VOLUME) uses what it has: encoder
+// B's push is its first button (HWV1: the joystick's push); the joystick's Y pushed up is PLAY, pushed down encoder A's push (back to
+// the top); no VOLUME: the level the firmware starts with.
 #include "app.h"
 #include <cmath>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include "control/preset.h"
@@ -38,6 +41,8 @@ int n_controls = 0;
 int key_rows = 0, key_cols = 0;             // the board's key matrix: row 0 is the function row, the last the lowest notes
 int enc_a = INPUT_NO_CONTROL, enc_b = INPUT_NO_CONTROL, push_a = INPUT_NO_CONTROL, push_b = INPUT_NO_CONTROL;
 int play_btn = INPUT_NO_CONTROL, volume_knob = INPUT_NO_CONTROL;
+int joy_y = INPUT_NO_CONTROL;               // a board without PLAY or encoder A's push: the joystick's Y (up: PLAY, down: back to the top)
+int joy_dir = 0;                            // where that stick is: +1 up, -1 down, 0 back near the centre
 
 constexpr int kRowsMax = 8, kColsMax = 8;   // the largest key matrix this app plays (a key outside it does nothing)
 uint8_t held[kRowsMax][kColsMax];           // note + 1 a key started, so its release stops the same note after an octave change
@@ -141,6 +146,19 @@ void select_synth(int index) {                      // (beyond the ends of the l
     while (is_title(row)) row--;                    // (row 0, the synth, is never a title)
 }
 
+// PLAY: holds the last note played, or lets it go; a synth with a tempo loops it instead (and stops the loop).
+void play() {
+    if (cur().opt.play_bpm > 0) {
+        if (synth_looping()) synth_loop_stop();
+        else synth_loop_start(last_note, cur().opt.play_bpm);
+    } else if (hold_note >= 0) {
+        release_hold();
+    } else {
+        hold_note = last_note;
+        synth_note_on(hold_note);
+    }
+}
+
 void edit(int detents) {
     if (row == 0) { select_synth(synth_selected() + detents); return; }
     if (is_title(row)) return;
@@ -178,6 +196,8 @@ const char *app_name() { return APP_NAME; }
 void app_start(u8g2_t *display) {
     g = display;
     controls = input_controls(&n_controls);
+    key_rows = key_cols = 0;
+    joy_dir = 0;
     for (int i = 0; i < n_controls; i++) {
         if (controls[i].kind != CK_KEY) continue;
         if (controls[i].row >= key_rows) key_rows = controls[i].row + 1;
@@ -190,6 +210,8 @@ void app_start(u8g2_t *display) {
     push_b = find_push(enc_b);
     play_btn = find_named("PLAY");
     volume_knob = find_named("VOLUME");
+    if (push_b == INPUT_NO_CONTROL) push_b = find_control(CK_BUTTON, 0);
+    if (play_btn == INPUT_NO_CONTROL || push_a == INPUT_NO_CONTROL) joy_y = find_control(CK_AXIS, 1);   // (the second axis: Y)
     gui_style_init(&style, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
     storage_set_folders(kFolders, 2);
     dirty = true;
@@ -211,15 +233,17 @@ void app_event(const input_event_t &e) {
         if (row == 0) read_sound();
         else if (!is_title(row)) synth_set_value(row - 1, cur().params[row - 1].def);
     } else if (e.kind == IN_PRESS && e.ctl == play_btn) {
-        if (cur().opt.play_bpm > 0) {               // the synth's loop
-            if (synth_looping()) synth_loop_stop();
-            else synth_loop_start(last_note, cur().opt.play_bpm);
-        } else if (hold_note >= 0) {
-            release_hold();
-        } else {
-            hold_note = last_note;
-            synth_note_on(hold_note);
-        }
+        play();
+    } else if (e.kind == IN_VALUE && e.ctl == joy_y) {
+        // the stick: up past a third of its travel, or down; back within a sixth of the centre it is free again (one action a push)
+        const int d = INPUT_AXIS_CENTER - e.value, third = INPUT_VALUE_MAX / 3;       // up = positive (a low Y is the stick pushed up)
+        const int dir = d > third ? 1 : d < -third ? -1 : (std::abs(d) < INPUT_VALUE_MAX / 6 ? 0 : joy_dir);
+        if (dir == joy_dir) return;
+        joy_dir = dir;
+        if (dir > 0 && play_btn == INPUT_NO_CONTROL) play();
+        else if (dir < 0 && push_a == INPUT_NO_CONTROL) row = 0;
+        else return;
+        if (status[0]) status[0] = 0;
     } else if (e.kind == IN_VALUE && e.ctl == volume_knob) {
         synth_set_volume(static_cast<float>(e.value) / INPUT_VALUE_MAX);
         return;                                     // (nothing on screen changes)

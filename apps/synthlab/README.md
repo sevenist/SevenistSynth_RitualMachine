@@ -4,7 +4,8 @@ A workbench for home-made synths and oscillator algorithms on the SevenSynthCore
 synths, each made for one kind of sound. Every synth is one file of plain float C++: a list of parameters and a voice. The screen is a list
 of the synth's parameters with their values. Encoder A picks a row and encoder B changes it.
 
-Made for the second prototype (HWV2, GRV-mini: 128 x 160 screen, two encoders, 16 keys); it runs on the desktop first.
+Made for the second prototype (HWV2, GRV-mini: 128 x 160 screen, two encoders, 16 keys); it also runs on the first one (HWV1: 128 x 128
+screen, seven pots, a joystick, 32 keys), and on the desktop first.
 
 The synths, what each is for and how it works: [docs/SYNTHS.md](docs/SYNTHS.md), the design notebook. What changed:
 [CHANGELOG.md](CHANGELOG.md); the state and the todo: [CONTINUE.md](CONTINUE.md).
@@ -20,19 +21,21 @@ From the repo root:
 ```
 
 The firmware: open `oled_sim.code-workspace` in VS Code, pick the folder `synthlab` in the PlatformIO status bar, build and upload
-(environment `hwv2`). From a shell, only `C:\.platformio\penv\Scripts\pio.exe run -d apps/synthlab`, never a bare `pio`.
+(environment `hwv2`, or `hwv1` for the first prototype: the engine at 44.1 kHz there). From a shell, only
+`C:\.platformio\penv\Scripts\pio.exe run -d apps/synthlab -e hwv1`, never a bare `pio`. The desktop program drawn as HWV1:
+`.\apps\synthlab\build.ps1 -Board hwv1`, then `.\apps\synthlab\build\synthlab_hwv1.exe` from `apps/synthlab`.
 
 ## The controls
 
-| Control | On the desktop | What it does |
-| --- | --- | --- |
-| Encoder A | `[` / `]` | the row: the synth, then its parameters (it steps over the sections' titles). **Push** (`\`): back to the top |
-| Encoder B | `;` / `'` | the row's value: the synth, or the parameter. **Push** (`/`): the parameter's default; on the synth row, its sound read again from the card |
-| The 16 keys | `1`..`4`, `Q`..`R`, `A`..`F`, `Z`..`V` (by position) | notes: bottom left = C3, +1 to the right, +4 per row up |
-| F1 / F2 | `F1` / `F2` | octave down / up |
-| F3 / F4 | `F3` / `F4` | the previous / next synth |
-| PLAY | `Space` | holds the last note played, so you can turn values while it sounds. Press again to let it go. On a synth with a tempo (the Kick: 135 BPM) it loops a hit on every beat instead; a key changes the note it repeats, the bar shows the tempo. On a synth with grooves (DrumLab) it loops the Groove row's pattern at the Tempo row's BPM |
-| VOLUME | the mouse, on the panel | the master volume |
+| Control | On the desktop | On HWV1 | What it does |
+| --- | --- | --- | --- |
+| Encoder A | `[` / `]` | pot 0 (top row, left) | the row: the synth, then its parameters (it steps over the sections' titles). **Push** (`\`; HWV1: the joystick down): back to the top |
+| Encoder B | `;` / `'` | pot 1 (top row, middle) | the row's value: the synth, or the parameter. **Push** (`/`; HWV1: the joystick's push): the parameter's default; on the synth row, its sound read again from the card |
+| The keys | `1`..`4`, `Q`..`R`, `A`..`F`, `Z`..`V` (by position) | the 32 keys | notes: bottom left = C3, +1 to the right, + the row's length per row up (HWV2: 4, HWV1: 8) |
+| F1 / F2 | `F1` / `F2` | F1 / F2 | octave down / up |
+| F3 / F4 | `F3` / `F4` | F3 / F4 | the previous / next synth |
+| PLAY | `Space` | the joystick up | holds the last note played, so you can turn values while it sounds. Press again to let it go. On a synth with a tempo (the Kick: 135 BPM) it loops a hit on every beat instead; a key changes the note it repeats, the bar shows the tempo. On a synth with grooves (DrumLab) it loops the Groove row's pattern at the Tempo row's BPM |
+| VOLUME | the mouse, on the panel | (none: the firmware's level, 25 %) | the master volume |
 
 The panel window writes each part's PC keys on it. The keys are named by their position on a QWERTY keyboard: on AZERTY, `Q` is the key
 labelled A.

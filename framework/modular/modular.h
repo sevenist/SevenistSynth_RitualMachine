@@ -80,7 +80,7 @@ struct IO {
 
 struct ModuleDef {
     const char *name;                   // no spaces: "Osc", "Filter"
-    const char *category;               // "In / Out", "Sources", "Envelopes", "Filters", "Shapers", "Utilities", "Math", "Effects"
+    const char *category;               // "In / Out", "Macros", "Sources", "Envelopes", "Filters", "Shapers", "Utilities", "Math", "Effects"
     const char *doc;                    // one line: what it does (shown in the studio)
     Scope scope;
     uint8_t n_in, n_out, n_param;

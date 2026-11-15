@@ -474,6 +474,13 @@ struct ConstM {
     void process(const Ctx &, const IO &io) { for (int i = 0; i < io.frames; i++) io.out[0][i] = io.p[0]; }
 };
 
+// A knob for the player of the synth made from the patch: its Value (0..100 %) out as 0..1, steady. Cabled onto values (modulation
+// cables), and onto other Macros' Values: a Macro that drives Macros is a layer. An exported synth's parameters are the patch's Macros.
+struct MacroM {
+    void start(const Ctx &) {}
+    void process(const Ctx &, const IO &io) { const float v = io.p[0] * 0.01f; for (int i = 0; i < io.frames; i++) io.out[0][i] = v; }
+};
+
 /* ---- math: signals as numbers (audio, control and pitch alike) ---- */
 
 // Two signals into one: A op B, where B is the B input plus the B value (nothing plugged into B: the B value alone, a constant).

@@ -161,7 +161,7 @@ static inline int pset_to_text(const pset_sound_t *s, const char *title, char *b
                 const int j = mac_of(&d->t);
                 if (j >= 0) {
                     pset__add(buf, cap, &n, "link %d %.3f %.3f %s\n", j + 1, (double)d->min, (double)d->max, crv_name(d->curve));
-                } else if (d->t.kind == PSET_KIND_VALUE) {
+                } else if (d->t.kind == PSET_KIND_VALUE && d->t.prm < s->n) {   /* (beyond the list: not written) */
                     pset_quote_path(s->params, s->n, d->t.prm, path, sizeof path);
                     pset__add(buf, cap, &n, "dest %s %.3f %.3f %s\n", path, (double)d->min, (double)d->max, crv_name(d->curve));
                 }

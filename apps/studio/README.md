@@ -112,6 +112,10 @@ The status line at the bottom says what the control under the pointer is and wha
 - **Math** (the list's Math kind): Math (A op B: + - x, min, max, mean, |A-B|, A>B), Func (abs, -x, 1-x, powers, sqrt, sign, half
   rectify, quantize / floor to Steps a unit, wrap), Range (a range converter: InLo..InHi onto OutLo..OutHi, a curve, clamp; by
   default -1..1 onto 0..1) and Slew (a lag: glide, smoothing). Signals are numbers here: audio, envelopes and pitch (octaves) alike.
+- **Macros** (the list's Macros kind): the synth's parameters for its player. A Macro is a knob (Value 0..100 %, out as 0..1):
+  drag from its Out onto values to move them, or onto another Macro's Value (a layer: one Macro that turns others). Its name is the
+  parameter's (the inspector's Rename; names must differ). The Macros come first in the Modular synth's values (`MACROS/<name>`),
+  and **Export > Synth of a patch with Macros keeps them alone**: every other value is fixed in the generated code as the patch has it.
 - **A module:** click its header to select it (Ctrl / Shift click: add it to the selection or take it away), drag the header to
   move the selection; its x removes it. Its values are rows: drag sideways (Shift: finer), use the wheel or the arrows when
   focused; a double click sets the default.
@@ -143,11 +147,12 @@ The status line at the bottom says what the control under the pointer is and wha
     Modular synth's (`Osc 2/Tune`), so a sound made on the patch is its sound too: the export also writes `presets/<name>.sound`
     (these values, the macros, the sound's name) when there is none yet, so the synth starts as the patch sounded; then SOUND >
     EXPORT > To the card takes it to the board. A patch of more than 128 values (a title per module included) is refused: the
-    board's synths have 128 at most.
+    board's synths have 128 at most. A patch with Macros exports its Macros alone (and its sound their values alone); two Macros
+    of one name are refused.
   - **Engine** writes `apps/studio/exports/<name>_graph.cpp`: a function that builds the patch as the engine's graph, values
     converted, notes on the approximations, and at the end the modules the engine lacks with their values and cables.
   - **Patch file** writes `apps/studio/exports/<name>.patch`.
-- The Modular synth's values are the patch's (a section per module: "Osc 2", "Filter 3" ...): the SOUND tab's knobs and macros
+- The Modular synth's values are the patch's (its Macros in MACROS, then a section per module: "Osc 2", "Filter 3" ...): the SOUND tab's knobs and macros
   and the LAYOUT tab work on it. After a change of modules, the macros and the layout keep the values whose module is still
   there.
 

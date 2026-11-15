@@ -2,6 +2,15 @@
 
 The library's changes: [framework/CHANGELOG.md](../../framework/CHANGELOG.md).
 
+## 2026-11-15: Macros in the patch
+
+- **A Macro module** (PATCH, the list's Macros kind): a named knob, Value 0..100 % out as 0..1. Cable it onto values, or onto
+  another Macro (a layer). The inspector renames it (a name another Macro has, or none, is refused).
+- The Modular synth lists the Macros first, `MACROS/<name>`, then the modules as before.
+- **Export > Synth of a patch with Macros**: the synth's values are its Macros alone, everything else fixed in the generated code (the
+  synth's player gets abstract parameters); its sound keeps the Macros' values alone. Twins are refused. Export > Engine writes a Macro
+  as the engine's Const.
+
 ## 2026-11-15: the library keeps Basic
 
 - The library of SynthLab synths rebuilt from modules (`apps/studio/library/`) keeps Basic only: FM2's and the Kick's rebuilds are

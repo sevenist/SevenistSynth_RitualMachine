@@ -132,3 +132,13 @@ Next, from the first version (to propose to the user):
 - [ ] The board reading `.layout` / `.sound` (SynthLab's screen drawn by `layout_draw`; the macros on the HWV2 knobs).
 - [ ] The Ritual Machine's engines in the layout editor (needs its screens as data: `ui_screen.h`'s layout callbacks).
 - [ ] Undo; several sounds per synth; user curves.
+
+**2026-11-15: Macros as modules** (the user: "create macros as modules, just to have parameter layers inside the engine (the goal
+is to create abstracted parameters for the end user of generated synth)"). Done, ADR-049 addendum 5: the Macro module, its name, the
+MACROS section first in the list, Export > Synth of a patch with Macros keeps them alone. Self-test 6741; a generated Macro synth
+compiled. Not tried by hand. My choices to confirm:
+- A Macro is 0..100 % and acts through modulation cables (added to the target's own value, linear along its range): a curve or a
+  range of its own needs Func / Range in between.
+- With Macros, an exported synth has **only** them: a raw value the player should keep needs a Macro of its own (target at its
+  min, depth 1: the whole range).
+- One Macro is one area: a Macro of the VOICE area cannot reach the FX (cables stay in their area).

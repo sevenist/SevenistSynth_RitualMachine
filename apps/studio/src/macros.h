@@ -54,7 +54,7 @@ void  macro_apply(const lab::Synth &s, MacroSet &set, int k);
 
 // A sound's text (framework/control/preset.h) as a string, `title` its first comment.
 std::string sound_text(const pset_sound_t &ps, const std::string &title);
-std::string macros_to_text(const lab::Synth &s, const MacroSet &set);
+std::string macros_to_text(const lab::Synth &s, const MacroSet &set, int n_values = -1);   // n_values: the list's first ones only
 // Replaces `set` with the text's macros. Destinations whose value the synth does not have, and links that would loop, are dropped
 // (counted in *dropped).
 bool macros_from_text(const lab::Synth &s, MacroSet &set, const char *text, int *dropped = nullptr);

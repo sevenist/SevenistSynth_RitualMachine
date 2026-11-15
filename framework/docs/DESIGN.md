@@ -967,6 +967,25 @@ Chosen by me while building (say if one is wrong):
     right click opens a menu (drawn over the tab; what is under it does not take the pointer) instead of removing at once.
   - Checked: the self-test (6715: the four modules on known blocks, the names, a zone, Ctrl+C / V, Delete, a group drag, Ctrl+D,
     Ctrl+A, Esc, the menu's remove); a screenshot of the names and the Math modules. Not tried by hand.
+- **Addendum 5 (2026-11-15): Macros as modules.** The user: "create macros as modules, just to have parameter layers inside the
+  engine (the goal is to create abstracted parameters for the end user of generated synth)".
+  - A **Macro** module (a kind of its own, Macros): one value, Value 0..100 %, out as 0..1, no input. Its Out goes onto values by
+    modulation cables, and onto other Macros' Values: a Macro that drives Macros is a layer (the runner already orders a module after
+    what it listens to, so a chain of layers is one block deep).
+  - A Macro has a **name** (`Node::name`, written `node 7 voice Macro 20 200 "Punch" Value=40`; an older reader skips the word), or
+    is "Macro <id>". The names must differ (case aside): the PATCH tab's Rename refuses a twin, Export > Synth refuses a file with twins.
+  - **The list:** the Macros come first, in a section MACROS, one row each named by its Macro (`MACROS/Punch`), then a section per
+    other module as before (`patch_slots`). **An exported synth of a patch with Macros has the MACROS section alone**: every other
+    value is written into the code as the patch has it. The same indexes and names in both, so the patch's sound loads on the
+    exported synth (Export > Synth's sound keeps the Macros' values alone). A patch without Macros exports as before.
+  - Why the patch's own modules and not the SOUND tab's macros (`control/macro.h`): those belong to a sound (they are in the
+    `.sound`, they set values absolutely); these are part of the synth's design (in the `.patch`, and the generated code), what its
+    player gets as its parameters. The SOUND tab's macros still work on the Modular synth, Macros included.
+  - Export > Engine writes a Macro as the engine's Const (its Value in q15). A Macro's response is the modulation cable's (its
+    target moved along its range by depth x Value, from the target's own value); a curve goes through Func / Range on the way.
+  - Checked: the self-test (6741: a two-layer chain on known values, from the patch and from the list; the names through the text;
+    the list's MACROS rows; Rename's refusals; the exported list, its fixed values, its sound; the engine's Const; twins refused); a
+    generated Macro synth compiled with -Wall -Wextra. Not tried by hand.
 
 ## Known limits and ideas for later
 

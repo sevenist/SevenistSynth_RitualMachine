@@ -1,6 +1,7 @@
 // A patch, its text form and its runner (patch.h).
 #include "modular/patch.h"
 #include "modular/mdsp.h"
+#include <cctype>
 #include <cmath>
 #include <cstdarg>
 #include <cstdio>
@@ -111,9 +112,45 @@ void node_title(const Patch &p, int index, char *out, size_t size) {
     else std::snprintf(out, size, "%s", d->name);
 }
 
+bool is_macro(const Node &n) { return n.def && !std::strcmp(n.def->name, "Macro"); }
+
+void macro_name(const Node &n, char *out, size_t size) {
+    if (n.name[0]) std::snprintf(out, size, "%s", n.name);
+    else std::snprintf(out, size, "Macro %d", n.id);
+}
+
+int macro_count(const Patch &p) {
+    int k = 0;
+    for (int i = 0; i < p.n_nodes; i++) if (is_macro(p.node[i])) k++;
+    return k;
+}
+
+int macro_twin(const Patch &p) {
+    char a[24], b[24];
+    for (int i = 0; i < p.n_nodes; i++) {
+        if (!is_macro(p.node[i])) continue;
+        macro_name(p.node[i], a, sizeof a);
+        for (int j = 0; j < i; j++) {
+            if (!is_macro(p.node[j])) continue;
+            macro_name(p.node[j], b, sizeof b);
+            const char *x = a, *y = b;
+            while (*x && *y && std::tolower(static_cast<unsigned char>(*x)) == std::tolower(static_cast<unsigned char>(*y))) { x++; y++; }
+            if (!*x && !*y) return i;
+        }
+    }
+    return -1;
+}
+
 int patch_slots(const Patch &p, int *base) {
     int n = 0;
+    for (int i = 0; i < p.n_nodes; i++) {               // the Macros: a section, a row each
+        if (!is_macro(p.node[i])) continue;
+        if (n == 0) n = 1;
+        base[i] = n - 1;
+        n++;
+    }
     for (int i = 0; i < p.n_nodes; i++) {
+        if (is_macro(p.node[i])) continue;
         const int need = 1 + p.node[i].def->n_param;
         if (n + need > kMaxSlots) { base[i] = -1; continue; }
         base[i] = n;
@@ -173,6 +210,7 @@ int patch_to_text(const Patch &p, char *buf, int cap) {
     for (int i = 0; i < p.n_nodes; i++) {
         const Node &n = p.node[i];
         o.add("node %d %s %s %d %d", n.id, n.area == kFxArea ? "fx" : "voice", n.def->name, n.x, n.y);
+        if (n.name[0]) o.add(" \"%s\"", n.name);
         for (int k = 0; k < n.def->n_param; k++) o.add(" %s=%g", n.def->param[k].name, static_cast<double>(n.v[k]));
         o.add("\n");
     }
@@ -219,7 +257,11 @@ bool patch_from_text(Patch &out, const char *text, char *err, int err_cap, int *
             n.x = static_cast<int16_t>(std::atoi(x));
             n.y = static_cast<int16_t>(std::atoi(y));
             for (int k = 0; k < d->n_param; k++) n.v[k] = d->param[k].def;
-            while (word(q, w, sizeof w)) {
+            for (;;) {
+                while (*q == ' ' || *q == '\t') q++;
+                const bool quoted = *q == '"';
+                if (!word(q, w, sizeof w)) break;
+                if (quoted) { std::snprintf(n.name, sizeof n.name, "%s", w); continue; }     // its name
                 char *eq = std::strchr(w, '=');
                 if (!eq) continue;
                 *eq = 0;

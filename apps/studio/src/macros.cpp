@@ -83,8 +83,9 @@ std::string sound_text(const pset_sound_t &ps, const std::string &title) {
     return out;
 }
 
-std::string macros_to_text(const lab::Synth &s, const MacroSet &set) {
-    const pset_sound_t ps = {s.params, s.n_params, nullptr, nullptr, nullptr, const_cast<mac_t *>(set.m), nullptr, 0};
+std::string macros_to_text(const lab::Synth &s, const MacroSet &set, int n_values) {
+    const int n = n_values >= 0 && n_values < s.n_params ? n_values : s.n_params;
+    const pset_sound_t ps = {s.params, n, nullptr, nullptr, nullptr, const_cast<mac_t *>(set.m), nullptr, 0};
     return sound_text(ps, std::string("SynthLab Studio macros: ") + s.name);
 }
 

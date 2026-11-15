@@ -43,6 +43,11 @@ const ModuleDef kOutput = {
     1, 1, 1, {"In"}, {kZero}, {"Out"}, {{"Level", 0, 100, 100, "%"}},
     "MasterOut", "the engine's MasterOut", MOD_OPS(OutM)};
 
+const ModuleDef kMacro = {
+    "Macro", "Macros", "A knob for the synth's player: Value out as 0..1. Cable it onto values, or onto another Macro (a layer). Exported: the Macros are the synth's parameters, the rest fixed", Scope::Both,
+    0, 1, 1, {}, {}, {"Out"}, {{"Value", 0, 100, 0, "%"}},
+    "Const", "new", MOD_OPS(MacroM)};
+
 const ModuleDef kOsc = {
     "Osc", "Sources", "Sine, triangle, saw, square (PolyBLEP); Pitch input in octaves x PMod / 12, FM input linear", Scope::Both,
     2, 1, 8, {"Pitch", "FM"}, {kZero, kZero}, {"Out"},
@@ -224,7 +229,7 @@ const ModuleDef kLimit = {
     nullptr, "kick.cpp output", MOD_OPS(LimitM)};
 
 const ModuleDef *const kCatalog[] = {
-    &kNote, &kVoiceOut, &kVoices, &kOutput,
+    &kNote, &kVoiceOut, &kVoices, &kOutput, &kMacro,
     &kOsc, &kOp, &kBody, &kNoise, &kMetal, &kRumble,
     &kAdsr, &kPerc, &kRatchet, &kLfo,
     &kFilter, &kEq3,

@@ -6,6 +6,7 @@
 // header: one more); the selection moves together, Ctrl+C / X / V / D copy, cut, paste, duplicate it with the cables inside it, Delete
 // removes it. Middle drag or Alt + drag looks around (or the wheel; Shift: sideways).
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -30,6 +31,7 @@ constexpr int kBoxW = 124, kHeadH = 13, kRowH = 10;
 bool inside(gui_rect_t r, int x, int y) { return x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h; }
 
 uint16_t category_color(const char *cat) {
+    if (!std::strcmp(cat, "Macros")) return CANVAS_HEX(0xF5C542);
     if (!std::strcmp(cat, "Sources")) return CANVAS_HEX(0xFFA14A);
     if (!std::strcmp(cat, "Envelopes")) return CANVAS_HEX(0x9BE36A);
     if (!std::strcmp(cat, "Filters")) return CANVAS_HEX(0x5ED6E8);
@@ -267,7 +269,8 @@ void draw_node(wg_ctx_t &c, const View &v, mod::Node &n, int idx) {
     const gui_rect_t head = gui_rect(b.x + 1, b.y + 1, b.w - 2, kHeadH - 1);
     wg_fill(&c, head, wg_mix(t.panel2, cat, 70));
     char title[24];
-    std::snprintf(title, sizeof title, "%s %d", d->name, n.id);
+    if (mod::is_macro(n)) mod::macro_name(n, title, sizeof title);
+    else std::snprintf(title, sizeof title, "%s %d", d->name, n.id);
     wg_text(&c, head.x + 3, head.y + 9, title, t.text);
 
     // the header: a click selects (Ctrl / Shift: adds or takes away), a drag moves the selection; its x removes the module
@@ -715,9 +718,21 @@ void draw_inspector(wg_ctx_t &c, gui_rect_t r) {
     }
     mod::Node &n = p.node[si];
     const mod::ModuleDef *d = n.def;
-    std::snprintf(text, sizeof text, "%s %d", d->name, n.id);
+    const bool macro = mod::is_macro(n);
+    const bool naming = macro && st.editing && st.edit_what == kEditNode && st.edit_node == n.id;
+    if (naming) std::snprintf(text, sizeof text, "%s_", st.edit_text.c_str());
+    else if (macro) mod::macro_name(n, text, sizeof text);
+    else std::snprintf(text, sizeof text, "%s %d", d->name, n.id);
     wg_fill(&c, gui_rect(r.x, r.y, r.w, 18), wg_mix(t.panel2, category_color(d->category), 70));
-    wg_text(&c, x, y + 1, text, t.text);
+    wg_text(&c, x, y + 1, text, naming ? t.accent : t.text);
+    if (macro) {                                    // a Macro's name: the exported synth's parameter
+        const int rid = WG_ID(F_PINSP, 404);
+        if (wg_button(&c, rid, gui_rect(r.x + r.w - 52, r.y + 2, 48, 14), naming ? "Done" : "Rename", naming)) {
+            if (naming) { st.editing = false; rename_macro(n.id, st.edit_text.c_str()); }
+            else { st.editing = true; st.edit_what = kEditNode; st.edit_node = n.id; st.edit_text = n.name; }
+        }
+        if (c.hot == rid) wg_set_hint(&c, "The Macro's name: the exported synth's parameter (MACROS/<name>); Enter keeps it, Esc drops it");
+    }
     y += 16;
     // its doc, cut into lines
     {
@@ -827,6 +842,26 @@ std::string patch_ident(const char *name) {               // "Hollow Kick" -> "h
 
 
 void patch_sync() { modular_pull_values(st.patch); }
+
+void rename_macro(int id, const char *name) {
+    mod::Node *n = st.patch.find(id);
+    if (!n || !mod::is_macro(*n)) return;
+    if (!name[0]) { message("A Macro needs a name"); return; }
+    for (int i = 0; i < st.patch.n_nodes; i++) {        // the synth's parameters need names of their own
+        const mod::Node &o = st.patch.node[i];
+        if (o.id == id || !mod::is_macro(o)) continue;
+        char other[24];
+        mod::macro_name(o, other, sizeof other);
+        const char *a = other, *b = name;
+        while (*a && *b && std::tolower(static_cast<unsigned char>(*a)) == std::tolower(static_cast<unsigned char>(*b))) { a++; b++; }
+        if (!*a && !*b) { message("Another Macro is named \"%s\"", other); return; }
+    }
+    std::snprintf(n->name, sizeof n->name, "%s", name);
+    // the same rows, a new name: what points at the list (the SOUND tab's macros, the layout) keeps its indexes
+    modular_publish(st.patch);
+    st.dirty[modular_index()] = true;
+    message("Macro %d is \"%s\": MACROS/%s in the list and in an exported synth", id, n->name, n->name);
+}
 
 void patch_apply() {
     const int mi = modular_index();

@@ -6,12 +6,14 @@
 //
 // The runner plays one area of a patch: it builds the modules in a block of memory the caller gives (a voice's), orders them (a module
 // after the ones it listens to; a loop is broken where it closes: the cable that closes it reads the block before) and runs them a block
-// at a time. The values come as a synth's list (patch_slots): a section per module, then its values, in the units shown.
+// at a time. The values come as a synth's list (patch_slots): the Macros first (a section MACROS, a row each, named by the Macro's name),
+// then a section per other module and its values, in the units shown.
 //
 // The text form (a .patch file):
 //   patch "Hollow Kick"
 //   node 1 voice Note 20 40                         id, area, module, x y (where the studio draws it)
 //   node 2 voice Body 180 40 Tune=48 Harm=10 ...    then its values by name (the ones not given: their defaults)
+//   node 7 voice Macro 20 200 "Punch" Value=40      a name in quotes (a Macro's: the synth's parameter)
 //   cable 1.Trig 3.Trig 1                           output -> input, depth
 //   mod 3.Env 2.Level 0.5                           output -> value, depth (-1..1)
 #include <cstddef>
@@ -33,6 +35,7 @@ struct Node {
     const ModuleDef *def = nullptr;
     float v[kMaxParams] = {};           // its values, in units
     int16_t x = 0, y = 0;               // where the studio draws it
+    char name[16] = "";                 // a Macro's name ("": "Macro <id>")
 };
 
 struct Cable {
@@ -66,8 +69,17 @@ bool fits_area(const ModuleDef *d, int area);      // its scope allows that area
 // "Osc 2": the module's name and its rank among the patch's modules of that kind (1 when it is the only one: "Osc").
 void node_title(const Patch &p, int index, char *out, size_t size);
 
-// The values as a synth's list: node k's section title at base[k], its values after it. Returns the list's length (at most kMaxSlots:
-// the modules beyond it get base -1, they play their defaults).
+// The Macros: a patch's parameters for the player of the synth made from it (the Macro module, modules.h MacroM).
+constexpr const char *kMacroSection = "MACROS";
+bool is_macro(const Node &n);
+void macro_name(const Node &n, char *out, size_t size);    // its name, or "Macro <id>"
+int  macro_count(const Patch &p);
+// The first Macro whose name is the same as another one's (case aside), -1: none (an exported synth needs them apart).
+int  macro_twin(const Patch &p);
+
+// The values as a synth's list. Value j of node k is at base[k] + 1 + j: the Macros first, in a section MACROS at 0 (the Macro's row at
+// base[k] + 1, named by macro_name), then a section per other module (its title at base[k]) and its values. Returns the list's length
+// (at most kMaxSlots: the modules beyond it get base -1, they play their values in the patch).
 int patch_slots(const Patch &p, int *base);
 
 // The text form (see above). to_text returns the length written (the text is cut at cap - 1); from_text replaces the patch (false: not a

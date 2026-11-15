@@ -19,6 +19,7 @@ The decisions behind it are [DESIGN.md](DESIGN.md) ADR-049.
 | --- | --- | --- | --- |
 | Note | the engine's NoteIn | NoteIn | -> Gate, Trig, Vel, Pitch (octaves over C4) |
 | VoiceOut / Voices / Output | the engine's VoiceOut, BusIn, MasterOut | the same | the ends of the two areas |
+| Macro | new: a named knob for the player of the synth made from the patch (below) | Const | -> Out (0..1) |
 | Osc | `mdsp.h` Osc (PolyBLEP) | Osc | Pitch, FM -> Out |
 | Op | FM2's operators (phase modulation, feedback, phase reset at each note) | none yet | PM -> Out |
 | Body | the Kick's oscillator (`kick.cpp`, `drumlab.cpp`); Steps Block: the Kick's pitch sweep | none yet | Pitch, Harm -> Out |
@@ -45,6 +46,16 @@ The decisions behind it are [DESIGN.md](DESIGN.md) ADR-049.
 | Gate | the Snare's gate | none yet | In, Key -> Out |
 
 The "none yet" modules are what the engine lacks to play SynthLab's sounds: the Export > Engine report lists them for each patch.
+
+### Macros: a synth's parameters
+
+A Macro is one value, Value 0..100 %, sent out as 0..1. Cable its Out onto values (modulation cables) to move them together, or onto
+another Macro's Value: that Macro is then a layer under the first. A Macro has a name (the PATCH tab's inspector: Rename), or is
+"Macro <id>"; two Macros cannot share one.
+
+The patch's list of values starts with the Macros, in a section MACROS (`MACROS/Punch`), then a section per other module. A synth
+exported from a patch with Macros has the MACROS section alone: its player turns the Macros, and every other value is fixed in the
+code as the patch has it. Without Macros, every value is exported, as before.
 
 ## The Ritual Machine's modules
 
@@ -134,6 +145,7 @@ the first sample). These rules are written in each module's comment.
 patch "Hollow Kick"
 node 1 voice Note 20 40                         id, area, module, x y (where the studio draws it)
 node 2 voice Body 180 40 Tune=48 Harm=10        then its values by name (the ones not given: their defaults)
+node 7 voice Macro 20 200 "Punch" Value=40      a name in quotes (a Macro's)
 cable 1.Trig 3.Trig 1                           output -> input, depth
 mod 3.Env 2.Level 0.5                           output -> value, depth (-1..1)
 ```

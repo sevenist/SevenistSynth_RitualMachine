@@ -94,11 +94,12 @@ bool write_file(const std::string &path, const std::string &text) {
 }  // namespace
 
 // The sound file (framework/control/preset.h): its name, the values by path, then the macros.
-std::string sound_to_text(int synth, const char *as) {
+std::string sound_to_text(int synth, const char *as, int n_values) {
     const lab::Synth &s = *lab::kSynths[synth];
-    const pset_sound_t ps = {s.params, s.n_params, [](void *, int i) { return synth_value(i); }, nullptr, nullptr, nullptr,
+    const int n = n_values >= 0 && n_values < s.n_params ? n_values : s.n_params;
+    const pset_sound_t ps = {s.params, n, [](void *, int i) { return synth_value(i); }, nullptr, nullptr, nullptr,
                              st.sound_name[synth], kSoundName};
-    return sound_text(ps, std::string("SynthLab Studio sound: ") + (as ? as : s.name)) + macros_to_text(s, st.macros[synth]);
+    return sound_text(ps, std::string("SynthLab Studio sound: ") + (as ? as : s.name)) + macros_to_text(s, st.macros[synth], n);
 }
 
 bool sound_from_text(int synth, const char *text) {
@@ -171,7 +172,7 @@ bool export_synth_sound(const mod::Patch &p, std::string &path, bool &kept) {
     if (synth_selected() != modular_index()) return false;          // (the values are the Modular synth's: it must be the one playing)
     std::error_code ec;
     std::filesystem::create_directories(st.preset_dir, ec);
-    return write_file(path, sound_to_text(modular_index(), p.name));
+    return write_file(path, sound_to_text(modular_index(), p.name, synth_values(p)));
 }
 
 bool save_layout(int synth) {
@@ -312,6 +313,7 @@ void global_keys(const wg_input_t &in) {
 // Renaming a macro, the patch or the sound, a layout element's text: the typed text goes into it; Enter keeps it, Esc drops it.
 void edit_keys(const wg_input_t &in) {
     const size_t max = st.edit_what == kEditPatch ? sizeof st.patch.name - 1
+                     : st.edit_what == kEditNode ? sizeof st.patch.node[0].name - 1
                      : st.edit_what == kEditElText ? static_cast<size_t>(kMaxText)
                      : st.edit_what == kEditSound ? static_cast<size_t>(kSoundName - 1) : 15;
     for (const char *p = in.text; *p; p++)
@@ -319,6 +321,7 @@ void edit_keys(const wg_input_t &in) {
     if (wg_key_pressed(&in, WG_KEY_BACKSPACE) && !st.edit_text.empty()) st.edit_text.pop_back();
     if (wg_key_pressed(&in, WG_KEY_ENTER)) {
         if (st.edit_what == kEditElText) { set_el_text(st.edit_text); return; }
+        if (st.edit_what == kEditNode) { st.editing = false; rename_macro(st.edit_node, st.edit_text.c_str()); return; }
         if (st.edit_what == kEditPatch) std::snprintf(st.patch.name, sizeof st.patch.name, "%s", st.edit_text.c_str());
         else if (st.edit_what == kEditSound) std::snprintf(st.sound_name[synth_selected()], kSoundName, "%s", st.edit_text.c_str());
         else std::snprintf(cur_macro().name, sizeof cur_macro().name, "%s", st.edit_text.c_str());

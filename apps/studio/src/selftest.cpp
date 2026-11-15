@@ -303,6 +303,110 @@ void test_export_keeps_names() {
     synth_select(0);
 }
 
+// The PATCH tab's Macros: the list's MACROS section first, a row each named by its Macro; a Macro driving a Macro (a layer); the text
+// form keeps the names; an exported synth's values are the Macros alone (the rest fixed), its sound theirs; twins refused.
+void test_patch_macros() {
+    const int mi = modular_index();
+    if (mi < 0) return;
+    synth_select(mi);
+    const mod::Patch keep = st.patch;
+    const mod::ModuleDef *macro = mod::find_module("Macro"), *cnst = mod::find_module("Const");
+    CHECK(macro && cnst && !std::strcmp(macro->category, "Macros"), "the catalog has the Macro");
+    if (!macro || !cnst) return;
+
+    // a layer: Master (25 %) -> Bright's Value (depth 1), Bright -> a Const's Value (-1 .. 1, depth 1) -> VoiceOut
+    mod::Patch p;
+    p.clear();
+    std::snprintf(p.name, sizeof p.name, "Macro Test");
+    const int out = p.add(mod::find_module("VoiceOut"), mod::kVoiceArea, 400, 0)->id;
+    const int k = p.add(cnst, mod::kVoiceArea, 200, 0)->id;
+    mod::Node *bright = p.add(macro, mod::kVoiceArea, 0, 0);
+    mod::Node *master = p.add(macro, mod::kVoiceArea, 0, 100);
+    std::snprintf(bright->name, sizeof bright->name, "Bright");
+    std::snprintf(master->name, sizeof master->name, "Big Room");
+    const int b = bright->id, m = master->id;
+    p.find(k)->v[0] = -1.f;
+    master->v[0] = 25.f;
+    CHECK(p.connect(m, 0, b, 0, true, 1.f) && p.connect(b, 0, k, 0, true, 1.f) && p.connect(k, 0, out, 0, false, 1.f), "the cables of the layer");
+    int base[mod::kMaxNodes];
+    const int n = mod::patch_slots(p, base);
+    CHECK(base[p.index_of(b)] + 1 == 1 && base[p.index_of(m)] + 1 == 2 && base[p.index_of(out)] == 3 && n == 3 + 2 + 2,
+          "the Macros first (rows 1, 2), then a section per module (%d values)", n);
+    alignas(16) static unsigned char mem[64 * 1024];
+    static mod::Runner r;
+    CHECK(r.build(p, mod::kVoiceArea, mem, sizeof mem), "the layer is built");
+    mod::Ctx c;
+    c.gate = true;
+    static float buf[64];
+    for (float &x : buf) x = 0.f;
+    r.process(c, nullptr, nullptr, buf, 64);
+    CHECK(near(buf[10], -0.5f, 1e-4f), "Master 25 %% -> Bright 25 %% -> the Const at -0.5 (%g)", (double)buf[10]);
+    float values[mod::kMaxSlots] = {};
+    for (int i = 0; i < p.n_nodes; i++)
+        for (int j = 0; j < p.node[i].def->n_param; j++) values[base[i] + 1 + j] = p.node[i].v[j];
+    values[base[p.index_of(m)] + 1] = 75.f;
+    for (float &x : buf) x = 0.f;
+    r.process(c, values, nullptr, buf, 64);
+    CHECK(near(buf[10], 0.5f, 1e-4f), "Master at 75 %% from the list: the Const at 0.5 (%g)", (double)buf[10]);
+    r.clear();
+
+    // the text form keeps the names (a space in one); an old file's line without a name still reads
+    static char text[8192];
+    mod::patch_to_text(p, text, sizeof text);
+    static mod::Patch back;
+    char err[64];
+    int skipped = 0;
+    CHECK(mod::patch_from_text(back, text, err, sizeof err, &skipped) && skipped == 0 && back.n_nodes == 4 && back.n_cables == 3 &&
+          !std::strcmp(back.find(b)->name, "Bright") && !std::strcmp(back.find(m)->name, "Big Room"), "the names come back from the text");
+    CHECK(std::strstr(text, "Macro 0 100 \"Big Room\" Value=25") != nullptr, "a name in quotes after the place");
+
+    // the Modular synth's list: MACROS/<name>
+    st.patch = p;
+    patch_apply();
+    const lab::Synth &s = *lab::kSynths[mi];
+    CHECK(find_param(s, "MACROS/Bright") == 1 && find_param(s, "MACROS/Big Room") == 2 && s.params[0].curve == lab::Head,
+          "the Modular synth lists MACROS/Bright and MACROS/Big Room");
+    // an unnamed Macro: "Macro <id>"; a rename keeps its row, a twin or an empty name is refused
+    mod::Node *third = st.patch.add(macro, mod::kVoiceArea, 0, 200);
+    const int t3 = third->id;
+    patch_apply();
+    char want[24];
+    std::snprintf(want, sizeof want, "MACROS/Macro %d", t3);
+    CHECK(find_param(s, want) == 3, "an unnamed Macro is %s", want);
+    rename_macro(t3, "bright");
+    CHECK(!st.patch.find(t3)->name[0], "a name another Macro has (case aside) is refused");
+    rename_macro(t3, "");
+    CHECK(!st.patch.find(t3)->name[0], "an empty name is refused");
+    rename_macro(t3, "Drive");
+    CHECK(find_param(s, "MACROS/Drive") == 3, "renamed: the same row, its new name");
+
+    // exported: the Macros alone, the rest fixed at the patch's
+    const std::string src = synth_source(st.patch, "t");
+    const size_t a = src.find("const lab::Param kParams[] = {"), e = src.find("};", a);
+    const std::string list = a == std::string::npos ? std::string() : src.substr(a, e - a);
+    int rows = 0;
+    for (size_t at = list.find("\n    {"); at != std::string::npos; at = list.find("\n    {", at + 1)) rows++;
+    CHECK(list.find("lab::section(\"MACROS\")") != std::string::npos && list.find("\"Big Room\"") != std::string::npos && rows == 3 &&
+          list.find("section(\"Const") == std::string::npos, "the exported synth's values: MACROS and its 3 Macros (%d rows)", rows);
+    CHECK(synth_values(st.patch) == 4 && src.find("p[3]") != std::string::npos && src.find("p[4]") == std::string::npos && src.find("v[mod::kMaxParams] = {-1.f}") != std::string::npos,
+          "the Const's value is fixed in the code, the Macros read p[1..3]");
+    // its sound: the Macros' values alone
+    const std::string snd = sound_to_text(mi, st.patch.name, synth_values(st.patch));
+    int vals = 0;
+    for (size_t at = snd.find("\nvalue "); at != std::string::npos; at = snd.find("\nvalue ", at + 1)) vals++;
+    CHECK(vals == 3 && snd.find("value \"MACROS/Big Room\" 25") != std::string::npos, "the exported synth's sound: the 3 Macros' values (%d)", vals);
+    // the engine's graph: a Const
+    CHECK(engine_source(st.patch, "t").find("Big Room: Value 25 %") != std::string::npos, "Export > Engine: a Macro is the engine's Const");
+    // twins (a hand-edited file): Export > Synth refuses them
+    std::snprintf(st.patch.find(t3)->name, sizeof st.patch.find(t3)->name, "BRIGHT");
+    std::string path, why;
+    CHECK(!export_synth(st.patch, "t", path, why) && why.find("two Macros") != std::string::npos, "twin Macros are refused (%s)", why.c_str());
+
+    st.patch = keep;
+    patch_apply();
+    synth_select(0);
+}
+
 // The widgets, with input written by hand: a frame is wg_begin, the widgets, wg_end.
 struct Rig {
     uint16_t px[200 * 104];
@@ -797,8 +901,8 @@ void test_patch_tab(wg_ctx_t &c, const char *shot) {
     auto release = [&] { in.buttons = 0; in.released = WG_BTN_LEFT; step(); };
     step();
     const int nodes = st.patch.n_nodes, cables = st.patch.n_cables;
-    // the list: In / Out (title), Note, VoiceOut, Voices, Output, Sources (title), Osc: row 6, at y 40 + 66
-    press(60, 40 + 6 * 11 + 5);
+    // the list: In / Out (title), Note, VoiceOut, Voices, Output, Macros (title), Macro, Sources (title), Osc: row 8, at y 40 + 88
+    press(60, 40 + 8 * 11 + 5);
     in.x = 200; step();
     in.x = 420; in.y = 330; step();
     release();
@@ -1167,6 +1271,7 @@ int studio_selftest(wg_ctx_t &c, const char *shot) {
     test_sound_file();
     test_sound_library();
     test_export_keeps_names();
+    test_patch_macros();
     test_widgets();
     test_app(c, shot);
     test_keys(c);

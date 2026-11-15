@@ -2,6 +2,15 @@
 
 What changed in the library (`framework/`) and in the repo as a whole. Each app keeps its own update log.
 
+## 2026-11-15: Macros in the modular catalog
+
+- `modular/`: a **Macro** module (`MacroM`, the kind Macros): Value 0..100 % out as 0..1, the parameter of a synth made from the
+  patch; a Macro cabled onto another Macro's Value is a layer. A node has a name (`Node::name`, a Macro's; in the text,
+  `node 7 voice Macro 20 200 "Punch" Value=40`). `is_macro`, `macro_name` ("Macro <id>" without one), `macro_count`, `macro_twin`.
+- `patch_slots`: the Macros first, in a section MACROS (`kMacroSection`), a row each; then a section per other module as before.
+- `control/preset.h`: a macro destination beyond the list given is not written (a sound cut to an exported synth's values).
+- framework/docs/DESIGN.md ADR-049 addendum 5; framework/docs/MODULAR.md.
+
 ## 2026-11-15: a sound's name
 
 - `control/preset.h`: a sound has a name, its file's `name "Hollow Kick"` line (`pset_sound_t::name`, `name_cap`; NULL: none written,

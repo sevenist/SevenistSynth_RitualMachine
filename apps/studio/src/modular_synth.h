@@ -1,7 +1,7 @@
 #pragma once
-// The studio's Modular synth: a SynthLab synth (lab.h) that plays a patch (framework/modular/patch.h). Its value list is the patch's (a
-// section per module, titled "<module> <id>", then its values), so the SOUND tab's knobs and macros and the LAYOUT tab work on a patch as
-// on any synth. Only the studio lists it (SynthLab's synth_list.cpp, built with -DLAB_STUDIO): the board's SynthLab does not carry its memory.
+// The studio's Modular synth: a SynthLab synth (lab.h) that plays a patch (framework/modular/patch.h). Its value list is the patch's (its
+// Macros in a section MACROS, then a section per module, titled "<module> <id>", and its values), so the SOUND tab's knobs and macros
+// and the LAYOUT tab work on a patch as on any synth. Only the studio lists it (SynthLab's synth_list.cpp, built with -DLAB_STUDIO): the board's SynthLab does not carry its memory.
 //
 // The patch's structure reaches the voices by modular_publish (two copies, an atomic index: a voice rebuilds at its next block); the
 // values travel as any synth's (synth_set_value).

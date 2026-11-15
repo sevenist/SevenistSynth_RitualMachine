@@ -103,6 +103,13 @@ void modular_publish(const mod::Patch &p) {
     for (int i = 0; i < p.n_nodes; i++) {
         if (base[i] < 0 || base[i] >= n) continue;
         const mod::Node &nd = p.node[i];
+        if (mod::is_macro(nd)) {                        // a row of the MACROS section, named by the Macro
+            const mod::Param &q = nd.def->param[0];
+            g_params[0] = lab::section(mod::kMacroSection);
+            mod::macro_name(nd, g_titles[i], sizeof g_titles[i]);
+            g_params[base[i] + 1] = lab::Param{g_titles[i], q.min, q.max, nd.v[0], q.unit, static_cast<lab::Curve>(q.curve), q.labels};
+            continue;
+        }
         std::snprintf(g_titles[i], sizeof g_titles[i], "%s %d", nd.def->name, nd.id);
         g_params[base[i]] = lab::section(g_titles[i]);
         for (int j = 0; j < nd.def->n_param && base[i] + 1 + j < n; j++) {

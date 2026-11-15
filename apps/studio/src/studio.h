@@ -25,7 +25,7 @@ enum Family { F_BAR = 1, F_KNOB, F_MACRO, F_HANDLE, F_DEST, F_DEST_X, F_DEST_ED,
               F_PALETTE, F_NODE, F_JACK, F_PROW, F_PATCH_BTN, F_CANVAS, F_PINSP, F_PMENU, F_FILE };
 
 // What the keyboard types into (st.editing): a macro's name, the patch's, a layout element's text, the sound's name.
-enum EditWhat { kEditMacro = 0, kEditPatch = 1, kEditElText = 2, kEditSound = 3 };
+enum EditWhat { kEditMacro = 0, kEditPatch = 1, kEditElText = 2, kEditSound = 3, kEditNode = 4 };
 constexpr int kSoundName = 32;                  // a sound's name, its end included
 
 struct State {
@@ -66,6 +66,7 @@ struct State {
     int pan_mx = 0, pan_my = 0;
     // renaming a macro or the patch, a layout element's text (the keyboard types into it; notes are off, the widgets get no keys)
     int edit_what = 0;                          // EditWhat (kEditElText: tab_layout.cpp knows which element)
+    int edit_node = 0;                          // kEditNode: the Macro's node id
     bool editing = false;
     std::string edit_text;
     // playing
@@ -96,6 +97,7 @@ void set_el_text(const std::string &text);       // the LAYOUT tab: the typed te
 // macros and the layout follow their values by name). patch_sync() copies the synth's values into the patch (each frame).
 void patch_apply();
 void patch_sync();
+void rename_macro(int id, const char *name);    // the PATCH tab's Macro `id` (its row in the list keeps its place; "" refused, a twin too)
 bool save_patch(const std::string &path);
 bool load_patch(const std::string &path);
 bool read_patch_file(const std::string &path, mod::Patch &out);   // a .patch file, not applied (false: unreadable)
@@ -103,7 +105,8 @@ std::string patch_dir();                        // presets/patches/
 std::string patch_ident(const char *name);      // "Kick (patch)" -> "kick_patch": file names and C++ symbols
 
 // Files (presets/<synth>.sound: the sound being edited, its name, values and macros; presets/<synth>.layout). Ctrl+S saves both.
-std::string sound_to_text(int synth, const char *as = nullptr);    // as: the synth's name in its first comment (an exported synth's)
+// as: the synth's name in its first comment (an exported synth's); n_values: the list's first values only (an exported synth's list)
+std::string sound_to_text(int synth, const char *as = nullptr, int n_values = -1);
 bool sound_from_text(int synth, const char *text);
 bool save_presets(int synth);
 void load_presets(int synth);                   // once per synth: what is on disk, else the defaults and an automatic layout
@@ -120,7 +123,7 @@ bool save_sound_as(int synth, std::string &path);
 bool load_sound(int synth, const std::string &file, std::string &path);
 bool export_sound(int synth, std::string &path);
 // Export > Synth's sound: the Modular synth's (values, macros, name) as the exported synth's, presets/<its name>.sound, so that it
-// starts with the sound the patch was played with. A file that is there is kept (kept: true): sounds made on the exported synth stay.
+// starts with the sound the patch was played with (a patch with Macros: their values alone, the exported synth's). A file that is there is kept (kept: true): sounds made on the exported synth stay.
 bool export_synth_sound(const mod::Patch &p, std::string &path, bool &kept);
 
 }  // namespace studio

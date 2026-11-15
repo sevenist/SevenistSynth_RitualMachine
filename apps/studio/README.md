@@ -63,11 +63,16 @@ The status line at the bottom says what the control under the pointer is and wha
 - A macro can drive another macro: drop its handle on the other macro's knob. That knob then shows the range as a ring, like a
   value's (right click: unlink). Turning the first macro moves the second, which moves its own values. A macro cannot end up
   driving itself: a link that would loop back is refused.
+- At the bottom left, the sound (the same block as the PATCH and LAYOUT tabs): its name (Rename), New (every value at its default,
+  no macro), Save as `presets/sounds/<Synth>/<name>.sound`, the synth's saved sounds and Load. EXPORT > To the card writes the
+  sound as the board reads it, `synthlab/sounds/<Synth>.sound` in SynthLab's card folder (`apps/synthlab/sdcard/`, the desktop's
+  card): copy `synthlab/sounds/` to the board's card. Ctrl+S keeps the sound being edited, whatever its name, in `presets/<Synth>.sound`.
 
 **LAYOUT**
 
 - On the left: the kind that new elements get, the snap (1, 2, 4 or 8 px), the pages, Auto rows / Auto knobs (they replace every
-  page), Clear page, TRY. The kinds that show a value:
+  page), Clear page, TRY; at the bottom the layout (the same block as the SOUND and PATCH tabs: one layout per synth, Save and
+  Revert of the layout alone; no export, the board reads no layout yet). The kinds that show a value:
   - **Row** (the name, the value on the right), **Knob**, **Bar**, **Big value**.
   - **Fader:** a vertical slot filled to the value, the name under it (the value while the encoders are on it).
   - **Toggle:** a box, filled when on (a whole number above its least, any other value past half its travel), then the name.
@@ -147,7 +152,8 @@ The status line at the bottom says what the control under the pointer is and wha
 
 Saved in `apps/studio/presets/`, one pair per synth. They are plain text, readable and editable by hand:
 
-- `<synth>.sound`: the values (`value BODY/Tune 50`; a name with a space in quotes: `value "RUMBLE/Dly Mix" 0.3`) and the macros
+- `<synth>.sound`: the sound being edited: its name (`name "Hollow Kick"`), the values (`value BODY/Tune 50`; a name with a space in
+  quotes: `value "RUMBLE/Dly Mix" 0.3`) and the macros
   (`macro 1 "Punch" 0.500`, then `dest BODY/Tune 0.200 0.800 Exp`; Min and Max are positions 0..1 along the value's range, the way its
   knob shows it; `link 2 0.000 0.500 Lin`: macro 2, driven by it). The format is the library's (`framework/control/preset.h`): values by
   name, so a sound still opens after its synth gains, loses or reorders values, and a board running the synth reads the same file.
@@ -159,14 +165,18 @@ Saved in `apps/studio/presets/`, one pair per synth. They are plain text, readab
 A value is named by its section and its name. A name with a space is in quotes (`"RUMBLE/Dly Mix"`). A value that a synth no
 longer has is dropped when the file is read.
 
+The saved sounds: `presets/sounds/<Synth>/<name>.sound`, the same text (the file named after the sound: "Hollow Kick" ->
+`hollow_kick.sound`).
+
 Patches: `presets/Modular.patch` (the one the Modular synth plays) and `presets/patches/*.patch`, in the text form of
 [framework/docs/MODULAR.md](../../framework/docs/MODULAR.md) (`node 2 voice Osc 150 20 Wave=2 ...`, `cable 2.Out 3.In 1`,
 `mod 4.Env 3.Cutoff 0.5`).
 
 ## Limits
 
-- The board does not read these files yet: the layouts and the macros live on the desktop only (the user's choice for now).
-- One sound per synth (its file), no preset browser. No undo (Revert reloads the file).
+- The board reads a synth's sound (SynthLab, `synthlab/sounds/<Synth>.sound`: one per synth, its values; not its macros yet), not
+  the layouts.
+- One layout per synth. No undo (Revert reloads the file).
 - The layout's drawing (`layout_draw`) uses u8g2 and the device's 5x7 font only, so the board could use it as it is.
 - Patches: a modulation moves its value once a block (32 samples), by its source's mean; audio-rate modulation goes through
   inputs (an Osc's Pitch and FM, a VCA's CV). A change of modules or cables rebuilds the voices (a note that sounds is cut). The

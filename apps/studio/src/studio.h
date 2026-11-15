@@ -22,7 +22,11 @@ enum DndKind { kDndMacro = 1, kDndParam, kDndTitle, kDndModule, kDndJack };
 
 // Widget id families (WG_ID(family, index)).
 enum Family { F_BAR = 1, F_KNOB, F_MACRO, F_HANDLE, F_DEST, F_DEST_X, F_DEST_ED, F_MACRO_ED, F_KIND, F_LAYOUT_BTN, F_PREVIEW, F_LIST, F_INSPECT,
-              F_PALETTE, F_NODE, F_JACK, F_PROW, F_PATCH_BTN, F_CANVAS, F_PINSP, F_PMENU };
+              F_PALETTE, F_NODE, F_JACK, F_PROW, F_PATCH_BTN, F_CANVAS, F_PINSP, F_PMENU, F_FILE };
+
+// What the keyboard types into (st.editing): a macro's name, the patch's, a layout element's text, the sound's name.
+enum EditWhat { kEditMacro = 0, kEditPatch = 1, kEditElText = 2, kEditSound = 3 };
+constexpr int kSoundName = 32;                  // a sound's name, its end included
 
 struct State {
     int tab = kTabSound;
@@ -30,6 +34,8 @@ struct State {
     Layout layouts[lab::kMaxSynths];
     bool loaded[lab::kMaxSynths] = {};
     bool dirty[lab::kMaxSynths] = {};
+    char sound_name[lab::kMaxSynths][kSoundName] = {};    // each synth's sound (presets/<Synth>.sound; saved ones: sound_dir)
+    int sound_file = 0;                         // the SOUND tab's Load list's position
     // sound tab
     int macro_sel = 0, dest_sel = 0;
     int sound_scroll = 0;
@@ -59,7 +65,7 @@ struct State {
     bool panning = false;
     int pan_mx = 0, pan_my = 0;
     // renaming a macro or the patch, a layout element's text (the keyboard types into it; notes are off, the widgets get no keys)
-    int edit_what = 0;                          // 0 the macro, 1 the patch, 2 a layout element's text (tab_layout.cpp: which one)
+    int edit_what = 0;                          // EditWhat (kEditElText: tab_layout.cpp knows which element)
     bool editing = false;
     std::string edit_text;
     // playing
@@ -96,10 +102,22 @@ bool read_patch_file(const std::string &path, mod::Patch &out);   // a .patch fi
 std::string patch_dir();                        // presets/patches/
 std::string patch_ident(const char *name);      // "Kick (patch)" -> "kick_patch": file names and C++ symbols
 
-// Files (presets/<synth>.sound: values and macros; presets/<synth>.layout).
+// Files (presets/<synth>.sound: the sound being edited, its name, values and macros; presets/<synth>.layout). Ctrl+S saves both.
 std::string sound_to_text(int synth);
 bool sound_from_text(int synth, const char *text);
 bool save_presets(int synth);
 void load_presets(int synth);                   // once per synth: what is on disk, else the defaults and an automatic layout
+bool save_layout(int synth);                    // the layout alone (the LAYOUT tab's Save)
+void load_layout(int synth);                    // ... and its Revert
+// The saved sounds of a synth (the SOUND tab's file block): presets/sounds/<Synth>/<name>.sound, the name made a file name
+// (patch_ident). New: the defaults, no macro, "Init". Load: the defaults, then the file (values, macros, name). Export: the sound as
+// the board reads it, synthlab/sounds/<Synth>.sound in SynthLab's card folder (apps/synthlab/sdcard/: the desktop's card; copy
+// synthlab/sounds/ to the board's).
+std::string sound_dir(int synth);
+std::vector<std::string> sound_files(int synth);
+void new_sound(int synth);
+bool save_sound_as(int synth, std::string &path);
+bool load_sound(int synth, const std::string &file, std::string &path);
+bool export_sound(int synth, std::string &path);
 
 }  // namespace studio

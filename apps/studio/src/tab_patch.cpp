@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 #include "export.h"
+#include "file_block.h"
 #include "modular/engine_adapter.h"
 #include "nulltest.h"
 #include "modular_synth.h"
@@ -414,15 +415,7 @@ void draw_canvas(wg_ctx_t &c, gui_rect_t area) {
     const wg_input_t &in = *c.in;
     mod::Patch &p = st.patch;
     const int a = st.patch_area;
-    // the area tabs
     const gui_rect_t strip = gui_rect(area.x, area.y, area.w, kStripH);
-    wg_fill(&c, strip, t.panel);
-    if (wg_tab(&c, WG_ID(F_CANVAS, 1), gui_rect(strip.x + 2, strip.y + 1, 70, kStripH - 2), "VOICE", a == mod::kVoiceArea)) st.patch_area = mod::kVoiceArea;
-    if (wg_tab(&c, WG_ID(F_CANVAS, 2), gui_rect(strip.x + 74, strip.y + 1, 70, kStripH - 2), "FX", a == mod::kFxArea)) st.patch_area = mod::kFxArea;
-    if (c.hot == WG_ID(F_CANVAS, 1)) wg_set_hint(&c, "Copied for each voice: from Note to VoiceOut");
-    if (c.hot == WG_ID(F_CANVAS, 2)) wg_set_hint(&c, "Once, on the sum of the voices: from Voices to Output");
-    wg_text_small(&c, strip.x + 152, strip.y + 11, a == mod::kVoiceArea ? "per voice: Note -> ... -> VoiceOut" : "on the sum: Voices -> ... -> Output", t.dim);
-
     View v;
     v.cv = gui_rect(area.x, area.y + kStripH, area.w, area.h - kStripH);
     v.ox = v.cv.x + 8 - st.pan_x[a];
@@ -431,6 +424,8 @@ void draw_canvas(wg_ctx_t &c, gui_rect_t area) {
     for (int x = v.cv.x + ((-st.pan_x[a]) % 24 + 24) % 24; x < v.cv.x + v.cv.w; x += 24)
         for (int y = v.cv.y + ((-st.pan_y[a]) % 24 + 24) % 24; y < v.cv.y + v.cv.h; y += 24) wg_fill(&c, gui_rect(x, y, 1, 1), t.panel2);
 
+    // The modules are not clipped: one scrolled under the area tabs, the left panel or the inspector is drawn over by them (they come
+    // after; a module takes the pointer only on the canvas, draw_node).
     for (int i = 0; i < p.n_nodes; i++) {
         if (p.node[i].area != a) continue;
         const int before = p.n_nodes;
@@ -448,6 +443,14 @@ void draw_canvas(wg_ctx_t &c, gui_rect_t area) {
         else to = v.jack(*d, false, cb.dst_port);
         draw_cable(c, from, to, cable_color(cb.src), cb.to_param);
     }
+
+    // the area tabs, over the modules
+    wg_fill(&c, strip, t.panel);
+    if (wg_tab(&c, WG_ID(F_CANVAS, 1), gui_rect(strip.x + 2, strip.y + 1, 70, kStripH - 2), "VOICE", a == mod::kVoiceArea)) st.patch_area = mod::kVoiceArea;
+    if (wg_tab(&c, WG_ID(F_CANVAS, 2), gui_rect(strip.x + 74, strip.y + 1, 70, kStripH - 2), "FX", a == mod::kFxArea)) st.patch_area = mod::kFxArea;
+    if (c.hot == WG_ID(F_CANVAS, 1)) wg_set_hint(&c, "Copied for each voice: from Note to VoiceOut");
+    if (c.hot == WG_ID(F_CANVAS, 2)) wg_set_hint(&c, "Once, on the sum of the voices: from Voices to Output");
+    wg_text_small(&c, strip.x + 152, strip.y + 11, a == mod::kVoiceArea ? "per voice: Note -> ... -> VoiceOut" : "on the sum: Voices -> ... -> Output", t.dim);
 
     // the canvas itself: a drag draws a zone (its modules: the selection; Ctrl / Shift: added to it), Alt + drag or the middle button
     // looks around, a click on nothing drops the selection; a module dropped on it
@@ -543,15 +546,6 @@ void draw_canvas(wg_ctx_t &c, gui_rect_t area) {
 
 /* ---------------- the catalog and the patch's file ---------------- */
 
-std::vector<std::string> patch_files() {
-    std::vector<std::string> f;
-    std::error_code ec;
-    for (const auto &e : std::filesystem::directory_iterator(patch_dir(), ec))
-        if (e.path().extension() == ".patch") f.push_back(e.path().stem().string());
-    std::sort(f.begin(), f.end());
-    return f;
-}
-
 void add_module(int which) {
     int n;
     const mod::ModuleDef *d = mod::catalog(&n)[which];
@@ -614,39 +608,28 @@ void draw_left(wg_ctx_t &c, gui_rect_t area) {
         }
     }
 
-    // the patch: its name, its file, the exports
-    int y = patch_y;
-    char text[64];
-    wg_fill(&c, gui_rect(area.x + 2, y - 2, kPanelW - 4, 1), t.line);
-    wg_text_small(&c, area.x + 6, y + 8, "PATCH", t.dim);
-    if (st.editing && st.edit_what == 1) { std::string s = st.edit_text + "_"; wg_text_small(&c, area.x + 36, y + 8, s.c_str(), t.accent); }
-    else wg_text_small(&c, area.x + 36, y + 8, st.patch.name, t.text);
-    y += 12;
-    if (wg_button(&c, WG_ID(F_PATCH_BTN, 0), gui_rect(area.x + 4, y, 70, 14), st.editing && st.edit_what == 1 ? "Done" : "Rename", false)) {
-        if (st.editing && st.edit_what == 1) { std::snprintf(st.patch.name, sizeof st.patch.name, "%s", st.edit_text.c_str()); st.editing = false; }
-        else { st.editing = true; st.edit_what = 1; st.edit_text = st.patch.name; }
-    }
-    if (wg_button(&c, WG_ID(F_PATCH_BTN, 1), gui_rect(area.x + 76, y, 70, 14), "New", false)) {
+    // the patch: its name, its file, the exports (file_block.h: the same block as the SOUND and LAYOUT tabs)
+    FileBlock fb{c, area.x + 4, kPanelW - 8, patch_y};
+    fb.title("PATCH", st.patch.name, kEditPatch);
+    fb.rename(WG_ID(F_PATCH_BTN, 0), st.patch.name, sizeof st.patch.name, kEditPatch);
+    if (fb.button(WG_ID(F_PATCH_BTN, 1), "New", 1)) {
         st.patch.init_default();
         st.sel_node = 0;
         structural("A new patch: Osc -> Filter -> VCA (ADSR), and a Room on the sum");
     }
-    y += 17;
-    if (wg_button(&c, WG_ID(F_PATCH_BTN, 2), gui_rect(area.x + 4, y, 142, 14), "Save as <name>.patch", false)) {
+    fb.next();
+    if (fb.button(WG_ID(F_PATCH_BTN, 2), "Save as <name>.patch", -1)) {
         patch_sync();
         const std::string path = patch_dir() + patch_ident(st.patch.name) + ".patch";
         if (save_patch(path)) message("Saved %s", path.c_str()); else message("Could not write %s", path.c_str());
     }
-    y += 17;
-    const std::vector<std::string> files = patch_files();
-    if (!files.empty()) st.patch_file = std::max(0, std::min(static_cast<int>(files.size()) - 1, st.patch_file));
-    std::snprintf(text, sizeof text, "%s", files.empty() ? "(no file yet)" : files[st.patch_file].c_str());
-    st.patch_file += wg_stepper(&c, WG_ID(F_PATCH_BTN, 3), gui_rect(area.x + 4, y, 100, 14), text);
-    if (wg_button(&c, WG_ID(F_PATCH_BTN, 4), gui_rect(area.x + 106, y, 40, 14), "Load", false) && !files.empty()) {
-        const std::string path = patch_dir() + files[st.patch_file] + ".patch";
+    fb.next();
+    const std::vector<std::string> files = files_in(patch_dir(), ".patch");
+    if (fb.files(WG_ID(F_PATCH_BTN, 3), files, st.patch_file)) {
+        const std::string path = patch_dir() + files[static_cast<size_t>(st.patch_file)] + ".patch";
         if (load_patch(path)) message("Loaded %s", path.c_str()); else message("Could not read %s", path.c_str());
     }
-    y += 17;
+    fb.next();
     // a SynthLab synth rebuilt from modules (apps/studio/library): opened as the patch, its null depth against the synth itself
     std::vector<int> rebuilt;
     for (int i = 0; i < lab::kSynthCount; i++) if (lab::kSynths[i] != &synth_modular && has_rebuild(*lab::kSynths[i])) rebuilt.push_back(i);
@@ -654,9 +637,9 @@ void draw_left(wg_ctx_t &c, gui_rect_t area) {
         const int nr = static_cast<int>(rebuilt.size());
         st.open_synth = ((st.open_synth % nr) + nr) % nr;
         const lab::Synth &os = *lab::kSynths[rebuilt[static_cast<size_t>(st.open_synth)]];
-        st.open_synth += wg_stepper(&c, WG_ID(F_PATCH_BTN, 8), gui_rect(area.x + 4, y, 100, 14), os.name);
+        st.open_synth += wg_stepper(&c, WG_ID(F_PATCH_BTN, 8), gui_rect(fb.x, fb.y, fb.w - 42, 14), os.name);
         if (c.hot == WG_ID(F_PATCH_BTN, 8)) wg_set_hint(&c, "A SynthLab synth rebuilt from modules (apps/studio/library): open it to rewire it");
-        if (wg_button(&c, WG_ID(F_PATCH_BTN, 9), gui_rect(area.x + 106, y, 40, 14), "Open", false)) {
+        if (wg_button(&c, WG_ID(F_PATCH_BTN, 9), gui_rect(fb.x + fb.w - 40, fb.y, 40, 14), "Open", false)) {
             static mod::Patch rp;
             if (read_patch_file(library_path(os), rp)) {
                 const NullResult r = null_test(os, rp);
@@ -671,24 +654,23 @@ void draw_left(wg_ctx_t &c, gui_rect_t area) {
         }
         if (c.hot == WG_ID(F_PATCH_BTN, 9)) wg_set_hint(&c, "Opens %s as the Modular synth's patch (Save as keeps your changes apart)", os.name);
     }
-    y += 21;
-    wg_text_small(&c, area.x + 6, y + 6, "EXPORT", t.dim);
-    y += 10;
+    fb.next();
+    fb.heading("EXPORT");
     std::string out, err;
-    if (wg_button(&c, WG_ID(F_PATCH_BTN, 5), gui_rect(area.x + 4, y, 70, 14), "Synth", false)) {
+    if (fb.button(WG_ID(F_PATCH_BTN, 5), "Synth", 0)) {
         patch_sync();
         if (export_synth(st.patch, patch_ident(st.patch.name), out, err)) message("Wrote %s (built at SynthLab's next build)", out.c_str());
         else message("Export failed: %s", err.c_str());
     }
     if (c.hot == WG_ID(F_PATCH_BTN, 5)) wg_set_hint(&c, "A SynthLab synth (C++, apps/synthlab/src/synths/gen_<name>.cpp) that plays this patch without the runner");
-    if (wg_button(&c, WG_ID(F_PATCH_BTN, 6), gui_rect(area.x + 76, y, 70, 14), "Engine", false)) {
+    if (fb.button(WG_ID(F_PATCH_BTN, 6), "Engine", 1)) {
         patch_sync();
         if (export_engine(st.patch, patch_ident(st.patch.name), out, err)) message("Wrote %s", out.c_str());
         else message("Export failed: %s", err.c_str());
     }
     if (c.hot == WG_ID(F_PATCH_BTN, 6)) wg_set_hint(&c, "The engine's graph (C++ for the Ritual Machine), and what the engine lacks: apps/studio/exports/");
-    y += 17;
-    if (wg_button(&c, WG_ID(F_PATCH_BTN, 7), gui_rect(area.x + 4, y, 142, 14), "Patch file", false)) {
+    fb.next();
+    if (fb.button(WG_ID(F_PATCH_BTN, 7), "Patch file", -1)) {
         patch_sync();
         if (export_patch(st.patch, patch_ident(st.patch.name), out, err)) message("Wrote %s", out.c_str());
         else message("Export failed: %s", err.c_str());

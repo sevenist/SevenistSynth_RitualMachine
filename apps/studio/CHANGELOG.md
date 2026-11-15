@@ -2,6 +2,16 @@
 
 The library's changes: [framework/CHANGELOG.md](../../framework/CHANGELOG.md).
 
+## 2026-11-15: named sounds, one file block on every tab
+
+- **Sounds have names, and each synth a library of them.** At the bottom left of SOUND: the sound's name (Rename), New, Save as
+  `presets/sounds/<Synth>/<name>.sound`, the synth's saved sounds and Load. The name is in the file (`name "Hollow Kick"`).
+- **EXPORT > To the card** writes the sound as the board reads it, `synthlab/sounds/<Synth>.sound`, in SynthLab's card folder
+  (`apps/synthlab/sdcard/`): copy that folder to the board's card.
+- **The same file block on the three tabs** (`file_block.h`): PATCH (as before), SOUND (above), LAYOUT (one layout per synth: Save and
+  Revert of the layout alone; no export yet).
+- **Fixed:** in PATCH, a module scrolled up under the VOICE / FX tabs was drawn over them; the tabs are now drawn last.
+
 ## 2026-11-15: the sound file is the library's
 
 - **Fixed: a value whose name holds a space** (RUMBLE/Dly Mix, Env Amt, High Hz ...) did not come back when a sound was opened: it

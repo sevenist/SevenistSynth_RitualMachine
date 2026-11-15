@@ -84,13 +84,13 @@ std::string sound_text(const pset_sound_t &ps, const std::string &title) {
 }
 
 std::string macros_to_text(const lab::Synth &s, const MacroSet &set) {
-    const pset_sound_t ps = {s.params, s.n_params, nullptr, nullptr, nullptr, const_cast<mac_t *>(set.m)};
+    const pset_sound_t ps = {s.params, s.n_params, nullptr, nullptr, nullptr, const_cast<mac_t *>(set.m), nullptr, 0};
     return sound_text(ps, std::string("SynthLab Studio macros: ") + s.name);
 }
 
 bool macros_from_text(const lab::Synth &s, MacroSet &set, const char *text, int *dropped) {
     MacroSet r;
-    const pset_sound_t ps = {s.params, s.n_params, nullptr, nullptr, nullptr, r.m};
+    const pset_sound_t ps = {s.params, s.n_params, nullptr, nullptr, nullptr, r.m, nullptr, 0};
     if (!(pset_from_text(&ps, text, dropped) & PSET_HAD_MACROS)) return false;
     set = r;
     return true;

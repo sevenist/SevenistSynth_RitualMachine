@@ -100,7 +100,7 @@ void read_sound() {
         char *e = std::strrchr(text, '\n');
         if (e) e[1] = 0;
     }
-    const pset_sound_t ps = {s.params, s.n_params, nullptr, [](void *, int i, float v) { synth_set_value(i, v); }, nullptr, nullptr};
+    const pset_sound_t ps = {s.params, s.n_params, nullptr, [](void *, int i, float v) { synth_set_value(i, v); }, nullptr, nullptr, nullptr, 0};
     int skipped = 0;
     if (!(pset_from_text(&ps, text, &skipped) & PSET_HAD_VALUES)) std::snprintf(status, sizeof status, "%s: no value", name);
     else if (skipped) std::snprintf(status, sizeof status, "Sound read, %d skipped", skipped);

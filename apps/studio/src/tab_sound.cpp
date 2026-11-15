@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <vector>
+#include "file_block.h"
 #include "params.h"
 #include "studio.h"
 #include "synth.h"
@@ -16,6 +17,7 @@ namespace studio {
 namespace {
 constexpr int kPanelW = 198;
 constexpr int kCellW = 46, kCellH = 58;
+constexpr int kSoundBlockH = file_block_h(4, true);    // the sound's file block, at the panel's bottom
 
 bool inside(gui_rect_t r, int x, int y) { return x >= r.x && y >= r.y && x < r.x + r.w && y < r.y + r.h; }
 bool contains(gui_rect_t outer, gui_rect_t r) { return r.x >= outer.x && r.y >= outer.y && r.x + r.w <= outer.x + outer.w && r.y + r.h <= outer.y + outer.h; }
@@ -183,7 +185,7 @@ void draw_macros(wg_ctx_t &c, gui_rect_t area) {
     y += 18;
 
     // the response: the macro's travel left to right, the value's range bottom to top; the macro where it is: a dot
-    const gui_rect_t box = gui_rect(area.x + 4, y, kPanelW - 8, area.y + area.h - y - 4);
+    const gui_rect_t box = gui_rect(area.x + 4, y, kPanelW - 8, area.y + area.h - kSoundBlockH - y - 6);
     if (box.h < 20) return;
     wg_fill(&c, box, t.bg);
     wg_frame(&c, box, t.line);
@@ -290,8 +292,37 @@ void draw_values(wg_ctx_t &c, gui_rect_t R) {
 }
 }  // namespace
 
+// The sound's file block (file_block.h, as the PATCH and LAYOUT tabs): its name, New, Save as, the saved sounds and Load; EXPORT to the
+// board's card.
+void draw_sound_file(wg_ctx_t &c, gui_rect_t area) {
+    const int synth = synth_selected();
+    FileBlock fb{c, area.x + 4, kPanelW - 8, area.y + area.h - kSoundBlockH + 4};
+    fb.title("SOUND", st.sound_name[synth], kEditSound);
+    if (fb.rename(WG_ID(F_FILE, 0), st.sound_name[synth], kSoundName, kEditSound)) mark_dirty();
+    if (fb.button(WG_ID(F_FILE, 1), "New", 1)) { new_sound(synth); st.dest_sel = 0; message("A new sound: every value at its default, no macro"); }
+    if (c.hot == WG_ID(F_FILE, 1)) wg_set_hint(&c, "Every value at its default, the macros empty (Revert brings back what Ctrl+S saved)");
+    fb.next();
+    std::string path;
+    if (fb.button(WG_ID(F_FILE, 2), "Save as <name>.sound", -1))
+        message(save_sound_as(synth, path) ? "Saved %s" : "Could not write %s", path.c_str());
+    if (c.hot == WG_ID(F_FILE, 2)) wg_set_hint(&c, "The sound under its name, in %s (Ctrl+S keeps the one being edited)", sound_dir(synth).c_str());
+    fb.next();
+    const std::vector<std::string> files = sound_files(synth);
+    if (fb.files(WG_ID(F_FILE, 3), files, st.sound_file)) {
+        if (load_sound(synth, files[static_cast<size_t>(st.sound_file)], path)) { st.dest_sel = 0; message("Loaded %s", path.c_str()); }
+        else message("Could not read %s", path.c_str());
+    }
+    fb.next();
+    fb.heading("EXPORT");
+    if (fb.button(WG_ID(F_FILE, 5), "To the card", -1))
+        message(export_sound(synth, path) ? "Wrote %s: copy synthlab/sounds/ to the board's card" : "Could not write %s", path.c_str());
+    if (c.hot == WG_ID(F_FILE, 5))
+        wg_set_hint(&c, "As the board reads it: synthlab/sounds/<synth>.sound in SynthLab's card folder (the desktop's; copy it to the board's)");
+}
+
 void draw_sound(wg_ctx_t &c, gui_rect_t area) {
     draw_macros(c, area);                       // (first: Tab visits the macros, then the values)
+    draw_sound_file(c, area);
     draw_values(c, gui_rect(area.x + kPanelW + 2, area.y, area.w - kPanelW - 2, area.h));
 }
 

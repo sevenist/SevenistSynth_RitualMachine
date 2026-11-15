@@ -53,7 +53,7 @@ TEST(preset_sound_round_trip_with_macros_and_links) {
     d.min = 0.2f; d.max = 0.9f; d.curve = CRV_EXP;
     mac_add(m, 0, d);
     mac_add(m, 0, ctl_map_plain(mac_target(1)));
-    const pset_sound_t s = {kParams, kN, get, set, nullptr, m};
+    const pset_sound_t s = {kParams, kN, get, set, nullptr, m, nullptr, 0};
     const int n = pset_to_text(&s, "a test", nullptr, 0);
     std::string text(static_cast<size_t>(n) + 1, '\0');
     CHECK_EQ(pset_to_text(&s, "a test", &text[0], n + 1), n);
@@ -66,7 +66,7 @@ TEST(preset_sound_round_trip_with_macros_and_links) {
 
     for (float &v : g_vals) v = 0;
     std::memset(static_cast<void *>(back), 0, sizeof back);
-    const pset_sound_t r = {kParams, kN, get, set, nullptr, back};
+    const pset_sound_t r = {kParams, kN, get, set, nullptr, back, nullptr, 0};
     int dropped = -1;
     CHECK_EQ(pset_from_text(&r, text.c_str(), &dropped), PSET_HAD_VALUES | PSET_HAD_MACROS);
     CHECK_EQ(dropped, 0);
@@ -78,7 +78,7 @@ TEST(preset_reader_keeps_what_it_cannot_take) {
     static mac_t m[MAC_MAX];
     std::memset(static_cast<void *>(m), 0, sizeof m);
     for (float &v : g_vals) v = 0;
-    const pset_sound_t s = {kParams, kN, get, set, nullptr, m};
+    const pset_sound_t s = {kParams, kN, get, set, nullptr, m, nullptr, 0};
     int dropped = 0;
     // an older file: the path unquoted; a value the synth no longer has; a comment; an unknown line
     CHECK_EQ(pset_from_text(&s, "# old\nvalue BODY/Dly Mix 0.75\nvalue BODY/Gone 3\nwhatever 1 2\n", &dropped), PSET_HAD_VALUES);
@@ -93,4 +93,18 @@ TEST(preset_reader_keeps_what_it_cannot_take) {
     CHECK(m[0].n == 1 && mac_of(&m[0].d[0].t) == 1 && m[0].pos == 1.0f);   // (the position kept inside 0..1)
     CHECK(m[1].n == 0 && m[2].n == MAC_DESTS && m[2].d[0].curve == CRV_S);
     CHECK_EQ(pset_from_text(&s, "nothing here\n", nullptr), 0);
+}
+
+TEST(preset_sound_name_round_trip) {
+    char name[32] = "Hollow Kick", back[32] = "";
+    const pset_sound_t s = {kParams, kN, get, set, nullptr, nullptr, name, sizeof name};
+    char text[512];
+    pset_to_text(&s, nullptr, text, sizeof text);
+    CHECK(std::strncmp(text, "name \"Hollow Kick\"\nvalue Level ", 31) == 0);
+    const pset_sound_t r = {kParams, kN, get, set, nullptr, nullptr, back, sizeof back};
+    CHECK_EQ(pset_from_text(&r, text, nullptr), PSET_HAD_NAME | PSET_HAD_VALUES);
+    CHECK(std::strcmp(back, "Hollow Kick") == 0);
+    const pset_sound_t none = {kParams, kN, get, set, nullptr, nullptr, nullptr, 0};
+    pset_to_text(&none, nullptr, text, sizeof text);
+    CHECK(std::strstr(text, "name ") == nullptr);                     // (no name: no line)
 }

@@ -18,6 +18,7 @@
 #include <string>
 #include <vector>
 #include "SDL.h"
+#include "file_block.h"
 #include "boards/desktop/desk_window.h"
 #include "hal/hal_audio_out.h"
 #include "engine/modules/builtin.h"
@@ -92,18 +93,91 @@ bool write_file(const std::string &path, const std::string &text) {
 }
 }  // namespace
 
-// The sound file (framework/control/preset.h): the values by path, then the macros.
+// The sound file (framework/control/preset.h): its name, the values by path, then the macros.
 std::string sound_to_text(int synth) {
     const lab::Synth &s = *lab::kSynths[synth];
-    const pset_sound_t ps = {s.params, s.n_params, [](void *, int i) { return synth_value(i); }, nullptr, nullptr, nullptr};
+    const pset_sound_t ps = {s.params, s.n_params, [](void *, int i) { return synth_value(i); }, nullptr, nullptr, nullptr,
+                             st.sound_name[synth], kSoundName};
     return sound_text(ps, std::string("SynthLab Studio sound: ") + s.name) + macros_to_text(s, st.macros[synth]);
 }
 
 bool sound_from_text(int synth, const char *text) {
     const lab::Synth &s = *lab::kSynths[synth];
-    const pset_sound_t ps = {s.params, s.n_params, nullptr, [](void *, int i, float v) { synth_set_value(i, v); }, nullptr, nullptr};
+    const pset_sound_t ps = {s.params, s.n_params, nullptr, [](void *, int i, float v) { synth_set_value(i, v); }, nullptr, nullptr,
+                             st.sound_name[synth], kSoundName};
     pset_from_text(&ps, text, nullptr);
     return macros_from_text(s, st.macros[synth], text);
+}
+
+namespace {
+void sound_defaults(int synth) {                // the values' defaults, no macro, "Init"
+    const lab::Synth &s = *lab::kSynths[synth];
+    for (int i = 0; i < s.n_params; i++) if (s.params[i].curve != lab::Head) synth_set_value(i, s.params[i].def);
+    st.macros[synth] = MacroSet();
+    std::snprintf(st.sound_name[synth], kSoundName, "Init");
+}
+std::string tidy(const std::string &path) { return std::filesystem::path(path).lexically_normal().string(); }
+}  // namespace
+
+std::string sound_dir(int synth) {
+    char n[96];
+    pset_file_name(lab::kSynths[synth]->name, nullptr, n, sizeof n);
+    return st.preset_dir + "sounds/" + n + "/";
+}
+
+std::vector<std::string> sound_files(int synth) { return files_in(sound_dir(synth), ".sound"); }
+
+void new_sound(int synth) {
+    sound_defaults(synth);
+    st.dirty[synth] = true;
+}
+
+bool save_sound_as(int synth, std::string &path) {
+    std::string id = patch_ident(st.sound_name[synth]);
+    if (id.empty()) id = "sound";
+    std::error_code ec;
+    std::filesystem::create_directories(sound_dir(synth), ec);
+    path = tidy(sound_dir(synth) + id + ".sound");
+    return write_file(path, sound_to_text(synth));
+}
+
+bool load_sound(int synth, const std::string &file, std::string &path) {
+    path = tidy(sound_dir(synth) + file + ".sound");
+    std::string text;
+    if (!read_file(path, text)) return false;
+    sound_defaults(synth);
+    std::snprintf(st.sound_name[synth], kSoundName, "%s", file.c_str());     // (a file with no name line: its file name)
+    sound_from_text(synth, text.c_str());
+    st.dirty[synth] = true;
+    return true;
+}
+
+bool export_sound(int synth, std::string &path) {
+    const std::string dir = st.preset_dir + "../../synthlab/sdcard/synthlab/sounds/";
+    std::error_code ec;
+    std::filesystem::create_directories(dir, ec);
+    char n[96];
+    pset_file_name(lab::kSynths[synth]->name, ".sound", n, sizeof n);
+    path = tidy(dir + n);
+    return write_file(path, sound_to_text(synth));
+}
+
+bool save_layout(int synth) {
+    std::error_code ec;
+    std::filesystem::create_directories(st.preset_dir, ec);
+    const std::string path = file_name(synth, ".layout");
+    const bool ok = write_file(path, layout_to_text(*lab::kSynths[synth], st.layouts[synth]));
+    message(ok ? "Saved %s" : "Could not write %s", tidy(path).c_str());
+    return ok;
+}
+
+void load_layout(int synth) {
+    const lab::Synth &s = *lab::kSynths[synth];
+    std::string text;
+    int dropped = 0;
+    if (!read_file(file_name(synth, ".layout"), text) || !layout_from_text(s, st.layouts[synth], text.c_str(), &dropped))
+        layout_auto(s, st.layouts[synth], kRow);
+    else if (dropped) message("%d element(s) of the saved layout name values %s no longer has", dropped, s.name);
 }
 
 bool save_presets(int synth) {
@@ -119,15 +193,12 @@ bool save_presets(int synth) {
 
 void load_presets(int synth) {
     if (synth == modular_index() && st.loaded[synth]) load_patch(file_name(synth, ".patch"));     // (Revert: the patch too)
-    const lab::Synth &s = *lab::kSynths[synth];
     std::string text;
     st.macros[synth] = MacroSet();
+    std::snprintf(st.sound_name[synth], kSoundName, "Init");
     if (read_file(file_name(synth, ".sound"), text)) sound_from_text(synth, text.c_str());
-    else for (int i = 0; i < s.n_params; i++) if (s.params[i].curve != lab::Head) synth_set_value(i, s.params[i].def);
-    int dropped = 0;
-    if (!read_file(file_name(synth, ".layout"), text) || !layout_from_text(s, st.layouts[synth], text.c_str(), &dropped))
-        layout_auto(s, st.layouts[synth], kRow);
-    else if (dropped) message("%d element(s) of the saved layout name values %s no longer has", dropped, s.name);
+    else sound_defaults(synth);
+    load_layout(synth);
     st.loaded[synth] = true;
     st.dirty[synth] = false;
 }
@@ -226,15 +297,18 @@ void global_keys(const wg_input_t &in) {
     note_keys(in);
 }
 
-// Renaming a macro or the patch, a layout element's text: the typed text goes into it; Enter keeps it, Esc drops it.
+// Renaming a macro, the patch or the sound, a layout element's text: the typed text goes into it; Enter keeps it, Esc drops it.
 void edit_keys(const wg_input_t &in) {
-    const size_t max = st.edit_what == 1 ? sizeof st.patch.name - 1 : (st.edit_what == 2 ? static_cast<size_t>(kMaxText) : 15);
+    const size_t max = st.edit_what == kEditPatch ? sizeof st.patch.name - 1
+                     : st.edit_what == kEditElText ? static_cast<size_t>(kMaxText)
+                     : st.edit_what == kEditSound ? static_cast<size_t>(kSoundName - 1) : 15;
     for (const char *p = in.text; *p; p++)
         if (*p >= 32 && *p < 127 && *p != '"' && st.edit_text.size() < max) st.edit_text += *p;
     if (wg_key_pressed(&in, WG_KEY_BACKSPACE) && !st.edit_text.empty()) st.edit_text.pop_back();
     if (wg_key_pressed(&in, WG_KEY_ENTER)) {
-        if (st.edit_what == 2) { set_el_text(st.edit_text); return; }
-        if (st.edit_what == 1) std::snprintf(st.patch.name, sizeof st.patch.name, "%s", st.edit_text.c_str());
+        if (st.edit_what == kEditElText) { set_el_text(st.edit_text); return; }
+        if (st.edit_what == kEditPatch) std::snprintf(st.patch.name, sizeof st.patch.name, "%s", st.edit_text.c_str());
+        else if (st.edit_what == kEditSound) std::snprintf(st.sound_name[synth_selected()], kSoundName, "%s", st.edit_text.c_str());
         else std::snprintf(cur_macro().name, sizeof cur_macro().name, "%s", st.edit_text.c_str());
         st.editing = false;
         mark_dirty();

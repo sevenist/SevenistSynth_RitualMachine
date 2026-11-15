@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <cstdio>
 #include <vector>
+#include "file_block.h"
 #include "params.h"
 #include "studio.h"
 #include "synth.h"
@@ -16,6 +17,7 @@ namespace studio {
 
 namespace {
 constexpr int kZoom = 2;
+constexpr int kLayoutBlockH = file_block_h(1, true) + 12;   // the layout's file block, at the left panel's bottom (its note: 12)
 uint16_t dev_px[kScreenW * kScreenH];
 canvas_t dev;
 bool dev_ready = false;
@@ -194,6 +196,17 @@ void draw_left(wg_ctx_t &c, gui_rect_t area) {
     static const char *const edit_help[] = {"Drag a value onto the screen", "Click: select, drag: move", "Corner: resize", "Double click: its text", "Screen focused:", " arrows move (Shift 1 px)", " Ctrl+arrows resize", " Del remove, Ctrl+D copy", " PgUp / PgDn select, Enter text"};
     static const char *const try_help[] = {"Screen focused:", " Up / Down: encoder A", " Left / Right: encoder B", "  (Shift: x10)", " Del: the default", " PgUp / PgDn: the page", "Click a value: go to it", "", ""};
     for (int i = 0; i < 9; i++) wg_text_small(&c, area.x + 8, y + i * 9, st.try_mode ? try_help[i] : edit_help[i], t.dim);
+
+    // the layout's file block (file_block.h, as the PATCH and SOUND tabs): one layout a synth, presets/<Synth>.layout
+    FileBlock fb{c, area.x + 6, 160, area.y + area.h - kLayoutBlockH + 4};
+    fb.title("LAYOUT", cur().name, -1);
+    if (fb.button(WG_ID(F_FILE, 10), "Save", 0)) save_layout(synth_selected());
+    if (c.hot == WG_ID(F_FILE, 10)) wg_set_hint(&c, "The layout alone, in %s (Ctrl+S: the sound and the layout)", st.preset_dir.c_str());
+    if (fb.button(WG_ID(F_FILE, 11), "Revert", 1)) { load_layout(synth_selected()); st.page = 0; st.sel_el = -1; message("The layout as it was saved"); }
+    if (c.hot == WG_ID(F_FILE, 11)) wg_set_hint(&c, "Back to the layout last saved (the sound stays as it is)");
+    fb.next();
+    fb.heading("EXPORT");
+    fb.note("None yet: the board reads no layout");
 }
 
 void draw_list(wg_ctx_t &c, gui_rect_t R) {

@@ -3,7 +3,8 @@
 // Portable C (header only: static inline), usable from C++.
 //
 //   # SynthLab Studio sound: Kick           a comment (any line starting with #)
-//   value BODY/Tune 50                      a value by its path, "SECTION/Name" (the section: the PARAM_HEAD before it), in quotes
+//   name "Hollow Kick"                      the sound's name
+//   value BODY/Tune 50                     a value by its path, "SECTION/Name" (the section: the PARAM_HEAD before it), in quotes
 //   value "RUMBLE/Dly Mix" 0.3              when it holds a space; the number in the value's own unit
 //   macro 1 "Punch" 0.500                   a macro (control/macro.h): its number, its name, its position 0..1
 //   dest BODY/Tune 0.200 0.800 Exp          ... a destination: a value, Min and Max (0..1 of its range), the curve
@@ -29,7 +30,7 @@ extern "C" {
 #define PSET_PATH       64              // the longest path
 #define PSET_KIND_VALUE 1               // a macro destination on a value (ctl_target_t prm: its index)
 
-enum { PSET_HAD_VALUES = 1, PSET_HAD_MACROS = 2 };     // what pset_from_text found
+enum { PSET_HAD_VALUES = 1, PSET_HAD_MACROS = 2, PSET_HAD_NAME = 4 };     // what pset_from_text found
 
 /* ---------------- words and lines ---------------- */
 
@@ -122,6 +123,8 @@ typedef struct {
     void  (*set)(void *ctx, int i, float v);   // NULL: the values are not read
     void *ctx;
     mac_t *macros;                             // MAC_MAX macros; NULL: none written or read
+    char  *name;                               // the sound's name (name_cap bytes); NULL or "": none written, none read
+    int    name_cap;
 } pset_sound_t;
 
 static inline void pset__add(char *buf, int cap, int *n, const char *fmt, ...) {
@@ -140,6 +143,7 @@ static inline int pset_to_text(const pset_sound_t *s, const char *title, char *b
     char path[PSET_PATH + 2];
     if (cap > 0) buf[0] = 0;
     if (title) pset__add(buf, cap, &n, "# %s\n", title);
+    if (s->name && s->name[0]) pset__add(buf, cap, &n, "name \"%s\"\n", s->name);
     if (s->get)
         for (int i = 0; i < s->n; i++) {
             if (s->params[i].curve == PARAM_HEAD) continue;
@@ -170,7 +174,7 @@ static inline int pset_to_text(const pset_sound_t *s, const char *title, char *b
 static inline float pset__unit(float x) { return x < 0.0f ? 0.0f : x > 1.0f ? 1.0f : x; }
 
 // Reads `text`: every value it names is set (s->set), and when it has macros they replace s->macros (every macro's destinations are
-// cleared first; a macro the text does not name keeps its name and position). Returns PSET_HAD_VALUES | PSET_HAD_MACROS for what it
+// cleared first; a macro the text does not name keeps its name and position). Returns PSET_HAD_VALUES | MACROS | NAME for what it
 // found (0: not a sound). *dropped (may be NULL): the lines it could not take (a value the synth does not have, a full macro, a link
 // that would loop or to no macro).
 static inline int pset_from_text(const pset_sound_t *s, const char *text, int *dropped) {
@@ -180,7 +184,9 @@ static inline int pset_from_text(const pset_sound_t *s, const char *text, int *d
     while (pset_line(&p, line, sizeof line)) {
         const char *q = line;
         if (!pset_word(&q, w[0], sizeof w[0])) continue;
-        if (!strcmp(w[0], "value")) {
+        if (!strcmp(w[0], "name")) {
+            if (s->name && s->name_cap > 0) { pset_word(&q, s->name, s->name_cap); had |= PSET_HAD_NAME; }
+        } else if (!strcmp(w[0], "value")) {
             if (!s->set) continue;
             // the number is the last word; the path all before it (quoted, or with spaces in an older file)
             while (*q == ' ' || *q == '\t') q++;

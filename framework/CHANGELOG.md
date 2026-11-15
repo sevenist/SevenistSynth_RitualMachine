@@ -2,6 +2,11 @@
 
 What changed in the library (`framework/`) and in the repo as a whole. Each app keeps its own update log.
 
+## 2026-11-15: a sound's name
+
+- `control/preset.h`: a sound has a name, its file's `name "Hollow Kick"` line (`pset_sound_t::name`, `name_cap`; NULL: none written,
+  none read; `pset_from_text` says PSET_HAD_NAME). SynthLab Studio's sounds carry it; the board reads past it for now.
+
 ## 2026-11-15: the card for every app, a sound's file name
 
 - `app/main_esp32.cpp`: the firmware's entry point starts the card task (`card_task_start`, no hooks: the small files of

@@ -4,6 +4,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <algorithm>
 #include <string>
 #include <vector>
@@ -169,6 +170,54 @@ void test_sound_file() {
         for (int i = 0; i < s.n_params; i++) if (s.params[i].curve != lab::Head) synth_set_value(i, keep[i]);
     }
     synth_select(0);
+}
+
+// The SOUND tab's file block (studio.h: the saved sounds), in a folder of its own: a name, Save as under it, New, Load back, the
+// export to the board's card (framework/control/preset.h: the name is in the file).
+void test_sound_library() {
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path root = fs::temp_directory_path() / "studio_selftest";
+    fs::remove_all(root, ec);
+    const std::string keep_dir = st.preset_dir;
+    st.preset_dir = (root / "apps" / "studio" / "presets").string() + "/";
+    const int si = 0;
+    synth_select(si);
+    const lab::Synth &s = *lab::kSynths[si];
+    int v = -1;
+    for (int i = 0; i < s.n_params && v < 0; i++) if (s.params[i].curve != lab::Head && s.params[i].max > s.params[i].def) v = i;
+    if (v < 0) { st.preset_dir = keep_dir; return; }
+    const float keep_v = synth_value(v);
+    const MacroSet keep_m = st.macros[si];
+    char keep_name[kSoundName];
+    std::snprintf(keep_name, sizeof keep_name, "%s", st.sound_name[si]);
+
+    std::snprintf(st.sound_name[si], kSoundName, "Hollow Kick");
+    synth_set_value(v, s.params[v].max);
+    std::string path;
+    CHECK(save_sound_as(si, path) && path.find("hollow_kick.sound") != std::string::npos, "Save as: under its name (%s)", path.c_str());
+    const std::vector<std::string> files = sound_files(si);
+    CHECK(files.size() == 1 && files[0] == "hollow_kick", "the saved sounds list it (%zu)", files.size());
+    new_sound(si);
+    CHECK(std::strcmp(st.sound_name[si], "Init") == 0 && synth_value(v) == s.params[v].def, "New: Init, the defaults (%g)", synth_value(v));
+    CHECK(load_sound(si, "hollow_kick", path) && std::strcmp(st.sound_name[si], "Hollow Kick") == 0 && synth_value(v) == s.params[v].max,
+          "Load: its name and values back (%s, %g)", st.sound_name[si], synth_value(v));
+    CHECK(!load_sound(si, "nothing_here", path), "Load of a file that is not there fails");
+    CHECK(export_sound(si, path), "Export: written (%s)", path.c_str());
+    char card[64];
+    pset_file_name(s.name, ".sound", card, sizeof card);
+    const fs::path on_card = root / "apps" / "synthlab" / "sdcard" / "synthlab" / "sounds" / card;
+    FILE *f = std::fopen(on_card.string().c_str(), "rb");
+    char text[256] = {};
+    if (f) { const size_t n = std::fread(text, 1, sizeof text - 1, f); text[n] = 0; std::fclose(f); }
+    CHECK(f && std::strstr(text, "name \"Hollow Kick\"\n"), "Export: in SynthLab's card folder, as the board reads it (%s)", on_card.string().c_str());
+
+    st.preset_dir = keep_dir;
+    synth_set_value(v, keep_v);
+    st.macros[si] = keep_m;
+    std::snprintf(st.sound_name[si], kSoundName, "%s", keep_name);
+    st.dirty[si] = false;
+    fs::remove_all(root, ec);
 }
 
 // The widgets, with input written by hand: a frame is wg_begin, the widgets, wg_end.
@@ -679,6 +728,17 @@ void test_patch_tab(wg_ctx_t &c, const char *shot) {
     CHECK(st.patch.n_cables == cables + 1, "a cable dragged from an output onto an input (%d cables)", st.patch.n_cables);
     const mod::Cable &cb = st.patch.cable[st.patch.n_cables - 1];
     CHECK(cb.src == 2 && cb.dst == 5 && cb.dst_port == 0 && !cb.to_param, "it goes from Osc 2 to VCA 5's In");
+    // the view moved so that Osc 2's header lies under the FX tab (x 226..296, y 25..39): the tab is drawn over it, and a click on it is
+    // the tab's
+    st.pan_x[0] = 80; st.pan_y[0] = 40;
+    in.x = in.y = -100;
+    step();
+    CHECK(c.cv->px[30 * c.cv->w + 236] == c.theme.bg, "the area tabs are drawn over a module scrolled under them (%04x)", c.cv->px[30 * c.cv->w + 236]);
+    press(261, 32);
+    release();
+    CHECK(st.patch_area == mod::kFxArea, "a click on the FX tab over a module is the tab's (area %d)", st.patch_area);
+    st.patch_area = mod::kVoiceArea;
+    st.pan_x[0] = st.pan_y[0] = 0;
     in.x = 300; in.y = 160;
     step();
     if (shot) std::printf("%s %s\n", png_write_rgb565(shot, c.cv->px, c.cv->w, c.cv->h, shot_scale) ? "wrote" : "could not write", shot);
@@ -1022,6 +1082,7 @@ int studio_selftest(wg_ctx_t &c, const char *shot) {
     test_layouts();
     test_macros();
     test_sound_file();
+    test_sound_library();
     test_widgets();
     test_app(c, shot);
     test_keys(c);

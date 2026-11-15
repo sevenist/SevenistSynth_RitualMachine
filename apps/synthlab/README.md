@@ -23,7 +23,7 @@ From the repo root:
 The firmware: open `oled_sim.code-workspace` in VS Code, pick the folder `synthlab` in the PlatformIO status bar, build and upload
 (environment `hwv2`, or `hwv1` for the first prototype: the engine at 44.1 kHz there). From a shell, only
 `C:\.platformio\penv\Scripts\pio.exe run -d apps/synthlab -e hwv1`, never a bare `pio`. The desktop program drawn as HWV1:
-`.\apps\synthlab\build.ps1 -Board hwv1`, then `.\apps\synthlab\build\synthlab_hwv1.exe` from `apps/synthlab`.
+`.\build.ps1 -App synthlab -Board hwv1`, then `.\run.ps1 -App synthlab -Board hwv1`.
 
 ## The controls
 

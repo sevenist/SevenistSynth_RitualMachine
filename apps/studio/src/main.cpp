@@ -94,11 +94,11 @@ bool write_file(const std::string &path, const std::string &text) {
 }  // namespace
 
 // The sound file (framework/control/preset.h): its name, the values by path, then the macros.
-std::string sound_to_text(int synth) {
+std::string sound_to_text(int synth, const char *as) {
     const lab::Synth &s = *lab::kSynths[synth];
     const pset_sound_t ps = {s.params, s.n_params, [](void *, int i) { return synth_value(i); }, nullptr, nullptr, nullptr,
                              st.sound_name[synth], kSoundName};
-    return sound_text(ps, std::string("SynthLab Studio sound: ") + s.name) + macros_to_text(s, st.macros[synth]);
+    return sound_text(ps, std::string("SynthLab Studio sound: ") + (as ? as : s.name)) + macros_to_text(s, st.macros[synth]);
 }
 
 bool sound_from_text(int synth, const char *text) {
@@ -160,6 +160,18 @@ bool export_sound(int synth, std::string &path) {
     pset_file_name(lab::kSynths[synth]->name, ".sound", n, sizeof n);
     path = tidy(dir + n);
     return write_file(path, sound_to_text(synth));
+}
+
+bool export_synth_sound(const mod::Patch &p, std::string &path, bool &kept) {
+    char n[96];
+    pset_file_name(p.name, ".sound", n, sizeof n);
+    path = tidy(st.preset_dir + n);
+    kept = std::filesystem::exists(path);
+    if (kept) return true;
+    if (synth_selected() != modular_index()) return false;          // (the values are the Modular synth's: it must be the one playing)
+    std::error_code ec;
+    std::filesystem::create_directories(st.preset_dir, ec);
+    return write_file(path, sound_to_text(modular_index(), p.name));
 }
 
 bool save_layout(int synth) {

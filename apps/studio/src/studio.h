@@ -103,7 +103,7 @@ std::string patch_dir();                        // presets/patches/
 std::string patch_ident(const char *name);      // "Kick (patch)" -> "kick_patch": file names and C++ symbols
 
 // Files (presets/<synth>.sound: the sound being edited, its name, values and macros; presets/<synth>.layout). Ctrl+S saves both.
-std::string sound_to_text(int synth);
+std::string sound_to_text(int synth, const char *as = nullptr);    // as: the synth's name in its first comment (an exported synth's)
 bool sound_from_text(int synth, const char *text);
 bool save_presets(int synth);
 void load_presets(int synth);                   // once per synth: what is on disk, else the defaults and an automatic layout
@@ -119,5 +119,8 @@ void new_sound(int synth);
 bool save_sound_as(int synth, std::string &path);
 bool load_sound(int synth, const std::string &file, std::string &path);
 bool export_sound(int synth, std::string &path);
+// Export > Synth's sound: the Modular synth's (values, macros, name) as the exported synth's, presets/<its name>.sound, so that it
+// starts with the sound the patch was played with. A file that is there is kept (kept: true): sounds made on the exported synth stay.
+bool export_synth_sound(const mod::Patch &p, std::string &path, bool &kept);
 
 }  // namespace studio

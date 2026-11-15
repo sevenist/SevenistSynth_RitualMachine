@@ -11,6 +11,7 @@
 #include "engine/modules/mi_osc.h"
 #include "engine/modules/osc_engines.h"
 #include "export.h"
+#include "file_block.h"
 #include "modular/engine_adapter.h"
 #include "modular/modules.h"
 #include "modular_synth.h"
@@ -218,6 +219,88 @@ void test_sound_library() {
     std::snprintf(st.sound_name[si], kSoundName, "%s", keep_name);
     st.dirty[si] = false;
     fs::remove_all(root, ec);
+}
+
+// An exported synth's values are named as the Modular synth's (a sound made on the patch loads on the exported synth, on the desktop
+// and on the board: framework/control/preset.h): the starting patch and every patch of the library, the generated list against the
+// Modular synth's. Export > Synth refuses more values than the board takes, and writes the patch's sound once.
+void test_export_keeps_names() {
+    const int mi = modular_index();
+    if (mi < 0) return;
+    synth_select(mi);
+    const mod::Patch keep = st.patch;
+    std::vector<mod::Patch> patches(1);
+    patches[0].init_default();
+    const std::string lib = st.preset_dir + "../library/";
+    for (const std::string &f : files_in(lib, ".patch")) {
+        mod::Patch q;
+        if (read_patch_file(lib + f + ".patch", q)) patches.push_back(q);
+    }
+    for (const mod::Patch &q : patches) {
+        st.patch = q;
+        patch_apply();
+        const lab::Synth &s = *lab::kSynths[mi];
+        std::vector<std::string> want;
+        char path[64];
+        for (int i = 0; i < s.n_params; i++) { pset_path(s.params, s.n_params, i, path, sizeof path); want.push_back(path); }
+        // the generated list: a section's title, then its values, each with its name first in quotes
+        const std::string src = synth_source(q, "t");
+        const size_t a = src.find("const lab::Param kParams[] = {"), b = src.find("};", a);
+        std::vector<std::string> got;
+        std::string sec;
+        for (size_t at = a; a != std::string::npos && at < b;) {
+            const size_t e = src.find('\n', at);
+            const std::string line = src.substr(at, e - at);
+            at = e + 1;
+            const size_t q1 = line.find('"'), q2 = q1 == std::string::npos ? q1 : line.find('"', q1 + 1);
+            if (q2 == std::string::npos) continue;
+            const std::string name = line.substr(q1 + 1, q2 - q1 - 1);
+            if (line.find("lab::section(") != std::string::npos) { sec = name; got.push_back(name); }
+            else got.push_back(sec.empty() ? name : sec + "/" + name);
+        }
+        CHECK(!got.empty() && got == want, "%s: the exported synth names its %zu values as the Modular synth's %zu", q.name, got.size(), want.size());
+    }
+
+    // more values than the board takes: refused (in a folder of its own: nothing is written)
+    namespace fs = std::filesystem;
+    std::error_code ec;
+    const fs::path root = fs::temp_directory_path() / "studio_selftest_export";
+    fs::remove_all(root, ec);
+    const std::string keep_dir = st.preset_dir;
+    st.preset_dir = (root / "apps" / "studio" / "presets").string() + "/";
+    mod::Patch big;
+    big.init_default();
+    int n_cat = 0;
+    const mod::ModuleDef *const *cat = mod::catalog(&n_cat);
+    const mod::ModuleDef *osc = nullptr;
+    for (int i = 0; i < n_cat; i++) if (!std::strcmp(cat[i]->name, "Osc")) osc = cat[i];
+    while (osc && synth_values(big) <= kBoardMaxParams && big.add(osc, mod::kVoiceArea, 0, 0)) {}
+    std::string out, err;
+    CHECK(synth_values(big) > kBoardMaxParams && !export_synth(big, "big", out, err) && err.find("at most") != std::string::npos,
+          "a patch of %d values is refused (%s)", synth_values(big), err.c_str());
+
+    // its sound: the Modular synth's, once (a sound that is there is kept)
+    st.patch = patches[0];
+    patch_apply();
+    char keep_name[kSoundName];
+    std::snprintf(keep_name, sizeof keep_name, "%s", st.sound_name[mi]);
+    std::snprintf(st.sound_name[mi], kSoundName, "Patch Sound");
+    bool kept = true;
+    CHECK(export_synth_sound(st.patch, out, kept) && !kept, "Export > Synth writes its sound (%s)", out.c_str());
+    FILE *f = std::fopen(out.c_str(), "rb");
+    char text[512] = {};
+    if (f) { const size_t n = std::fread(text, 1, sizeof text - 1, f); text[n] = 0; std::fclose(f); }
+    char head[96];
+    std::snprintf(head, sizeof head, "# SynthLab Studio sound: %s\nname \"Patch Sound\"\nvalue ", st.patch.name);
+    CHECK(f && std::strncmp(text, head, std::strlen(head)) == 0, "... as the exported synth's, with the sound's name");
+    CHECK(export_synth_sound(st.patch, out, kept) && kept, "a second export keeps the sound that is there");
+
+    std::snprintf(st.sound_name[mi], kSoundName, "%s", keep_name);
+    st.preset_dir = keep_dir;
+    fs::remove_all(root, ec);
+    st.patch = keep;
+    patch_apply();
+    synth_select(0);
 }
 
 // The widgets, with input written by hand: a frame is wg_begin, the widgets, wg_end.
@@ -1083,6 +1166,7 @@ int studio_selftest(wg_ctx_t &c, const char *shot) {
     test_macros();
     test_sound_file();
     test_sound_library();
+    test_export_keeps_names();
     test_widgets();
     test_app(c, shot);
     test_keys(c);

@@ -517,12 +517,22 @@ std::string engine_source(const mod::Patch &p, const std::string &id) {
     return o;
 }
 
+int synth_values(const mod::Patch &p) {
+    int base[mod::kMaxNodes];
+    return mod::patch_slots(p, base);
+}
+
 bool export_synth(const mod::Patch &p, const std::string &id, std::string &path, std::string &err) {
     for (int i = 0; i < p.n_nodes; i++)
         if (mod::is_engine_module(p.node[i].def)) {
             err = std::string(p.node[i].def->name) + " is the Ritual Machine's own module: a SynthLab synth cannot hold it (Export > Engine can)";
             return false;
         }
+    if (synth_values(p) > kBoardMaxParams) {
+        err = "the patch has " + std::to_string(synth_values(p)) + " values (a title per module included), the board's synths " +
+              std::to_string(kBoardMaxParams) + " at most: fewer modules";
+        return false;
+    }
     const std::string dir = st.preset_dir + "../../synthlab/src/synths/";
     path = dir + "gen_" + id + ".cpp";
     if (!write_text(path, synth_source(p, id), err)) return false;

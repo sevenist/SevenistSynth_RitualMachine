@@ -13,6 +13,10 @@
 
 namespace studio {
 
+// The most values a synth has on the board (SynthLab's lab::kMaxParams there: lab.h, LAB_MAX_PARAMS's default; the studio lists up to
+// 256). export_synth refuses a patch with more: it would not build for the board.
+constexpr int kBoardMaxParams = 128;
+int  synth_values(const mod::Patch &p);          // how many values (section titles included) an exported synth of `p` has
 bool export_synth(const mod::Patch &p, const std::string &id, std::string &path, std::string &err);
 bool export_engine(const mod::Patch &p, const std::string &id, std::string &path, std::string &err);
 bool export_patch(const mod::Patch &p, const std::string &id, std::string &path, std::string &err);

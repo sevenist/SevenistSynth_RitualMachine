@@ -659,10 +659,16 @@ void draw_left(wg_ctx_t &c, gui_rect_t area) {
     std::string out, err;
     if (fb.button(WG_ID(F_PATCH_BTN, 5), "Synth", 0)) {
         patch_sync();
-        if (export_synth(st.patch, patch_ident(st.patch.name), out, err)) message("Wrote %s (built at SynthLab's next build)", out.c_str());
-        else message("Export failed: %s", err.c_str());
+        std::string snd;
+        bool kept = false;
+        if (!export_synth(st.patch, patch_ident(st.patch.name), out, err)) message("Export failed: %s", err.c_str());
+        else if (!export_synth_sound(st.patch, snd, kept)) message("Wrote %s, not its sound (could not write %s)", out.c_str(), snd.c_str());
+        else message(kept ? "Wrote %s (built at SynthLab's next build); its sound %s was there: kept" : "Wrote %s and its sound %s (built at SynthLab's next build)",
+                     out.c_str(), snd.c_str());
     }
-    if (c.hot == WG_ID(F_PATCH_BTN, 5)) wg_set_hint(&c, "A SynthLab synth (C++, apps/synthlab/src/synths/gen_<name>.cpp) that plays this patch without the runner");
+    if (c.hot == WG_ID(F_PATCH_BTN, 5))
+        wg_set_hint(&c, "A SynthLab synth (C++, apps/synthlab/src/synths/gen_<name>.cpp) that plays this patch without the runner, and its sound "
+                        "(presets/<name>.sound: these values and macros, when it has none yet)");
     if (fb.button(WG_ID(F_PATCH_BTN, 6), "Engine", 1)) {
         patch_sync();
         if (export_engine(st.patch, patch_ident(st.patch.name), out, err)) message("Wrote %s", out.c_str());

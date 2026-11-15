@@ -140,7 +140,11 @@ The status line at the bottom says what the control under the pointer is and wha
 - **EXPORT:**
   - **Synth** writes `apps/synthlab/src/synths/gen_<name>.cpp`, a SynthLab synth that calls the modules directly. It adds its
     line to SynthLab's `synth_list.cpp`; build SynthLab (or the studio) to play it, and its tests judge it like any other synth.
-    Exporting again overwrites the file: copy it under another name before changing it by hand.
+    Exporting again overwrites the file: copy it under another name before changing it by hand. Its values are named as the
+    Modular synth's (`Osc 2/Tune`), so a sound made on the patch is its sound too: the export also writes `presets/<name>.sound`
+    (these values, the macros, the sound's name) when there is none yet, so the synth starts as the patch sounded; then SOUND >
+    EXPORT > To the card takes it to the board. A patch of more than 128 values (a title per module included) is refused: the
+    board's synths have 128 at most.
   - **Engine** writes `apps/studio/exports/<name>_graph.cpp`: a function that builds the patch as the engine's graph, values
     converted, notes on the approximations, and at the end the modules the engine lacks with their values and cables.
   - **Patch file** writes `apps/studio/exports/<name>.patch`.

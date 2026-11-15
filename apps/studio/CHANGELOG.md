@@ -2,6 +2,16 @@
 
 The library's changes: [framework/CHANGELOG.md](../../framework/CHANGELOG.md).
 
+## 2026-11-15: an exported synth takes the patch's sound
+
+- PATCH > EXPORT > Synth also writes `presets/<name>.sound`, the patch's sound (its values, macros and name) as the exported synth's,
+  when that file is not there yet: built, the synth starts as the patch sounded, ready for SOUND > To the card. A sound that is there
+  is kept.
+- A patch of more than 128 values (a title per module included) is refused by Export > Synth: the board's synths have 128 at most
+  (the studio lists 256), and the synth would not build for it.
+- The self-test checks that an exported synth names its values as the Modular synth does, for the starting patch and every patch of
+  the library (what lets a sound made on the patch load on the exported synth).
+
 ## 2026-11-15: named sounds, one file block on every tab
 
 - **Sounds have names, and each synth a library of them.** At the bottom left of SOUND: the sound's name (Rename), New, Save as

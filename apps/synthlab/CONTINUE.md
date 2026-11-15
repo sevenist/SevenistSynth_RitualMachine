@@ -60,10 +60,8 @@ Still to propose: the output's reverb at a quarter rate (it processes the whole 
 a mono synth (memory: 56 of 64 KB). Measuring traps met: a spectrum without a window (leakage looks like highs); a file copied back
 keeps its old date and the build does not recompile it (touch it).
 
-**Then: Kick Lite** (the user: clone the kick, the fewest values, optimise as far as it cannot be heard, presets compared under a null
-test). 8 values, 6 presets (`kick_lite.h`), `tests/test_null.cpp` (60 dB required). Stage 0 bit-exact, stage 1 (the fixed values'
-dead code) bit-exact, stage 2 kept O1 (the distortions as a table, 2048 steps over +-2) and O4 (the dead triangle skipped): voice
-38.6 -> 28.9 ns, nulls 75 to 97 dB; O2, O3, O5, O6, O7 measured and rejected (docs/SYNTHS.md, "Kick Lite"). 811 checks pass.
+**Then: Kick Lite**, an optimised clone of the Kick under a null test. Removed on 2026-11-15 with its null test (the user: start fresh
+from the five synths: Basic, FM2, Kick, Snare, DrumLab); its notes are in the git history (docs/SYNTHS.md before that date).
 
 **Then: the rumble's filter** (the user, before optimising more: a filter envelope for the rumble, and a filter selection with every
 filter there is). Filter (LP 6 / 12 / 24, BP, HP 12 / 24, Notch, Peak), Env Amt (+-5 oct), Env Atk, Env Dec: the Kick at 72 rows;

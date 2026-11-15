@@ -1,7 +1,7 @@
 #pragma once
 // The null test of a rebuild: a SynthLab synth (at its default values) and a patch (at its own values) play the same notes, rendered
 // offline (no engine: the synth's Voice and Fx called directly, the patch through the runner); the difference is measured. The depth is
-// how far under the synth the difference lies: 60 dB and more, nobody hears it (SynthLab's Kick Lite rule); under 20 dB, a resemblance.
+// how far under the synth the difference lies: 60 dB and more, nobody hears it (the rule SynthLab's null tests used); under 20 dB, a resemblance.
 //
 // The notes: C3 then C4, each held 1 s and let go for 1 s, at velocity 100 (of 127), at 48 kHz, in blocks of 32 (the engine's).
 #include <string>

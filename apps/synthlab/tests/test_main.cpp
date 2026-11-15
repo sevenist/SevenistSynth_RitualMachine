@@ -4,7 +4,6 @@
 //   fx        a synth's effect (lab.h, Fx) the same way, and its tail dies away
 //   engine    through the app's engine (synth.cpp): selected, played, freed
 //   app       the screen and the encoders (test_app.cpp): build/screen_*.png
-//   null      Kick Lite against the Kick, preset by preset (test_null.cpp): the null depth, the renders in build/wav/null/
 //   bench     the host's time per sample of each synth (to compare synths and versions), and a warning when denormals slow it
 //   wav       a short phrase of each synth in build/wav/<name>.wav, to listen to (and the host's time per voice, to compare synths)
 // Run with a text to run only the tests whose name, or whose synth's name, contains it:  build/tests.exe FM2
@@ -58,7 +57,6 @@ void apply_overrides(const lab::Synth &s, float *p) {
     }
 }
 void test_app();                    // test_app.cpp
-void test_null();                   // test_null.cpp
 
 namespace {
 
@@ -381,7 +379,6 @@ int main(int argc, char **argv) {
     }
     if (wanted("engine", nullptr) || filter) test_engine();
     if (wanted("app", nullptr)) test_app();
-    if (wanted("null", nullptr)) test_null();
     if (wanted("bench", nullptr) || filter) {
         std::printf("bench:\n");
         for (int s = 0; s < lab::kSynthCount; s++)

@@ -5,9 +5,9 @@
 extern const lab::Synth synth_basic;
 extern const lab::Synth synth_fm2;
 extern const lab::Synth synth_kick;
-extern const lab::Synth synth_kick_lite;
 extern const lab::Synth synth_snare;
 extern const lab::Synth synth_drumlab;
+
 // (synths exported from a patch by SynthLab Studio are added above this line)
 #ifdef LAB_STUDIO
 extern lab::Synth synth_modular;                        // apps/studio's: it plays a patch (only the studio builds it)
@@ -19,7 +19,6 @@ const Synth *const kSynths[] = {
     &synth_basic,
     &synth_fm2,
     &synth_kick,
-    &synth_kick_lite,
     &synth_snare,
     &synth_drumlab,
     // (exported synths: above this line)

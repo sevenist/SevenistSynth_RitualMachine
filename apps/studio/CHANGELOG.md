@@ -2,6 +2,11 @@
 
 The library's changes: [framework/CHANGELOG.md](../../framework/CHANGELOG.md).
 
+## 2026-11-15: the library keeps Basic
+
+- The library of SynthLab synths rebuilt from modules (`apps/studio/library/`) keeps Basic only: FM2's and the Kick's rebuilds are
+  removed (the PATCH tab's Open lists Basic; the self-test nulls it alone). SynthLab's Kick Lite is gone too.
+
 ## 2026-11-15: an exported synth takes the patch's sound
 
 - PATCH > EXPORT > Synth also writes `presets/<name>.sound`, the patch's sound (its values, macros and name) as the exported synth's,

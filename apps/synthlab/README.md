@@ -43,7 +43,7 @@ labelled A.
 ## Sounds from SynthLab Studio
 
 A sound made in SynthLab Studio (its SOUND tab, Ctrl+S) is a file `apps/studio/presets/<Synth>.sound`, one per synth. Copy it to the
-card, in the folder `synthlab/sounds/` (the board makes the folder when a card comes in): `Kick.sound`, `Kick_Lite.sound` (a space in
+card, in the folder `synthlab/sounds/` (the board makes the folder when a card comes in): `Kick.sound`, `My_Kick.sound` (a space in
 the name is a `_`). On the desktop the card is the folder `apps/synthlab/sdcard/`, so the file goes in `apps/synthlab/sdcard/synthlab/sounds/`.
 
 - When the card comes in, the synth playing gets its sound; any other synth gets its own the first time you choose it. After that
@@ -111,6 +111,6 @@ thread); use floats, not doubles (`0.5f`), because the ESP32-S3's FPU is single 
 | `src/synth.h`, `.cpp` | The engine and its graph (6 voices), picking a synth, the values (each synth keeps its own). |
 | `src/app.h`, `src/app.cpp` | The controls and the screen. |
 | (the entry points) | The library's: `framework/app/main_sim.cpp` and `main_esp32.cpp` (memory, the loop, the board's start-up) call the app's functions listed in `framework/app/app_main.h`. |
-| `tests/` | The host tests (`tools/build_tests.ps1`): every synth and its Fx, the engine, the screen (`build/screen_*.png`), the WAVs, the host's time per sample (`bench`), the null test of Kick Lite against the Kick (`test_null.cpp`, its renders in `build/wav/null/`). The checks, the HWV2 board's stub, the PNG and WAV writers are the library's (`framework/tests/test.h`, `tests/stubs/stub_hwv2.h`, `host/png.h`, `host/wav.h`). |
+| `tests/` | The host tests (`tools/build_tests.ps1`): every synth and its Fx, the engine, the screen (`build/screen_*.png`), the WAVs, the host's time per sample (`bench`). The checks, the HWV2 board's stub, the PNG and WAV writers are the library's (`framework/tests/test.h`, `tests/stubs/stub_hwv2.h`, `host/png.h`, `host/wav.h`). |
 | `tools/esp32_report.ps1` | What a synth costs on the ESP32-S3, from the compiler: its render's instructions and every call (a float division, a libm function). |
 | `docs/SYNTHS.md` | The design notebook: every synth's idea, algorithm and parameters, and the ideas still to try. |

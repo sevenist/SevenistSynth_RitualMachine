@@ -73,7 +73,7 @@ patches** (not one module each), checked with a null test. Done (ADR-049's adden
 Learned: to null, a module must compute as the synth does. The Kick per sample: 33 dB; with its block-rate envelopes: 72 dB.
 
 Next, in that order (the user's plan):
-- [ ] Kick Lite (its O1 distortion table, its skipped triangle), the Snare (ring, wires = Ratchet + its noise EQ, its gate and master),
+- [ ] FM2 and the Kick again (their rebuilds were removed on 2026-11-15), the Snare (ring, wires = Ratchet + its noise EQ, its gate and master),
       DrumLab (metal, grooves: PLAY's loop is a synth option, not a module), each to 60 dB or more, the gaps named.
 - [ ] The Ritual Machine's racks. The plan: an adapter module hosting any engine module (its ModuleInfo -> a ModuleDef; q15 <-> float
       at the block's edges), so a rack opens as a patch of its own engine modules, exactly, and Export > Engine writes it back as the

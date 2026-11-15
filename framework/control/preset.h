@@ -104,7 +104,7 @@ static inline int pset_find(const param_desc_t *v, int n, const char *path) {
     return -1;
 }
 
-// A synth's file name: its name, a space or a slash as "_", then `ext` ("Kick Lite" + ".sound" -> "Kick_Lite.sound"). SynthLab Studio
+// A synth's file name: its name, a space or a slash as "_", then `ext` ("Hollow Kick" + ".sound" -> "Hollow_Kick.sound"). SynthLab Studio
 // saves a synth's sound under it, a board reads it there.
 static inline void pset_file_name(const char *synth, const char *ext, char *out, int cap) {
     int n = 0;

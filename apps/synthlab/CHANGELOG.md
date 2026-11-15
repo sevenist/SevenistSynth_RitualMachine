@@ -2,6 +2,11 @@
 
 The library's changes: [framework/CHANGELOG.md](../../framework/CHANGELOG.md).
 
+## 2026-11-15: back to five synths
+
+- **Kick Lite is gone**, with its null test against the Kick (`tests/test_null.cpp`): SynthLab starts fresh from Basic, FM2, Kick,
+  Snare and DrumLab. Its design notes are in the git history (docs/SYNTHS.md before this date).
+
 ## 2026-11-15: on the first prototype (HWV1)
 
 - **SynthLab runs on HWV1** (environment `hwv1`, the engine at 44.1 kHz as the Ritual Machine there), to hear the sounds on the

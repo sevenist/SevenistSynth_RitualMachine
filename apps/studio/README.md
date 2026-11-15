@@ -133,8 +133,7 @@ The status line at the bottom says what the control under the pointer is and wha
   - CONNECT: one of its outputs to an input or a value of another module, with the keyboard.
   - With nothing selected: the patch's size and memory, and how many of its modules the engine lacks.
 - **The patch:** Rename, New (the starting patch), Save as `presets/patches/<name>.patch`, the list of saved patches and Load.
-- **SynthLab's synths as patches:** the stepper under Load lists the synths rebuilt from modules (`apps/studio/library/`: Basic, FM2,
-  the Kick). Open one to rewire it: the status line gives its null depth against the synth itself (60 dB and more: the same
+- **SynthLab's synths as patches:** the stepper under Load lists the synths rebuilt from modules (`apps/studio/library/`: Basic). Open one to rewire it: the status line gives its null depth against the synth itself (60 dB and more: the same
   sound). It opens as the Modular synth's patch; Save as keeps your version apart, and the library stays as it is.
   Ctrl+S (or Save) also keeps the patch the Modular synth plays: `presets/Modular.patch`, read again at the next start.
 - **EXPORT:**

@@ -768,7 +768,7 @@ void test_keys(wg_ctx_t &c) {
 
 // The SynthLab synths rebuilt from modules (apps/studio/library): each nulls against its synth (nulltest.h).
 void test_rebuilds() {
-    struct { const char *synth; float min_db; } want[] = {{"Basic", 70.f}, {"FM2", 85.f}, {"Kick", 65.f}};
+    struct { const char *synth; float min_db; } want[] = {{"Basic", 70.f}};
     for (const auto &w : want) {
         const lab::Synth *s = nullptr;
         for (int i = 0; i < lab::kSynthCount; i++) if (!std::strcmp(lab::kSynths[i]->name, w.synth)) s = lab::kSynths[i];

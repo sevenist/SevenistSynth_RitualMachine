@@ -37,6 +37,10 @@ itself for about a minute (do not touch the board). Then:
 C:\.platformio\penv\Scripts\python.exe apps\synthlab\tools\module_bench.py --port COM8 --write framework\modular\module_costs.h --board hwv1
 ```
 
+The bench also checks on the board what the host cannot: the FPU's conversions between q15 and float (`[MBENCH] conv check`, against
+the portable code: every value, ties, infinities, NaN) and the envelope's curve table in single precision against the double formula
+(`[MBENCH] curve`). `[MBENCH] glue engine-ToF / engine-ToQ` are the engine's conversion steps, a block each.
+
 `module_bench.py` prints the tables (sends `b` to run the bench again if it ran before) and writes the cost table SynthLab Studio's
 cycles wallet reads. Close any serial monitor first. Add `-DENGINE_PROFILE` (`$env:PLATFORMIO_BUILD_FLAGS`) for the engine's own
 cycles per module type in each phase (`[MBENCH] prof` lines).

@@ -74,6 +74,12 @@ constexpr q15 q15_from_float(float f) { return sat16(static_cast<int32_t>(f * 32
 constexpr q31 q31_from_float(double f) {
     return sat32(static_cast<int64_t>(f * 2147483648.0 + (f >= 0 ? 0.5 : -0.5)));
 }
+// (single precision, for what runs on the audio thread when a value changes: set_param. |f| < 1 keeps 24 bits; a coefficient close to
+// 1 is better written as its distance from 1: kQ31One - q31_from_f(1 - f))
+constexpr q31 q31_from_f(float f) {
+    const float v = f * 2147483648.0f;
+    return v >= 2147483520.0f ? 0x7FFFFFFF : (v <= -2147483648.0f ? static_cast<q31>(-2147483647 - 1) : static_cast<q31>(v));
+}
 constexpr float q15_to_float(q15 x) { return static_cast<float>(x) * (1.0f / 32768.0f); }
 constexpr double q31_to_double(q31 x) { return static_cast<double>(x) * (1.0 / 2147483648.0); }
 

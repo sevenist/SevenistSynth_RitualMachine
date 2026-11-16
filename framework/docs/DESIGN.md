@@ -1030,7 +1030,7 @@ Chosen by me while building (say if one is wrong):
   - Next: Export > Engine writes a float module as its F type where the engine has nothing; SynthLab plays an exported engine graph
     (registering only its types); the wrapped modules measured natively on the board; the merged catalog (a choice per function).
 
-### ADR-050: One module system in float32; no FPU-less cores; modulation per block, per sample where a module needs it (Accepted in direction, the user's choices of 2026-11-15; step 0 measured, step 1 in and measured on the board; the port not started)
+### ADR-050: One module system in float32; no FPU-less cores; modulation per block, per sample where a module needs it (Accepted in direction, the user's choices of 2026-11-15; step 0 measured, step 1 in and measured on the board; step 2, typed signals, in on the host 2026-11-16)
 
 - **Context:** the engine (q15 blocks, q31 state, ADR-002 / ADR-010) and the float catalog (ADR-049) are two module systems; addendum 7
   joined them through a wrapper that costs about 1.7k cycles a module a block (module_costs.h: VCA 446 alone, 2272 as an F type). The
@@ -1120,7 +1120,54 @@ Chosen by me while building (say if one is wrong):
     now (`SC_HOT`, about 2.6 KB), the step loop no longer goes through the cache the PSRAM data shares. With both, same sound, 6 notes:
     committed engine 100 537 cycles a block (render 1035 / 1510 us avg / worst, 9 blocks over budget of 4140), this step 97 576
     (961 / 1272 us, 0 over). Listened to by the user: "same as before". `-falign-functions=16` was tried and not kept (no clear effect).
-- **Guideline 2 changes** when the port starts (float is the audio path's type); until then it stands with ADR-035's exception.
+- **Step 2, both signal types in one graph (2026-11-16, host-tested; the board was off):** instead of "float buffers with every old
+  module inside a converter" (the direction above: every q15 module would have paid two conversions a block during the whole port), the
+  buffers are **typed**:
+  - `ModuleInfo::sig` is `Sig::Q15` (the default: every module written before) or `Sig::F32`. Float is q15 / 32768: q15 -> float is
+    exact, float -> q15 rounds (half away from zero) and clamps, NaN -> 0 (`dsp/block.h f_to_q15`), so a q15 value through float
+    comes back bit for bit.
+  - `Ports` keeps its size: each pointer array is a union (`in` / `fin`, `mod` / `fmod`, `out` / `fout`); `ProcessCtx::fsilence` is
+    the float silence (an unplugged float input).
+  - The plan gives a buffer its writer's type. A reader of the other type reads a converted copy: a `ToF` / `ToQ` step before the
+    first such reader in the section, shared by the later ones (one made in the pre section serves the others). A mix is done in
+    its reader's type (`MixF`: depth kUnity is 1.0, else depth / 32768; the live depth changes reach it). Delayed cables keep their
+    writer's type (`CopyF`); their buffers are kBlock floats whatever the type and the engine moves a voice's pointers by bytes.
+  - **A graph of one type has no conversion step and no float buffer**: the Ritual Machine, all q15, runs as before (its 118 engine
+    tests unchanged). Two float modules in a row pass float blocks, unclamped.
+  - **The catalog's F types are float modules now**: they read and write the engine's blocks in place (only a Pitch input is scaled,
+    72 semitones to full scale -> octaves), no conversion and no clamp inside; a block longer than the catalog's 64 frames runs in
+    pieces as the runner does. Their nulls against the float originals held or improved (Slew -65.9 -> -68.7 dB, Op -75.5 -> -77.7,
+    Metal -78.5 -> -82.4 at 48 kHz / 32), and **the six rate / block configurations pass for the first time** (96000 / 128 and
+    48000 / 256 failed since the F types came, from their 64-frame wrapper). The null test clips its float reference as the engine's
+    q15 output does (Comp3 peaks at 1.08 at 96 kHz).
+  - Checked (tests/test_signals.cpp): a float module between q15 ones changes nothing, bit for bit, and so does a float, float, q15,
+    float chain; a one-type graph has no conversion and one oscillator read by three float modules is converted once; the float mix
+    against the q15 one (unity cables: identical; other depths: within the q15 mix's own rounding, 2 LSB) and a live depth change;
+    delayed cables of both types read the voice's own previous block (3 voices, float and q15 readers).
+  - **Found on the way, an older bug:** a block of the pre section (a global module) read in the voice section could have its slot
+    taken by a voice block made after its last reader; the voice section runs once per voice, so from the second voice on the readers
+    read that other block (the test: wrong in 20 of 40 voice blocks). Such a block now lives to the end of the voice section. It
+    concerned any graph where a global module feeds the voices (a global LFO on a voice's cutoff) with more than one voice playing.
+  - **Measured on HWV1 (same day, SynthLab `hwv1_bench`):** the 28 F types 118 495 -> 88 744 cycles a block summed (-25 %, 660 ..
+    2 025 a module); each one's host still costs 450 .. 980 (the note, the values, the defaults). The engine's conversion steps, a
+    32-frame block: `ToF` 335, `ToQ` 717 as compiled C (FLOAT.S + MUL.S; a branch left in the other), then **202 and 300 with the
+    FPU's scaled instructions** (FLOAT.S x, 15; ROUND.S x, 15 + CLAMPS; the loops in assembly, `dsp/block.h`; ties to even, NaN -> 0,
+    checked on the board against the portable version: no difference). The Ritual Machine, all q15, at 6 notes: 97 628 cycles a
+    block (the day before 97 576): nothing changed for it.
+- **Single precision only on the audio thread (the user, 2026-11-16: "avoid double precision floats use only single precision";
+  "convert all to single precision if no functionality is lost"):** the S3's FPU is single precision, a `double` operation is a
+  library call. The firmware's object files were audited (their references to `__muldf3` and the like, and to libm's double
+  functions): no `process()` used any, but the `set_param` / `update` of Env and Eg (the curve tables), Compressor, Eq3, Delay,
+  Reverb, SpectralFx, Chorus, Ensemble, Granular and the Convolver's IR did, on the audio thread when a value changes, and the
+  oscillator engines' tables at the first note. All converted; the engine library has no run-time double arithmetic left. Rules that
+  keep the accuracy: `1 - exp(-x)` is `-expm1f(-x)`; a coefficient close to 1 is computed as its distance from 1 (`q31_from_f`,
+  dsp/q.h: `0x7FFFFFFF - q31_from_f(d)`); a constant is the compiler's (`constexpr`); a biquad whose poles come close to z = 1 is
+  not designed in float (the EQ's low shelf and peak are state-variable filters, its 6 kHz shelf a float biquad; the int64 design
+  stays under `ENGINE_EQ_EXACT`). No test changed: the EQ against its double reference included; on the board the envelope's
+  curve table is the double formula's point for point. Still double, off the audio thread: the applications' UI and graph
+  building, the offline sample jobs (engine/offline).
+- **Guideline 2 changes** with the port (float is the audio path's type in the modules that declare `Sig::F32`); for the q15 modules it
+  stands with ADR-035's exception. Guideline 2 now also says: never `double` at run time in the engine.
 
 ## Known limits and ideas for later
 
@@ -1136,7 +1183,7 @@ Chosen by me while building (say if one is wrong):
 ## Guidelines (enforced)
 
 1. The audio path never calls `new`/`malloc`, takes a lock, or logs. *Why: determinism.*
-2. No `float`/`double` in the audio path; floats only at init, control rate or in tests. *Why: FPU-less targets, bit-exact tests.* **Exception (ADR-035, user decision): the ESP32-S3 has a single-precision FPU; the filter tick and the vowel / dust filters use float32 where it measured 8x faster. Anywhere else, measure first.**
+2. No `float`/`double` in the audio path of a q15 module; floats only at init, control rate or in tests. *Why: bit-exact tests.* **Exception (ADR-035, user decision): the ESP32-S3 has a single-precision FPU; the filter tick and the vowel / dust filters use float32 where it measured 8x faster. Anywhere else, measure first.** **Since ADR-050: a module that declares `Sig::F32` computes in float32; and no `double` at run time anywhere in the engine (a `set_param` runs on the audio thread, a double operation is a library call on the S3): `float` functions and literals (`expm1f`, `1.0f`), `constexpr` for constants.**
 3. Every saturating/rounding rule lives in `q.h`; modules do not hand-roll shifts. *Why: one place to get scaling right.*
 4. Every DSP module ships with a host test (SNR vs float64 reference, plus stability at extreme parameters).
 5. Time-based parameters are derived from `kSampleRate`/`kBlock`. *Why: ADR-004.*

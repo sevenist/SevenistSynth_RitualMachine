@@ -3,7 +3,17 @@
 The app's state, todo and history. Its guide is [docs/DEVELOPING.md](docs/DEVELOPING.md), its decisions [docs/DESIGN.md](docs/DESIGN.md).
 The library's notes, the user's working style and the traps of the environment are in the root [CONTINUE.md](../../CONTINUE.md).
 
-## Session todo (updated 2026-11-10)
+## Session todo (updated 2026-11-16)
+
+**2026-11-16 (board session on the `synthlab` branch; details in the root CONTINUE.md, "The section switch fixed on the board"):**
+- **The Pads section silent after a switch from the synth: fixed.** The pads graph did not load, out of memory: the fast heap is in
+  PSRAM again on HWV1 (73.7 KB largest internal block at the audio start, 94 KB on 2026-10-28) and the two PSRAM heaps split the
+  2 MB. Now one heap when the fast one cannot be internal (`audio_esp32.cpp`); 346 KB left in the Pads section with the user's pads.
+- A graph that does not load is printed (`[AUDIO] a graph did not load ...`, `engine_synth_load_error`).
+- `tools/switch_test.py` (docs/SERIAL_COMMANDS.md).
+- **Open:** the fast heap back in internal RAM (speed; what took ~20 KB of internal RAM since October, or reserve it before
+  `leds_init` / `input_init`); the first visit to the Pads after a start is silent for 8 .. 15 s while the samples load.
+- **Not listened to by the user yet:** the switch, and the engine's values now computed in single precision (no test changed).
 
 **2026-11-15 (from the `synthlab` branch's work, nothing of the app's behaviour changed):**
 - The engine has `Registry::kMax` 192 (was 128) and `ProcessCtx::silence`.

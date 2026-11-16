@@ -26,6 +26,7 @@ constexpr int kMaxBufs = 384;
 constexpr int kMaxFb = 32;
 constexpr int16_t kNone = -1;
 constexpr int16_t kSilence = -2;
+constexpr int16_t kSilenceF = -3;       // (the float silence)
 constexpr int16_t kFbVoice = 1000;      // + k
 constexpr int16_t kFbGlobal = 2000;     // + k
 
@@ -59,10 +60,15 @@ struct Scratch {
     int buf_def[kMaxBufs], buf_last[kMaxBufs], slot_of[kMaxBufs], slot_last[kMaxBufs];
     bool buf_fast[kMaxBufs];            // ADR-050: what the buffer carries is audio rate (fast), or slow, or decided by the
     uint64_t buf_dyn[kMaxBufs];         //   Rate::Dynamic nodes in buf_dyn (bit = node index) at run time
-    int n_buf, n_slots;
+    bool buf_f[kMaxBufs];               // ADR-050 step 2: a float buffer (else q15)
+    int n_buf, n_slots, n_fslots;
     FbEntry fb[kMaxFb];
     int n_fb, n_fbv, n_fbg;
     int16_t fb_id[kMaxFb];
+    bool fb_f[kMaxFb];
+    int16_t conv_src[kMaxBufs], conv_dst[kMaxBufs];     // the conversions emitted so far: one per buffer and section
+    uint8_t conv_sec[kMaxBufs];
+    int n_conv;
     int sec_end[3];
     uint8_t edge_step[kMaxEdges], edge_slot[kMaxEdges];
 };
@@ -71,14 +77,16 @@ struct Compiler {
     const GraphDesc &g;
     Scratch &S;
     Err err = Err::Ok;
+    int sec = 0;                        // the section being emitted: 0 pre, 1 voice, 2 post
     explicit Compiler(const GraphDesc &gd, Scratch &s) : g(gd), S(s) {}
 
-    int16_t new_buf(int def) {
+    int16_t new_buf(int def, bool f) {
         if (S.n_buf >= kMaxBufs) { err = Err::TooBig; return kNone; }
         S.buf_def[S.n_buf] = def;
         S.buf_last[S.n_buf] = def;
         S.buf_fast[S.n_buf] = true;
         S.buf_dyn[S.n_buf] = 0;
+        S.buf_f[S.n_buf] = f;
         return static_cast<int16_t>(S.n_buf++);
     }
     void use(int16_t id, int pos) { if (id >= 0 && S.buf_last[id] < pos) S.buf_last[id] = pos; }
@@ -86,10 +94,45 @@ struct Compiler {
     // What a buffer carries (ADR-050): silence and nothing are slow; a delayed cable's buffer is taken as fast (a feedback loop).
     void rate_of(int16_t id, bool *fast, uint64_t *dyn) const {
         *dyn = 0;
-        if (id == kNone || id == kSilence) { *fast = false; return; }
+        if (id == kNone || id == kSilence || id == kSilenceF) { *fast = false; return; }
         if (id >= kFbVoice) { *fast = true; return; }
         *fast = S.buf_fast[id];
         *dyn = S.buf_dyn[id];
+    }
+
+    bool is_f(int16_t id) const {
+        if (id == kSilenceF) return true;
+        if (id < 0) return false;
+        if (id >= kFbVoice) { for (int k = 0; k < S.n_fb; k++) if (S.fb_id[k] == id) return S.fb_f[k]; return false; }
+        return S.buf_f[id];
+    }
+
+    // `id` as a buffer of the type `f` (ADR-050 step 2): itself, the converted copy already made in this section (or in the pre section,
+    // which runs before the others), or a new conversion step here.
+    int16_t as_type(int16_t id, bool f) {
+        if (id == kNone) return kNone;
+        if (id == kSilence || id == kSilenceF) return f ? kSilenceF : kSilence;
+        if (is_f(id) == f) return id;
+        for (int k = 0; k < S.n_conv; k++)
+            if (S.conv_src[k] == id && (S.conv_sec[k] == sec || S.conv_sec[k] == 0)) return S.conv_dst[k];
+        if (S.n_conv >= kMaxBufs) { err = Err::TooBig; return kNone; }
+        const int pos = S.n_sym;
+        const int16_t dst = new_buf(pos, f);
+        Sym *c = append();
+        if (!c || dst == kNone) return kNone;
+        c->kind = f ? StepKind::ToF : StepKind::ToQ;
+        c->dst = dst;
+        c->src[0] = id;
+        use(id, pos);
+        bool fast;
+        uint64_t dyn;
+        rate_of(id, &fast, &dyn);
+        S.buf_fast[dst] = fast;
+        S.buf_dyn[dst] = dyn;
+        S.conv_src[S.n_conv] = id;
+        S.conv_dst[S.n_conv] = dst;
+        S.conv_sec[S.n_conv++] = static_cast<uint8_t>(sec);
+        return dst;
     }
 
     Sym *append() {
@@ -111,6 +154,7 @@ struct Compiler {
         bool voice = S.scope[node] == Scope::Voice;
         S.fb[S.n_fb] = {node, port, voice};
         S.fb_id[S.n_fb] = static_cast<int16_t>(voice ? kFbVoice + S.n_fbv++ : kFbGlobal + S.n_fbg++);
+        S.fb_f[S.n_fb] = S.type[node]->info->sig == Sig::F32;       // (the type of the output it holds)
         return S.fb_id[S.n_fb++];
     }
 
@@ -120,25 +164,27 @@ struct Compiler {
         return S.outbuf[si][e.src_port];
     }
 
-    // The buffer a node input / parameter reads: nothing, an alias of one cable, or a MIX of several.
-    int16_t resolve(int node, Dst kind, int port) {
+    // The buffer a node input / parameter reads, in the node's type `f`: nothing, an alias of one cable, or a MIX of several.
+    int16_t resolve(int node, Dst kind, int port, bool f) {
         int found[kMaxFanIn], nf = 0;
         for (int k = 0; k < g.n_edges; k++) {
             const EdgeDesc &e = g.edge[k];
             if (S.idx_of[e.dst_id] == node && e.dst_kind == kind && e.dst_port == port && nf < kMaxFanIn) found[nf++] = k;
         }
-        if (nf == 0) return kind == Dst::In ? kSilence : kNone;
-        if (nf == 1 && g.edge[found[0]].depth == kUnity) return edge_source(g.edge[found[0]]);
+        if (nf == 0) return kind == Dst::In ? (f ? kSilenceF : kSilence) : kNone;
+        if (nf == 1 && g.edge[found[0]].depth == kUnity) return as_type(edge_source(g.edge[found[0]]), f);
+        int16_t src[kMaxFanIn];
+        for (int i = 0; i < nf; i++) src[i] = as_type(edge_source(g.edge[found[i]]), f);   // (their conversions before the mix)
         int pos = S.n_sym;
-        int16_t tmp = new_buf(pos);
+        int16_t tmp = new_buf(pos, f);
         Sym *m = append();
         if (!m || tmp == kNone) return kNone;
-        m->kind = StepKind::Mix;
+        m->kind = f ? StepKind::MixF : StepKind::Mix;
         m->n = static_cast<uint8_t>(nf);
         m->dst = tmp;
         S.buf_fast[tmp] = false;
         for (int i = 0; i < nf; i++) {
-            m->src[i] = edge_source(g.edge[found[i]]);
+            m->src[i] = src[i];
             bool f;
             uint64_t d;
             rate_of(m->src[i], &f, &d);
@@ -154,9 +200,10 @@ struct Compiler {
 
     void emit_node(int node) {
         const ModuleInfo &info = *S.type[node]->info;
+        const bool f = info.sig == Sig::F32;
         int16_t in[kMaxIn], mod[kMaxParams];
-        for (int p = 0; p < kMaxIn; p++) in[p] = p < info.n_in ? resolve(node, Dst::In, p) : kNone;
-        for (int p = 0; p < kMaxParams; p++) mod[p] = p < info.n_param ? resolve(node, Dst::Param, p) : kNone;
+        for (int p = 0; p < kMaxIn; p++) in[p] = p < info.n_in ? resolve(node, Dst::In, p, f) : kNone;
+        for (int p = 0; p < kMaxParams; p++) mod[p] = p < info.n_param ? resolve(node, Dst::Param, p, f) : kNone;
         int pos = S.n_sym;
         Sym *s = append();
         if (!s) return;
@@ -190,7 +237,7 @@ struct Compiler {
             case Rate::Dynamic: out_fast = false; out_dyn = 1ull << node; s->dyn_src = true; break;
         }
         for (int o = 0; o < info.n_out; o++) {
-            s->out[o] = new_buf(pos);
+            s->out[o] = new_buf(pos, f);
             S.outbuf[node][o] = s->out[o];
             if (s->out[o] != kNone) { S.buf_fast[s->out[o]] = out_fast; S.buf_dyn[s->out[o]] = out_dyn; }
         }
@@ -207,7 +254,7 @@ struct Compiler {
             int pos = S.n_sym;
             Sym *c = append();
             if (!c) return;
-            c->kind = StepKind::Copy;
+            c->kind = S.fb_f[k] ? StepKind::CopyF : StepKind::Copy;      // (the output and its buffer have the node's type)
             c->dst = S.fb_id[k];
             c->src[0] = S.outbuf[node][S.fb[k].port];
             use(c->src[0], pos);
@@ -287,24 +334,37 @@ Err compile_impl(const GraphDesc &g, const Registry &reg, Heap &heap, int nvoice
 
     // Symbolic steps
     Compiler c(g, S);
+    c.sec = 0;
     for (int a = 0; a < S.n_pre_nodes; a++) c.emit_node(S.order_pre[a]);
     c.emit_fb_copies(false, false);
     S.sec_end[0] = S.n_sym;
+    c.sec = 1;
     for (int a = 0; a < S.n_order_voice; a++) c.emit_node(S.order_voice[a]);
     c.emit_fb_copies(true, false);
     S.sec_end[1] = S.n_sym;
+    c.sec = 2;
     for (int a = 0; a < S.n_post_nodes; a++) c.emit_node(S.order_post[a]);
     c.emit_fb_copies(false, true);
     S.sec_end[2] = S.n_sym;
     if (c.err != Err::Ok) return c.err;
 
-    // Buffer pool: first fit by liveness (a slot is reusable only after the last reader has run)
-    for (int b = 0; b < S.n_buf; b++) {
-        int s = 0;
-        while (s < S.n_slots && S.slot_last[s] >= S.buf_def[b]) s++;
-        if (s == S.n_slots) S.n_slots++;
-        S.slot_of[b] = s;
-        S.slot_last[s] = S.buf_last[b];
+    // A block of the pre section read in the voice section is read again by every voice: it lives to the end of the voice section (before
+    // 2026-11-16 a voice block made after its last reader could take its slot, and the next voices read that one instead).
+    for (int b = 0; b < S.n_buf; b++)
+        if (S.buf_def[b] < S.sec_end[0] && S.buf_last[b] >= S.sec_end[0] && S.buf_last[b] < S.sec_end[1]) S.buf_last[b] = S.sec_end[1];
+
+    // Buffer pools, one per type: first fit by liveness (a slot is reusable only after the last reader has run)
+    for (int pass = 0; pass < 2; pass++) {
+        const bool f = pass == 1;
+        int &n_slots = f ? S.n_fslots : S.n_slots;
+        for (int b = 0; b < S.n_buf; b++) {
+            if (S.buf_f[b] != f) continue;
+            int s = 0;
+            while (s < n_slots && S.slot_last[s] >= S.buf_def[b]) s++;
+            if (s == n_slots) n_slots++;
+            S.slot_of[b] = s;
+            S.slot_last[s] = S.buf_last[b];
+        }
     }
 
     // Allocate and resolve
@@ -319,22 +379,30 @@ Err compile_impl(const GraphDesc &g, const Registry &reg, Heap &heap, int nvoice
     pl->n_voice = S.sec_end[1] - S.sec_end[0];
     pl->n_post = S.sec_end[2] - S.sec_end[1];
     pl->n_slots = S.n_slots;
+    pl->n_fslots = S.n_fslots;
     pl->fbv_stride = S.n_fbv * kBlock;
     pl->steps = heap.alloc_array<Step>(S.n_sym > 0 ? static_cast<size_t>(S.n_sym) : 1);
     pl->pool = heap.alloc_array<q15>(static_cast<size_t>(S.n_slots > 0 ? S.n_slots : 1) * kBlock);
+    pl->fpool = S.n_fslots > 0 ? heap.alloc_array<float>(static_cast<size_t>(S.n_fslots) * kBlock) : nullptr;
     pl->silence = heap.alloc_array<q15>(kBlock);
-    pl->fbv = heap.alloc_array<q15>(static_cast<size_t>(S.n_fbv > 0 ? S.n_fbv : 1) * kBlock * static_cast<size_t>(nvoices > 0 ? nvoices : 1));
-    pl->fbg = heap.alloc_array<q15>(static_cast<size_t>(S.n_fbg > 0 ? S.n_fbg : 1) * kBlock);
+    pl->fsilence = heap.alloc_array<float>(kBlock);
+    pl->fbv = heap.alloc_array<float>(static_cast<size_t>(S.n_fbv > 0 ? S.n_fbv : 1) * kBlock * static_cast<size_t>(nvoices > 0 ? nvoices : 1));
+    pl->fbg = heap.alloc_array<float>(static_cast<size_t>(S.n_fbg > 0 ? S.n_fbg : 1) * kBlock);
     pl->inst_ = heap.alloc_array<Module *>(static_cast<size_t>(n > 0 ? n : 1) * static_cast<size_t>(pl->nvoices));
     if (pl->inst_) for (int k = 0; k < (n > 0 ? n : 1) * pl->nvoices; k++) pl->inst_[k] = nullptr;
-    if (!pl->steps || !pl->pool || !pl->silence || !pl->fbv || !pl->fbg || !pl->inst_) { free_plan(pl); return Err::NoMem; }
+    if (!pl->steps || !pl->pool || (S.n_fslots > 0 && !pl->fpool) || !pl->silence || !pl->fsilence || !pl->fbv || !pl->fbg || !pl->inst_) {
+        free_plan(pl);
+        return Err::NoMem;
+    }
 
+    // (a block's address, of either type: the Step's and the Ports' unions take it as their q15 member)
     auto ptr = [&](int16_t id) -> q15 * {
-        if (id >= kFbGlobal) return pl->fbg + (id - kFbGlobal) * kBlock;
-        if (id >= kFbVoice) return pl->fbv + (id - kFbVoice) * kBlock;
+        if (id >= kFbGlobal) return reinterpret_cast<q15 *>(pl->fbg + (id - kFbGlobal) * kBlock);
+        if (id >= kFbVoice) return reinterpret_cast<q15 *>(pl->fbv + (id - kFbVoice) * kBlock);
         if (id == kSilence) return pl->silence;
+        if (id == kSilenceF) return reinterpret_cast<q15 *>(pl->fsilence);
         if (id == kNone) return nullptr;
-        return pl->pool + S.slot_of[id] * kBlock;
+        return S.buf_f[id] ? reinterpret_cast<q15 *>(pl->fpool + S.slot_of[id] * kBlock) : pl->pool + S.slot_of[id] * kBlock;
     };
     auto is_vfb = [](int16_t id) { return id >= kFbVoice && id < kFbGlobal; };
 
@@ -369,11 +437,12 @@ Err compile_impl(const GraphDesc &g, const Registry &reg, Heap &heap, int nvoice
 
 Err compile_plan(const GraphDesc &g, const Registry &reg, Heap &heap, int nvoices, Plan **out, Heap *scratch) {
     *out = nullptr;
-    Heap &sh = scratch ? *scratch : heap;
-    Scratch *S = sh.make<Scratch>();
+    Heap *sh = scratch ? scratch : &heap;
+    Scratch *S = sh->make<Scratch>();
+    if (!S && sh != &heap) { sh = &heap; S = heap.make<Scratch>(); }     // (the scratch heap full: the plan's own heap)
     if (!S) return Err::NoMem;
     Err e = compile_impl(g, reg, heap, nvoices, *S, out);
-    sh.free(S);
+    sh->free(S);
     return e;
 }
 
@@ -382,7 +451,9 @@ void free_plan(Plan *p) {
     Heap *h = p->heap;
     h->free(p->steps);
     h->free(p->pool);
+    h->free(p->fpool);
     h->free(p->silence);
+    h->free(p->fsilence);
     h->free(p->fbv);
     h->free(p->fbg);
     h->free(p->updates);

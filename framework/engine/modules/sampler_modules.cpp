@@ -391,8 +391,8 @@ public:
             case GRN_JITTER: jitter_ = v; break;
             case GRN_LEVEL: level_ = static_cast<q15>(v); break;
         }
-        const double overlap = std::fmax(1.0, density_ * size_ / 1000.0);          // grains sounding at once on average
-        norm_ = static_cast<q15>(32767.0 / std::sqrt(overlap));
+        const float overlap = std::fmax(1.0f, static_cast<float>(density_) * static_cast<float>(size_) * 0.001f);   // grains sounding at once on average
+        norm_ = static_cast<q15>(32767.0f / std::sqrt(overlap));
     }
     void process(const ProcessCtx &ctx, const Ports &p) override {
         const int n = ctx.frames;

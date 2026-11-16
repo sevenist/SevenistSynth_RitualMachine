@@ -29,23 +29,25 @@ struct Tabs {
     int32_t g_tab[33] = {}, harm[kModes] = {}, bell[kModes] = {}, amp[kModes] = {}, dtab[17][kModes] = {}, lg[kHarm + 1] = {};
     uint32_t vinc[5][3] = {};
     Tabs() {
-        for (int i = 0; i <= 32; i++) g_tab[i] = static_cast<int32_t>(std::lround((1.0 - 0.1 * std::pow(2.0, -10.0 * i / 32.0)) * 32767.0));
-        static const double bell_ratio[kModes] = {1, 2.76, 5.40, 8.93, 13.34, 18.64, 25.0, 32.0};
+        // (single precision: the tables are built at the first note, on the audio thread)
+        for (int i = 0; i <= 32; i++) g_tab[i] = static_cast<int32_t>(std::lroundf((1.0f - 0.1f * std::exp2f(-10.0f * static_cast<float>(i) / 32.0f)) * 32767.0f));
+        static const float bell_ratio[kModes] = {1.0f, 2.76f, 5.40f, 8.93f, 13.34f, 18.64f, 25.0f, 32.0f};
         for (int k = 0; k < kModes; k++) {
             harm[k] = static_cast<int32_t>((k + 1) * 65536);
-            bell[k] = static_cast<int32_t>(std::lround(bell_ratio[k] * 65536.0));
-            amp[k] = static_cast<int32_t>(std::lround(32767.0 * std::pow(k + 1.0, -0.8) * 0.2));
+            bell[k] = static_cast<int32_t>(std::lroundf(bell_ratio[k] * 65536.0f));
+            amp[k] = static_cast<int32_t>(std::lroundf(32767.0f * std::pow(static_cast<float>(k + 1), -0.8f) * 0.2f));
         }
         for (int mi = 0; mi <= 16; mi++) {
-            const double t0 = 40.0 * std::pow(2.0, 6.64 * mi / 16.0);                  // ms: 40 ms .. 4 s
+            const float t0 = 40.0f * std::exp2f(6.64f * static_cast<float>(mi) / 16.0f);   // ms: 40 ms .. 4 s
             for (int k = 0; k < kModes; k++) {
-                const double tk = t0 / (1.0 + 0.7 * k);
-                dtab[mi][k] = static_cast<int32_t>(std::lround(std::exp(-1.0 / (tk * 0.001 * kSampleRate)) * 2147483647.0));
+                const float tk = t0 / (1.0f + 0.7f * static_cast<float>(k));
+                // (a decay just under 1, Q31: its distance from 1 by expm1, so single precision keeps the long decays' length)
+                dtab[mi][k] = 0x7FFFFFFF - q31_from_f(-std::expm1f(-1.0f / (tk * 0.001f * static_cast<float>(kSampleRate))));
             }
         }
-        static const double vow[5][3] = {{800, 1150, 2900}, {400, 1600, 2700}, {270, 2300, 3000}, {450, 800, 2830}, {325, 700, 2700}};
-        for (int v = 0; v < 5; v++) for (int f = 0; f < 3; f++) vinc[v][f] = hz_to_inc(static_cast<float>(vow[v][f]));
-        for (int k = 1; k <= kHarm; k++) lg[k] = static_cast<int32_t>(std::lround(std::log2(static_cast<double>(k)) * 65536.0));
+        static const float vow[5][3] = {{800, 1150, 2900}, {400, 1600, 2700}, {270, 2300, 3000}, {450, 800, 2830}, {325, 700, 2700}};
+        for (int v = 0; v < 5; v++) for (int f = 0; f < 3; f++) vinc[v][f] = hz_to_inc(vow[v][f]);
+        for (int k = 1; k <= kHarm; k++) lg[k] = static_cast<int32_t>(std::lroundf(std::log2(static_cast<float>(k)) * 65536.0f));
     }
 };
 const Tabs &tabs() { static const Tabs t; return t; }

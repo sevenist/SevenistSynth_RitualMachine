@@ -41,8 +41,8 @@ class OnePole {
 public:
     // time constant in milliseconds to reach ~63 % of a step (control rate / init)
     static q31 coef_from_ms(float ms) {
-        double k = 1.0 - std::exp(-1.0 / (static_cast<double>(ms) * 0.001 * kSampleRate));
-        return q31_from_float(k > 0.999999 ? 0.999999 : k);
+        const float k = -std::expm1f(-1.0f / (ms * 0.001f * static_cast<float>(kSampleRate)));   // (expm1: 1 - exp() keeps its digits in float)
+        return q31_from_f(k > 0.999999f ? 0.999999f : k);
     }
     void reset(q31 v) { y_ = v; }
     void set_coef(q31 k) { k_ = k; }

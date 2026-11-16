@@ -63,6 +63,7 @@ const sc::ModuleInfo *info_of(int k, bool global) {
     slot->rate = !std::strcmp(kind, "Envelopes") || !std::strcmp(kind, "Macros") || !std::strcmp(kind, "In / Out") ? sc::Rate::Control
                : !std::strcmp(kind, "Math") || !std::strcmp(kind, "Filters") || !std::strcmp(kind, "Shapers") || !std::strcmp(kind, "Utilities")
                      ? sc::Rate::Follow : sc::Rate::Audio;
+    slot->sig = sc::Sig::F32;                           // (ADR-050 step 2: float blocks, the engine converts where a q15 module joins)
     for (int i = 0; i < d->n_in; i++) slot->in_name[i] = d->in_name[i];
     for (int o = 0; o < d->n_out; o++) slot->out_name[o] = d->out_name[o];
     for (int j = 0; j < d->n_param; j++) {
@@ -84,6 +85,7 @@ public:
         if (!state_) return false;
         d.construct(state_);
         for (int j = 0; j < d.n_param; j++) v_[j] = d.param[j].def;
+        for (int k = 0; k < d.n_in; k++) if (!std::strcmp(d.in_name[k], "Pitch")) pitch_in_ |= static_cast<uint8_t>(1u << k);   // (once, not a block)
         return true;
     }
     ~Host() override {
@@ -105,11 +107,14 @@ private:
     sc::Heap *heap_ = nullptr;
     void *state_ = nullptr;
     float v_[kMaxParams] = {};
+    uint8_t pitch_in_ = 0;                              // the inputs named Pitch (a CV: scaled to octaves)
 };
 
+// A float module of the engine (ADR-050 step 2: Sig::F32): its blocks are the engine's, read and written in place, the pitch inputs
+// scaled (the engine's pitch CV is 72 semitones to full scale, the catalog's octaves). A block longer than the catalog's kMaxFrames runs
+// in pieces, as the runner does (the values' modulation: the mean over each piece).
 SC_HOT void Host::process(const sc::ProcessCtx &ctx, const sc::Ports &p) {
     const ModuleDef &d = *g_w[k_].def;
-    const int n = ctx.frames < kMaxFrames ? ctx.frames : kMaxFrames;
     Ctx c;
     c.sr = static_cast<float>(sc::kSampleRate);
     c.inv_sr = 1.f / c.sr;
@@ -125,51 +130,45 @@ SC_HOT void Host::process(const sc::ProcessCtx &ctx, const sc::Ports &p) {
         for (int v = 0; v < ctx.nvoices && ctx.voices; v++) if (ctx.voices[v].started) started = true;
     }
     if (started) d.start(state_, c);
-    // the values, with their modulations (the runner's rule: the mean over the block moves the value along its range)
-    float pv[kMaxParams];
-    for (int j = 0; j < d.n_param; j++) {
-        pv[j] = v_[j];
-        if (const sc::q15 *m = p.mod[j]) {
-            int32_t s = 0;
-            for (int i = 0; i < ctx.frames; i++) s += m[i];
-            const float amount = static_cast<float>(s) * (1.f / 32768.f) / static_cast<float>(ctx.frames);
-            if (amount != 0.f) pv[j] = from_norm(d.param[j], to_norm(d.param[j], pv[j]) + amount);
-        }
-    }
-    // the inputs: converted, or what the catalog's module reads with nothing plugged in
-    float in[kMaxIn][kMaxFrames], out[kMaxOut][kMaxFrames];
-    IO io{};
-    for (int k = 0; k < d.n_in; k++) {
-        float *x = in[k];
-        const sc::q15 *src = p.in[k];
-        if (src && src != ctx.silence) {
-            const float g = !std::strcmp(d.in_name[k], "Pitch") ? 6.f / 32768.f : 1.f / 32768.f;    // (pitch CV: 72 semitones a unit)
-            for (int i = 0; i < n; i++) x[i] = static_cast<float>(src[i]) * g;
-        } else {
-            switch (d.in_def[k]) {
-            case kOne: for (int i = 0; i < n; i++) x[i] = 1.f; break;
-            case kGate: { const float gv = c.gate ? 1.f : 0.f; for (int i = 0; i < n; i++) x[i] = gv; break; }
-            case kTrig: for (int i = 0; i < n; i++) x[i] = 0.f; if (started && n > 0) x[0] = 1.f; break;
-            case kIn0: for (int i = 0; i < n; i++) x[i] = k > 0 ? in[0][i] : 0.f; break;
-            case kPitch: { const float oct = fast_log2(c.hz * (1.f / 261.6256f)); for (int i = 0; i < n; i++) x[i] = oct; break; }
-            default: for (int i = 0; i < n; i++) x[i] = 0.f; break;
+    for (int off = 0; off < ctx.frames; off += kMaxFrames) {
+        const int n = ctx.frames - off < kMaxFrames ? ctx.frames - off : kMaxFrames;
+        // the values, with their modulations (the runner's rule: the mean over the piece moves the value along its range)
+        float pv[kMaxParams];
+        for (int j = 0; j < d.n_param; j++) {
+            pv[j] = v_[j];
+            if (const float *m = p.fmod[j]) {
+                float s = 0.f;
+                for (int i = 0; i < n; i++) s += m[off + i];
+                const float amount = s / static_cast<float>(n);
+                if (amount != 0.f) pv[j] = from_norm(d.param[j], to_norm(d.param[j], pv[j]) + amount);
             }
         }
-        io.in[k] = x;
-    }
-    for (int k = d.n_in; k < kMaxIn; k++) io.in[k] = in[0];             // (never read)
-    for (int o = 0; o < kMaxOut; o++) io.out[o] = o < d.n_out ? out[o] : nullptr;
-    io.p = pv;
-    io.frames = n;
-    d.process(state_, c, io);
-    for (int o = 0; o < d.n_out; o++) {
-        sc::q15 *dst = p.out[o];
-        const float *y = out[o];
-        for (int i = 0; i < n; i++) {
-            const float s = y[i] * 32767.f;
-            dst[i] = static_cast<sc::q15>(s > 32767.f ? 32767.f : (s < -32768.f ? -32768.f : (s == s ? s : 0.f)));
+        // the inputs: the engine's block itself, scaled (pitch), or what the catalog's module reads with nothing plugged in
+        float in[kMaxIn][kMaxFrames];
+        IO io{};
+        for (int k = 0; k < d.n_in; k++) {
+            const float *src = p.fin[k];
+            if (src && src != ctx.fsilence) {
+                if (!((pitch_in_ >> k) & 1u)) { io.in[k] = src + off; continue; }
+                for (int i = 0; i < n; i++) in[k][i] = src[off + i] * 6.f;     // (pitch CV: 72 semitones a unit)
+            } else {
+                float *x = in[k];
+                switch (d.in_def[k]) {
+                case kOne: for (int i = 0; i < n; i++) x[i] = 1.f; break;
+                case kGate: { const float gv = c.gate ? 1.f : 0.f; for (int i = 0; i < n; i++) x[i] = gv; break; }
+                case kTrig: for (int i = 0; i < n; i++) x[i] = 0.f; if (started && off == 0) x[0] = 1.f; break;
+                case kIn0: for (int i = 0; i < n; i++) x[i] = k > 0 ? io.in[0][i] : 0.f; break;
+                case kPitch: { const float oct = fast_log2(c.hz * (1.f / 261.6256f)); for (int i = 0; i < n; i++) x[i] = oct; break; }
+                default: for (int i = 0; i < n; i++) x[i] = 0.f; break;
+                }
+            }
+            io.in[k] = in[k];
         }
-        for (int i = n; i < ctx.frames; i++) dst[i] = 0;
+        for (int k = d.n_in; k < kMaxIn; k++) io.in[k] = d.n_in > 0 ? io.in[0] : in[0];   // (never read)
+        for (int o = 0; o < kMaxOut; o++) io.out[o] = o < d.n_out ? p.fout[o] + off : nullptr;
+        io.p = pv;
+        io.frames = n;
+        d.process(state_, c, io);
     }
 }
 

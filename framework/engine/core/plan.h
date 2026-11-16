@@ -7,6 +7,10 @@
 // Buffers come from a pool shared by all steps, assigned by liveness (a buffer can be reused once its last
 // reader has run). Cables with unity depth are aliased (no copy); other cables become a MIX step. A delayed
 // cable reads a persistent feedback buffer that a COPY step refreshes at the end of the section.
+//
+// Every buffer has the number type of the module that writes it (ModuleInfo::sig, ADR-050 step 2). A reader of the other type reads a
+// converted copy (a TOF / TOQ step before the first such reader in the section, shared by the later ones); a MIX is done in its reader's
+// type. A graph of one type has no conversion step.
 #include <cstdint>
 #include "engine/core/graph.h"
 #include "engine/core/heap.h"
@@ -17,16 +21,17 @@ namespace sc {
 enum class Err : uint8_t { Ok, NoMem, UnknownType, DupId, BadEdge, Scope, Cycle, FanIn, TooBig, BusLoop };
 const char *err_name(Err e);
 
-enum class StepKind : uint8_t { Module, Mix, Copy };
+// Mix / Copy on q15 blocks, MixF / CopyF on float blocks; ToF: q15 -> float, ToQ: float -> q15 (src[0] -> dst).
+enum class StepKind : uint8_t { Module, Mix, Copy, MixF, CopyF, ToF, ToQ };
 
 struct Step {
     StepKind kind;
     uint8_t node;               // index in the plan's node table (Module steps)
     uint8_t n;                  // Mix: number of sources
     bool fb;                    // voice section: uses per-voice feedback buffers (pointers need relocating)
-    q15 *dst;                   // Mix / Copy destination
-    const q15 *src[kMaxFanIn];  // Mix sources (Copy: src[0])
-    q15 gain[kMaxFanIn];
+    union { q15 *dst; float *fdst; };                           // Mix / Copy / conversion destination
+    union { const q15 *src[kMaxFanIn]; const float *fsrc[kMaxFanIn]; };   // Mix sources (Copy, conversions: src[0])
+    q15 gain[kMaxFanIn];        // (MixF too: kUnity is 1.0, else gain / 32768)
     Ports p;                    // Module steps (p.mod_slow / p.in_slow: what is slow whatever runs, ADR-050)
     // Module steps fed by a Rate::Dynamic source (an LFO): those values / inputs are slow in a block where none of the nodes in
     // dyn_nodes (bit = node index) was fast; dyn_src: this node is such a source (the engine reads its fast_out() after it runs).
@@ -62,12 +67,17 @@ struct Plan {
 
     q15 *pool = nullptr;
     int n_slots = 0;
+    float *fpool = nullptr;                         // the float buffers' slots (none in a graph of q15 modules)
+    int n_fslots = 0;
     uint8_t edge_step[kMaxEdges];                   // per cable: the MIX step that applies its depth and the slot in it (edge_step 255 = aliased, no gain)
     uint8_t edge_slot[kMaxEdges];
     q15 *silence = nullptr;
-    q15 *fbv = nullptr;                             // voice 0 region first; stride fbv_stride samples per voice
+    float *fsilence = nullptr;
+    // The delayed cables' buffers, kBlock floats each whatever their type (a q15 one uses the first half): voice 0's region first, then
+    // the next voice's, fbv_stride floats apart; the engine moves a voice's pointers by bytes.
+    float *fbv = nullptr;
     int fbv_stride = 0;
-    q15 *fbg = nullptr;
+    float *fbg = nullptr;
     bool has_master = false;                        // a node writes the final output (engine fills)
 };
 

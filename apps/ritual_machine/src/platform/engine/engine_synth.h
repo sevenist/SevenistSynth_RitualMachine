@@ -21,6 +21,9 @@ int  engine_synth_init(void *fast, size_t fast_bytes, void *bulk, size_t bulk_by
 void engine_synth_shutdown(void);
 
 const char *engine_synth_build_reason(void);
+// The last graph load that failed ("" = none): what ("synth", "pads", "pads fx", "empty"), the engine's error and the heaps then. A failed
+// load leaves the previous graph playing: after a section switch, the empty one (the new section is silent). `fails`: how many so far.
+const char *engine_synth_load_error(unsigned *fails);
 // [CONTROL] call often (the platforms: audio_update): once the audio thread runs the graph of the last build, the old graph's modules are
 // freed (a build can only free what the running plan no longer uses: before, they stayed until the next build, so a Synth <-> Pads switch
 // kept both graphs in memory).

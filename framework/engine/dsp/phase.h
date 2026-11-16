@@ -16,10 +16,10 @@ constexpr int32_t kPitchA4   = 69 * kPitchUnit;
 
 // Phase increment for a frequency (control rate / init: uses float).
 inline uint32_t hz_to_inc(float hz) {
-    double inc = static_cast<double>(hz) / kSampleRate * 4294967296.0;
-    return inc <= 0 ? 0u : (inc >= 2147483648.0 ? 2147483648u : static_cast<uint32_t>(inc));
+    const float inc = hz * static_cast<float>(4294967296.0 / kSampleRate);       // (single precision: 24 bits of the increment, 1e-4 cent)
+    return inc <= 0.0f ? 0u : (inc >= 2147483648.0f ? 2147483648u : static_cast<uint32_t>(inc));
 }
-inline float inc_to_hz(uint32_t inc) { return static_cast<float>(static_cast<double>(inc) * kSampleRate / 4294967296.0); }
+inline float inc_to_hz(uint32_t inc) { return static_cast<float>(inc) * static_cast<float>(kSampleRate / 4294967296.0); }
 
 // A4 (440 Hz) increment: the base for pitch_to_inc.
 inline uint32_t inc_a4() { return hz_to_inc(440.0f); }

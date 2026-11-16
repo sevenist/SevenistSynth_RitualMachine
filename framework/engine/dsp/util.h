@@ -22,8 +22,8 @@ class DcBlocker {
 public:
     // corner frequency in Hz (init/control rate)
     void set_corner(float hz, int fs = kSampleRate) {
-        double r = 1.0 - 2.0 * 3.14159265358979 * static_cast<double>(hz) / fs;
-        r_ = q31_from_float(r < 0.0 ? 0.0 : (r > 0.999999 ? 0.999999 : r));
+        const float d = 6.2831853f * hz / static_cast<float>(fs);              // 1 - R, kept as the distance from 1 (single precision)
+        r_ = 0x7FFFFFFF - q31_from_f(d > 1.0f ? 1.0f : (d < 0.000001f ? 0.000001f : d));
     }
     void reset() { x1_ = 0; y1_ = 0; }
     // [AUDIO]

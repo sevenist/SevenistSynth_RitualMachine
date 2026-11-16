@@ -91,7 +91,7 @@ public:
             const int32_t cut = lp_cut_ + static_cast<int32_t>((static_cast<int64_t>(pitch - kPitchCvCenter) * lp_key_) >> 15)
                                 + static_cast<int32_t>((static_cast<int64_t>(lp_env_) * env_q15) >> 15);
             const float w = static_cast<float>(pitch_to_inc(cut, a4_)) * (6.2831853f / 4294967296.0f);
-            lp_g_ = static_cast<int32_t>((1.0f - std::exp(-w)) * 32767.0f);              // one-pole coefficient, q15
+            lp_g_ = static_cast<int32_t>(-std::expm1f(-w) * 32767.0f);              // one-pole coefficient, q15
         }
         Ctx c{inc1, inc2, pw_off_, mix_, amp_, (amp_end - amp_) >> kLog2Block, lp_g_};
         c.t1 = table(inc1);
@@ -232,7 +232,7 @@ public:
 private:
     static constexpr double kBaseMs = 7.0, kSlowMs = 3.5, kFastMs = 0.35;     // centre delay, slow and fast modulation depth at 100 %
     static constexpr float kFastRatio = 10.5f;                                  // the fast LFO (vibrato shimmer) relative to the slow one
-    static uint32_t block_inc(float hz) { return static_cast<uint32_t>(static_cast<double>(hz) / kControlRate * 4294967296.0); }
+    static uint32_t block_inc(float hz) { return static_cast<uint32_t>(hz * static_cast<float>(4294967296.0 / kControlRate)); }
     DelayLine line_;
     int32_t base_ = 0, slow_amp_ = 0, fast_amp_ = 0, depth_ = 0, shimmer_ = 0, mix_ = 0;
     int32_t d_[3] = {0, 0, 0};

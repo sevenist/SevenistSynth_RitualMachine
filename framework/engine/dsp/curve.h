@@ -17,11 +17,12 @@ struct CurveLut {
     int16_t t[kN + 1] = {};
 
     void build(q15 curve) {
-        const double k = 8.0 * static_cast<double>(curve) / 32767.0;
+        const float k = 8.0f * static_cast<float>(curve) / 32767.0f;
+        const float den = std::fabs(k) < 1e-3f ? 1.0f : 1.0f / std::expm1f(-k);
         for (int i = 0; i <= kN; i++) {
-            const double p = static_cast<double>(i) / kN;
-            const double s = std::fabs(k) < 1e-3 ? p : (1.0 - std::exp(-k * p)) / (1.0 - std::exp(-k));
-            t[i] = static_cast<int16_t>(std::lround(std::fmax(0.0, std::fmin(1.0, s)) * 32767.0));
+            const float p = static_cast<float>(i) * (1.0f / kN);
+            const float s = std::fabs(k) < 1e-3f ? p : std::expm1f(-k * p) * den;
+            t[i] = static_cast<int16_t>(std::lroundf(std::fmax(0.0f, std::fmin(1.0f, s)) * 32767.0f));
         }
     }
     // p: phase as an unsigned Q32 (0 .. 2^32-1). Returns the progress as q15 (0 .. 32767).

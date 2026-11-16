@@ -44,7 +44,7 @@ struct PadsApp {
     int n = 0;
     pads_t pads;
     rack_t rack;
-    PadsApp() : fast(6u << 20), bulk(6u << 20) {
+    explicit PadsApp(size_t fast_bytes = 6u << 20, size_t bulk_bytes = 6u << 20) : fast(fast_bytes), bulk(bulk_bytes) {
         CHECK_EQ(engine_synth_init(fast.data(), fast.size(), bulk.data(), bulk.size()), 0);
         CHECK(engine_synth_attach_storage(&card));
         pads_init(&pads);
@@ -632,6 +632,88 @@ TEST(pads_a_section_switch_builds_the_new_graph_in_the_fast_heap) {
     CHECK(room < synth_size + pads_size);                                     // both do not fit
     CHECK(to_pads + 256 >= fresh_pads);
     CHECK(back + 256 >= fresh_synth);
+}
+
+// The user's report (2026-11-16): after a section switch, only one of the two sections sounded. Here as on the board: an audio thread
+// takes each graph at its next block, a loader thread pumps the card, the UI thread switches; after every switch, the section must sound.
+namespace {
+void switch_rounds(size_t fast_bytes, size_t bulk_bytes, bool startup, int pads_n, double pad_s = 3.0) {
+    PadsApp a(fast_bytes, bulk_bytes);
+    for (int i = 0; i < pads_n; i++) {
+        char nm[16];
+        std::snprintf(nm, sizeof nm, "s%d", i);
+        a.add(nm, sine(220.0 * (1 + i), i ? pad_s : 1.0));                     // (3 s: more than a resident pad, streamed; 2 s: kept whole)
+        pad_t &q = a.pad(i, nm);
+        q.level = 100; q.loop = PAD_LOOP_TRIM; q.mode = PAD_TOGGLE;
+    }
+    synth_params_t params;
+    synth_params_default(&params);
+    if (startup) rack_init_startup(&a.rack); else rack_init(&a.rack);
+    std::atomic<bool> stop{false};
+    std::atomic<int> peak{0};
+    std::thread audio([&] {
+        int16_t buf[64 * 2];
+        while (!stop.load()) {
+            engine_synth_render(buf, 64);
+            int m = 0;
+            for (int i = 0; i < 128; i++) m = std::max(m, std::abs(static_cast<int>(buf[i])));
+            int cur = peak.load();
+            while (m > cur && !peak.compare_exchange_weak(cur, m)) {}
+            std::this_thread::sleep_for(std::chrono::microseconds(300));
+        }
+    });
+    std::thread loader([&] {
+        while (!stop.load()) { engine_synth_io_pump(); std::this_thread::sleep_for(std::chrono::milliseconds(1)); }
+    });
+    auto wait = [](int ms) {
+        for (int t = 0; t < ms; t += 5) { engine_synth_housekeeping(); std::this_thread::sleep_for(std::chrono::milliseconds(5)); }
+    };
+    int synth_silent = 0, pads_silent = 0;
+    const int rounds = 25;
+    for (int r = 0; r < rounds; r++) {
+        engine_synth_build(&a.rack, &params);
+        wait(30);
+        engine_synth_note_on(60);
+        wait(30);
+        peak.store(0);
+        wait(80);
+        if (peak.load() < 200) { synth_silent++; std::printf("    round %d: the synth silent (peak %d, build '%s')\n", r, peak.load(), engine_synth_build_reason()); }
+        engine_synth_note_off(60);
+        wait(10);
+        engine_synth_pads_build(&a.pads, &a.rack);
+        // (a pad pushed before the loader has its sample starts and plays nothing: pushed again until it sounds, 2 s at most)
+        bool heard = false;
+        for (int t = 0; t < 12 && !heard; t++) {
+            wait(60);
+            engine_synth_pad_push(0);
+            wait(30);
+            peak.store(0);
+            wait(80);
+            heard = peak.load() >= 200;
+            engine_synth_pad_push(0);                                         // (toggle: off)
+            wait(10);
+        }
+        if (!heard) { pads_silent++; std::printf("    round %d: the pads silent (peak %d)\n", r, peak.load()); }
+    }
+    stop.store(true);
+    audio.join();
+    loader.join();
+    unsigned fails = 0;
+    const char *err = engine_synth_load_error(&fails);
+    if (fails) std::printf("    %u loads failed, the last: %s\n", fails, err);
+    size_t fu = 0, fc = 0, bu = 0, sp = 0;
+    engine_synth_heap_stats(&fu, &fc, nullptr, &bu, &sp);
+    std::printf("    %d rounds (fast %zu, bulk %zu): the synth silent %d times, the pads %d times; fast %zu used, bulk %zu, spilled %zu\n",
+                rounds, fast_bytes, bulk_bytes, synth_silent, pads_silent, fu, bu, sp);
+    CHECK_EQ(synth_silent, 0);
+    CHECK_EQ(pads_silent, 0);
+}
+}  // namespace
+
+TEST(pads_and_synth_both_sound_after_many_section_switches) {
+    switch_rounds(6u << 20, 6u << 20, false, 1);
+    switch_rounds(82752, 1600u * 1024, true, 8);                              // the board's heaps (HWV1), the startup patch, 8 pads
+    switch_rounds(82752, 1600u * 1024, true, 8, 2.0);                         // ... the pads' samples kept whole: the resident budget full
 }
 
 /* ---------------- the FX chains (ADR-041 decisions 23, 47-49): a pad's bus, the chains, the four routings ---------------- */

@@ -135,16 +135,27 @@ extern "C" void audio_init(void) {
     if (fast_bytes > kFastMaxBytes) fast_bytes = kFastMaxBytes;
     bool fast_internal = fast_bytes >= kFastMinBytes;
     void *fast = fast_internal ? heap_caps_malloc(fast_bytes, MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT) : nullptr;
-    if (!fast) {                                       // not enough internal RAM: the whole fast heap goes to PSRAM
+    void *bulk = nullptr;
+    size_t bulk_bytes = 0;
+    if (fast) {
+        bulk_bytes = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+        bulk_bytes = bulk_bytes > kBulkHeadroomBytes ? bulk_bytes - kBulkHeadroomBytes : 0;
+        if (bulk_bytes > kBulkMaxBytes) bulk_bytes = kBulkMaxBytes;
+        bulk = heap_caps_malloc(bulk_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    } else {
+        // Not enough internal RAM: the fast heap is PSRAM too, so ONE heap for both (the engine's host shares it: the same block twice).
+        // Two PSRAM heaps split the memory for nothing: on HWV1 (2 MB of PSRAM, 2026-11-16) the 400 KB fast one stayed nearly empty while
+        // the bulk one ran out, and the Pads section's graph did not load after a switch from the synth (its samples kept in memory).
         fast_internal = false;
-        fast_bytes = kFastSpiramBytes;
-        fast = heap_caps_malloc(fast_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        bulk_bytes = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
+        bulk_bytes = bulk_bytes > kBulkHeadroomBytes ? bulk_bytes - kBulkHeadroomBytes : 0;
+        if (bulk_bytes > kBulkMaxBytes + kFastSpiramBytes) bulk_bytes = kBulkMaxBytes + kFastSpiramBytes;
+        bulk = heap_caps_malloc(bulk_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+        fast = bulk;
+        fast_bytes = bulk_bytes;
     }
-    size_t bulk_bytes = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
-    bulk_bytes = bulk_bytes > kBulkHeadroomBytes ? bulk_bytes - kBulkHeadroomBytes : 0;
-    if (bulk_bytes > kBulkMaxBytes) bulk_bytes = kBulkMaxBytes;
-    void *bulk = heap_caps_malloc(bulk_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
-    Serial.printf("[AUDIO] fast heap %u bytes (%s), bulk heap %u bytes (PSRAM)\n", (unsigned)fast_bytes, fast_internal ? "internal RAM" : "PSRAM", (unsigned)bulk_bytes);
+    Serial.printf("[AUDIO] fast heap %u bytes (%s), bulk heap %u bytes (PSRAM)%s\n", (unsigned)fast_bytes, fast_internal ? "internal RAM" : "PSRAM",
+                  (unsigned)bulk_bytes, fast == bulk ? ": one heap" : "");
     if (!fast || !bulk) { Serial.printf("[AUDIO] allocation failed: fast %p, bulk %p\n", fast, bulk); return; }
     if (engine_synth_init(fast, fast_bytes, bulk, bulk_bytes) != 0) { Serial.println("[AUDIO] engine_synth_init failed"); return; }
 #ifdef HWV1_DEBUG_AUDIO
@@ -251,5 +262,11 @@ extern "C" int audio_render_poll(int *percent)                              { re
 extern "C" void audio_render_done(void)                                     { engine_synth_render_done(); }
 extern "C" void audio_sample_hide(int index)                                { samples_esp32_hide(index); }
 extern "C" uint32_t audio_millis(void)                                     { return engine_synth_millis(); }
-extern "C" void audio_update(void)                                         { engine_synth_housekeeping(); }     // frees an old graph once the audio task runs the new one
+extern "C" void audio_update(void) {
+    engine_synth_housekeeping();                                             // frees an old graph once the audio task runs the new one
+    static unsigned fails_seen = 0;                                          // a graph that did not load (its section stays silent): said once
+    unsigned fails = 0;
+    const char *err = engine_synth_load_error(&fails);
+    if (fails != fails_seen) { fails_seen = fails; Serial.printf("[AUDIO] a graph did not load (%u so far): %s\n", fails, err); }
+}
 #endif // ARDUINO_ARCH_ESP32

@@ -39,7 +39,7 @@ public:
     // [CONTROL] posted like a note; glide_ms 0 = jump. max_voices (Poly): the allocator uses the first max_voices voices only (0: all of
     // them), a synth's own voice count under the graph's: no reload, no memory change (a voice past it ends as it would).
     bool set_voice_mode(VoiceMode mode, bool legato, int glide_ms, int max_voices = 0);
-    void gc();                                          // [CONTROL]
+    bool gc();                                          // [CONTROL] false: not now (the audio thread was swapping plans), try again
     bool switching() const { return pending_.load(std::memory_order_acquire) != nullptr; }   // a loaded plan waits for the audio thread
 
     bool note_on(int note, int velocity127 = 100);      // [CONTROL] false = the command queue was full

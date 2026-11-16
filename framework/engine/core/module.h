@@ -39,6 +39,12 @@ struct ParamDesc {
 //   Dynamic  decided at run time, each block, by Module::fast_out() (an LFO: fast above 100 Hz)
 enum class Rate : uint8_t { Audio, Control, Follow, Dynamic };
 
+// The number type of a module's signals (ADR-050 step 2): what its inputs, modulations and outputs are. Q15 blocks (the default, every
+// module written before) or float32 blocks, where 1.0 is q15's full scale (32768): a q15 value read as float is exact; a float written
+// to q15 is rounded and clamped. The plan converts a cable where it joins two types (one converted copy for all its readers there), so
+// a graph of one type has no conversion.
+enum class Sig : uint8_t { Q15, F32 };
+
 struct ModuleInfo {
     const char *name;
     Scope scope;
@@ -48,6 +54,7 @@ struct ModuleInfo {
     const char *out_name[kMaxOut];
     ParamDesc param[kMaxParams];
     Rate rate = Rate::Audio;                // (after the values: a module's table that ends with its values declares Audio)
+    Sig sig = Sig::Q15;
 };
 
 // The machine clock (ADR-041 decision 24): a 4/4 transport counted in beats, advanced by the engine at the end of every block. A module reads
@@ -108,13 +115,15 @@ struct ProcessCtx {
     const Transport *transport = nullptr;           // the machine clock at the start of this block
     const q15 *silence = nullptr;                   // what an unplugged input reads: a module may tell it from a silent signal (the
                                                     //   catalog's modules read a default there: framework/modular/engine_modules.h)
+    const float *fsilence = nullptr;                // the same for a Sig::F32 module (Ports::fin)
     const SeqPos *seq = nullptr;                    // the step sequencer's place at the end of this block
 };
 
+// The module's blocks: in / mod / out for a Sig::Q15 module, fin / fmod / fout (the same pointers, as float blocks) for a Sig::F32 one.
 struct Ports {
-    const q15 *in[kMaxIn];
-    const q15 *mod[kMaxParams];
-    q15 *out[kMaxOut];
+    union { const q15 *in[kMaxIn]; const float *fin[kMaxIn]; };
+    union { const q15 *mod[kMaxParams]; const float *fmod[kMaxParams]; };
+    union { q15 *out[kMaxOut]; float *fout[kMaxOut]; };
     // ADR-050: bit p set = everything that feeds mod[p] (in[p] for in_slow) is slow in this block (envelopes, LFOs under 100 Hz,
     // constants): the module may read it once per block, along a ramp to its last sample (mod_ramp below), instead of per sample.
     // 0 (the default, a Ports built by hand): read per sample.

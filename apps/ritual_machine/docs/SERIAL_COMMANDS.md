@@ -98,6 +98,10 @@ C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py 
 | `pad verify 1` / `pad verify 0` | the card driver reads every sector it writes back and compares it (slow); prints the sectors compared and those that differed so far |
 | `pad edit F OP AMOUNT [AMOUNT2]` | runs one sample processing job (the EDIT page's) on catalog file F: OP is the engine operation number (0 Normalize, 5 Reverse, 8 Stretch, 9 Resample, 10 Pitch, 15 Low-pass, 17 Tonal stretch, 18 Tonal pitch, 19 Paulstretch...), waits for it and prints the time, the PSRAM it borrowed and the stream underruns meanwhile. Writes and deletes `zzedit.smp`. `apps/ritual_machine/tools/edit_test.py` runs the set |
 
+`apps/ritual_machine/tools/switch_test.py` switches between the synth and the Pads section (`pad off` / `pad on`), plays a note or a pad
+after each switch and captures the output (`dump`): `--rounds`, `--pad` (one that has a sample), `--settle` (seconds after a switch;
+the first visit to the Pads after a start needs 8 .. 15 s for the samples), `--hold` (seconds into the note). It sends `nosave 1`.
+
 `apps/ritual_machine/tools/pads_test.py` uses them: 1 / 4 / 8 pads looping on a short (whole in memory) and a long (streamed) sample, a crossfade, the
 heaps before and after the section switch.
 
@@ -130,6 +134,7 @@ heaps before and after the section switch.
 | Line | When | Says |
 | --- | --- | --- |
 | `[AUDIO] render avg ... worst ... budget ... blocks over budget ...` | every second (`HWV1_DEBUG_AUDIO`) | render time per block; a block over budget is a dropout only if the DMA ring runs dry: see the next line |
+| `[AUDIO] a graph did not load (N so far): pads: out of memory (fast used/size largest free ..., bulk ...)` | when it happens (every build) | a graph the engine refused: which one (`synth`, `pads`, `pads fx`, `empty`), why, the two heaps and their largest free block. Its section stays silent until the next build |
 | `[AUDIO] DMA underruns N in the last second` | every second (`HWV1_DEBUG_AUDIO`) | **the real dropouts**: the I2S DMA ring (6 x 64 frames) ran empty and re-sent old data. Peaky loads (an STFT frame every 128 samples) can be over budget with 0 underruns; each graph rebuild gives about 10 |
 | `[SEC] spectral: stft + frame work, analysis, resynthesis` | every second with `ENGINE_PROFILE`, while a Spectral FX slot runs | cycles per block inside SpectralFx (stereo / FX rack) |
 | `[PROF] cycles per block (budget ...), total ...: Module=cycles(xinstances) ...` | every second (`ENGINE_PROFILE`) | cost per module type, summed over voices |

@@ -49,8 +49,8 @@ public:
             case DLY_TIME: target_ = to_samples(v); break;
             case DLY_FEEDBACK: fb_ = static_cast<q15>(v); break;
             case DLY_DAMP: {
-                double fc = 440.0 * std::exp2((v - 69.0 * kSemi) / (12.0 * kSemi));
-                damp_ = q31_from_float(1.0 - std::exp(-2.0 * 3.14159265358979 * fc / kSampleRate));
+                const float fc = 440.0f * std::exp2f(static_cast<float>(v - 69 * kSemi) / (12.0f * kSemi));
+                damp_ = q31_from_f(-std::expm1f(-6.2831853f * fc / static_cast<float>(kSampleRate)));
                 break;
             }
             case DLY_MIX: mix_ = static_cast<q15>(v); break;
@@ -154,7 +154,7 @@ public:
             case SPX_AMOUNT: amount_ = static_cast<q15>(v); break;
             case SPX_LO: lo_bin_ = to_bin(v); break;
             case SPX_HI: hi_bin_ = to_bin(v); break;
-            case SPX_SHIFT: ratio_ = static_cast<int64_t>(std::lround(65536.0 * std::exp2(v / (12.0 * kSemi)))); synced_ = false; break;
+            case SPX_SHIFT: ratio_ = static_cast<int64_t>(std::lroundf(65536.0f * std::exp2f(static_cast<float>(v) / (12.0f * kSemi)))); synced_ = false; break;
             case SPX_FREEZE: freeze_ = v != 0; break;
             case SPX_MIX: mix_ = static_cast<q15>(v); break;
             case SPX_STEREO: stereo_ = v != 0; break;
@@ -187,8 +187,8 @@ public:
     }
 private:
     static int to_bin(int32_t pitch) {
-        double hz = 440.0 * std::exp2((pitch - 69.0 * kSemi) / (12.0 * kSemi));
-        int b = static_cast<int>(std::lround(hz / (static_cast<double>(kSampleRate) / kFftN)));
+        const float hz = 440.0f * std::exp2f(static_cast<float>(pitch - 69 * kSemi) / (12.0f * kSemi));
+        int b = static_cast<int>(std::lroundf(hz * (static_cast<float>(kFftN) / static_cast<float>(kSampleRate))));
         return b < 0 ? 0 : (b > kFftN / 2 ? kFftN / 2 : b);
     }
 
@@ -358,10 +358,12 @@ public:
     void set_param(int idx, int32_t v) override {
         if (idx == CHR_MODE) {
             static const float rate[4] = {1.0f, 0.513f, 0.863f, 9.75f};
-            static const double depth_ms[4] = {0.0, 1.805, 1.805, 0.25};
+            // (the depths of the four modes, 0 / 1.805 / 1.805 / 0.25 ms, in samples Q16: computed by the compiler)
+            static constexpr int64_t depth[4] = {0, static_cast<int64_t>(1.805e-3 * kSampleRate * 65536.0), static_cast<int64_t>(1.805e-3 * kSampleRate * 65536.0),
+                                                 static_cast<int64_t>(0.25e-3 * kSampleRate * 65536.0)};
             const int mo = clamp_i32(v, 0, 3);
             inc_ = hz_to_inc(rate[mo]);
-            depth_tgt_ = static_cast<int64_t>(depth_ms[mo] * 1e-3 * kSampleRate * 65536.0);
+            depth_tgt_ = depth[mo];
             wet_on_ = mo != CHRM_OFF;
         } else if (idx == CHR_MIX) {
             mix_ = static_cast<q15>(v);
@@ -583,8 +585,8 @@ private:
     uint32_t pos(int k) const { return static_cast<uint32_t>(off_[k]); }
     static constexpr int64_t kSizeMax = 81920;                    // 1.25 in Q16
     q31 cutoff_coef(int32_t pitch) const {
-        const double fc = 440.0 * std::exp2((pitch - 69.0 * kSemi) / (12.0 * kSemi));
-        return q31_from_float(1.0 - std::exp(-2.0 * 3.14159265358979 * fc / kTankSR));
+        const float fc = 440.0f * std::exp2f(static_cast<float>(pitch - 69 * kSemi) / (12.0f * kSemi));
+        return q31_from_f(-std::expm1f(-6.2831853f * fc / static_cast<float>(kTankSR)));
     }
     static q31 lp(q31 state, q15 y, q31 coef) { return state + shl_sat(mulh((to31(y) >> 1) - (state >> 1), coef), 2); }
     void update_decay() {

@@ -147,18 +147,19 @@ void Engine::free_retired() {
     }
 }
 
-void Engine::gc() {
+bool Engine::gc() {
     // The audio thread switches plans between swap_seq_ increments (odd = in progress): read both plans consistently or try later.
     const uint32_t s1 = swap_seq_.load(std::memory_order_acquire);
-    if (s1 & 1u) return;
+    if (s1 & 1u) return false;
     const Plan *plans[2] = {active_.load(std::memory_order_acquire), pending_.load(std::memory_order_acquire)};
-    if (swap_seq_.load(std::memory_order_acquire) != s1) return;
+    if (swap_seq_.load(std::memory_order_acquire) != s1) return false;
 
     free_retired();
     bool used[kMaxRecs] = {};
     for (const Plan *pl : plans)
         if (pl) for (int i = 0; i < pl->n_nodes; i++) used[pl->rec[i]] = true;
     for (int i = 0; i < kMaxRecs; i++) if (rec_[i].alive && !used[i]) destroy_rec(rec_[i]);
+    return true;
 }
 
 void Engine::shutdown() {
@@ -293,8 +294,8 @@ bool Engine::set_voice_mode(VoiceMode mode, bool legato, int glide_ms, int max_v
     c.idx = legato ? 1 : 0;
     c.note = static_cast<uint8_t>(max_voices < 0 ? 0 : (max_voices > kMaxVoices ? kMaxVoices : max_voices));
     // the fraction of the remaining distance covered per block, for a time constant of glide_ms: 1 - exp(-block_ms / glide_ms)
-    const double block_ms = 1000.0 * kBlock / kSampleRate;
-    c.value = glide_ms <= 0 ? 0 : static_cast<int32_t>(std::lround(32767.0 * (1.0 - std::exp(-block_ms / glide_ms))));
+    const float block_ms = 1000.0f * kBlock / static_cast<float>(kSampleRate);
+    c.value = glide_ms <= 0 ? 0 : static_cast<int32_t>(std::lroundf(-32767.0f * std::expm1f(-block_ms / static_cast<float>(glide_ms))));
     if (glide_ms > 0 && c.value < 1) c.value = 1;
     return cmd_.push(c);
 }
@@ -369,7 +370,10 @@ void Engine::transport_block(q15 *l, q15 *r) {
         for (int i = 0; i < kBlock; i++) {
             if (i == k) {
                 const bool bar = ((next >> 32) & 3) == 0;
-                click_inc_ = static_cast<uint32_t>((bar ? 3000.0 : 1500.0) * 4294967296.0 / kSampleRate);
+                // (3000 Hz on the bar, 1500 Hz on the beats: computed by the compiler, no double arithmetic in the audio thread)
+                constexpr uint32_t kBarInc = static_cast<uint32_t>(3000.0 * 4294967296.0 / kSampleRate);
+                constexpr uint32_t kBeatInc = static_cast<uint32_t>(1500.0 * 4294967296.0 / kSampleRate);
+                click_inc_ = bar ? kBarInc : kBeatInc;
                 click_ph_ = 0;
                 click_env_ = 8192;
             }
@@ -449,10 +453,14 @@ int Engine::active_voices() const {
 // [AUDIO] In internal RAM (SC_HOT), as render() below: both run every block (run() once per voice). From flash they went through the
 // cache the PSRAM data shares, and any change to them moved the Reverb's and the Delay's cycles by a few % (measured 2026-11-15, ADR-050).
 SC_HOT void Engine::run(const Plan *pl, int first, int count, int voice, ProcessCtx &ctx) {
+    // A voice's delayed-cable buffers: voice 0's moved by the voice's region, in bytes (the buffers are of either type, plan.h)
     const int stride = pl->fbv_stride;
-    const q15 *fb0 = pl->fbv, *fb1 = pl->fbv + (stride ? stride * pl->nvoices : 0);
-    const ptrdiff_t shift = static_cast<ptrdiff_t>(voice) * stride;
-    auto rel = [&](const q15 *p) -> const q15 * { return (p >= fb0 && p < fb1) ? p + shift : p; };
+    const char *fb0 = reinterpret_cast<const char *>(pl->fbv), *fb1 = reinterpret_cast<const char *>(pl->fbv + (stride ? stride * pl->nvoices : 0));
+    const ptrdiff_t shift = static_cast<ptrdiff_t>(voice) * stride * static_cast<ptrdiff_t>(sizeof(float));
+    auto rel = [&](const q15 *p) -> const q15 * {
+        const char *b = reinterpret_cast<const char *>(p);
+        return (b >= fb0 && b < fb1) ? reinterpret_cast<const q15 *>(b + shift) : p;
+    };
 
     for (int i = first; i < first + count; i++) {
         const Step &s = pl->steps[i];
@@ -504,6 +512,34 @@ SC_HOT void Engine::run(const Plan *pl, int first, int count, int voice, Process
         case StepKind::Copy: {
             q15 *dst = move ? const_cast<q15 *>(rel(s.dst)) : s.dst;
             block_copy(dst, s.src[0]);
+            break;
+        }
+        // ADR-050 step 2: float blocks, and the conversions where a cable joins the two types (plan.h)
+        case StepKind::MixF: {
+            float *dst = reinterpret_cast<float *>(move ? const_cast<q15 *>(rel(s.dst)) : s.dst);
+            float acc[kBlock] = {};
+            for (int k = 0; k < s.n; k++) {
+                if (s.gain[k] == 0) continue;
+                const float *src = reinterpret_cast<const float *>(move ? rel(s.src[k]) : s.src[k]);
+                const float gk = s.gain[k] == kUnity ? 1.0f : static_cast<float>(s.gain[k]) * kQ15ToF;
+                for (int j = 0; j < kBlock; j++) acc[j] += src[j] * gk;
+            }
+            for (int j = 0; j < kBlock; j++) dst[j] = acc[j];
+            break;
+        }
+        case StepKind::CopyF: {
+            float *dst = reinterpret_cast<float *>(move ? const_cast<q15 *>(rel(s.dst)) : s.dst);
+            block_copy_f(dst, s.fsrc[0]);
+            break;
+        }
+        case StepKind::ToF: {
+            float *dst = reinterpret_cast<float *>(move ? const_cast<q15 *>(rel(s.dst)) : s.dst);
+            block_q15_to_f(dst, move ? rel(s.src[0]) : s.src[0]);
+            break;
+        }
+        case StepKind::ToQ: {
+            q15 *dst = move ? const_cast<q15 *>(rel(s.dst)) : s.dst;
+            block_f_to_q15(dst, reinterpret_cast<const float *>(move ? rel(s.src[0]) : s.src[0]));
             break;
         }
         }
@@ -590,6 +626,7 @@ SC_HOT void Engine::render(q15 *l, q15 *r) {
     ctx.bus2_l = bus2_l_; ctx.bus2_r = bus2_r_;
     ctx.transport = &tr_;
     ctx.silence = pl->silence;
+    ctx.fsilence = pl->fsilence;
     ctx.seq = &seq_.pos();
     ctx.voices = voices_;
     ctx.nvoices = nvoices_;

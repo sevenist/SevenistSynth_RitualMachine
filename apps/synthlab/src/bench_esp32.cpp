@@ -16,6 +16,8 @@
 #include <cstdio>
 #include <cstring>
 #include "engine/core/engine.h"
+#include "engine/dsp/block.h"
+#include "engine/dsp/curve.h"
 #include "engine/modules/builtin.h"
 #include "engine/modules/dx7_voice.h"
 #include "engine/modules/fx2_modules.h"
@@ -328,9 +330,10 @@ void bench_engine() {
 }
 
 // The catalog's modules as engine types (framework/modular/engine_modules.h: what an engine synth plays), each one alone: built by the
-// engine's own registry in its heaps, process() timed with the engine's q15 ports, a voice's note (60, velocity 100, the key held). An
-// input that is audio by default gets a saw; the others are unplugged (the module reads its default: ProcessCtx::silence). The
-// difference from the module's own cycles is the wrapper's: its conversions.
+// engine's own registry in its heaps, process() timed with the engine's ports, a voice's note (60, velocity 100, the key held). An
+// input that is audio by default gets a saw; the others are unplugged (the module reads its default: ProcessCtx::fsilence). Since
+// ADR-050 step 2 they are float modules (Sig::F32): float ports, no conversion inside; the difference from the module's own cycles is
+// the host's (the values, the note, the defaults). Then the engine's own conversion steps (ToF / ToQ, dsp/block.h), a block each.
 void bench_ftypes() {
     static sc::Registry reg;
     static bool registered = false;
@@ -339,8 +342,9 @@ void bench_ftypes() {
     constexpr size_t kFast = 16 * 1024, kBulk = 256 * 1024;  // (a module's state over 8 KB goes to the bulk heap: engine_modules.cpp)
     static void *fast_mem = alloc_in(kFast, false), *bulk_mem = alloc_in(kBulk, true);
     if (!fast_mem || !bulk_mem) { Serial.printf("[MBENCH] ftype no-memory\n"); return; }
-    static sc::q15 silence[kFrames], saw[kFrames], outs[sc::kMaxOut][kFrames];
-    for (int i = 0; i < kFrames; i++) { silence[i] = 0; saw[i] = static_cast<sc::q15>(g_sig[i] * 32767.f); }
+    alignas(16) static float silence[kFrames], saw[kFrames], outs[sc::kMaxOut][kFrames];
+    alignas(16) static sc::q15 qsilence[kFrames];
+    for (int i = 0; i < kFrames; i++) { silence[i] = 0.f; saw[i] = g_sig[i]; qsilence[i] = 0; }
     for (int id = mod::kModularTypeFirst; id < sc::Registry::kMax; id += 2) {
         const sc::ModuleType *t = reg.get(id);
         if (!t) continue;
@@ -358,19 +362,77 @@ void bench_ftypes() {
         vs.gate = vs.active = true;
         vs.started = true;
         sc::ProcessCtx ctx{kFrames, 0, &vs, nullptr, nullptr, nullptr, nullptr};
-        ctx.silence = silence;
+        ctx.silence = qsilence;
+        ctx.fsilence = silence;
         ctx.keys_held = 1;
         sc::Ports p{};
         for (int k = 0; k < sc::kMaxIn; k++)
-            p.in[k] = k < d->n_in && d->in_def[k] == mod::kZero && std::strcmp(d->in_name[k], "Pitch") != 0 ? saw : silence;
-        for (int o = 0; o < sc::kMaxOut; o++) p.out[o] = outs[o];
-        for (int j = 0; j < sc::kMaxParams; j++) p.mod[j] = nullptr;
+            p.fin[k] = k < d->n_in && d->in_def[k] == mod::kZero && std::strcmp(d->in_name[k], "Pitch") != 0 ? saw : silence;
+        for (int o = 0; o < sc::kMaxOut; o++) p.fout[o] = outs[o];
+        for (int j = 0; j < sc::kMaxParams; j++) p.fmod[j] = nullptr;
         for (int j = 0; j < d->n_param; j++) m->set_param(j, t->info->param[j].def);
         const uint32_t c = time_med([&] { m->process(ctx, p); ctx.time++; vs.started = false; });
         Serial.printf("[MBENCH] ftype %s %u\n", d->name, (unsigned)c);
         m->~Module();
         vTaskDelay(1);
     }
+    alignas(16) static sc::q15 q[kFrames];
+    alignas(16) static float f[kFrames];
+    for (int i = 0; i < kFrames; i++) q[i] = static_cast<sc::q15>(g_sig[i] * 32767.f);
+    const uint32_t to_f = time_med([] { sc::block_q15_to_f(f, q, kFrames); g_sink = f[5]; });
+    for (int i = 0; i < kFrames; i++) f[i] = g_sig[i] * 1.2f;                // (some past full scale: the clamp)
+    const uint32_t to_q = time_med([] { sc::block_f_to_q15(q, f, kFrames); g_sink = q[5]; });
+    Serial.printf("[MBENCH] glue engine-ToF %u\n", (unsigned)to_f);
+    drain();
+    Serial.printf("[MBENCH] glue engine-ToQ %u\n", (unsigned)to_q);
+    drain();
+    // The FPU's own conversions (FLOAT.S / ROUND.S, dsp/block.h) against the portable ones: every q15 value there and back, a sweep of
+    // floats past full scale on a grid of 1/8 LSB (the ties), and what the infinities and NaN give.
+    int back = 0, differ = 0;
+    for (int v = -32768; v <= 32767; v++) {
+        const sc::q15 x = static_cast<sc::q15>(v);
+        if (sc::q15_to_f(x) != sc::q15_to_f_c(x) || sc::f_to_q15(sc::q15_to_f(x)) != x) back++;
+    }
+    for (int k = -40000 * 8; k <= 40000 * 8; k++) {
+        const float x = static_cast<float>(k) * (1.f / (8.f * 32768.f));
+        if (sc::f_to_q15(x) != sc::f_to_q15_c(x)) differ++;
+    }
+    volatile float inf = 1e30f;
+    inf = inf * inf;
+    volatile float nan = inf - inf;
+    for (int cv : {20000, 18000, 8000, -20000, 32767}) {     // the envelope curve table (dsp/curve.h, single precision) against the double formula
+        static sc::CurveLut lut;
+        lut.build(static_cast<sc::q15>(cv));
+        const double k = 8.0 * cv / 32767.0;
+        int worst = 0;
+        int ref[3] = {};
+        for (int i = 0; i <= sc::CurveLut::kN; i++) {
+            const double pp = static_cast<double>(i) / sc::CurveLut::kN;
+            const double s = (1.0 - std::exp(-k * pp)) / (1.0 - std::exp(-k));
+            const int r = static_cast<int>(std::lround(std::fmax(0.0, std::fmin(1.0, s)) * 32767.0));
+            if (std::abs(r - lut.t[i]) > worst) worst = std::abs(r - lut.t[i]);
+            if (i == 32) ref[0] = r;
+            if (i == 64) ref[1] = r;
+            if (i == 96) ref[2] = r;
+        }
+        Serial.printf("[MBENCH] curve %d: float %d %d %d %d, double %d %d %d, worst diff %d\n", cv, lut.t[32], lut.t[64], lut.t[96], lut.t[128], ref[0], ref[1], ref[2], worst);
+        drain();
+    }
+    int blocks_differ = 0;                                  // the block loops: the sweep in blocks, NaN and the infinities among them
+    for (int k0 = -40000 * 8; k0 <= 40000 * 8; k0 += kFrames) {
+        for (int i = 0; i < kFrames; i++) f[i] = static_cast<float>(k0 + i) * (1.f / (8.f * 32768.f));
+        if ((k0 / kFrames) % 64 == 0) { f[3] = nan; f[7] = inf; f[9] = -inf; }
+        sc::block_f_to_q15(q, f, kFrames);
+        for (int i = 0; i < kFrames; i++) if (q[i] != sc::f_to_q15_c(f[i])) blocks_differ++;
+    }
+    for (int v = -32768; v <= 32767 - kFrames; v += kFrames) {
+        for (int i = 0; i < kFrames; i++) q[i] = static_cast<sc::q15>(v + i);
+        sc::block_q15_to_f(f, q, kFrames);
+        for (int i = 0; i < kFrames; i++) if (f[i] != sc::q15_to_f_c(q[i])) blocks_differ++;
+    }
+    Serial.printf("[MBENCH] conv check round-trip-wrong %d sweep-differ %d blocks-differ %d inf %d -inf %d nan %d nan-c %d\n", back, differ, blocks_differ,
+                  (int)sc::f_to_q15(inf), (int)sc::f_to_q15(-inf), (int)sc::f_to_q15(nan), (int)sc::f_to_q15_c(nan));
+    drain();
 }
 
 #ifdef SYNTHLAB_BENCH_RM

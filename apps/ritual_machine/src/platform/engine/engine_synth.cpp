@@ -226,12 +226,30 @@ void pads_master(const rack_t &rack) {                  // the master output of 
 // with the new graph built in `cur`, the lock held: an empty graph replaces the old one at the audio thread's next block (waited for,
 // 20 ms at most), then gc() frees its modules. With no audio thread running (the host tests) the wait ends and the new graph is
 // loaded over the pending empty one, as before.
+// The last graph that failed to load (what, the engine's error, the heaps then; "" = none since the start): a failed load leaves the
+// previous graph playing, which after a section switch is the empty one (silence). Read by engine_synth_load_error.
+char s_load_err[160] = "";
+unsigned s_load_fails = 0;
+
+bool load_graph(Synth &s, const GraphDesc &g, int nv, const char *what) {
+    const Err e = s.eng.load(g, nv);
+    if (e == Err::Ok) return true;
+    s_load_fails++;
+    std::snprintf(s_load_err, sizeof s_load_err, "%s: %s (fast %u/%u largest free %u, bulk %u/%u largest free %u)", what, err_name(e),
+                  static_cast<unsigned>(s.host.fast_heap().used()), static_cast<unsigned>(s.host.fast_heap().capacity()),
+                  static_cast<unsigned>(s.host.fast_heap().largest_free()), static_cast<unsigned>(s.host.bulk_heap().used()),
+                  static_cast<unsigned>(s.host.bulk_heap().capacity()), static_cast<unsigned>(s.host.bulk_heap().largest_free()));
+    return false;
+}
+
 void free_old_graph(Synth &s) {
     s.last->g.n_nodes = 0;                                  // (`last` is the old graph's copy: replaced by the new one after the load)
     s.last->g.n_edges = 0;
-    if (s.eng.load(s.last->g, 1) != Err::Ok) return;
-    for (int i = 0; i < 20 && s.eng.switching(); i++) std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    if (!s.eng.switching()) s.eng.gc();
+    if (!load_graph(s, s.last->g, 1, "empty")) return;
+    // (200 ms at most, 2026-11-16: with 20 a late audio task left both graphs in memory, and on the board the new one may then not fit;
+    // a section switch is a pause in the music anyway. gc() also gives up while the audio thread is in the middle of a swap: tried again.)
+    for (int i = 0; i < 200 && s.eng.switching(); i++) std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    for (int i = 0; i < 5 && !s.eng.switching() && !s.eng.gc(); i++) std::this_thread::sleep_for(std::chrono::milliseconds(1));
 }
 
 }  // namespace
@@ -280,6 +298,8 @@ unsigned s_builds = 0;
 char s_reason[48] = "first";
 
 const char *engine_synth_build_reason(void) { return s_reason; }
+
+const char *engine_synth_load_error(unsigned *fails) { if (fails) *fails = s_load_fails; return s_load_err; }
 
 unsigned engine_synth_build_count(void) { return s_builds; }
 
@@ -352,7 +372,7 @@ void engine_synth_build(const rack_t *rack, const synth_params_t *params) {
     if (!rack_graph_build(*rack, *params, s.eng.registry(), *s.cur, s.slot_of, s.cat_n)) return;
     const int nv = synth_config_voices(&rack->cfg);
     if (from_pads) free_old_graph(s);
-    if (s.eng.load(s.cur->g, nv) != Err::Ok) return;
+    if (!load_graph(s, s.cur->g, nv, "synth")) return;
     s.gc_due = true;
     s.last_nv = nv;
     send_voice_mode(*rack);
@@ -572,7 +592,7 @@ void engine_synth_pads_build(const pads_t *pads, const rack_t *rack) {
     std::lock_guard<std::mutex> lk(s.mx);
     if (!pads_graph_build(pads->fx, rack->cfg, s.eng.registry(), *s.cur)) return;   // the player, its FX chains, the output
     if (!s.pads_mode) free_old_graph(s);
-    if (s.eng.load(s.cur->g, 1) != Err::Ok) return;
+    if (!load_graph(s, s.cur->g, 1, "pads")) return;
     s.gc_due = true;
     s.pads_mode = true;
     s.have_last = false;                                    // the synth's graph is gone: the next set_params is a build
@@ -598,7 +618,7 @@ void engine_synth_pads_fx(const pads_t *pads, const rack_t *rack) {
     if (!s.pads_have_last || !same_structure(s.last->g, s.cur->g)) {
         s_builds++;
         std::snprintf(s_reason, sizeof s_reason, "pads fx n%d/%d e%d/%d", s.last->g.n_nodes, s.cur->g.n_nodes, s.last->g.n_edges, s.cur->g.n_edges);
-        if (s.eng.load(s.cur->g, 1) != Err::Ok) return;
+        if (!load_graph(s, s.cur->g, 1, "pads fx")) return;
         s.gc_due = true;
         for (int k = 0; k < s.cur->conv_count; k++) send_conv(*s.cur, k);
         *s.last = *s.cur;

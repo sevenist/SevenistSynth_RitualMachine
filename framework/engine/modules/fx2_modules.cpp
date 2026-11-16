@@ -14,7 +14,8 @@ namespace sc {
 namespace {
 
 constexpr int32_t kSemi = 256;
-constexpr double kPi = 3.14159265358979323846;
+constexpr double kPi = 3.14159265358979323846;      // (the int64 EQ's design, ENGINE_EQ_EXACT)
+constexpr float kPiF = 3.14159265f;
 inline int32_t scaled(q15 m, int32_t range) { return static_cast<int32_t>((static_cast<int64_t>(m) * range) >> 15); }
 inline int32_t tri_q15(uint32_t ph) { return ph < 0x80000000u ? 32767 - static_cast<int32_t>(ph >> 15) : static_cast<int32_t>(ph >> 15) - 98303; }   // -1..+1
 inline int32_t clampi(int32_t v, int32_t lo, int32_t hi) { return v < lo ? lo : (v > hi ? hi : v); }
@@ -193,7 +194,7 @@ private:
 // log2 of an unsigned value in Q16 (0 -> very small). 256-entry mantissa table.
 class Log2Table {
 public:
-    Log2Table() { for (int i = 0; i <= 256; i++) t_[i] = static_cast<int32_t>(std::lround(std::log2(1.0 + i / 256.0) * 65536.0)); }
+    Log2Table() { for (int i = 0; i <= 256; i++) t_[i] = static_cast<int32_t>(std::lroundf(std::log2(1.0f + static_cast<float>(i) * (1.0f / 256.0f)) * 65536.0f)); }
     int32_t at(uint32_t x) const {
         if (x == 0) return -(32 << 16);
         const int n = 31 - __builtin_clz(x);
@@ -243,12 +244,13 @@ public:
     }
 private:
     void update() {
-        thr_ = static_cast<int32_t>(std::lround((31.0 + thr_db_ / 6.0206) * 65536.0));
-        const double ratio = ratio10_ / 10.0;
-        slope_ = static_cast<int32_t>(std::lround((1.0 - 1.0 / ratio) * 65536.0));
-        auto k = [](double ms) { return static_cast<int64_t>((1.0 - std::exp(-1.0 / (ms * 0.001 * kSampleRate))) * 2147483647.0); };
+        // (single precision: it runs on the audio thread when a value changes)
+        thr_ = static_cast<int32_t>(std::lroundf((31.0f + static_cast<float>(thr_db_) / 6.0206f) * 65536.0f));
+        const float ratio = static_cast<float>(ratio10_) * 0.1f;
+        slope_ = static_cast<int32_t>(std::lroundf((1.0f - 1.0f / ratio) * 65536.0f));
+        auto k = [](int32_t ms) { return static_cast<int64_t>(q31_from_f(-std::expm1f(-1.0f / (static_cast<float>(ms) * 0.001f * static_cast<float>(kSampleRate))))); };
         ka_ = k(att_ms_ < 1 ? 1 : att_ms_); kr_ = k(rel_ms_ < 1 ? 1 : rel_ms_);
-        makeup_ = static_cast<int32_t>(std::lround(std::pow(10.0, mk_db_ / 20.0) * 4096.0));
+        makeup_ = static_cast<int32_t>(std::lroundf(std::pow(10.0f, static_cast<float>(mk_db_) * 0.05f) * 4096.0f));
     }
     Log2Table lg_;
     int64_t env_ = 0, ka_ = 0, kr_ = 0;
@@ -309,19 +311,19 @@ struct EqSvf {
         ic2 = 2.0f * v2 - ic2;
         return x + m1 * v1 + m2 * v2;
     }
-    void set(double g, double k, double M1, double M2) {
-        const double A1 = 1.0 / (1.0 + g * (g + k));
-        a1 = static_cast<float>(A1); a2 = static_cast<float>(g * A1); a3 = static_cast<float>(g * g * A1);
-        m1 = static_cast<float>(M1); m2 = static_cast<float>(M2);
+    void set(float g, float k, float M1, float M2) {
+        const float A1 = 1.0f / (1.0f + g * (g + k));
+        a1 = A1; a2 = g * A1; a3 = g * g * A1;
+        m1 = M1; m2 = M2;
     }
     // the cookbook's low shelf (slope 1, as Biquad::low_shelf) and peak (as Biquad::peak): A = 10^(dB / 40)
-    void low_shelf(double f, double gain_db) {
-        const double A = std::pow(10.0, gain_db / 40.0), k = std::sqrt(2.0);
-        set(std::tan(kPi * f / kSampleRate) / std::sqrt(A), k, k * (A - 1.0), A * A - 1.0);
+    void low_shelf(float f, float gain_db) {
+        const float A = std::pow(10.0f, gain_db * 0.025f), k = 1.41421356f;
+        set(std::tan(kPiF * f / static_cast<float>(kSampleRate)) / std::sqrt(A), k, k * (A - 1.0f), A * A - 1.0f);
     }
-    void peak(double f, double gain_db, double Q) {
-        const double A = std::pow(10.0, gain_db / 40.0), k = 1.0 / (Q * A);
-        set(std::tan(kPi * f / kSampleRate), k, k * (A * A - 1.0), 0.0);
+    void peak(float f, float gain_db, float Q) {
+        const float A = std::pow(10.0f, gain_db * 0.025f), k = 1.0f / (Q * A);
+        set(std::tan(kPiF * f / static_cast<float>(kSampleRate)), k, k * (A * A - 1.0f), 0.0f);
     }
     void settle() {                                                         // a state that has died away is put to zero (no subnormal arithmetic in silence)
         if (ic1 < 1e-15f && ic1 > -1e-15f) ic1 = 0.0f;
@@ -342,6 +344,14 @@ struct BiquadF {
         b0 = static_cast<float>(static_cast<double>(q.b0) * k); b1 = static_cast<float>(static_cast<double>(q.b1) * k);
         b2 = static_cast<float>(static_cast<double>(q.b2) * k); a1 = static_cast<float>(static_cast<double>(q.a1) * k);
         a2 = static_cast<float>(static_cast<double>(q.a2) * k);
+    }
+    // the cookbook's high shelf (slope 1, as Biquad::high_shelf), designed in single precision: at 6 kHz its poles are far from z = 1
+    void high_shelf(float f, float gain_db) {
+        const float A = std::pow(10.0f, gain_db * 0.025f), w = 2.0f * kPiF * f / static_cast<float>(kSampleRate), c = std::cos(w);
+        const float al = std::sin(w) * 0.5f * 1.41421356f, sA = 2.0f * std::sqrt(A) * al;
+        const float n = 1.0f / ((A + 1.0f) - (A - 1.0f) * c + sA);
+        b0 = A * ((A + 1.0f) + (A - 1.0f) * c + sA) * n; b1 = -2.0f * A * ((A - 1.0f) + (A + 1.0f) * c) * n; b2 = A * ((A + 1.0f) + (A - 1.0f) * c - sA) * n;
+        a1 = 2.0f * ((A - 1.0f) - (A + 1.0f) * c) * n; a2 = ((A + 1.0f) - (A - 1.0f) * c - sA) * n;
     }
     void settle() {
         if (z1 < 1e-15f && z1 > -1e-15f) z1 = 0.0f;
@@ -404,17 +414,22 @@ public:
     }
 private:
     void update() {
+#if ENGINE_EQ_EXACT
         const double fm = 440.0 * std::pow(2.0, (midf_ / 256.0 - 69.0) / 12.0);
         for (int c = 0; c < 2; c++) {
             bq_[3 * c].low_shelf(150.0, low_ / 10.0);
             bq_[3 * c + 1].peak(fm, mid_ / 10.0, 0.9);
             bq_[3 * c + 2].high_shelf(6000.0, high_ / 10.0);
         }
+#else
+        // (single precision: it runs on the audio thread when a value changes)
+        const float fm = 440.0f * std::exp2f((static_cast<float>(midf_) * (1.0f / 256.0f) - 69.0f) * (1.0f / 12.0f));
         for (int c = 0; c < 2; c++) {                                        // the float sections (they keep their state)
-            lo_[c].low_shelf(150.0, low_ / 10.0);
-            pk_[c].peak(fm, mid_ / 10.0, 0.9);
-            hi_[c].from(bq_[3 * c + 2]);
+            lo_[c].low_shelf(150.0f, static_cast<float>(low_) * 0.1f);
+            pk_[c].peak(fm, static_cast<float>(mid_) * 0.1f, 0.9f);
+            hi_[c].high_shelf(6000.0f, static_cast<float>(high_) * 0.1f);
         }
+#endif
     }
     Biquad bq_[6];
     EqSvf lo_[2], pk_[2];
@@ -434,12 +449,14 @@ public:
     }
     bool init(Memory &) override {
         one_hz_ = hz_to_inc(1.0f);
-        static const double a1[4] = {0.6923878, 0.9360654322959, 0.9882295226860, 0.9987488452737};
-        static const double a2[4] = {0.4021921162426, 0.8561710882420, 0.9722909545651, 0.9952884791278};
-        for (int k = 0; k < 4; k++) {
-            c1_[k] = static_cast<int64_t>(std::llround(a1[k] * a1[k] * 1073741824.0));
-            c2_[k] = static_cast<int64_t>(std::llround(a2[k] * a2[k] * 1073741824.0));
-        }
+        // (the all-pass coefficients squared, Q30: rounded by the compiler, no arithmetic at run time)
+        static constexpr double a1[4] = {0.6923878, 0.9360654322959, 0.9882295226860, 0.9987488452737};
+        static constexpr double a2[4] = {0.4021921162426, 0.8561710882420, 0.9722909545651, 0.9952884791278};
+        static constexpr int64_t q1[4] = {static_cast<int64_t>(a1[0] * a1[0] * 1073741824.0 + 0.5), static_cast<int64_t>(a1[1] * a1[1] * 1073741824.0 + 0.5),
+                                          static_cast<int64_t>(a1[2] * a1[2] * 1073741824.0 + 0.5), static_cast<int64_t>(a1[3] * a1[3] * 1073741824.0 + 0.5)};
+        static constexpr int64_t q2[4] = {static_cast<int64_t>(a2[0] * a2[0] * 1073741824.0 + 0.5), static_cast<int64_t>(a2[1] * a2[1] * 1073741824.0 + 0.5),
+                                          static_cast<int64_t>(a2[2] * a2[2] * 1073741824.0 + 0.5), static_cast<int64_t>(a2[3] * a2[3] * 1073741824.0 + 0.5)};
+        for (int k = 0; k < 4; k++) { c1_[k] = q1[k]; c2_[k] = q2[k]; }
         return true;
     }
     void reset() override { std::memset(st_, 0, sizeof st_); ph_ = 0; d1_[0] = d1_[1] = 0; }
@@ -491,52 +508,52 @@ private:
 
 /* ------------------------------------------------------------------ Convolver */
 
-// Impulse-response generators (control time, doubles): cascades of RBJ biquads run on an impulse, and sums of damped resonances for bodies.
+// Impulse-response generators (single precision: a model change runs them on the audio thread): cascades of RBJ biquads run on an impulse, and sums of damped resonances for bodies.
 struct DBq {
-    double b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0;
-    double tick(double x) { const double y = b0 * x + z1; z1 = b1 * x - a1 * y + z2; z2 = b2 * x - a2 * y; return y; }
-    void set(double B0, double B1, double B2, double A0, double A1, double A2) { b0 = B0 / A0; b1 = B1 / A0; b2 = B2 / A0; a1 = A1 / A0; a2 = A2 / A0; z1 = z2 = 0; }
-    static double w(double f) { return 2 * kPi * f / kSampleRate; }
-    void lp(double f, double Q) { const double w0 = w(f), al = std::sin(w0) / (2 * Q), c = std::cos(w0); set((1 - c) / 2, 1 - c, (1 - c) / 2, 1 + al, -2 * c, 1 - al); }
-    void hp(double f, double Q) { const double w0 = w(f), al = std::sin(w0) / (2 * Q), c = std::cos(w0); set((1 + c) / 2, -(1 + c), (1 + c) / 2, 1 + al, -2 * c, 1 - al); }
-    void bp(double f, double Q) { const double w0 = w(f), al = std::sin(w0) / (2 * Q), c = std::cos(w0); set(al, 0, -al, 1 + al, -2 * c, 1 - al); }
-    void pk(double f, double db, double Q) { const double A = std::pow(10.0, db / 40.0), w0 = w(f), al = std::sin(w0) / (2 * Q), c = std::cos(w0); set(1 + al * A, -2 * c, 1 - al * A, 1 + al / A, -2 * c, 1 - al / A); }
+    float b0 = 1, b1 = 0, b2 = 0, a1 = 0, a2 = 0, z1 = 0, z2 = 0;
+    float tick(float x) { const float y = b0 * x + z1; z1 = b1 * x - a1 * y + z2; z2 = b2 * x - a2 * y; return y; }
+    void set(float B0, float B1, float B2, float A0, float A1, float A2) { b0 = B0 / A0; b1 = B1 / A0; b2 = B2 / A0; a1 = A1 / A0; a2 = A2 / A0; z1 = z2 = 0; }
+    static float w(float f) { return 2.0f * kPiF * f / static_cast<float>(kSampleRate); }
+    void lp(float f, float Q) { const float w0 = w(f), al = std::sin(w0) / (2 * Q), c = std::cos(w0); set((1 - c) / 2, 1 - c, (1 - c) / 2, 1 + al, -2 * c, 1 - al); }
+    void hp(float f, float Q) { const float w0 = w(f), al = std::sin(w0) / (2 * Q), c = std::cos(w0); set((1 + c) / 2, -(1 + c), (1 + c) / 2, 1 + al, -2 * c, 1 - al); }
+    void bp(float f, float Q) { const float w0 = w(f), al = std::sin(w0) / (2 * Q), c = std::cos(w0); set(al, 0, -al, 1 + al, -2 * c, 1 - al); }
+    void pk(float f, float db, float Q) { const float A = std::pow(10.0f, db * 0.025f), w0 = w(f), al = std::sin(w0) / (2 * Q), c = std::cos(w0); set(1 + al * A, -2 * c, 1 - al * A, 1 + al / A, -2 * c, 1 - al / A); }
 };
 
-void make_ir(int which, int taps, double *out) {
+void make_ir(int which, int taps, float *out) {
     for (int i = 0; i < taps; i++) out[i] = 0;
     auto cascade = [&](DBq *f, int n) {
-        for (int i = 0; i < taps; i++) { double x = i == 0 ? 1.0 : 0.0; for (int k = 0; k < n; k++) x = f[k].tick(x); out[i] += x; }
+        for (int i = 0; i < taps; i++) { float x = i == 0 ? 1.0f : 0.0f; for (int k = 0; k < n; k++) x = f[k].tick(x); out[i] += x; }
     };
-    auto resonators = [&](const double (*m)[3], int n, double direct) {          // {freq, Q, gain}
+    auto resonators = [&](const float (*m)[3], int n, float direct) {          // {freq, Q, gain}
         out[0] += direct;
         for (int k = 0; k < n; k++) {
             DBq f; f.bp(m[k][0], m[k][1]);
-            for (int i = 0; i < taps; i++) out[i] += m[k][2] * f.tick(i == 0 ? 1.0 : 0.0);
+            for (int i = 0; i < taps; i++) out[i] += m[k][2] * f.tick(i == 0 ? 1.0f : 0.0f);
         }
     };
     switch (which) {
-        case CNVIR_CAB_1X12: { DBq f[5]; f[0].hp(85, 0.7); f[1].pk(115, 5, 1.2); f[2].pk(2300, 6, 1.1); f[3].lp(5200, 0.8); f[4].lp(6500, 0.7); cascade(f, 5); } break;
-        case CNVIR_CAB_4X12: { DBq f[6]; f[0].hp(70, 0.7); f[1].pk(95, 6, 1.1); f[2].pk(420, -4, 1.0); f[3].pk(2000, 5, 1.0); f[4].lp(4400, 0.9); f[5].lp(5200, 0.8); cascade(f, 6); } break;
-        case CNVIR_CAB_BRIGHT: { DBq f[4]; f[0].hp(130, 0.7); f[1].pk(3500, 5, 1.0); f[2].lp(7200, 0.7); f[3].pk(800, -2, 0.9); cascade(f, 4); } break;
-        case CNVIR_CAB_DARK: { DBq f[4]; f[0].hp(95, 0.7); f[1].pk(700, 4, 0.9); f[2].lp(3000, 0.7); f[3].lp(3600, 0.7); cascade(f, 4); } break;
-        case CNVIR_ACOUSTIC: { static const double m[5][3] = {{100, 7, 1.4}, {205, 9, 1.1}, {410, 10, 0.8}, {1200, 8, 0.55}, {2900, 6, 0.35}}; resonators(m, 5, 0.35); } break;
-        case CNVIR_VIOLIN: { static const double m[7][3] = {{290, 14, 1.2}, {460, 16, 1.0}, {540, 18, 0.9}, {750, 16, 0.7}, {1100, 14, 0.5}, {2800, 9, 0.45}, {3600, 8, 0.3}}; resonators(m, 7, 0.3); } break;
-        case CNVIR_DRUM: { static const double m[3][3] = {{185, 12, 1.5}, {330, 14, 0.8}, {620, 12, 0.5}}; resonators(m, 3, 0.4); } break;
-        default: { DBq f[3]; f[0].hp(400, 0.9); f[1].lp(3400, 0.9); f[2].pk(1500, 5, 1.2); cascade(f, 3); } break;
+        case CNVIR_CAB_1X12: { DBq f[5]; f[0].hp(85, 0.7f); f[1].pk(115, 5, 1.2f); f[2].pk(2300, 6, 1.1f); f[3].lp(5200, 0.8f); f[4].lp(6500, 0.7f); cascade(f, 5); } break;
+        case CNVIR_CAB_4X12: { DBq f[6]; f[0].hp(70, 0.7f); f[1].pk(95, 6, 1.1f); f[2].pk(420, -4, 1.0f); f[3].pk(2000, 5, 1.0f); f[4].lp(4400, 0.9f); f[5].lp(5200, 0.8f); cascade(f, 6); } break;
+        case CNVIR_CAB_BRIGHT: { DBq f[4]; f[0].hp(130, 0.7f); f[1].pk(3500, 5, 1.0f); f[2].lp(7200, 0.7f); f[3].pk(800, -2, 0.9f); cascade(f, 4); } break;
+        case CNVIR_CAB_DARK: { DBq f[4]; f[0].hp(95, 0.7f); f[1].pk(700, 4, 0.9f); f[2].lp(3000, 0.7f); f[3].lp(3600, 0.7f); cascade(f, 4); } break;
+        case CNVIR_ACOUSTIC: { static const float m[5][3] = {{100, 7, 1.4f}, {205, 9, 1.1f}, {410, 10, 0.8f}, {1200, 8, 0.55f}, {2900, 6, 0.35f}}; resonators(m, 5, 0.35f); } break;
+        case CNVIR_VIOLIN: { static const float m[7][3] = {{290, 14, 1.2f}, {460, 16, 1.0f}, {540, 18, 0.9f}, {750, 16, 0.7f}, {1100, 14, 0.5f}, {2800, 9, 0.45f}, {3600, 8, 0.3f}}; resonators(m, 7, 0.3f); } break;
+        case CNVIR_DRUM: { static const float m[3][3] = {{185, 12, 1.5f}, {330, 14, 0.8f}, {620, 12, 0.5f}}; resonators(m, 3, 0.4f); } break;
+        default: { DBq f[3]; f[0].hp(400, 0.9f); f[1].lp(3400, 0.9f); f[2].pk(1500, 5, 1.2f); cascade(f, 3); } break;
     }
-    double e = 0;
+    float e = 0;
     for (int i = 0; i < taps; i++) e += out[i] * out[i];
-    const double norm = e > 1e-12 ? 1.0 / std::sqrt(e) : 1.0;
+    const float norm = e > 1e-12f ? 1.0f / std::sqrt(e) : 1.0f;
     for (int i = 0; i < taps; i++) out[i] *= norm;
 }
 
 // The IR as q15 taps (what the Convolver plays): make_ir, clamped and rounded. -32768 is never produced, so a sum of 512 products always
 // fits the 40-bit accumulator of the S3's PIE.
 void ir_q15(int which, int len, int16_t *out) {
-    double d[kConvMaxTaps];
+    float d[kConvMaxTaps];
     make_ir(which, len, d);
-    for (int i = 0; i < kConvMaxTaps; i++) out[i] = i < len ? static_cast<int16_t>(std::lround(std::fmax(-1.0, std::fmin(1.0, d[i])) * 32767.0)) : 0;
+    for (int i = 0; i < kConvMaxTaps; i++) out[i] = i < len ? static_cast<int16_t>(std::lroundf(std::fmax(-1.0f, std::fmin(1.0f, d[i])) * 32767.0f)) : 0;
 }
 
 // sl / sr = the sums of t[j] * xl[j] / xr[j], j < 8 * nvec (all 16-byte aligned). The PIE kernel gives the same integers as the C loop.

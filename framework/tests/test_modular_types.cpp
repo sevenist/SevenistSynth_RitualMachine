@@ -92,7 +92,13 @@ TEST(every_catalog_module_plays_in_the_engine_as_its_float_original) {
         // (a Pitch input is a CV in the engine, 72 semitones a unit, and octaves in the catalog: a saw into it is not the same note)
         const bool feed = d->n_in > 0 && d->in_def[0] == mod::kZero && std::strcmp(d->in_name[0], "Pitch") != 0;
         const int blocks = 60;
-        const std::vector<double> ref = float_run(d, feed, blocks), got = engine_run(d, feed, blocks);
+        std::vector<double> ref = float_run(d, feed, blocks);
+        const std::vector<double> got = engine_run(d, feed, blocks);
+        double peak = 0.0;                                      // (the engine's output is q15: the float one clipped as it would be,
+        for (double &x : ref) {                                 //  Comp3 at 96 kHz peaks at 1.08)
+            peak = std::fabs(x) > peak ? std::fabs(x) : peak;
+            x = x > 32767.0 / 32768.0 ? 32767.0 / 32768.0 : (x < -1.0 ? -1.0 : x);
+        }
         CHECK(ref.size() == got.size() && !ref.empty());
         if (ref.size() != got.size() || ref.empty()) continue;
         double rr = 0.0, rg = 0.0, gg = 0.0;
@@ -109,7 +115,7 @@ TEST(every_catalog_module_plays_in_the_engine_as_its_float_original) {
         double e = 0.0;
         for (size_t k = 0; k < ref.size(); k++) { const double x = got[k] - gain * ref[k]; e += x * x; }
         const double null_db = 10.0 * std::log10((e + 1e-30) / rr);
-        std::printf("    %-8s null %6.1f dB (gain %.3f)\n", d->name, null_db, gain);
+        std::printf("    %-8s null %6.1f dB (gain %.3f, float peak %.2f)\n", d->name, null_db, gain, peak);
         CHECK(gain > 0.4 && gain < 1.6);
         CHECK(null_db < -50.0);
         if (null_db > worst) { worst = null_db; worst_name = d->name; }

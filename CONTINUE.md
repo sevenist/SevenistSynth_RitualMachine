@@ -97,7 +97,73 @@ with the user's current Ritual Machine sound (MiOsc, Filter, Shaper, envelopes, 
   Flanger, Shifter, Tremolo), TunedComb, Granular, Sampler, SpectralFx, the RM's `engine_synth_render_*`. Candidates for IRAM
   (internal RAM is the limit: `.iram0.text` 133 KB).
 - Reverb stays ~1000 cycles above the committed build (0.6 % of the budget): not found (its PSRAM placement, probably).
-- On the board now: the Ritual Machine, normal build (no extra flags), with the new engine. Not committed.
+- On the board now: the Ritual Machine, normal build (no extra flags), with the new engine. Committed (8f5893b).
+
+## The section switch fixed on the board, step 2 measured (2026-11-16, board session: built, flashed and measured by Claude; NOT listened to)
+
+- **Cause found** (`apps/ritual_machine/tools/switch_test.py`: `pad off` / note / `dump`, `pad on` / pad push / `dump`, rounds): the
+  Pads section's graph did not load after a switch, out of memory (9 failures in 12 rounds). **The fast heap had fallen into PSRAM
+  again**: at the audio start the largest internal block is 73 716 bytes (86 004 after the display, then `leds_init` takes 8 KB and
+  `input_init` 4 KB of it), minus the 16 KB margin under the 64 KB minimum; on 2026-10-28 it was 94 KB (fast heap 73.7 KB internal).
+  With 2 MB of PSRAM the engine then had two PSRAM heaps: a 400 KB fast one nearly empty (57 KB) and a 1.54 MB bulk one where the
+  pads' kept samples (~930 KB) plus the pads graph (its sampler rings, Reverb, Delay) left ~20 KB, or did not fit.
+- **Fix** (audio_esp32.cpp): when the fast heap cannot be internal, ONE PSRAM heap for both (1 958 964 bytes; same total, same
+  speed). After it: 15 of 15 rounds both sections sound, no failed load; the Pads section uses 1.61 MB of 1.96 (346 KB left).
+- Every failed graph load is printed on the console now (`[AUDIO] a graph did not load ...`, with each heap's largest free block).
+- **The fast heap in internal RAM again would be faster** (module state out of PSRAM) but with a 57 KB internal heap the engine has
+  less memory in all (1.6 MB bulk cap): to decide with the user. Leads: reserve the fast heap before `leds_init` / `input_init`, or
+  find what took the ~20 KB of internal RAM since 2026-10-28.
+- The Ritual Machine at 6 notes on the user's sound (profiling build): **97 628 cycles a block** (2026-11-15: 97 576), render
+  959 / 1301 us, 0 over budget, 0 underruns: step 2 and the one heap cost nothing.
+- **Step 2 on the board** (SynthLab `hwv1_bench`, logs apps/synthlab/build/bench_step2*.txt): the catalog's F types, float
+  modules now, 118 495 -> 88 744 cycles summed over the 28 (-25 %; 660 .. 2 025 a module); what is left of each one's host: 450 ..
+  980 cycles (the note, the values, the defaults: the next lead). The engine's conversion steps: q15 -> float 335 cycles a block,
+  float -> q15 717 (1152 with branches, rewritten branch-free; exact round trip kept, tests/test_signals.cpp).
+- **The conversions in assembly** (the user: "check the instructions used, avoid double precision, optimized assembly"): the compiled C
+  was single precision already but took FLOAT.S + MUL.S one way and a branch the other. Now `dsp/block.h` uses the FPU's scaled
+  instructions on the S3 (FLOAT.S x, 15; ROUND.S x, 15 + CLAMPS, NaN -> 0 by OEQ.S / MOVF), the block loops whole in assembly with
+  LOOP: **q15 -> float 335 -> 202 cycles a block, float -> q15 717 -> 300** (1152 at first). Rounding is to the nearest, ties to
+  even, the portable version the same; the bench checks them against each other on the board (every q15 value, a sweep with ties,
+  the infinities, NaN: 0 differences). The S3's SIMD (PIE) has no float lanes: nothing to gain there.
+- **Double precision in the firmware, audited** (the object files' references to `__muldf3` & co and to libm's double functions): no
+  `process()` uses any. On the audio thread it remains in `set_param` (Env / Eg: `exp`; Compressor: `exp`, `pow`; Delay, Reverb,
+  SpectralFx: `exp2`; Chorus, Ensemble, Granular; `Eq3::update`: `pow`, `tan`, `sqrt`), run when a value changes, and in
+  `Engine::set_voice_mode`. `Engine::transport_block` computed the click's increment in double at each click: constants now.
+  **Then converted, at the user's request ("convert all to single precision if no functionality is lost"):** the engine library has no
+  run-time double arithmetic left (the object files audited again). `1 - exp(-x)` is `-expm1f(-x)` and a coefficient near 1 is kept as
+  its distance from 1 (`q31_from_f`, dsp/q.h), so long time constants keep their digits; the EQ's high shelf is designed in float
+  (`BiquadF::high_shelf`), its int64 design only under ENGINE_EQ_EXACT; constants are the compiler's (the Shifter's all-pass
+  coefficients, the Chorus depths, the click). **No test had to be renewed**: every host run passes as it was (the EQ against its
+  double reference included). On the board the envelope curve table is the same point for point (bench "curve" lines: worst
+  difference 0). Flash 10 KB smaller. Still double, off the audio thread: the UI and graph building (`rack_graph.cpp`, `pad_blob`,
+  the screens), the offline sample jobs (`engine/offline`).
+  A trap met while checking: the synth note in `switch_test.py` read 3 450 before the conversion and 6 900 after. Not the sound:
+  the double curve tables made the synth's rebuild so slow that the note started late and the capture caught its attack earlier
+  (levels by `--hold`: 0.02 s 1 850, 0.4 s 7 000, 1.5 s 8 850). The rebuild at a section switch is faster now.
+- **The first visit to the Pads section after a start is silent for 8 .. 15 s** on the user's card (about 1.4 MB of pad samples read
+  at ~230 KB/s; a pad pushed meanwhile starts but plays nothing): not a failed switch, the samples' loading. Older than this work.
+  Ideas: load the pads' samples at start, or show that they load.
+- On the board: the Ritual Machine, normal build. The test used `nosave 1` and the flash restarted the board: the card's pads and
+  sounds are the user's. Pads A1 / A2 (0, 1) did not play when pushed in the test (empty, or a mode the push does not start); A3 did.
+
+## ADR-050 step 2 and the section switch (2026-11-16; host only: the board's battery was flat)
+
+- **Step 2, typed signals** (ADR-050): a module is `Sig::Q15` or `Sig::F32`, a buffer has its writer's type, the plan converts a
+  cable only where the types meet. The catalog's F types are float modules now (no conversion inside); a one-type graph (the Ritual
+  Machine) has no conversion. tests/test_signals.cpp; the library passes in the six rate / block configurations (the first time since
+  the F types). **Not measured on the board yet**: the F types' saving, the conversions' cost.
+- **An older plan bug fixed**: a global block read by the voices could be overwritten after its last reader in the voice section, so
+  the second voice on read another block (any global module feeding the voices, two notes or more).
+- **The user's report: after a synth <-> pads switch, the new section is silent** (sometimes; "not totally sure it wasn't an issue
+  before"). Not reproduced on the host: apps/ritual_machine/tests/engine/test_pads.cpp `pads_and_synth_both_sound_after_many_section_switches`
+  (25 switches each way, an audio and a loader thread, the board's heaps 82 752 / 1 600 KB, the pads' resident samples full: bulk
+  1.29 MB used). My hypothesis: the new graph fails to load (out of memory) and the empty one of the switch stays. Changes:
+  - every graph load that fails is recorded (`engine_synth_load_error`) and **printed on the board's console**: `[AUDIO] a graph did
+    not load (N so far): synth: out of memory (fast .../..., bulk ...)`;
+  - the switch waits up to 200 ms (was 20) for the audio task to drop the old graph before building the new one (with 20, a late
+    audio task left both graphs in memory), and retries `gc()` when it ran into a plan swap (`Engine::gc` returns false then);
+  - the plan compiler's working tables fall back to the fast heap when the bulk one has no room.
+  **To do on the board:** reproduce with the console open; the line says whether it is memory and which section.
 
 ## Convolver on the board (2026-10-09; flashed and measured by Claude, NOT listened to)
 

@@ -8,7 +8,7 @@ namespace {
 class NoteIn : public Module {
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"NoteIn", Scope::Voice, 0, 3, 0, false, {}, {"pitch", "gate", "vel"}, {}};
+        static const ModuleInfo i = {"NoteIn", Scope::Voice, 0, 3, 0, false, {}, {"pitch", "gate", "vel"}, {}, Rate::Control};
         return i;
     }
     SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {

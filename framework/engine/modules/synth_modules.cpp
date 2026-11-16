@@ -43,43 +43,69 @@ public:
     SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         const int n = ctx.frames;
         const q15 *cv = p.in[0], *mp = p.mod[OSC_PITCH], *mw = p.mod[OSC_PW], *ml = p.mod[OSC_LEVEL];
-        const bool varying = mp || cv[0] != cv[n - 1];
+        // ADR-050: a pitch that only slow sources move (the note and its glide, envelopes, LFOs under 100 Hz) follows a straight line of
+        // the increment over the block (dsp/phase.h pitch_line): three pitch_to_inc a block instead of one a sample. A steady pitch gives
+        // the same increment as before, bit for bit.
+        const bool slow = n > 1 && slow_in(p, 0) && (!mp || slow_mod(p, OSC_PITCH));
+        const bool varying = !slow && (mp || cv[0] != cv[n - 1]);
         uint32_t inc = pitch_to_inc(pitch_ + scaled(cv[0], kPitchCvSpan), a4_);
-        if (qual_ != 0 && wave_ != WAVE_SINE_ && wave_ != WAVE_NOISE_) {   // table / naive waves (the table band is chosen once per block)
-            const int w = wave_ == WAVE_PULSE_ ? WT_PULSE : (wave_ == WAVE_TRI_ ? WT_TRI : WT_SAW);
-            const bool mip = qual_ == 1, down = wave_ == WAVE_SAW_DOWN_;
+        uint32_t dinc = 0;
+        if (slow) {
+            auto at = [&](int i) { return pitch_ + scaled(cv[i], kPitchCvSpan) + (mp ? scaled(mp[i], pmod_) : 0); };
+            int32_t d;
+            pitch_line(at(0), (at(n / 2 - 1) + at(n / 2)) / 2, at(n - 1), n, a4_, &inc, &d);
+            dinc = static_cast<uint32_t>(d);
+        }
+        // (two copies of the sample loops: the increment's line costs an add a sample, kept out of a steady pitch's loop)
+        if (dinc) run<true>(n, cv, mp, mw, ml, p.out[0], varying, inc, dinc);
+        else run<false>(n, cv, mp, mw, ml, p.out[0], varying, inc, 0);
+    }
+private:
+    template <bool Ramp>
+    __attribute__((always_inline)) inline void run(int n, const q15 *cv, const q15 *mp, const q15 *mw, const q15 *ml, q15 *out, bool varying,
+                                                   uint32_t inc, uint32_t dinc) {
+        // (the phase and the settings in locals: a store to `out` could alias a member, the compiler would reload them every sample)
+        uint32_t ph = ph_;
+        const int wave = wave_;
+        const q15 pw0 = pw_, lv0 = level_;
+        if (qual_ != 0 && wave != WAVE_SINE_ && wave != WAVE_NOISE_) {     // table / naive waves (the table band is chosen once per block)
+            const int w = wave == WAVE_PULSE_ ? WT_PULSE : (wave == WAVE_TRI_ ? WT_TRI : WT_SAW);
+            const bool mip = qual_ == 1, down = wave == WAVE_SAW_DOWN_;
             const int16_t *tab = mip ? wt_table(w, inc) : nullptr;
             for (int i = 0; i < n; i++) {
                 if (varying) inc = pitch_to_inc(pitch_ + scaled(cv[i], kPitchCvSpan) + (mp ? scaled(mp[i], pmod_) : 0), a4_);
-                q15 pw = mw ? sat16(pw_ + mw[i]) : pw_;
+                q15 pw = mw ? sat16(pw0 + mw[i]) : pw0;
                 if (pw < 1024) pw = 1024;
-                int32_t s = wt_osc_any(w, mip, ph_, static_cast<uint32_t>(pw) << 17, tab);
+                int32_t s = wt_osc_any(w, mip, ph, static_cast<uint32_t>(pw) << 17, tab);
                 if (down) s = -s;
-                const q15 lv = ml ? sat16(level_ + ml[i]) : level_;
-                p.out[0][i] = mul15(sat16(s), lv);
-                ph_ += inc;
+                const q15 lv = ml ? sat16(lv0 + ml[i]) : lv0;
+                out[i] = mul15(sat16(s), lv);
+                ph += inc;
+                if (Ramp) inc += dinc;
             }
+            ph_ = ph;
             return;
         }
         for (int i = 0; i < n; i++) {
             if (varying) inc = pitch_to_inc(pitch_ + scaled(cv[i], kPitchCvSpan) + (mp ? scaled(mp[i], pmod_) : 0), a4_);
-            q15 pw = mw ? sat16(pw_ + mw[i]) : pw_;
+            q15 pw = mw ? sat16(pw0 + mw[i]) : pw0;
             if (pw < 1024) pw = 1024;
             q15 s;
-            switch (wave_) {
-                case WAVE_SINE_: s = sine(ph_); break;
-                case WAVE_SAW_: s = osc_saw(ph_, inc); break;
-                case WAVE_PULSE_: s = osc_pulse(ph_, inc, static_cast<uint32_t>(pw) << 17); break;
-                case WAVE_TRI_: s = osc_tri(ph_, inc); break;
-                case WAVE_SAW_DOWN_: s = neg15(osc_saw(ph_, inc)); break;
+            switch (wave) {
+                case WAVE_SINE_: s = sine(ph); break;
+                case WAVE_SAW_: s = osc_saw(ph, inc); break;
+                case WAVE_PULSE_: s = osc_pulse(ph, inc, static_cast<uint32_t>(pw) << 17); break;
+                case WAVE_TRI_: s = osc_tri(ph, inc); break;
+                case WAVE_SAW_DOWN_: s = neg15(osc_saw(ph, inc)); break;
                 default: s = noise_.next(); break;
             }
-            q15 lv = ml ? sat16(level_ + ml[i]) : level_;
-            p.out[0][i] = mul15(s, lv);
-            ph_ += inc;
+            const q15 lv = ml ? sat16(lv0 + ml[i]) : lv0;
+            out[i] = mul15(s, lv);
+            ph += inc;
+            if (Ramp) inc += dinc;
         }
+        ph_ = ph;
     }
-private:
     int32_t wave_ = WAVE_SAW_, pitch_ = 60 * kSemi, pmod_ = 12 * kSemi, qual_ = 0;
     q15 pw_ = 16384, level_ = kUnity;
     uint32_t ph_ = 0, a4_ = 0;
@@ -122,7 +148,7 @@ public:
         static const ModuleInfo i = {S == Scope::Voice ? "Env" : "EnvG", S, 1, 1, ENV_N, false, {"gate"}, {"out"},
             {{"attack", 5, 1, 20000}, {"decay", 200, 1, 20000}, {"sustain", 20000, 0, kUnity}, {"release", 300, 1, 20000},
              {"hold", 0, 0, 20000}, {"start", 0, 0, kUnity}, {"a_curve", 18000, -kUnity, kUnity}, {"d_curve", 20000, -kUnity, kUnity},
-             {"r_curve", 20000, -kUnity, kUnity}}};
+             {"r_curve", 20000, -kUnity, kUnity}}, Rate::Control};
         return i;
     }
     bool init(Memory &) override { for (int i = 0; i < 3; i++) lut_[i].build(i == 0 ? 18000 : 20000); return true; }
@@ -192,7 +218,7 @@ public:
              {"t2", 100, 0, 20000}, {"l2", 16384, 0, kUnity}, {"c2", 20000, -kUnity, kUnity},
              {"t3", 0, 0, 20000}, {"l3", 0, 0, kUnity}, {"c3", 20000, -kUnity, kUnity},
              {"t4", 0, 0, 20000}, {"l4", 0, 0, kUnity}, {"c4", 20000, -kUnity, kUnity},
-             {"sustain", 2, 1, 4}, {"release", 200, 1, 20000}, {"r_curve", 20000, -kUnity, kUnity}, {"oneshot", 0, 0, 1}}};
+             {"sustain", 2, 1, 4}, {"release", 200, 1, 20000}, {"r_curve", 20000, -kUnity, kUnity}, {"oneshot", 0, 0, 1}}, Rate::Control};
         return i;
     }
     bool init(Memory &) override { for (auto &l : lut_) l.build(0); lut_[4].build(20000); return true; }
@@ -263,7 +289,7 @@ public:
     const ModuleInfo &info() const override {
         static const ModuleInfo i = {"Lfo", S, 0, 1, LFO_N, false, {}, {"out"},
             {{"shape", LFOS_SINE, 0, 5}, {"rate", 2 * 12 * kSemi, -6 * 12 * kSemi, 8 * 12 * kSemi}, {"level", kUnity, 0, kUnity},
-             {"unipolar", 0, 0, 1}, {"rate_mod", 2 * 12 * kSemi, 0, 8 * 12 * kSemi}}};
+             {"unipolar", 0, 0, 1}, {"rate_mod", 2 * 12 * kSemi, 0, 8 * 12 * kSemi}}, Rate::Dynamic};
         return i;
     }
     bool init(Memory &) override { one_hz_ = hz_to_inc(1.0f); return true; }
@@ -277,11 +303,16 @@ public:
             case LFO_RATE_MOD: rmod_ = v; break;
         }
     }
+    // ADR-050: its output is fast (what it modulates is read per sample) above 100 Hz, or when a fast source moves its rate
+    bool fast_out() const override { return fast_; }
     SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         const q15 *mr = p.mod[LFO_RATE];
-        uint32_t inc = rate_inc(rate_);
+        const bool per_sample = mr && !slow_mod(p, LFO_RATE);
+        const int32_t r = mr && !per_sample ? rate_ + scaled(mr[ctx.frames - 1], rmod_) : rate_;    // (slow: one rate a block)
+        uint32_t inc = rate_inc(r);
+        fast_ = per_sample || r > kFastRate;
         for (int i = 0; i < ctx.frames; i++) {
-            if (mr) inc = rate_inc(rate_ + scaled(mr[i], rmod_));
+            if (per_sample) inc = rate_inc(rate_ + scaled(mr[i], rmod_));
             int32_t s;
             switch (shape_) {
                 case LFOS_SINE: s = sine(ph_); break;
@@ -300,6 +331,8 @@ public:
     }
 private:
     uint32_t rate_inc(int32_t r) const { return exp2_scale(one_hz_, clamp_i32(r, -12 * 12 * kSemi, 12 * 12 * kSemi) * 256 / 12); }
+    static constexpr int32_t kFastRate = 20410;     // 100 Hz: log2(100) octaves over 1 Hz, in 1/256 semitone
+    bool fast_ = true;
     int32_t shape_ = LFOS_SINE, rate_ = 2 * 12 * kSemi, rmod_ = 2 * 12 * kSemi;
     q15 level_ = kUnity, held_ = 0;
     bool uni_ = false;
@@ -315,7 +348,7 @@ public:
     const ModuleInfo &info() const override {
         static const ModuleInfo i = {"Filter", S, 1, 1, FLT_N, false, {"in"}, {"out"},
             {{"mode", FLTM_LP, 0, FLTM_AP}, {"sections", 2, 1, 4}, {"cutoff", 96 * kSemi, 0, 135 * kSemi}, {"res", 0, 0, kUnity},
-             {"cut_mod", 60 * kSemi, 0, 120 * kSemi}, {"algo", FLTA_SVF, FLTA_SVF, FLTA_CHAM}}};
+             {"cut_mod", 60 * kSemi, 0, 120 * kSemi}, {"algo", FLTA_SVF, FLTA_SVF, FLTA_CHAM}}, Rate::Follow};
         return i;
     }
     bool init(Memory &) override { a4_ = inc_a4(); update_k(); return true; }
@@ -358,7 +391,8 @@ public:
 #if !ENGINE_FILTER_EXACT
             const int32_t p0 = prev + (mc ? scaled(mc[0], cmod_) : 0), pe = cut_s_ + (mc ? scaled(mc[frames - 1], cmod_) : 0);
             glide = frames >= 8;
-            for (int q = 1; q < 4 && glide && mc; q++) {
+            // (ADR-050: a slow modulation is taken as a straight line over the block, not checked: only a fast one can leave it)
+            for (int q = 1; q < 4 && glide && mc && !slow_mod(p, FLT_CUTOFF); q++) {
                 const int j = frames * q / 4;
                 const int32_t want = p0 + (pe - p0) * j / (frames - 1);
                 const int32_t diff = prev + (cut_s_ - prev) * j / (frames - 1) + scaled(mc[j], cmod_) - want;
@@ -473,7 +507,7 @@ class Shaper : public Module {
 public:
     const ModuleInfo &info() const override {
         static const ModuleInfo i = {"Shaper", S, 1, 1, SHP_N, false, {"in"}, {"out"},
-            {{"mode", SHPM_TANH, 0, SHPM_N - 1}, {"drive", 256, 0, 4 * 256}, {"mix", kUnity, 0, kUnity}, {"bits", 8, 1, 15}, {"drive_mod", 2 * 256, 0, 6 * 256}}};
+            {{"mode", SHPM_TANH, 0, SHPM_N - 1}, {"drive", 256, 0, 4 * 256}, {"mix", kUnity, 0, kUnity}, {"bits", 8, 1, 15}, {"drive_mod", 2 * 256, 0, 6 * 256}}, Rate::Follow};
         return i;
     }
     void set_param(int idx, int32_t v) override {
@@ -486,13 +520,34 @@ public:
         }
     }
     bool init(Memory &) override { dc_.set_corner(15.0f); return true; }
-    void reset() override { dc_.reset(); lp_ = 0; hold_ = 0; cnt_ = 0; }
+    void reset() override { dc_.reset(); lp_ = 0; hold_ = 0; cnt_ = 0; rd_ = ModRamp{}; }
     SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         const q15 *md = p.mod[SHP_DRIVE];
-        int32_t gain = gain_q8(drive_);
-        for (int i = 0; i < ctx.frames; i++) {
-            if (md) gain = gain_q8(drive_ + scaled(md[i], dmod_));
-            const q15 x = p.in[0][i];
+        const int n = ctx.frames;
+        // ADR-050: a slow drive modulation moves the gain along a straight line over the block (two exp2 a block, not one a sample)
+        const bool slow = md && n > 1 && slow_mod(p, SHP_DRIVE);
+        int32_t gain = gain_q8(drive_), gq = 0, dgq = 0;
+        if (slow) {
+            int32_t v0, st;
+            rd_.begin(md, n, &v0, &st);
+            const int32_t g0 = gain_q8(drive_ + mod_scaled_q8(v0, dmod_)), g1 = gain_q8(drive_ + scaled(md[n - 1], dmod_));
+            gq = g0 << 8;
+            dgq = ((g1 - g0) << 8) / (n - 1);
+        } else if (md) {
+            rd_.note(md, n);
+        }
+        // (a copy of the sample loop for each way the gain moves: none, a line, per sample; the steady one as before this step)
+        if (slow) run<1>(n, p.in[0], p.out[0], md, gain, gq, dgq);
+        else if (md) run<2>(n, p.in[0], p.out[0], md, gain, 0, 0);
+        else run<0>(n, p.in[0], p.out[0], md, gain, 0, 0);
+    }
+private:
+    template <int G>
+    SC_HOT void run(int n, const q15 *in, q15 *out, const q15 *md, int32_t gain, int32_t gq, int32_t dgq) {
+        for (int i = 0; i < n; i++) {
+            if (G == 1) { gain = gq >> 8; gq += dgq; }
+            else if (G == 2) gain = gain_q8(drive_ + scaled(md[i], dmod_));
+            const q15 x = in[i];
             const int32_t v = x * gain;                              // Q23 (q15 * Q8)
             q15 y;
             switch (mode_) {
@@ -517,7 +572,7 @@ public:
                     break;
                 }
             }
-            p.out[0][i] = mix_ == kUnity ? y : static_cast<q15>(x + (((static_cast<int32_t>(y) - x) * mix_) >> 15));
+            out[i] = mix_ == kUnity ? y : static_cast<q15>(x + (((static_cast<int32_t>(y) - x) * mix_) >> 15));
         }
     }
 private:
@@ -530,6 +585,7 @@ private:
     int32_t mode_ = SHPM_TANH, drive_ = 256, bits_ = 8, dmod_ = 2 * 256, lp_ = 0, cnt_ = 0;
     q15 mix_ = kUnity, hold_ = 0;
     DcBlocker dc_;
+    ModRamp rd_;                            // the drive modulation's line (ADR-050)
 };
 
 /* ------------------------------------------------------------------ small utilities */
@@ -538,7 +594,7 @@ template <Scope S>
 class Const : public Module {
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"Const", S, 0, 1, 1, false, {}, {"out"}, {{"value", 0, -32768, 32767}}};
+        static const ModuleInfo i = {"Const", S, 0, 1, 1, false, {}, {"out"}, {{"value", 0, -32768, 32767}}, Rate::Control};
         return i;
     }
     void set_param(int, int32_t v) override { v_ = static_cast<q15>(v); }
@@ -551,7 +607,7 @@ template <Scope S>
 class Vca : public Module {
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"Vca", S, 1, 1, 1, false, {"in"}, {"out"}, {{"level", kUnity, -32768, kUnity}}};
+        static const ModuleInfo i = {"Vca", S, 1, 1, 1, false, {"in"}, {"out"}, {{"level", kUnity, -32768, kUnity}}, Rate::Follow};
         return i;
     }
     void set_param(int, int32_t v) override { g_ = static_cast<q15>(v); }
@@ -568,7 +624,7 @@ template <Scope S>
 class Mult : public Module {
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"Mult", S, 2, 1, 0, false, {"a", "b"}, {"out"}, {}};
+        static const ModuleInfo i = {"Mult", S, 2, 1, 0, false, {"a", "b"}, {"out"}, {}, Rate::Follow};
         return i;
     }
     void process(const ProcessCtx &ctx, const Ports &p) override { block_mul(p.out[0], p.in[0], p.in[1], ctx.frames); }
@@ -579,7 +635,7 @@ class Mix4 : public Module {
 public:
     const ModuleInfo &info() const override {
         static const ModuleInfo i = {"Mix4", S, 4, 1, 4, false, {"1", "2", "3", "4"}, {"out"},
-            {{"lvl1", 8192, -32768, kUnity}, {"lvl2", 8192, -32768, kUnity}, {"lvl3", 8192, -32768, kUnity}, {"lvl4", 8192, -32768, kUnity}}};
+            {{"lvl1", 8192, -32768, kUnity}, {"lvl2", 8192, -32768, kUnity}, {"lvl3", 8192, -32768, kUnity}, {"lvl4", 8192, -32768, kUnity}}, Rate::Follow};
         return i;
     }
     void set_param(int idx, int32_t v) override { if (idx >= 0 && idx < 4) g_[idx] = static_cast<q15>(v); }

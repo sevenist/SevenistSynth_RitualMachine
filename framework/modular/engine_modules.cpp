@@ -57,6 +57,12 @@ const sc::ModuleInfo *info_of(int k, bool global) {
     slot->n_out = d->n_out;
     slot->n_param = d->n_param;
     slot->reads_bus = false;
+    // What its outputs carry, for the engine's modules it modulates (ADR-050), from its kind: envelopes (the LFO's 50 Hz at most), macros
+    // and the note are slow; processors follow what feeds them; sources and effects are audio
+    const char *kind = d->category ? d->category : "";
+    slot->rate = !std::strcmp(kind, "Envelopes") || !std::strcmp(kind, "Macros") || !std::strcmp(kind, "In / Out") ? sc::Rate::Control
+               : !std::strcmp(kind, "Math") || !std::strcmp(kind, "Filters") || !std::strcmp(kind, "Shapers") || !std::strcmp(kind, "Utilities")
+                     ? sc::Rate::Follow : sc::Rate::Audio;
     for (int i = 0; i < d->n_in; i++) slot->in_name[i] = d->in_name[i];
     for (int o = 0; o < d->n_out; o++) slot->out_name[o] = d->out_name[o];
     for (int j = 0; j < d->n_param; j++) {

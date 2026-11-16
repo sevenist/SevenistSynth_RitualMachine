@@ -78,6 +78,27 @@ request an update log for developers was written after the commit: `framework/CH
 `tools/` or `platformio.ini` in older notes is inside `apps/ritual_machine/`. Two glossaries were made that day as documents for
 the user (features and GUI; framework): ask for their links, they are not in the repo.
 
+## ADR-050 step 1 on the board (2026-11-15; board session: built, flashed and measured by Claude; listened to by the user: "same as before")
+
+Per-block modulation, the source decides (framework/docs/DESIGN.md ADR-050), plus two engine fixes found while measuring it on HWV1
+with the user's current Ritual Machine sound (MiOsc, Filter, Shaper, envelopes, Delay, Reverb), profiling build, 6 notes held:
+
+| | committed engine | ADR-050 step 1 + Engine::run / render in IRAM |
+|---|---|---|
+| cycles a block (module sum) | 100 537 | 97 576 |
+| render avg / worst (us of 1333) | 1035 / 1510 | 961 / 1272 |
+| blocks over budget (of 4140) | 9 | 0 |
+
+- **`Engine::run` and `Engine::render` were in flash** (`SC_HOT` now): they run every block, `run` once per voice, and through the
+  cache the PSRAM data shares they moved the Reverb / Delay by a few % at any change of their code.
+- **The profiler timed `info()`**: `prof_add(m->info().name, prof_now() - t0)` may call `info()` (virtual, in flash) first; the
+  time is now taken before it. Older `[PROF]` numbers carry 100..300 cycles a module of that.
+- Still in flash and called every block: `MiOsc::process` and the Mutable models' renders, the Fx2 effects (Compressor, Phaser,
+  Flanger, Shifter, Tremolo), TunedComb, Granular, Sampler, SpectralFx, the RM's `engine_synth_render_*`. Candidates for IRAM
+  (internal RAM is the limit: `.iram0.text` 133 KB).
+- Reverb stays ~1000 cycles above the committed build (0.6 % of the budget): not found (its PSRAM placement, probably).
+- On the board now: the Ritual Machine, normal build (no extra flags), with the new engine. Not committed.
+
 ## Convolver on the board (2026-10-09; flashed and measured by Claude, NOT listened to)
 
 Cycles per 32-frame engine block (budget 174k at 44.1 kHz), the Convolver alone, startup patch with only a Cab in row M:

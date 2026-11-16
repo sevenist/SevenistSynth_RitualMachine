@@ -27,7 +27,13 @@ struct Step {
     q15 *dst;                   // Mix / Copy destination
     const q15 *src[kMaxFanIn];  // Mix sources (Copy: src[0])
     q15 gain[kMaxFanIn];
-    Ports p;                    // Module steps
+    Ports p;                    // Module steps (p.mod_slow / p.in_slow: what is slow whatever runs, ADR-050)
+    // Module steps fed by a Rate::Dynamic source (an LFO): those values / inputs are slow in a block where none of the nodes in
+    // dyn_nodes (bit = node index) was fast; dyn_src: this node is such a source (the engine reads its fast_out() after it runs).
+    uint64_t dyn_nodes;
+    uint16_t mod_dyn;
+    uint8_t in_dyn;
+    bool dyn_src;
 };
 
 struct ParamUpdate {
@@ -65,8 +71,10 @@ struct Plan {
     bool has_master = false;                        // a node writes the final output (engine fills)
 };
 
-// Compiles `g` for `nvoices` voices. On success *out is a new plan (instances not attached yet).
-Err compile_plan(const GraphDesc &g, const Registry &reg, Heap &heap, int nvoices, Plan **out);
+// Compiles `g` for `nvoices` voices. On success *out is a new plan (instances not attached yet), allocated in `heap`. The compiler's
+// own working tables (about 30 KB, freed before it returns) come from `scratch` when given: the engine passes its bulk heap, so a
+// rebuild neither takes nor fragments the fast heap (internal RAM on the board) for them.
+Err compile_plan(const GraphDesc &g, const Registry &reg, Heap &heap, int nvoices, Plan **out, Heap *scratch = nullptr);
 void free_plan(Plan *p);
 
 }  // namespace sc

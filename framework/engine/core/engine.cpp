@@ -75,7 +75,7 @@ int Engine::find_rec(int id, int type, int nv) const {
 Err Engine::load(const GraphDesc &g, int nvoices) {
     const int nv = nvoices <= 0 ? default_nv_ : (nvoices > kMaxVoices ? kMaxVoices : nvoices);
     Plan *pl = nullptr;
-    Err e = compile_plan(g, reg_, *mem_.fast, nv, &pl);
+    Err e = compile_plan(g, reg_, *mem_.fast, nv, &pl, mem_.bulk);      // (the compiler's working tables in the bulk heap)
     if (e != Err::Ok) return e;
 
     bool created[kMaxRecs] = {};
@@ -446,7 +446,9 @@ int Engine::active_voices() const {
 
 /* ---------------- audio ---------------- */
 
-void Engine::run(const Plan *pl, int first, int count, int voice, ProcessCtx &ctx) {
+// [AUDIO] In internal RAM (SC_HOT), as render() below: both run every block (run() once per voice). From flash they went through the
+// cache the PSRAM data shares, and any change to them moved the Reverb's and the Delay's cycles by a few % (measured 2026-11-15, ADR-050).
+SC_HOT void Engine::run(const Plan *pl, int first, int count, int voice, ProcessCtx &ctx) {
     const int stride = pl->fbv_stride;
     const q15 *fb0 = pl->fbv, *fb1 = pl->fbv + (stride ? stride * pl->nvoices : 0);
     const ptrdiff_t shift = static_cast<ptrdiff_t>(voice) * stride;
@@ -461,17 +463,30 @@ void Engine::run(const Plan *pl, int first, int count, int voice, ProcessCtx &ct
 #ifdef ENGINE_PROFILE
             const uint32_t t0 = prof_now();
 #endif
-            if (!move) {
+            if (!move && !s.dyn_nodes) {
                 m->process(ctx, s.p);
             } else {
                 Ports p = s.p;
-                for (auto &x : p.in) x = rel(x);
-                for (auto &x : p.mod) x = rel(x);
+                if (move) {
+                    for (auto &x : p.in) x = rel(x);
+                    for (auto &x : p.mod) x = rel(x);
+                }
+                if (s.dyn_nodes && !(dyn_fast_ & s.dyn_nodes)) {   // (ADR-050: the LFOs feeding it were slow in this block)
+                    p.mod_slow = static_cast<uint16_t>(p.mod_slow | s.mod_dyn);
+                    p.in_slow = static_cast<uint8_t>(p.in_slow | s.in_dyn);
+                }
                 m->process(ctx, p);
             }
 #ifdef ENGINE_PROFILE
-            prof_add(m->info().name, prof_now() - t0);
+            // (the time taken before info() is called: the order of a call's arguments is not fixed, and info() is a virtual call into
+            // flash, through the cache: inside the window it added a build-dependent cost to every module)
+            const uint32_t dt = prof_now() - t0;
+            prof_add(m->info().name, dt);
 #endif
+            if (s.dyn_src) {
+                const uint64_t bit = 1ull << s.node;
+                dyn_fast_ = m->fast_out() ? dyn_fast_ | bit : dyn_fast_ & ~bit;
+            }
             break;
         }
         case StepKind::Mix: {
@@ -495,7 +510,7 @@ void Engine::run(const Plan *pl, int first, int count, int voice, ProcessCtx &ct
     }
 }
 
-void Engine::render(q15 *l, q15 *r) {
+SC_HOT void Engine::render(q15 *l, q15 *r) {
     if (pending_.load(std::memory_order_acquire)) {
         swap_seq_.fetch_add(1, std::memory_order_acq_rel);                       // odd: gc() must not look at the plans now
         if (Plan *np = pending_.exchange(nullptr, std::memory_order_acq_rel)) {

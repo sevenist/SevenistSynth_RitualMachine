@@ -7,7 +7,7 @@ namespace {
 class GateIn : public Module {
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"GateIn", Scope::Global, 0, 4, 0, false, {}, {"gate", "retrig", "pitch", "vel"}, {}};
+        static const ModuleInfo i = {"GateIn", Scope::Global, 0, 4, 0, false, {}, {"gate", "retrig", "pitch", "vel"}, {}, Rate::Control};
         return i;
     }
     SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
@@ -34,7 +34,7 @@ private:
 class ParaGate : public Module {
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"ParaGate", Scope::Voice, 1, 1, 0, false, {"in"}, {"out"}, {}};
+        static const ModuleInfo i = {"ParaGate", Scope::Voice, 1, 1, 0, false, {"in"}, {"out"}, {}, Rate::Follow};
         return i;
     }
     void reset() override { g_ = 0; muted_ = false; }

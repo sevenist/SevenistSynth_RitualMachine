@@ -50,6 +50,22 @@ inline uint32_t pitch_to_inc(int32_t pitch, uint32_t a4_inc) {
     return inc > 2147483648u ? 2147483648u : inc;                             // clamp at Nyquist
 }
 
+// The increments of a block whose pitch only slow sources move (ADR-050): a straight line from the first sample's pitch p0 to the last
+// one's pe (*inc at the first sample, *dinc added per sample), its mean moved onto Simpson's estimate of the per-sample one (p0, pm the
+// middle, pe): the phase at the block's end lands where reading the pitch per sample would put it, for the curve of the modulation and of
+// the exponential alike. Three pitch_to_inc a block instead of one a sample; a steady pitch gives pitch_to_inc(p0) exactly. Divisions are
+// 32-bit (a 64-bit one is a library call on the ESP32). [AUDIO]
+inline void pitch_line(int32_t p0, int32_t pm, int32_t pe, int n, uint32_t a4_inc, uint32_t *inc, int32_t *dinc) {
+    const uint32_t a = pitch_to_inc(p0, a4_inc);
+    if (p0 == pe && p0 == pm) { *inc = a; *dinc = 0; return; }
+    const uint32_t e = pitch_to_inc(pe, a4_inc), m = pitch_to_inc(pm, a4_inc);
+    auto clamp32 = [](int64_t v) { return static_cast<int32_t>(v > 2147483647 ? 2147483647 : (v < -2147483647 ? -2147483647 : v)); };
+    const int32_t span = clamp32(static_cast<int64_t>(e) - a);
+    const int32_t off = clamp32(2 * static_cast<int64_t>(m) - a - e) / 3;            // (a + 4m + e) / 6 - (a + e) / 2
+    *dinc = n > 1 ? span / (n - 1) : 0;
+    *inc = static_cast<uint32_t>(static_cast<int64_t>(a) + off);
+}
+
 // One cycle of sine, q15, 1024-entry table + linear interpolation (about -90 dB distortion). [AUDIO]
 inline q15 sine(uint32_t phase) {
     uint32_t idx = phase >> (32 - kSineBits);

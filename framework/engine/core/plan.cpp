@@ -20,6 +20,7 @@ const char *err_name(Err e) {
 
 namespace {
 
+static_assert(kMaxNodes <= 64, "the Rate::Dynamic nodes are bits of a uint64_t (Step::dyn_nodes, ADR-050)");
 constexpr int kMaxSteps = 192;
 constexpr int kMaxBufs = 384;
 constexpr int kMaxFb = 32;
@@ -35,6 +36,10 @@ struct Sym {                            // a step with symbolic buffer ids
     int16_t dst;
     int16_t src[kMaxFanIn];
     q15 gain[kMaxFanIn];
+    uint64_t dyn_nodes;
+    uint16_t mod_slow, mod_dyn;
+    uint8_t in_slow, in_dyn;
+    bool dyn_src;
 };
 
 struct FbEntry { int node, port; bool voice; };
@@ -52,6 +57,8 @@ struct Scratch {
     Sym sym[kMaxSteps];
     int n_sym;
     int buf_def[kMaxBufs], buf_last[kMaxBufs], slot_of[kMaxBufs], slot_last[kMaxBufs];
+    bool buf_fast[kMaxBufs];            // ADR-050: what the buffer carries is audio rate (fast), or slow, or decided by the
+    uint64_t buf_dyn[kMaxBufs];         //   Rate::Dynamic nodes in buf_dyn (bit = node index) at run time
     int n_buf, n_slots;
     FbEntry fb[kMaxFb];
     int n_fb, n_fbv, n_fbg;
@@ -70,9 +77,20 @@ struct Compiler {
         if (S.n_buf >= kMaxBufs) { err = Err::TooBig; return kNone; }
         S.buf_def[S.n_buf] = def;
         S.buf_last[S.n_buf] = def;
+        S.buf_fast[S.n_buf] = true;
+        S.buf_dyn[S.n_buf] = 0;
         return static_cast<int16_t>(S.n_buf++);
     }
     void use(int16_t id, int pos) { if (id >= 0 && S.buf_last[id] < pos) S.buf_last[id] = pos; }
+
+    // What a buffer carries (ADR-050): silence and nothing are slow; a delayed cable's buffer is taken as fast (a feedback loop).
+    void rate_of(int16_t id, bool *fast, uint64_t *dyn) const {
+        *dyn = 0;
+        if (id == kNone || id == kSilence) { *fast = false; return; }
+        if (id >= kFbVoice) { *fast = true; return; }
+        *fast = S.buf_fast[id];
+        *dyn = S.buf_dyn[id];
+    }
 
     Sym *append() {
         if (S.n_sym >= kMaxSteps) { err = Err::TooBig; return nullptr; }
@@ -118,8 +136,14 @@ struct Compiler {
         m->kind = StepKind::Mix;
         m->n = static_cast<uint8_t>(nf);
         m->dst = tmp;
+        S.buf_fast[tmp] = false;
         for (int i = 0; i < nf; i++) {
             m->src[i] = edge_source(g.edge[found[i]]);
+            bool f;
+            uint64_t d;
+            rate_of(m->src[i], &f, &d);
+            S.buf_fast[tmp] = S.buf_fast[tmp] || f;         // (a mix is fast when one of its cables is)
+            S.buf_dyn[tmp] |= d;
             m->gain[i] = g.edge[found[i]].depth;
             S.edge_step[found[i]] = static_cast<uint8_t>(pos);
             S.edge_slot[found[i]] = static_cast<uint8_t>(i);
@@ -140,7 +164,36 @@ struct Compiler {
         s->node = static_cast<uint8_t>(node);
         for (int p = 0; p < kMaxIn; p++) { s->in[p] = in[p]; use(in[p], pos); }
         for (int p = 0; p < kMaxParams; p++) { s->mod[p] = mod[p]; use(mod[p], pos); }
-        for (int o = 0; o < info.n_out; o++) { s->out[o] = new_buf(pos); S.outbuf[node][o] = s->out[o]; }
+        // ADR-050: which inputs and values only slow sources feed, and what this node's outputs carry
+        bool any_fast = false;
+        uint64_t any_dyn = 0;
+        for (int p = 0; p < kMaxIn + kMaxParams; p++) {
+            const bool is_in = p < kMaxIn;
+            const int k = is_in ? p : p - kMaxIn;
+            if (k >= (is_in ? info.n_in : info.n_param)) continue;
+            bool f;
+            uint64_t d;
+            rate_of(is_in ? in[k] : mod[k], &f, &d);
+            any_fast = any_fast || f;
+            any_dyn |= d;
+            if (f) continue;
+            if (is_in) { if (d) s->in_dyn |= static_cast<uint8_t>(1u << k); else s->in_slow |= static_cast<uint8_t>(1u << k); }
+            else { if (d) s->mod_dyn |= static_cast<uint16_t>(1u << k); else s->mod_slow |= static_cast<uint16_t>(1u << k); }
+            s->dyn_nodes |= d;
+        }
+        bool out_fast = true;
+        uint64_t out_dyn = 0;
+        switch (info.rate) {
+            case Rate::Audio: break;
+            case Rate::Control: out_fast = false; break;
+            case Rate::Follow: out_fast = any_fast; out_dyn = any_fast ? 0 : any_dyn; break;
+            case Rate::Dynamic: out_fast = false; out_dyn = 1ull << node; s->dyn_src = true; break;
+        }
+        for (int o = 0; o < info.n_out; o++) {
+            s->out[o] = new_buf(pos);
+            S.outbuf[node][o] = s->out[o];
+            if (s->out[o] != kNone) { S.buf_fast[s->out[o]] = out_fast; S.buf_dyn[s->out[o]] = out_dyn; }
+        }
     }
 
     // Copies fed-back outputs into their persistent buffers at the end of a section.
@@ -300,6 +353,12 @@ Err compile_impl(const GraphDesc &g, const Registry &reg, Heap &heap, int nvoice
         st.dst = ptr(y.dst);
         fb |= is_vfb(y.dst);
         for (int k = 0; k < kMaxFanIn; k++) { st.src[k] = ptr(y.src[k]); st.gain[k] = y.gain[k]; fb |= is_vfb(y.src[k]); }
+        st.p.mod_slow = y.mod_slow;
+        st.p.in_slow = y.in_slow;
+        st.dyn_nodes = y.dyn_nodes;
+        st.mod_dyn = y.mod_dyn;
+        st.in_dyn = y.in_dyn;
+        st.dyn_src = y.dyn_src;
         st.fb = in_voice && fb;
     }
     *out = pl;
@@ -308,12 +367,13 @@ Err compile_impl(const GraphDesc &g, const Registry &reg, Heap &heap, int nvoice
 
 }  // namespace
 
-Err compile_plan(const GraphDesc &g, const Registry &reg, Heap &heap, int nvoices, Plan **out) {
+Err compile_plan(const GraphDesc &g, const Registry &reg, Heap &heap, int nvoices, Plan **out, Heap *scratch) {
     *out = nullptr;
-    Scratch *S = heap.make<Scratch>();
+    Heap &sh = scratch ? *scratch : heap;
+    Scratch *S = sh.make<Scratch>();
     if (!S) return Err::NoMem;
     Err e = compile_impl(g, reg, heap, nvoices, *S, out);
-    heap.free(S);
+    sh.free(S);
     return e;
 }
 

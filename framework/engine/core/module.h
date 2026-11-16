@@ -31,6 +31,14 @@ struct ParamDesc {
     int32_t def, min, max;
 };
 
+// What a module's outputs carry, for what they modulate (ADR-050): the source decides whether a modulation input is read per sample or
+// once per block. The plan follows it through the graph (Ports::mod_slow).
+//   Audio    audio rate: what it modulates is read per sample (the default: a module that declares nothing keeps the per-sample reading)
+//   Control  slow: envelopes, constants, the note, gates; what it modulates may be read once per block
+//   Follow   a processor (VCA, mixer, filter, shaper): fast when anything feeding it, inputs or modulations, is fast
+//   Dynamic  decided at run time, each block, by Module::fast_out() (an LFO: fast above 100 Hz)
+enum class Rate : uint8_t { Audio, Control, Follow, Dynamic };
+
 struct ModuleInfo {
     const char *name;
     Scope scope;
@@ -39,6 +47,7 @@ struct ModuleInfo {
     const char *in_name[kMaxIn];
     const char *out_name[kMaxOut];
     ParamDesc param[kMaxParams];
+    Rate rate = Rate::Audio;                // (after the values: a module's table that ends with its values declares Audio)
 };
 
 // The machine clock (ADR-041 decision 24): a 4/4 transport counted in beats, advanced by the engine at the end of every block. A module reads
@@ -106,7 +115,40 @@ struct Ports {
     const q15 *in[kMaxIn];
     const q15 *mod[kMaxParams];
     q15 *out[kMaxOut];
+    // ADR-050: bit p set = everything that feeds mod[p] (in[p] for in_slow) is slow in this block (envelopes, LFOs under 100 Hz,
+    // constants): the module may read it once per block, along a ramp to its last sample (mod_ramp below), instead of per sample.
+    // 0 (the default, a Ports built by hand): read per sample.
+    uint16_t mod_slow = 0;
+    uint8_t in_slow = 0;
 };
+
+#define SC_MOD_RATES 1                  // (ADR-050 step 1 is in: Ports::mod_slow / in_slow, ModuleInfo::rate)
+inline bool slow_mod(const Ports &p, int j) { return (p.mod_slow >> j) & 1u; }
+inline bool slow_in(const Ports &p, int k) { return (p.in_slow >> k) & 1u; }
+
+// A slow modulation read once per block, as a straight line from where the previous block ended to this block's last sample: exact at
+// every block's end, no step inside it. `last` is the module's state (the previous block's end); `fresh` after a reset (the line
+// starts at this block's first sample). Gives the value at the first sample and the step per sample, both << 8 (Q8: a 1/256 LSB step).
+struct ModRamp {
+    int32_t last = 0;
+    bool fresh = true;
+    void begin(const q15 *m, int n, int32_t *v_q8, int32_t *step_q8) {
+        const int32_t end = m[n - 1];
+        if (fresh || n < 2) {                                // from this block's first sample to its last
+            *step_q8 = n > 1 ? ((end - m[0]) * 256) / (n - 1) : 0;
+            *v_q8 = m[0] * 256;
+        } else {                                             // from the previous block's last sample (one step before this block's first)
+            *step_q8 = ((end - last) * 256) / n;
+            *v_q8 = last * 256 + *step_q8;
+        }
+        fresh = false;
+        last = end;
+    }
+    // a block read per sample (the source was fast): where it ended, so a later slow block's line starts there
+    void note(const q15 *m, int n) { last = m[n - 1]; fresh = false; }
+};
+// (a value scaled from a Q8 ramp: (v_q8 / 256) * range / 32768, exact for a whole v)
+inline int32_t mod_scaled_q8(int32_t v_q8, int32_t range) { return static_cast<int32_t>((static_cast<int64_t>(v_q8) * range) >> 23); }
 
 class SampleBank;           // sampler/sample_bank.h
 
@@ -130,6 +172,8 @@ public:
     // (release: the hit's length is over). Modules that play no hits ignore it.
     virtual void hit(int /*lane*/, int /*level*/, bool /*release*/) {}
     virtual void process(const ProcessCtx &ctx, const Ports &p) = 0;   // [AUDIO]
+    // [AUDIO] Rate::Dynamic modules only: whether the block just processed was fast (audio rate), read by the engine after process()
+    virtual bool fast_out() const { return true; }
 };
 
 struct ModuleType {

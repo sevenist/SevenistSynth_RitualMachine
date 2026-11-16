@@ -4,6 +4,10 @@ no bench line comes within a few seconds). Do not touch the board while it runs.
 
     C:/.platformio/penv/Scripts/python.exe apps/synthlab/tools/module_bench.py --port COM13 --log bench.txt
     C:/.platformio/penv/Scripts/python.exe apps/synthlab/tools/module_bench.py --from bench.txt        (a saved log, no board)
+
+The float / q15 comparison (ADR-050 step 0) needs two runs: hwv1_bench (the catalog's float modules, their F types) and hwv1_bench_rm
+(the engine's modules through the adapter, then natively: the [MBENCH] native lines). Then both logs, the second one adding the table
+"per function":  module_bench.py --from bench.txt bench_rm.txt
 """
 import argparse
 import sys
@@ -42,12 +46,30 @@ def read_board(port, timeout_s):
     sys.exit('no complete bench within %d s (is the bench build flashed? the monitor closed?)' % timeout_s)
 
 
+def split_lines(lines):
+    """The [MBENCH] lines, a line split where the console lost a newline (two lines run together: the USB console drops bytes)."""
+    out = []
+    for line in lines:
+        parts = line.split('[MBENCH]')
+        out += ['[MBENCH]' + x.rstrip() for x in parts[1:] if x.strip()]
+    return out
+
+
 def parse(lines):
     head, mods, glue, synths, voices = {}, [], [], [], {}
     for line in lines:
+        try:
+            parse_line(line, head, mods, glue, synths, voices)
+        except (IndexError, ValueError, KeyError):
+            print('(a line cut by the console, skipped: %s)' % line[:90], file=sys.stderr)
+    return head, mods, glue, synths, voices
+
+
+def parse_line(line, head, mods, glue, synths, voices):
+    if True:
         w = line.split()[1:]
         if not w:
-            continue
+            return
         if w[0] == 'begin':
             # begin cpu 240 MHz rate 44100 block 32 budget 174149 free-internal N free-psram N
             head.update({'cpu': w[2], 'rate': w[5], 'block': w[7], 'budget': w[9]})
@@ -61,13 +83,22 @@ def parse(lines):
         elif w[0] == 'module':
             if 'no-memory' in w:
                 mods.append({'name': w[1], 'size': int(w[3]), 'missing': True})
-                continue
+                return
             d = {'name': w[1], 'size': int(w[3]), 'mem': w[5], 'def': int(w[7]), 'def_min': int(w[8]), 'driven': int(w[10]),
                  'max': int(w[13]), 'max_at': w[16], 'psram': int(w[18]), 'start': int(w[20]),
                  'cold': int(w[22]) if len(w) > 22 else 0}
             mods.append(d)
         elif w[0] == 'glue':
             glue.append((w[1], int(w[2])))
+        elif w[0] == 'native' and len(w) > 3 and w[1].isdigit() and w[3] == 'scope':
+            # native <id> <name> scope voice|global fast F spilled S def D driven V modconst C modramp R modaudio A max M at P=v cold X start T silent 0|1
+            k = dict(zip(w[3::2], w[4::2]))
+            head.setdefault('native', []).append({'id': int(w[1]), 'name': w[2], 'scope': k['scope'], 'fast': int(k['fast']),
+                'spilled': int(k.get('spilled', -1)), 'spill': int(k.get('spill', -1)), 'def': int(k['def']), 'driven': int(k['driven']), 'modconst': int(k['modconst']),
+                'modramp': int(k['modramp']), 'modaudio': int(k['modaudio']), 'modslow': int(k.get('modslow', -1)), 'max': int(k['max']), 'max_at': k['at'],
+                'cold': int(k['cold']), 'start': int(k['start']), 'silent': k['silent'] == '1'})
+        elif w[0] == 'equiv' and len(w) == 3:
+            head.setdefault('equiv', {})[w[1]] = w[2]
         elif w[0] == 'ftype' and len(w) >= 3 and w[2].isdigit():
             head.setdefault('ftype', {})[w[1]] = int(w[2])     # (the module as an engine type: engine_modules.h)
         elif w[0] == 'synth':
@@ -77,7 +108,6 @@ def parse(lines):
             r = w[k:]
             synths.append({'name': name, 'voice': int(r[1]), 'bytes': int(r[3]), 'fx': int(r[5]), 'fx_bytes': int(r[7]),
                            'idle': int(r[9]), 'one': int(r[11]), 'v1': int(r[13]), 'six': int(r[15]), 'v6': int(r[17])})
-    return head, mods, glue, synths, voices
 
 
 def report(head, mods, glue, synths, voices):
@@ -109,6 +139,47 @@ def report(head, mods, glue, synths, voices):
             per = float('nan')
         print('%-10s %7d %7d %8d %7d %6d %7d %7d %8d %3d %8d %3d %9.0f' % (s['name'][:10], start, later, psram, cold, s['bytes'], s['fx'], s['idle'],
                                                                       s['one'], s['v1'], s['six'], s['v6'], per))
+
+
+def report_native(head, mods):
+    """ADR-050 step 0: the engine's own modules (q15, natively) and, per function, the float catalog's module against them."""
+    nat = head.get('native', [])
+    if not nat:
+        return
+    print("\nthe engine's modules, native q15, cycles per block (mod*: every value's modulation input fed, per sample):")
+    print('%-4s %-12s %-6s %7s %7s %8s %8s %8s %8s %8s %8s %8s  %-18s %6s %7s' % ('id', 'module', 'scope', 'fast', 'spill', 'default', 'driven',
+          'modconst', 'modramp', 'modaudio', 'modslow', 'max', 'max at', 'cold', 'start'))
+    prev = None                                         # (the heap's count of spilled bytes adds up: each module's own share)
+    for n in nat:
+        if n['spill'] >= 0:                             # (a newer bench prints the module's own share)
+            n['spill_own'] = n['spill']
+            continue
+        n['spill_own'] = n['spilled'] - prev if prev is not None and n['spilled'] >= prev else 0
+        prev = n['spilled']
+    for n in nat:
+        print('%-4d %-12s %-6s %7d %7d %8d %8d %8d %8d %8d %8s %8d  %-18s %6d %7d%s' % (n['id'], n['name'], n['scope'], n['fast'], n['spill_own'],
+              n['def'], n['driven'], n['modconst'], n['modramp'], n['modaudio'], n['modslow'] if n['modslow'] >= 0 else '-', n['max'], n['max_at'], n['cold'], n['start'],
+              ('  (silent: needs a service)' if n['silent'] else '') + ('  (state partly in PSRAM)' if n['spill_own'] else '')))
+    by_name = {}
+    for n in nat:                                       # (a name in both scopes: the voice's type)
+        if n['name'] not in by_name or n['scope'] == 'voice':
+            by_name[n['name']] = n
+    fmods = {d['name']: d for d in mods if not d.get('missing')}
+    ft = head.get('ftype', {})
+    print("\nper function: the float catalog module against the engine's q15 one, cycles per block (driven, default values)")
+    print('%-10s %-12s %8s %8s %8s %8s %8s %8s %7s' % ('float', 'engine', 'float', 'F type', 'via RM', 'q15', 'q15 mod', 'q15 aud', 'q15/flt'))
+    pairs = sorted(head.get('equiv', {}).items())
+    # (close functions the catalog does not name as its engine module: a plain ADSR against the engine's Env as well as its Eg)
+    pairs += [p for p in (('ADSR', 'Env'), ('EQ3', 'Eq3V'), ('Comp3', 'CompressorV')) if p not in pairs]
+    for fname, ename in pairs:
+        f, n = fmods.get(fname), by_name.get(ename)
+        if not f or not n:
+            print('%-10s %-12s  (%s)' % (fname, ename, 'float not measured' if not f else 'engine module not measured'))
+            continue
+        fl = max(f['def'], f['driven'])
+        rm = fmods.get('RM' + ename, {})
+        print('%-10s %-12s %8d %8d %8s %8d %8d %8d %7.2f' % (fname, ename, fl, ft.get(fname, 0), max(rm.get('def', 0), rm.get('driven', 0)) or '-',
+              n['driven'], n['modramp'], n['modaudio'], n['driven'] / fl if fl else float('nan')))
 
 
 def write_header(path, board, head, mods, glue, synths, voices):
@@ -185,7 +256,7 @@ def main():
     ap.add_argument('--board', default='hwv1', help='the board measured, for the table (hwv1 / hwv2)')
     a = ap.parse_args()
     if a.src:
-        logs = [[l.strip() for l in open(f, encoding='utf-8') if l.startswith('[MBENCH]')] for f in a.src]
+        logs = [split_lines(open(f, encoding='utf-8').read().splitlines()) for f in a.src]
         lines = logs[0]
     else:
         logs = [read_board(a.port, a.timeout)]
@@ -197,7 +268,13 @@ def main():
         mods = parsed[1]
         for d in parse(extra)[1]:
             mods[:] = [m for m in mods if m['name'] != d['name']] + [d]
+    for extra in logs[1:]:                              # (the native engine modules, the pairs: from every log)
+        h = parse(extra)[0]
+        parsed[0].setdefault('native', []).extend(h.get('native', []))
+        parsed[0].setdefault('equiv', {}).update(h.get('equiv', {}))
+        parsed[2].extend(x for x in parse(extra)[2] if x[0] not in dict(parsed[2]))
     report(*parsed)
+    report_native(parsed[0], parsed[1])
     if a.write:
         write_header(a.write, a.board, *parsed)
 

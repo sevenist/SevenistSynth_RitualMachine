@@ -138,6 +138,7 @@ private:
     std::atomic<Plan *> retired_{nullptr};              // lock-free stack: pushed by the audio thread, taken whole by gc()
     alignas(16) int32_t bus_l_[kBlock] = {}, bus_r_[kBlock] = {};     // the voice sum, 32 bits: saturated once when read (BusIn)
     alignas(16) int32_t bus2_l_[kBlock] = {}, bus2_r_[kBlock] = {};   // the second voice bus (branch 2 of the rack, ADR-041)
+    uint64_t dyn_fast_ = ~0ull;                         // ADR-050: the Rate::Dynamic nodes (bit = node index) whose last block was fast
     std::atomic<uint64_t> time_{0};
     Transport tr_;                                      // audio thread
     bool click_on_ = false;

@@ -34,7 +34,7 @@ namespace {
 class MotionSeq : public Module {
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"MotionSeq", Scope::Global, 0, kMsLanes, 0, false, {}, {"lane1", "lane2", "lane3", "lane4"}, {}};
+        static const ModuleInfo i = {"MotionSeq", Scope::Global, 0, kMsLanes, 0, false, {}, {"lane1", "lane2", "lane3", "lane4"}, {}, Rate::Control};
         return i;
     }
     void reset() override { for (int32_t &v : last_) v = 0; }

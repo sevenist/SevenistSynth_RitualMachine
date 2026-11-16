@@ -101,8 +101,20 @@ public:
         const q15 *cv = p.in[0], *gate = p.in[1], *mp = p.mod[OSCX_PITCH];
         const q15 *mt = p.mod[OSCX_TIMBRE], *mm = p.mod[OSCX_MORPH];
         const q15 timbre = clamp_unit(timbre_ + (mt ? mt[0] : 0)), morph = clamp_unit(morph_ + (mm ? mm[0] : 0));
-        const bool varying = mp || cv[0] != cv[n - 1];
-        uint32_t inc = pitch_to_inc(pitch_ + scaled(cv[0], kPitchCvSpan) + (mp ? scaled(mp[0], pmod_) : 0), a4_);
+        // ADR-050: a pitch that only slow sources move (the note and its glide, envelopes, LFOs under 100 Hz) is one increment a block,
+        // the mean of its line over the block (dsp/phase.h pitch_line: the phase lands where the per-sample reading puts it), and the block
+        // takes the fast path below
+        const bool slow = n > 1 && slow_in(p, 0) && (!mp || slow_mod(p, OSCX_PITCH));
+        const bool varying = !slow && (mp || cv[0] != cv[n - 1]);
+        uint32_t inc;
+        if (slow) {
+            auto at = [&](int i) { return pitch_ + scaled(cv[i], kPitchCvSpan) + (mp ? scaled(mp[i], pmod_) : 0); };
+            int32_t d;
+            pitch_line(at(0), (at(n / 2 - 1) + at(n / 2)) / 2, at(n - 1), n, a4_, &inc, &d);
+            inc += static_cast<uint32_t>(d * ((n - 1) / 2) + (((n - 1) & 1) ? d / 2 : 0));     // (the line's middle: its mean)
+        } else {
+            inc = pitch_to_inc(pitch_ + scaled(cv[0], kPitchCvSpan) + (mp ? scaled(mp[0], pmod_) : 0), a4_);
+        }
         // The per-block setup is a pure function of these four values: with a held note and no modulation it runs once, not every block
         if (!(prep_ok_ && prep_engine_ == engine_ && prep_inc_ == inc && prep_timbre_ == timbre && prep_morph_ == morph)) {
             prepare(inc, timbre, morph);

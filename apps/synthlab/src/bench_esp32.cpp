@@ -112,6 +112,12 @@ Stat run_case(const mod::ModuleDef &d, void *mem, const float *v, bool driven, u
     return stat_of(t, kRuns);
 }
 
+// The USB console drops and merges bytes when lines come faster than it sends them (the timing runs with this core's interrupts off):
+// each result line is followed by a pause that lets it drain (no Serial.flush(): on the USB console it can drop what is waiting)
+void drain() {
+    vTaskDelay(pdMS_TO_TICKS(60));
+}
+
 void *alloc_in(size_t bytes, bool psram) {
     return heap_caps_aligned_alloc(16, bytes, (psram ? MALLOC_CAP_SPIRAM : MALLOC_CAP_INTERNAL) | MALLOC_CAP_8BIT);
 }
@@ -157,6 +163,7 @@ void bench_module(const mod::ModuleDef &d) {
     Serial.printf("[MBENCH] module %s size %u mem %s def %u %u driven %u %u max %u %u at %s=%g psram %u start %u cold %u\n", d.name, (unsigned)d.size,
                   fast ? "internal" : "psram", (unsigned)def.med, (unsigned)def.min, (unsigned)drv.med, (unsigned)drv.min, (unsigned)worst.med,
                   (unsigned)worst.min, worst_p >= 0 ? d.param[worst_p].name : "-", (double)worst_v, (unsigned)ps.med, (unsigned)st, (unsigned)cold.med);
+    drain();
     if (fast) heap_caps_free(fast);
     if (slow) heap_caps_free(slow);
 }
@@ -366,6 +373,191 @@ void bench_ftypes() {
     }
 }
 
+#ifdef SYNTHLAB_BENCH_RM
+// The engine's own modules, natively (ADR-050 step 0: the float / q15 comparison): each registered type built by the registry in the
+// engine's heaps and its process() timed with q15 ports, as the engine's plan calls it, with no adapter and no conversion around it.
+// Its inputs are wired as a Ritual Machine voice wires them: "pitch" / "gate" / "vel" (and the like) from a held note, as NoteIn
+// gives them; every other input silence ("def") or a saw ("driven"). Then the driven case with every value's modulation input fed
+// at once, read per sample: a constant ("modconst"), a ramp over the block ("modramp": a slow LFO or an envelope), a saw ("modaudio":
+// audio-rate modulation); and the ramp marked slow ("modslow": Ports::mod_slow, what the plan gives a module that only slow sources
+// modulate, ADR-050: the block-rate reading). "max": the driven case with each value in turn at
+// its minimum and maximum (every value of a range of 40 or less), the slowest, and which. "silent": the output was zero in the driven
+// case (a module that needs a service the bench has not: samples, an FM patch, an impulse response), its cost not representative.
+sc::Registry g_rm_reg;
+alignas(16) sc::q15 g_q_zero[kFrames], g_q_saw[kFrames], g_q_pitch[kFrames], g_q_gate[kFrames], g_q_vel[kFrames];
+alignas(16) sc::q15 g_q_modc[kFrames], g_q_modr[kFrames], g_q_moda[kFrames], g_q_out[sc::kMaxOut][kFrames], g_q_master[2][kFrames];
+alignas(16) int32_t g_bus[4][kFrames];
+
+bool name_is(const char *n, const char *const *list) {
+    for (; *list; list++) if (!std::strcmp(n, *list)) return true;
+    return false;
+}
+
+enum NativeCase { kDef, kDriven, kModConst, kModRamp, kModAudio, kModSlow };
+
+struct NativeRig {
+    sc::VoiceState vs;
+    sc::Transport tr;
+    sc::SeqPos seq;
+    sc::ProcessCtx ctx{kFrames, 0, nullptr, nullptr, nullptr, nullptr, nullptr};
+    sc::Ports p{};
+    void wire(const sc::ModuleInfo &info, NativeCase c) {
+        static const char *const kPitch[] = {"pitch", "note", nullptr};
+        static const char *const kGate[] = {"gate", "trig", "trigger", "retrig", "clock", nullptr};
+        static const char *const kVel[] = {"vel", "velocity", nullptr};
+        for (int k = 0; k < sc::kMaxIn; k++) {
+            const char *n = k < info.n_in ? info.in_name[k] : "";
+            p.in[k] = !n ? g_q_zero : name_is(n, kPitch) ? g_q_pitch : name_is(n, kGate) ? g_q_gate : name_is(n, kVel) ? g_q_vel
+                    : c == kDef ? g_q_zero : g_q_saw;
+        }
+        const sc::q15 *m = c == kModConst ? g_q_modc : c == kModRamp || c == kModSlow ? g_q_modr : c == kModAudio ? g_q_moda : nullptr;
+        for (int j = 0; j < sc::kMaxParams; j++) p.mod[j] = j < info.n_param ? m : nullptr;
+#ifdef SC_MOD_RATES                                         // (an engine before ADR-050 step 1 has no marks: modslow = modramp)
+        p.mod_slow = c == kModSlow ? 0xFFFF : 0;            // (ADR-050: the ramp marked slow, as the plan marks an envelope's: the
+        p.in_slow = c == kModSlow ? 0xFF : 0;               //   block-rate reading)
+#endif
+        for (int o = 0; o < sc::kMaxOut; o++) p.out[o] = g_q_out[o];
+    }
+    void begin(const sc::ModuleInfo &info) {
+        vs = sc::VoiceState{};
+        vs.note = 60;
+        vs.pitch = vs.target_pitch = 60 * 256;
+        vs.velocity = static_cast<sc::q15>(100 * 32767 / 127);
+        vs.gate = vs.active = vs.started = true;
+        tr.running = true;
+        tr.inc_q32 = (static_cast<uint64_t>(120) << 32) / 60u / static_cast<uint64_t>(sc::kSampleRate);
+        tr.beat_q32 = 0;
+        ctx = sc::ProcessCtx{kFrames, 0, info.scope == sc::Scope::Voice ? &vs : nullptr, g_bus[0], g_bus[1], g_q_master[0], g_q_master[1]};
+        ctx.voices = &vs;
+        ctx.nvoices = 1;
+        ctx.keys_held = 1;
+        ctx.bus2_l = g_bus[2];
+        ctx.bus2_r = g_bus[3];
+        ctx.transport = &tr;
+        ctx.silence = g_q_zero;
+        ctx.seq = &seq;
+    }
+};
+
+// One case on a built module: reset (a note's start), 8 blocks to settle, the median of 32. `nonzero`: the output moved.
+uint32_t native_case(sc::Module &m, NativeRig &r, NativeCase c, bool *nonzero = nullptr) {
+    const sc::ModuleInfo &info = m.info();
+    r.begin(info);
+    r.wire(info, c);
+    m.reset();
+    uint32_t t[kRuns];
+    bool moved = false;
+    for (int b = 0; b < kWarm + kRuns; b++) {
+        for (int i = 0; i < kFrames; i++) {                 // (the bus as a voice leaves it: VoiceOut accumulates, the plan clears it)
+            g_bus[0][i] = g_bus[1][i] = g_bus[2][i] = g_bus[3][i] = c == kDef ? 0 : g_q_saw[i];
+            g_q_master[0][i] = g_q_master[1][i] = 0;      // (cleared: what the module writes is what `nonzero` sees)
+            for (int o = 0; o < sc::kMaxOut; o++) g_q_out[o][i] = 0;
+        }
+        portENTER_CRITICAL(&g_mux);
+        if (g_cold) Cache_Invalidate_ICache_All();
+        const uint32_t t0 = esp_cpu_get_cycle_count();
+        m.process(r.ctx, r.p);
+        const uint32_t dt = esp_cpu_get_cycle_count() - t0;
+        portEXIT_CRITICAL(&g_mux);
+        if (b >= kWarm) t[b - kWarm] = dt;
+        r.vs.started = false;
+        r.vs.age++;
+        r.ctx.time++;
+        r.tr.beat_q32 += r.tr.inc_q32 * kFrames;
+        for (int o = 0; o < info.n_out; o++) for (int i = 0; i < kFrames; i++) moved |= g_q_out[o][i] != 0;
+        for (int i = 0; i < kFrames; i++) moved |= g_q_master[0][i] != 0 || g_q_master[1][i] != 0;
+    }
+    if (nonzero) *nonzero = moved;
+    return stat_of(t, kRuns).med;
+}
+
+void bench_native() {
+    static sc::Heap fast_heap, bulk_heap;
+    static size_t fast_size = 0;
+    static void *fast_mem = nullptr, *bulk_mem = nullptr;
+    constexpr size_t kBulk = 640 * 1024;                    // (the Delay's line: ENGINE_DELAY_MAX_MS, mono; the Pads' voices)
+    if (!fast_mem) {
+        const size_t largest = heap_caps_get_largest_free_block(MALLOC_CAP_INTERNAL | MALLOC_CAP_8BIT);
+        fast_size = std::min<size_t>(96 * 1024, largest > 24 * 1024 ? largest - 16 * 1024 : 0) & ~static_cast<size_t>(15);
+        fast_mem = fast_size ? alloc_in(fast_size, false) : nullptr;
+        bulk_mem = alloc_in(kBulk, true);
+    }
+    if (!fast_mem || !bulk_mem) { Serial.printf("[MBENCH] native no-memory\n"); return; }
+    Serial.printf("[MBENCH] native-heaps fast %u bulk %u\n", (unsigned)fast_size, (unsigned)kBulk);
+    NativeRig rig;
+    for (int id = 0; id < mod::kModularTypeFirst; id++) {      // (the engine's own types; 128 and up are the catalog's F types)
+        const sc::ModuleType *t = g_rm_reg.get(id);
+        if (!t) continue;
+        const sc::ModuleInfo &info = *t->info;
+        Serial.printf("[MBENCH] native-try %d %s\n", id, info.name);   // (if the board stops here, this module took it down)
+        drain();
+        fast_heap.init(fast_mem, fast_size);
+        bulk_heap.init(bulk_mem, kBulk);
+        fast_heap.set_spill(&bulk_heap);
+        sc::Memory mem{&fast_heap, &bulk_heap, nullptr};
+        const size_t spilled0 = fast_heap.spilled();       // (the heap's count adds up: this module's share)
+        sc::Module *m = t->create(mem);
+        if (!m) { Serial.printf("[MBENCH] native %d %s no-memory\n", id, info.name); continue; }
+        for (int j = 0; j < info.n_param; j++) m->set_param(j, info.param[j].def);
+        const uint32_t t0 = esp_cpu_get_cycle_count();
+        m->reset();
+        const uint32_t start = esp_cpu_get_cycle_count() - t0;
+        bool moved = false;
+        const uint32_t def = native_case(*m, rig, kDef);
+        const uint32_t drv = native_case(*m, rig, kDriven, &moved);
+        const uint32_t mc = info.n_param ? native_case(*m, rig, kModConst) : drv;
+        const uint32_t mr = info.n_param ? native_case(*m, rig, kModRamp) : drv;
+        const uint32_t ma = info.n_param ? native_case(*m, rig, kModAudio) : drv;
+        const uint32_t ms = info.n_param ? native_case(*m, rig, kModSlow) : drv;
+        uint32_t worst = drv;
+        int worst_p = -1;
+        int32_t worst_v = 0;
+        for (int j = 0; j < info.n_param; j++) {
+            const sc::ParamDesc &q = info.param[j];
+            int32_t tries[48];
+            int n = 0;
+            if (static_cast<int64_t>(q.max) - q.min <= 40) for (int32_t x = q.min; x <= q.max && n < 48; x++) tries[n++] = x;
+            else { tries[n++] = q.min; tries[n++] = q.max; }
+            for (int k = 0; k < n; k++) {
+                m->set_param(j, tries[k]);
+                const uint32_t c = native_case(*m, rig, kDriven);
+                if (c > worst) { worst = c; worst_p = j; worst_v = tries[k]; }
+            }
+            m->set_param(j, q.def);
+            vTaskDelay(1);                                  // (the idle task of this core)
+        }
+        g_cold = true;
+        const uint32_t cold = native_case(*m, rig, kDriven);
+        g_cold = false;
+        Serial.printf("[MBENCH] native %d %s scope %s fast %u spill %u def %u driven %u modconst %u modramp %u modaudio %u modslow %u max %u at %s=%ld "
+                      "cold %u start %u silent %d\n", id, info.name, info.scope == sc::Scope::Voice ? "voice" : "global", (unsigned)fast_heap.used(),
+                      (unsigned)(fast_heap.spilled() - spilled0), (unsigned)def, (unsigned)drv, (unsigned)mc, (unsigned)mr, (unsigned)ma, (unsigned)ms, (unsigned)worst,
+                      worst_p >= 0 ? info.param[worst_p].name : "-", (long)worst_v, (unsigned)cold, (unsigned)start, moved ? 0 : 1);
+        drain();
+        sc::destroy_module(fast_heap, m);
+        vTaskDelay(1);
+    }
+    // The catalog's float modules and the engine's module doing the same (ModuleDef::engine): the pairs the report compares
+    int n = 0;
+    const mod::ModuleDef *const *all = mod::catalog(&n);
+    for (int i = 0; i < n; i++)
+        if (!mod::is_engine_module(all[i]) && all[i]->engine) Serial.printf("[MBENCH] equiv %s %s\n", all[i]->name, all[i]->engine);
+    // What a conversion costs at a module's edge, a 32-frame block: q15 -> float, float -> q15 (rounded, clamped)
+    static float f[kFrames];
+    static sc::q15 q[kFrames];
+    const uint32_t to_f = time_med([] { for (int i = 0; i < kFrames; i++) f[i] = static_cast<float>(g_q_saw[i]) * (1.f / 32768.f); g_sink = f[5]; });
+    const uint32_t to_q = time_med([] {
+        for (int i = 0; i < kFrames; i++) {
+            const float s = g_sig[i] * 32767.f;
+            q[i] = static_cast<sc::q15>(s > 32767.f ? 32767.f : (s < -32768.f ? -32768.f : s));
+        }
+        g_sink = q[5];
+    });
+    Serial.printf("[MBENCH] glue q15-to-float %u\n", (unsigned)to_f);
+    Serial.printf("[MBENCH] glue float-to-q15 %u\n", (unsigned)to_q);
+}
+#endif
+
 void bench_all() {
     for (int i = 0; i < kFrames; i++) {
         g_zero[i] = 0.f;
@@ -380,9 +572,19 @@ void bench_all() {
     // The engine's modules ("RM ...", through modular/engine_adapter), alone: linked in, all their code in internal RAM leaves too little
     // of it for SynthLab's own engine to start (its 64 KB fast heap), so this build measures them and nothing else (hwv1_bench_rm);
     // module_bench.py merges its log with hwv1_bench's.
+    for (int i = 0; i < kFrames; i++) {
+        g_q_zero[i] = 0;
+        g_q_saw[i] = static_cast<sc::q15>((i * 2 - kFrames) * (16384 / kFrames));         // (half scale)
+        g_q_pitch[i] = sc::pitch_to_cv(60 * 256);
+        g_q_gate[i] = sc::kUnity;
+        g_q_vel[i] = static_cast<sc::q15>(100 * 32767 / 127);
+        g_q_modc[i] = 4096;
+        g_q_modr[i] = static_cast<sc::q15>(i * (2048 / kFrames));
+        g_q_moda[i] = static_cast<sc::q15>(g_q_saw[i] / 2);
+    }
     static bool registered = false;                         // they join the catalog once: the families the Ritual Machine registers,
     if (!registered) {                                      // as SynthLab Studio does (its main.cpp)
-        static sc::Registry reg;
+        sc::Registry &reg = g_rm_reg;
         sc::register_builtin_modules(reg);
         sc::register_sampler_modules(reg);
         sc::register_synth_modules(reg);
@@ -400,6 +602,7 @@ void bench_all() {
     int n = 0;
     const mod::ModuleDef *const *all = mod::catalog(&n);
     for (int i = 0; i < n; i++) if (mod::is_engine_module(all[i])) bench_module(*all[i]);
+    bench_native();
 #else
     int n = 0;
     const mod::ModuleDef *const *all = mod::catalog(&n);

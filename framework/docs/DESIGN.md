@@ -6,7 +6,7 @@ AMY / SDL / Arduino includes). Tests: `framework/tests/` (the engine alone) and 
 `tests/engine/` drive the engine through its rack, pads and sequencers), run with `.\test.ps1 [-Matrix]` (the library's alone:
 `.\framework\tools\build_engine_tests.ps1 [-Sr 44100 -Block 64]`).
 
-**ADR numbers are shared by the whole repo** (the next one is ADR-050). An app's decisions are in its own `docs/DESIGN.md`;
+**ADR numbers are shared by the whole repo** (the next one is ADR-051). An app's decisions are in its own `docs/DESIGN.md`;
 this index lists them all. Until 2026-11-10 they were all in one file, `ENGINE_DESIGN.md` at the repo's root.
 
 | ADR | Decision | Where |
@@ -60,6 +60,7 @@ this index lists them all. Until 2026-11-10 they were all in one file, `ENGINE_D
 | 047 | The knob resolver, one answer to "what does this pot drive now" | [the Ritual Machine](../../apps/ritual_machine/docs/DESIGN.md) |
 | 048 | TechnoGen, a second instrument on the library | [TechnoGen](../../apps/technogen/docs/DESIGN.md) |
 | 049 | A modular catalog from SynthLab's parts, a patch editor, exports to SynthLab and the engine | here |
+| 050 | One module system in float32, no FPU-less cores, modulation per block (per sample where a module needs it) | here |
 
 ## Goals
 
@@ -1028,6 +1029,98 @@ Chosen by me while building (say if one is wrong):
     the q15 rounding; 3 send nothing in that chain (Macro, Const at 0, Ring with one input).
   - Next: Export > Engine writes a float module as its F type where the engine has nothing; SynthLab plays an exported engine graph
     (registering only its types); the wrapped modules measured natively on the board; the merged catalog (a choice per function).
+
+### ADR-050: One module system in float32; no FPU-less cores; modulation per block, per sample where a module needs it (Accepted in direction, the user's choices of 2026-11-15; step 0 measured, step 1 in and measured on the board; the port not started)
+
+- **Context:** the engine (q15 blocks, q31 state, ADR-002 / ADR-010) and the float catalog (ADR-049) are two module systems; addendum 7
+  joined them through a wrapper that costs about 1.7k cycles a module a block (module_costs.h: VCA 446 alone, 2272 as an F type). The
+  user: "a unification is needed, I want at the end no engine distinction, they need heavy optimization and the ritual machine engine
+  nodes need an update too".
+- **The user's decisions:**
+  1. **Measure first (step 0):** the engine's own modules timed natively on the board, against the float catalog's, per function.
+  2. **FPU-less cores are dropped** as targets of the core (ADR-001's portability goal narrowed): the ESP32-S3, and later chips with a
+     single-precision FPU. This removes the reason for an integer-only chain (ADR-002's "still works on FPU-less targets").
+  3. **Modulation stays per block** by default; **some modules take it per sample**: audio-rate modulation, or modulation above about
+     100 Hz (FM of pitch or cutoff, fast AM). Which values are per sample is the module's declaration, not a global switch.
+- **Direction (mine, to confirm with the numbers):** float32 blocks between modules and for recursive state; integers inside a module
+  where they win (uint32 phases, table indices, int16 storage of delay lines, reverb tanks and samples, the S3's integer SIMD kernels);
+  one module interface (the engine's `Module` with the catalog's metadata); no float / q15 compile-time switch (ADR-002's reason holds).
+  Port order: the engine's buffers to float with a temporary q15 wrapper around the old modules, then the voice modules (their cost is
+  times the voices), the global effects last; each port null-tested against its q15 original and measured on the board.
+- **Step 0, the bench:** `hwv1_bench_rm` (apps/synthlab/src/bench_esp32.cpp, `bench_native`) times every engine type through its
+  registry and heaps with q15 ports: default, driven, and every value's modulation input fed per sample (a constant, a ramp, a saw),
+  each value at its extremes, the cache emptied; a q15 <-> float block conversion alone. `module_bench.py --from bench.txt bench_rm.txt`
+  prints the table per function (float alone, F type, through the adapter, q15 native, q15 modulated).
+- **Step 0, the results (HWV1, 2026-11-15, 44.1 kHz, cycles a 32-frame block, driven, default values; logs apps/synthlab/build/bench*.txt):**
+
+  | function | float alone | F type | q15 native | q15, values modulated per sample |
+  |---|---|---|---|---|
+  | Osc / Osc | 2263 | 3986 | **1870** | 5241 |
+  | ADSR / Env, Eg | 1575 | 3057 | 1542 / 1500 | 1542 |
+  | LFO / Lfo | 1531 | 2992 | 1778 | 3538 |
+  | Filter / Filter | **1712** | 3862 | 4842 | 5994 |
+  | VCA / Vca | 474 | 2272 | **320** | 477 |
+  | Mixer / Mix4 | **682** | 3465 | 2376 | 3174 |
+  | EQ3 (a band cut) / Eq3V | **1228** | 2250 | 2568 | 2565 |
+  | Drive / Shaper (not the same curves) | 4376 | 6143 | **2290** | 3123 |
+  | Comp3 / CompressorV | 5928 | 7645 | 5238 | 5238 |
+  | Voices, Output / BusIn, MasterOut | 13, 290 | | 422, 1248 | |
+
+  A block converted alone: q15 -> float 334, float -> q15 593 (rounded, clamped).
+  Read: **neither number type wins everywhere.** q15 is as fast or faster on the oscillator, envelopes, VCA, products and the table
+  shaper; float wins where q15 pays for q31 state and saturation (the filter, the mixers, the EQ, the bus: 2-3.5x). The large costs
+  are elsewhere: **the edges** (the F wrapper +1.5..2.8k a module; the RM adapter more), and **per-sample modulation**, which the
+  engine's modules pay the same for a constant as for audio (Osc x2.8, Lfo x2, Filter +1.2k, Mix4 +0.8k, Shaper +0.8k).
+  Not comparable from this run: Delay / Room against Delay / Reverb (other features; the Reverb's state partly spilled into PSRAM);
+  Sampler, Granular, Pads, Dx7, Convolver play without their samples, patch or impulse response.
+
+- **Step 1, per-block modulation, the source decides (the user's choice of 2026-11-15: "a, the source commands a per sample
+  modulation"; built, host-tested, measured on HWV1):**
+  - `ModuleInfo::rate` says what a module's outputs carry: **Audio** (the default: a module that declares nothing keeps the per-sample
+    reading), **Control** (Env, Eg, EnvG, Const, NoteIn, GateIn, MotionSeq), **Follow** (Vca, Mix4, Mult, Shaper, Filter, ParaGate:
+    fast when anything feeding it, inputs or modulations, is fast), **Dynamic** (Lfo: `fast_out()` each block, fast above 100 Hz or
+    when a fast source moves its rate). The catalog's F types take theirs from their category (envelopes, macros, the note: Control;
+    math, filters, shapers, utilities: Follow; sources, effects: Audio).
+  - The plan compiler follows the classes through the cables and mixes and gives each module step `Ports::mod_slow` / `in_slow` (bit
+    set: only slow sources feed that value / input). A value fed by an LFO is resolved at run time: `Step::dyn_nodes` (bit = node,
+    64 at most), the engine's `dyn_fast_`. A delayed cable counts as fast.
+  - The modules' block-rate readings: **Osc** pitch (input and modulation): a straight line of the increment over the block, its mean
+    moved onto Simpson's estimate from the first, middle and last pitch (`dsp/phase.h pitch_line`: three `pitch_to_inc` a block
+    instead of 32); a steady pitch is bit for bit as before. **OscEngines**: the line's mean, one increment a block, so the block
+    keeps the engines' fast loops. **Lfo** rate: one rate a block. **Shaper** drive: the gain along a line (`ModRamp`). **Filter**
+    cutoff: the straight-line check skipped (it already interpolated its coefficients). Vca and Mix4 keep the per-sample reading:
+    it costs them an add a sample, a line would cost the same.
+  - Found on the way: the plan compiler's working tables (about 30 KB) came from the fast heap at every rebuild; they now come from
+    the bulk heap (`compile_plan(..., scratch)`). The Ritual Machine's section-switch test caught it: with the tables 6 KB larger, the
+    synth's graph no longer fitted the fast heap after the Pads section (65 728 of 82 752 bytes); now 82 752.
+  - Checked (tests/test_rates.cpp): the marks through a probe module (an envelope slow, an oscillator fast, a VCA that an oscillator
+    moves fast, an LFO at 5 Hz slow, at 200 Hz or with an oscillator on its rate fast); a steady pitch bit for bit; the pitch read once
+    a block against an exact double-precision oscillator, worst error in 20 ms windows, the per-sample reading's beside it (6 Hz
+    vibrato of 8.8 semitones 7.12 / 7.27 cents, a 30 ms rise 1.41 / 1.37, a 50 ms drop 3.34 / 3.33: the window's limit on a sweeping
+    pitch and the 1/256-semitone steps, the same for both); the Shaper's drive against the per-sample reading 72.6 dB. A null between
+    two oscillators' renders is the wrong ruler: the phase sums every difference, and both readings null at only 24..27 dB against the
+    exact oscillator. Every host test passes (library 146, Ritual Machine 118 + 218 UI, TechnoGen 33, SynthLab 2116 checks, Studio
+    6777); the matrix's 96000/128 and 48000/256 fail the catalog F types' null as before this step (their wrapper's 64 frames).
+  - **Measured on HWV1 (2026-11-15, `hwv1_bench_rm`, cycles a block, every value modulated by the same ramp):** read per sample ->
+    once a block: OscEngines 6108 -> 1970, Lfo 3584 -> 1829, Osc 5293 -> 2986 (its pulse width and level stay per sample), Shaper
+    2962 -> 2192, Filter 6254 -> 6114 (its interpolation is the cost). Unmodulated, against the committed engine built the same way:
+    Shaper 2290 -> 2098 (its loops split per way the gain moves), Osc 1868 -> 2009, Lfo 1778 -> 1820, Filter 4835 -> 5089 with the
+    same code (0xe48 against 0xe4c bytes): where a function lands in IRAM moves a module by about 5 %, the floor of these comparisons.
+    The bench's console lost and spliced lines: `Serial.flush()` on the USB console can drop what waits; a pause after each line fixed it.
+  - **The Ritual Machine whole (HWV1, 2026-11-15, the user's sound: MiOsc, Filter, Shaper, envelopes, Delay, Reverb; profiling build;
+    cycles a block at 6 notes):** committed engine 102 107 (9 of 4140 blocks over budget), this step 104 472 (57; no DMA underrun in
+    either). Shaper 13 721 -> 11 578, but Reverb, MiOsc, Delay and MasterOut, whose code did not change, 3..5 % slower. A/B builds
+    found why: the compiler's scratch back in the fast heap changed nothing (103 271); the new engine core with the committed module
+    files brought Reverb 23 619, MiOsc 20 546, Delay 8 918 back to the baseline (103 376 in all). **Code placement:** the module files
+    grew (Osc's split loops about 3.4 KB), which moves every function linked after them in internal RAM, and their speed depends on
+    where they land. This sound's modulations (cutoff, level) gain little from the step; the large savings need Osc pitch, LFO rate
+    or OscEngines modulated.
+  - **Then two engine fixes (same day):** the profiler timed `info()` with the module (the order of a call's arguments is not fixed;
+    `info()` is a virtual call into flash): the time is taken first now. And `Engine::run` / `Engine::render` ran from flash: in IRAM
+    now (`SC_HOT`, about 2.6 KB), the step loop no longer goes through the cache the PSRAM data shares. With both, same sound, 6 notes:
+    committed engine 100 537 cycles a block (render 1035 / 1510 us avg / worst, 9 blocks over budget of 4140), this step 97 576
+    (961 / 1272 us, 0 over). Listened to by the user: "same as before". `-falign-functions=16` was tried and not kept (no clear effect).
+- **Guideline 2 changes** when the port starts (float is the audio path's type); until then it stands with ADR-035's exception.
 
 ## Known limits and ideas for later
 

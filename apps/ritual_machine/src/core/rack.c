@@ -10,11 +10,14 @@
 // starts with).
 typedef param_desc_t mp_t;
 
-static const char *const wave_names[]   = {"Sine", "Pulse", "SawDn", "SawUp", "Tri", "Noise", "Karp", "Modal", "FM2", "Fold", "SSaw", "Vowel", "Add", "Dust", "Strng",
-    // the Mutable Instruments models (OC_FIRST_MI..): the order of MiModel in engine/modules/mi_osc.h (a UI test compares them)
-    "CSaw", "Morph", "SawSq", "SinTri", "Buzz", "SqSub", "SawSub", "SqSync", "SwSync", "Toy", "ZLP", "ZPk", "ZBP", "ZHP", "Vosim", "FbFM",
-    "Chaos", "Kick", "FNoise", "Twin", "Clock", "DigMod", "Morse", "3Saw", "3Sq", "3Tri", "3Sine", "3Ring", "WTbl", "WMap", "WLine", "Cloud",
-    "Cymbal", "BSnare", "PNoise", "Chip", "PhDist", "VA", "VAVcf", "Grain", "Terrn", "PBass", "PBassS", "PSnare", "PSnrS", "PHat", "PHat2"};
+// The Wav list, simple to complex (the user's order, 2026-11-16): a Wav value is the position in this list. A generator keeps its own number (OC_FIRST_ENGINE /
+// OC_FIRST_MI below: 0..5 the classic waves, 6..24 the OscEngines engines, 25.. the MiModel order of engine/modules/mi_osc.h): wave_id[Wav] is that number,
+// rack_wave_id() / rack_wave_pos() convert. wave_class gives each entry its type, for a menu to pick from later:
+//   A  one fixed shape               B  blends and simple stacks of basic waves        C  shaped, filtered or table-based, still harmonic
+//   D  formant, physical, percussive E  noise with structure, chaos, stochastic
+static const char *const wave_names[] = {"Sine", "Tri", "SawDn", "SawUp", "Pulse", "Noise", "Tonew", "SinTri", "SawSq", "Morph", "SqSub", "SawSub", "Buzz", "CSaw", "3Sine", "3Tri", "3Sq", "3Saw", "Pulsar", "Chip", "SqSync", "SwSync", "3Ring", "Strng", "SSaw", "ZLP", "ZHP", "ZBP", "ZPk", "Add", "PhDist", "VA", "VAVcf", "Fold", "FM2", "CA", "WTbl", "WLine", "WMap", "Terra", "Terrn", "Toy", "Vowel", "Vosim", "FOF", "Karp", "Kick", "Modal", "Scan", "Wind", "PBass", "PBassS", "BSnare", "PSnare", "PSnrS", "PHat", "PHat2", "Cymbal", "Dust", "FNoise", "Clock", "Twin", "PNoise", "Foley", "Morse", "DigMod", "FbFM", "Rossl", "Chaos", "Gendy", "Grain", "Cloud"};
+static const uint8_t wave_id[] = {0, 4, 2, 3, 1, 5, 19, 28, 27, 26, 30, 31, 29, 25, 51, 50, 49, 48, 18, 60, 32, 33, 52, 14, 10, 35, 38, 37, 36, 12, 61, 62, 63, 9, 8, 17, 53, 55, 54, 21, 65, 34, 11, 39, 20, 6, 42, 7, 22, 23, 66, 67, 58, 68, 69, 70, 71, 57, 13, 43, 45, 44, 59, 24, 47, 46, 40, 16, 41, 15, 64, 56};
+static const char wave_class[] = "AAAAAAABBBBBBBBBBBBBBBBBBCCCCCCCCCCCCCCCCCDDDDDDDDDDDDDDDDEEEEEEEEEEEEEE";
 static const char *const qual_names[]   = {"Blep", "Mip", "Naive"};
 static const char *const filter_names[] = {"Off", "LP", "BP", "HP", "LP24", "Notch", "LP6", "Ladr", "ChLP", "AP"};
 static const char *const sat_names[]    = {"Tanh", "Clip", "Fold", "Crush", "Tube", "Tape", "Diode", "Cheb", "Rect", "Decim"};
@@ -39,6 +42,11 @@ static const mp_t osc_mp[] = {
     [MP_OC_HARM]   = {"Harm", 0, 1, 0.5f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},         // MI models: Plaits' harmonics (Braids ignores it)
 };
 _Static_assert(sizeof wave_names / sizeof wave_names[0] == OC_WAVE_COUNT, "wave_names: one name per Wav value (rack.h OC_WAVE_COUNT)");
+_Static_assert(sizeof wave_id / sizeof wave_id[0] == OC_WAVE_COUNT && sizeof wave_class == OC_WAVE_COUNT + 1, "wave_id, wave_class: one each per Wav value");
+
+int rack_wave_id(int wav) { return wave_id[wav < 0 ? 0 : (wav >= OC_WAVE_COUNT ? OC_WAVE_COUNT - 1 : wav)]; }
+int rack_wave_pos(int id) { for (int i = 0; i < OC_WAVE_COUNT; i++) if (wave_id[i] == id) return i; return 0; }
+char rack_wave_class(int wav) { return wave_class[wav < 0 ? 0 : (wav >= OC_WAVE_COUNT ? OC_WAVE_COUNT - 1 : wav)]; }
 static const mp_t flt_mp[] = {
     [MP_FL_TYPE]   = {"Typ", 0, FILT_COUNT - 1, 1, "", PARAM_ENUM, filter_names, 1, 0, PARAM_TEXT_FIXED},
     [MP_FL_CUT]    = {"Cut", 20, 18000, 4000, "Hz", PARAM_LOG, NULL, 1.12f, 0, PARAM_TEXT_FIXED},
@@ -300,7 +308,7 @@ void rack_init_startup(rack_t *r) {
     static const int coarse[4] = {0, 0, 0, 12};
     for (int i = 0; i < 4; i++) {
         rack_insert(r, i, MOD_OSC);
-        r->slot[i].v[MP_OC_WAVE] = (float)(OC_FIRST_ENGINE + engine[i]);
+        r->slot[i].v[MP_OC_WAVE] = (float)rack_wave_pos(OC_FIRST_ENGINE + engine[i]);
         r->slot[i].v[MP_OC_COARSE] = (float)coarse[i];
     }
     rack_insert(r, 4, MOD_FILTER);

@@ -218,7 +218,7 @@ void run(char *line) {
             for (int i = 0; i < n; i++) {
                 rack_insert(&g_app->rack, i, MOD_OSC);
                 rack_slot_t &s = g_app->rack.slot[i];
-                s.v[MP_OC_WAVE] = (float)(OC_FIRST_ENGINE + 8);
+                s.v[MP_OC_WAVE] = (float)rack_wave_pos(OC_FIRST_ENGINE + 8);
                 s.v[MP_OC_PW] = 0.3f + 0.1f * (float)(i % 4);                // detune 15 .. 30 cents
                 s.v[MP_OC_MORPH] = 0;                                        // saw
                 s.v[MP_OC_COARSE] = (float)((i % 3 == 2) ? 12 : 0);
@@ -281,7 +281,7 @@ void run(char *line) {
         }
         int cur = -1;
         for (int i = 0; i < g_app->rack.count && cur < 0; i++)
-            if (g_app->rack.slot[i].type == MOD_OSC && g_app->rack.slot[i].v[MP_OC_WAVE] >= OC_FIRST_MI) cur = (int)g_app->rack.slot[i].v[MP_OC_WAVE] - OC_FIRST_MI;
+            if (g_app->rack.slot[i].type == MOD_OSC && rack_wave_id((int)g_app->rack.slot[i].v[MP_OC_WAVE]) >= OC_FIRST_MI) cur = rack_wave_id((int)g_app->rack.slot[i].v[MP_OC_WAVE]) - OC_FIRST_MI;
         int model = -1;
         if (!strcmp(what, "next")) model = (cur + 1) % sc::MI_MODELS;
         else if (!strcmp(what, "prev")) model = cur <= 0 ? sc::MI_MODELS - 1 : cur - 1;
@@ -292,7 +292,7 @@ void run(char *line) {
         for (int i = 0; i < g_app->rack.count; i++) {
             rack_slot_t &s = g_app->rack.slot[i];
             if (s.type != MOD_OSC) continue;
-            s.v[MP_OC_WAVE] = (float)(OC_FIRST_MI + model);
+            s.v[MP_OC_WAVE] = (float)rack_wave_pos(OC_FIRST_MI + model);
             if (t >= 0) s.v[MP_OC_PW] = t < 0.05f ? 0.05f : (t > 0.95f ? 0.95f : t);        // Timb shares PW's range
             if (m >= 0) s.v[MP_OC_MORPH] = m > 1 ? 1 : m;
             if (h >= 0) s.v[MP_OC_HARM] = h > 1 ? 1 : h;

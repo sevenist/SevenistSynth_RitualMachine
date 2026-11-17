@@ -444,7 +444,7 @@ static const char *row_text(const synth_ui_t *ui, const synth_params_t *p, const
         }
     } else if (ms) {
         label = rack_mparam_label((module_type_t)ms->type, pg->params[i]);
-        if (ms->type == MOD_OSC && pg->params[i] == MP_OC_PW && ms->v[MP_OC_WAVE] >= OC_FIRST_ENGINE) label = "Timb";
+        if (ms->type == MOD_OSC && pg->params[i] == MP_OC_PW && rack_wave_id((int)ms->v[MP_OC_WAVE]) >= OC_FIRST_ENGINE) label = "Timb";
         rack_mparam_format(ms, pg->params[i], val, n);
         if (pg->params[i] == rack_depth_index((module_type_t)ms->type)) rack_depth_format(rack, pg->slot, val, n);
         if (ms->type == MOD_SAMPLER && pg->params[i] == MP_SM_FILE) file_label((int)ms->v[MP_SM_FILE] - 1, val, n);
@@ -615,12 +615,13 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
                 static const int lfo_wave[4] = {WAVE_SINE, WAVE_TRIANGLE, WAVE_SAW_DOWN, WAVE_PULSE};
                 draw_wave(g, box, lfo_wave[(int)ms->v[MP_LF_SHAPE]], 0.5f, st->wave_cycles);
             } else {
-                if (ms->v[MP_OC_WAVE] >= OC_FIRST_MI) {
+                const int gen = rack_wave_id((int)ms->v[MP_OC_WAVE]);                  // the generator's own number
+                if (gen >= OC_FIRST_MI) {
                     char nm[16];
                     rack_mparam_format(ms, MP_OC_WAVE, nm, sizeof nm);
-                    draw_mi_preview(g, box, (int)ms->v[MP_OC_WAVE] - OC_FIRST_MI, ms->v[MP_OC_PW], ms->v[MP_OC_MORPH], ms->v[MP_OC_HARM], st->wave_cycles, nm);
-                } else if (ms->v[MP_OC_WAVE] >= OC_FIRST_ENGINE) draw_engine_preview(g, box, (int)ms->v[MP_OC_WAVE] - OC_FIRST_ENGINE, ms->v[MP_OC_PW], ms->v[MP_OC_MORPH], st->wave_cycles);
-                else draw_wave(g, box, (int)ms->v[MP_OC_WAVE], ms->v[MP_OC_PW], st->wave_cycles);
+                    draw_mi_preview(g, box, gen - OC_FIRST_MI, ms->v[MP_OC_PW], ms->v[MP_OC_MORPH], ms->v[MP_OC_HARM], st->wave_cycles, nm);
+                } else if (gen >= OC_FIRST_ENGINE) draw_engine_preview(g, box, gen - OC_FIRST_ENGINE, ms->v[MP_OC_PW], ms->v[MP_OC_MORPH], st->wave_cycles);
+                else draw_wave(g, box, gen, ms->v[MP_OC_PW], st->wave_cycles);
             }
             break;
         case GRAPH_ENV:     { env_params_t e = module_env(ms); draw_env(g, box, &e); } break;

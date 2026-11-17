@@ -77,12 +77,12 @@ bool depth_target(const rack_slot_t &t, int param, bool supported, DepthTarget &
     if (!supported) return false;
     switch (t.type) {
         case MOD_OSC:
-            if (t.v[MP_OC_WAVE] >= OC_FIRST_MI) {                  // a Mutable Instruments model: the same four
+            if (rack_wave_id(static_cast<int>(t.v[MP_OC_WAVE])) >= OC_FIRST_MI) {                  // a Mutable Instruments model: the same four
                 static const int dst[4] = {MI_PITCH, MI_LEVEL, MI_TIMBRE, MI_MORPH_P};
                 out = DepthTarget{dst[param & 3], param == 0 ? 96.0 : 100.0};
                 return param < 4;
             }
-            if (t.v[MP_OC_WAVE] >= OC_FIRST_ENGINE) {              // an engine: pitch, level, timbre, morph
+            if (rack_wave_id(static_cast<int>(t.v[MP_OC_WAVE])) >= OC_FIRST_ENGINE) {              // an engine: pitch, level, timbre, morph
                 static const int dst[4] = {OSCX_PITCH, OSCX_LEVEL, OSCX_TIMBRE, OSCX_MORPH};
                 out = DepthTarget{dst[param & 3], param == 0 ? 96.0 : 100.0};
                 return param < 4;
@@ -481,7 +481,7 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                 if (global) { if (s.type != MOD_COMB) shared(i, sh, gate_port); continue; }   // (the rules keep the resonator per voice)
                 const int id = node_of(s.id), aux = id + 1;
                 if (s.type == MOD_OSC) {
-                    const int wave = static_cast<int>(s.v[MP_OC_WAVE]);
+                    const int wave = rack_wave_id(static_cast<int>(s.v[MP_OC_WAVE]));      // the generator's number
                     const bool mi = wave >= OC_FIRST_MI, eng = !mi && wave >= OC_FIRST_ENGINE;
                     NodeDesc *o = b.add(id, mi ? T_MIOSC : (eng ? T_OSCX : T_OSC));
                     if (!o) break;

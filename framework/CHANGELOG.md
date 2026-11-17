@@ -2,6 +2,26 @@
 
 What changed in the library (`framework/`) and in the repo as a whole. Each app keeps its own update log.
 
+## 2026-11-16: seven more OscEngines engines (Pulsar, Tonew, FOF, Terra, Scan, Wind, Foley)
+
+- Engines 12..18 of `osc_engines.*`: Pulsar (pulsaret length / cycles), Tonew (tonewheel organ drawbars; key click + leakage), FOF (four
+  formant resonators struck by the pitch's pulse; vowels / bandwidth), Terra (32 x 32 wave terrain on a circular orbit), Scan (32-mass
+  ring, 400 updates a second, scanned at the pitch), Wind (clarinet waveguide: the gate is the breath), Foley (rain / wind / fire /
+  crackle layers, Morph = intensity). Terra, Scan and Wind use the Karplus buffer as float scratch (no new RAM).
+- Rack: the OSC's `Wav` list is ordered simple to complex (72 entries, types A..E in `wave_class`, rack.c): `Wav` is the position,
+  `rack_wave_id()` / `rack_wave_pos()` convert to / from a generator's own number (classic 0..5, engines 6..24, MI models 25..: the
+  `OC_FIRST_*` constants). The engine mapper, previews, serial commands and tests use the number. No presets existed.
+- Not done: LPC speech (needs a frame-data format), Rings-style bank, spectral freeze, swarm (own modules); a bow for Wind; Pulsar masking.
+
+## 2026-11-16: three new OscEngines engines (GENDY, ROSSL, CA)
+
+- `engine/modules/osc_engines.*`: engines 9 Gendy (12 breakpoints random-walking each cycle, mirrored limits), 10 Rossl (Roessler
+  attractor, step from the pitch, Morph = c, Timbre = x -> z), 11 CA (64-cell Wolfram row as the wave, 8 rules, generations glide).
+  Their state sits in the Karplus buffer (no new RAM). The catalog's names (`engine_adapter.cpp`) and the board's profile names follow.
+- Rack: OSC Wav 15..17 (Gendy Rossl CA), the Mutable Instruments models moved to 18.. (OC_FIRST_MI 18, OC_WAVE_COUNT 65); no presets existed yet.
+  Cycle costs: to measure on the board (not benched).
+- Tests: `test_osc_engines.cpp` (periodic when still, wanders when walking, bounded, pitch within 4 % for the orbit, rules differ).
+
 ## 2026-11-15: switch groups
 
 - `modular/patch.h`: `Group`, `Selector`, `Node::group`; `make_group`, `ungroup`, `add_selector`; `patch_switches`, `switch_row`,

@@ -393,11 +393,11 @@ TEST(an_envelope_in_real_units_sweeps_the_pitch_like_a_kick) {
 }
 
 TEST(rack_oscillator_engines_play_and_follow_the_keyboard) {
-    for (int wave = OC_FIRST_ENGINE; wave < OC_FIRST_ENGINE + 8; wave++) {
+    for (int wave = OC_FIRST_ENGINE; wave < OC_FIRST_MI; wave++) {
         App a;
         rack_clear(&a.rack);
         rack_insert(&a.rack, 0, MOD_OSC);
-        a.rack.slot[0].v[MP_OC_WAVE] = static_cast<float>(wave);
+        a.rack.slot[0].v[MP_OC_WAVE] = static_cast<float>(rack_wave_pos(wave));
         a.params.amp_env.attack_ms = 2; a.params.amp_env.sustain = 1.0f;
         a.build();
         engine_synth_note_on(57);
@@ -415,7 +415,7 @@ TEST(rack_oscillator_engines_play_and_follow_the_keyboard) {
     App a;
     rack_clear(&a.rack);
     rack_insert(&a.rack, 0, MOD_OSC);
-    a.rack.slot[0].v[MP_OC_WAVE] = OC_FIRST_ENGINE + 6;                     // additive
+    a.rack.slot[0].v[MP_OC_WAVE] = static_cast<float>(rack_wave_pos(OC_FIRST_ENGINE + 6));                     // additive
     rack_insert(&a.rack, 1, MOD_LFO);
     a.rack.slot[1].tgt_id = a.rack.slot[0].id; a.rack.slot[1].tgt_param = 3;
     a.rack.slot[1].v[MP_LF_DEPTH] = 80.0f;

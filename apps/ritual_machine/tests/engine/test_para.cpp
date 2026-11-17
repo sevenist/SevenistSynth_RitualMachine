@@ -180,7 +180,7 @@ TEST(rack_oscillator_quality_and_the_strings_engine) {
     for (int qual : {1, 2}) {
         ParaApp a(PARA_ENV_LEGATO);
         a.rack.cfg.type = SYNTH_MODULAR;
-        a.rack.slot[0].v[MP_OC_WAVE] = static_cast<float>(OC_FIRST_ENGINE + 8);
+        a.rack.slot[0].v[MP_OC_WAVE] = static_cast<float>(rack_wave_pos(OC_FIRST_ENGINE + 8));
         a.rack.slot[0].v[MP_OC_PW] = 0;                                   // Timbre 0: no detune
         a.rack.slot[0].v[MP_OC_MORPH] = 0;                                // saw
         a.rack.slot[0].v[MP_OC_QUAL] = static_cast<float>(qual);

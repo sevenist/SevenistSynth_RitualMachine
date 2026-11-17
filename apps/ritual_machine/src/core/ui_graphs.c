@@ -99,6 +99,49 @@ void draw_engine_preview(u8g2_t *g, gui_rect_t box, int engine, float timbre, fl
                 }
                 v *= 0.5f;
             } break;
+            case 9: {                                                                // gendy: 12 breakpoints, walking more with timbre / morph
+                const float seg = t * 12.0f;
+                const int i = (int)seg;
+                const float u = seg - (float)i;
+                const float a0 = sinf((float)i * 0.5236f) + timbre * sinf((float)(i * 7 + 3) * 1.7f), a1 = sinf((float)(i + 1) * 0.5236f) + timbre * sinf((float)((i + 1) * 7 + 3) * 1.7f);
+                v = (a0 + (a1 - a0) * u) * 0.6f * (1.0f + morph * 0.3f * sinf(ph * 0.5f));
+            } break;
+            case 10: {                                                               // rossl: a loop with a second, smaller one growing with morph, the spike with timbre
+                v = 0.7f * sinf(ph) + 0.4f * morph * sinf(ph * 0.5f) + timbre * 0.9f * powf(fmaxf(sinf(ph - 1.2f), 0.0f), 6.0f);
+            } break;
+            case 11: {                                                               // ca: a smoothed row of cells (the rule from timbre)
+                const int cell = (int)(fmodf(t * cycles, 1.0f) * 16.0f);
+                float s = 0;
+                for (int k = -1; k <= 1; k++) s += (((uint32_t)((cell + k) * 2654435761u + (uint32_t)(timbre * 8.0f) * 40503u) >> 29) & 1) ? 1.0f : -1.0f;
+                v = s / 3.0f;
+            } break;
+            case 12: {                                                               // pulsar: a windowed burst of cycles, then silence
+                const float duty = 0.04f + 0.96f * timbre, u = fmodf(t * cycles, 1.0f) / duty;
+                if (u < 1.0f) { const float w = sinf(PI_F * u); v = sinf(2.0f * PI_F * u * (0.5f + 15.5f * morph * morph)) * w * w; }
+            } break;
+            case 13: {                                                               // tonewheel: the drawbars (8' then up) as timbre grows
+                static const int mul[9] = {2, 1, 4, 3, 8, 6, 16, 12, 20};
+                float s = 0, n = 0;
+                for (int j = 0; j < 9; j++) { const float l = fminf(fmaxf(timbre * 8.0f - (float)j + 1.0f, 0.0f), 1.0f); s += l * sinf(0.5f * (float)mul[j] * ph); n += l; }
+                v = n > 0 ? s / n * 1.4f : 0.0f;
+            } break;
+            case 14: {                                                               // fof: a damped formant ring after every pulse
+                const float u = fmodf(t * cycles, 1.0f);
+                v = sinf(u * (6.0f + 18.0f * (1.0f - timbre)) * 2 * PI_F) * expf(-u * (14.0f - 11.0f * morph));
+            } break;
+            case 15: v = 0.6f * sinf(ph + 4.0f * timbre * sinf(ph * 2.0f + 5.0f * morph)) + 0.4f * sinf(2.0f * ph + 6.0f * timbre * cosf(ph + 3.0f * morph)); break;   // terrain: an orbit across a surface
+            case 16: {                                                               // scan: a chain's wave, rippling slowly
+                for (int k = 1; k <= 4; k++) v += sinf((float)k * ph + (float)k * 2.0f * morph) / (float)k;
+                v *= 0.7f;
+            } break;
+            case 17: {                                                               // wind: a reed's wave, more edge with the breath
+                const float s = sinf(ph);
+                v = fminf(fmaxf(s * (0.8f + 3.0f * timbre) + 0.3f * sinf(3.0f * ph) * morph, -0.8f), 0.8f) * 1.2f;
+            } break;
+            case 18: {                                                               // foley: noise with random bursts
+                const uint32_t h = (uint32_t)(i * 2654435761u) >> 20;
+                v = ((float)(h & 255) / 128.0f - 1.0f) * (0.2f + 0.6f * morph) * ((((uint32_t)(i / 6) * 40503u) >> 13) & 3 ? 0.35f : 1.0f);
+            } break;
             default: {                                                               // dust: a few pings at pseudo-random places
                 const int cell = (int)(t * (4.0f + 28.0f * timbre));
                 const float u = t * (4.0f + 28.0f * timbre) - (float)cell;

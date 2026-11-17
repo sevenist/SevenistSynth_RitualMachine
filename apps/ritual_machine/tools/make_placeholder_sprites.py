@@ -62,10 +62,10 @@ MODULES = {
     "vel": ("VL", "o"),      # the Velocity modulator (ADR-042)
 }
 # menu tab -> code (the names of tab_icon() in ui_pages.c)
-# oscillator waves and engines (wave_names in core/rack.c, Wav values 0..14) -> a drawn shape, or a 3-letter code for an engine
+# oscillator waves and engines (wave_names in core/rack.c, Wav values 0..24) -> a drawn shape, or a 3-letter code for an engine
 OSC_WAVES = ["sine", "pulse", "sawdn", "sawup", "tri", "noise"]
 OSC_ENGINES = {"karp": "KRP", "modal": "MOD", "fm2": "FM2", "fold": "FLD", "ssaw": "SSW", "vowel": "VOW", "add": "ADD",
-               "dust": "DST", "strng": "STR"}
+               "dust": "DST", "strng": "STR", "gendy": "GDY", "rossl": "RSL", "ca": "CA", "pulsar": "PLS", "tonew": "TNW", "fof": "FOF", "terra": "TRA", "scan": "SCN", "wind": "WND", "foley": "FLY"}
 # the Mutable Instruments models (rack Wav >= OC_FIRST_MI; the icon name is the Wav name in lower case, see ui_module_sprite)
 MI_MODELS = {"csaw": "CSW", "morph": "MRF", "sawsq": "SSQ", "sintri": "STR", "buzz": "BUZ", "sqsub": "SQB", "sawsub": "SWB", "sqsync": "SQY",
              "swsync": "SWY", "toy": "TOY", "zlp": "ZLP", "zpk": "ZPK", "zbp": "ZBP", "zhp": "ZHP", "vosim": "VOS", "fbfm": "FBF", "chaos": "CHS",

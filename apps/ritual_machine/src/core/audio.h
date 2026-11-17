@@ -126,7 +126,7 @@ typedef struct {
 #define AUDIO_SAMPLES_MAX 32
 int  audio_sample_count(void);
 bool audio_sample_info(int index, audio_sample_info_t *out);
-// Renders an oscillator model for the UI's preview (the Mutable Instruments models, rack Wav >= OC_FIRST_MI; model = Wav - OC_FIRST_MI):
+// Renders an oscillator model for the UI's preview (the Mutable Instruments models, generator number >= OC_FIRST_MI; model = number - OC_FIRST_MI):
 // `n` samples of the model at a pitch whose period is `period` samples (after its start-up; a struck model: its first 4n samples from the strike,
 // the peak of every 4); timbre,
 // morph, harm 0..1. Returns 1 for a periodic model, 2 for a struck one (its decay was rendered), 0 when the platform has no engine (the UI then

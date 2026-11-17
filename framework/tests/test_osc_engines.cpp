@@ -213,3 +213,173 @@ TEST(dust_density_follows_timbre) {
     }
     CHECK(crest[0] > crest[1]);                                                 // sparse = spiky, dense = more even
 }
+
+TEST(gendy_is_a_clean_wave_without_the_walk_and_wanders_with_it) {
+    double ac[2];
+    for (int t = 0; t < 2; t++) {
+        EngineBench b(OSCX_GENDY, t ? 24000 : 0, t ? 24000 : 0);
+        std::vector<double> y = b.play(57, 1.0);
+        const size_t period = static_cast<size_t>(std::lround(kSampleRate / 220.0));
+        ac[t] = autocorr_at(y, period, 8000, 30000);
+        std::printf("    gendy %s: autocorrelation at the period %.3f, peak %.0f\n", t ? "walking" : "still", ac[t], peak_of(y));
+        CHECK(peak_of(y) < 32767.0);
+    }
+    CHECK(ac[0] > 0.9);                                                       // no walk: 220 Hz, a periodic wave
+    CHECK(ac[1] < ac[0] - 0.1);                                               // the walk makes every cycle different
+}
+
+TEST(gendy_stays_bounded_with_the_strongest_walk) {
+    EngineBench b(OSCX_GENDY, 32767, 32767);
+    std::vector<double> y = b.play(45, 3.0);
+    CHECK(peak_of(y) < 32767.0);
+    CHECK(rms_between(y, 2.0, 3.0) > 300.0);
+}
+
+TEST(chaos_oscillator_sounds_at_every_setting_and_never_blows_up) {
+    for (int t = 0; t < 3; t++) for (int m = 0; m < 3; m++) for (int note : {36, 69, 100}) {
+        EngineBench b(OSCX_ROSSL, t * 16383, m * 16383);
+        std::vector<double> y = b.play(note, 1.0);
+        const double r = rms_between(y, 0.5, 1.0);
+        CHECK(peak_of(y) < 32767.0);
+        CHECK(r > 100.0);
+    }
+}
+
+TEST(chaos_periodic_at_low_morph_follows_the_pitch_roughly) {
+    EngineBench b(OSCX_ROSSL, 0, 0);                                          // c = 3: a limit cycle (period 1 or 2 loops); one loop is the pitch
+    std::vector<double> y = b.play(57, 1.5);
+    double best = 0;
+    size_t best_lag = 0;
+    for (size_t lag = 100; lag < 330; lag++) { const double a = autocorr_at(y, lag, 30000, 50000); if (a > best) { best = a; best_lag = lag; } }
+    std::printf("    chaos c=3 at A3 (period 200 samples at 44.1 kHz): best lag %zu, autocorrelation %.3f, in Hz %.1f\n", best_lag, best, kSampleRate / static_cast<double>(best_lag));
+    CHECK(best > 0.8);
+    CHECK(std::fabs(kSampleRate / static_cast<double>(best_lag) / 220.0 - 1.0) < 0.35);
+}
+
+TEST(ca_wave_is_periodic_at_the_pitch_when_frozen_and_evolves_when_not) {
+    double ac[2];
+    for (int m = 0; m < 2; m++) {
+        EngineBench b(OSCX_CA, 0, m ? 30000 : 0);
+        std::vector<double> y = b.play(57, 1.5);
+        const size_t period = static_cast<size_t>(std::lround(kSampleRate / 220.0));
+        ac[m] = autocorr_at(y, period, 10000, 50000);
+        std::printf("    ca %s: autocorrelation at the period %.3f, peak %.0f\n", m ? "evolving" : "frozen", ac[m], peak_of(y));
+        CHECK(peak_of(y) < 32767.0);
+        CHECK(rms_between(y, 0.1, 1.0) > 1000.0);
+    }
+    CHECK(ac[0] > 0.98);
+    CHECK(ac[1] < ac[0]);
+}
+
+TEST(ca_rules_give_different_waves) {
+    double r[8];
+    for (int t = 0; t < 8; t++) {
+        EngineBench b(OSCX_CA, t * 4096 + 100, 0);
+        r[t] = rms_between(b.play(57, 0.4), 0.1, 0.4);
+        CHECK(r[t] > 1000.0);
+    }
+}
+
+TEST(pulsar_is_periodic_and_the_pulsaret_length_shapes_the_energy) {
+    double r[2];
+    for (int t = 0; t < 2; t++) {
+        EngineBench b(OSCX_PULSAR, t ? 32000 : 3000, 12000);
+        std::vector<double> y = b.play(57, 0.5);
+        const size_t period = static_cast<size_t>(std::lround(kSampleRate / 220.0));
+        CHECK(autocorr_at(y, period, 3000, 15000) > 0.95);
+        r[t] = rms_between(y, 0.05, 0.5);
+        std::printf("    pulsar timbre %d: rms %.0f\n", t, r[t]);
+    }
+    CHECK(r[1] > r[0]);                                                       // a longer pulsaret fills more of the period
+}
+
+TEST(tonewheel_drawbars_come_in_with_timbre) {
+    const double f = 220.0;
+    double h[2];
+    for (int t = 0; t < 2; t++) {
+        EngineBench b(OSCX_TONEW, t ? 32767 : 0, 0);
+        std::vector<double> y = b.play(57, 0.5);
+        const size_t a = static_cast<size_t>(0.1 * kSampleRate), z = static_cast<size_t>(0.45 * kSampleRate);
+        const double p1 = power_at(y, a, z, f), p4 = power_at(y, a, z, 4 * f), p3 = power_at(y, a, z, 3 * f);
+        h[t] = (p3 + p4) / (p1 + 1e-9);
+        std::printf("    tonewheel timbre %d: power at 3f and 4f over f: %.4f, fundamental %.2e\n", t, h[t], p1);
+        CHECK(p1 > 1e3);
+    }
+    CHECK(h[0] < 0.001);                                                      // 8' alone: a sine
+    CHECK(h[1] > 0.05);                                                       // all nine: the upper drawbars
+}
+
+TEST(fof_keeps_its_formants_where_they_are_as_the_pitch_moves) {
+    // the vowel A (timbre 0): F1 800 Hz, F2 1150 Hz. Harmonics near 800 Hz are far stronger than near 2000 Hz, at a low and a higher pitch
+    for (int note : {45, 57}) {
+        EngineBench b(OSCX_FOF, 0, 8000);
+        std::vector<double> y = b.play(note, 0.6);
+        const double f0 = 440.0 * std::pow(2.0, (note - 69) / 12.0);
+        const size_t a = static_cast<size_t>(0.1 * kSampleRate), z = static_cast<size_t>(0.55 * kSampleRate);
+        auto near = [&](double hz) { double best = 0; for (int k = 1; k < 60; k++) if (std::fabs(k * f0 - hz) < f0 / 2) best = std::fmax(best, power_at(y, a, z, k * f0)); return best; };
+        const double p800 = near(800), p2000 = near(2000);
+        std::printf("    fof note %d: band power at 800 Hz %.2e, at 2000 Hz %.2e, rms %.0f\n", note, p800, p2000, rms_between(y, 0.1, 0.5));
+        CHECK(p800 > 20.0 * p2000);
+        CHECK(peak_of(y) < 32767.0);
+    }
+}
+
+TEST(terrain_is_periodic_and_the_radius_changes_the_wave) {
+    double ac[2], r[2];
+    for (int t = 0; t < 2; t++) {
+        EngineBench b(OSCX_TERRA, t ? 32000 : 6000, 12000);
+        std::vector<double> y = b.play(57, 0.5);
+        const size_t period = static_cast<size_t>(std::lround(kSampleRate / 220.0));
+        ac[t] = autocorr_at(y, period, 3000, 15000);
+        r[t] = rms_between(y, 0.1, 0.5);
+        std::printf("    terrain timbre %d: autocorrelation %.3f, rms %.0f\n", t, ac[t], r[t]);
+        CHECK(peak_of(y) < 32767.0);
+    }
+    CHECK(ac[0] > 0.95 && ac[1] > 0.95);
+    CHECK(r[1] > r[0]);                                                       // a larger orbit crosses more of the surface
+}
+
+TEST(scanned_chain_is_plucked_and_morph_sets_how_long_it_lives) {
+    double late[2];
+    for (int m = 0; m < 2; m++) {
+        EngineBench b(OSCX_SCAN, 16000, m ? 32000 : 3000);
+        std::vector<double> y = b.play(57, 2.0);
+        CHECK(peak_of(y) < 32767.0);
+        late[m] = rms_between(y, 1.5, 1.9) / (rms_between(y, 0.05, 0.15) + 1e-9);
+        std::printf("    scan morph %d: level at 1.5 s relative to the start %.3f\n", m, late[m]);
+    }
+    CHECK(late[1] > 3.0 * late[0]);
+    CHECK(late[1] > 0.3);
+}
+
+TEST(wind_plays_the_pitch_while_the_gate_is_held_and_stops_after) {
+    for (int note : {45, 57, 69}) {
+        EngineBench b(OSCX_WIND, 24000, 20000);
+        std::vector<double> y = b.play(note, 1.2);
+        const double f0 = 440.0 * std::pow(2.0, (note - 69) / 12.0);
+        const size_t p0 = static_cast<size_t>(std::lround(kSampleRate / f0));
+        double best = -1; size_t bl = 0;
+        for (size_t lag = p0 * 3 / 4; lag < p0 * 5 / 4; lag++) { const double a = autocorr_at(y, lag, 20000, 40000); if (a > best) { best = a; bl = lag; } }
+        const double hz = kSampleRate / static_cast<double>(bl);
+        std::printf("    wind note %d (%.1f Hz): plays %.1f Hz, autocorrelation %.3f, rms %.0f\n", note, f0, hz, best, rms_between(y, 0.5, 1.1));
+        CHECK(rms_between(y, 0.5, 1.1) > 300.0);
+        CHECK(best > 0.9);
+        CHECK(std::fabs(hz / f0 - 1.0) < 0.06);
+        CHECK(peak_of(y) < 32767.0);
+        b.rig.eng.note_off(note);
+        std::vector<double> y2;
+        b.rig.run(DspRig::blocks_for(0.6), &y2);
+        CHECK(rms_between(y2, 0.4, 0.6) < 0.1 * rms_between(y, 0.5, 1.1));                  // the breath stops: the tone dies
+    }
+}
+
+TEST(foley_layers_sound_across_the_timbre_and_stay_in_range) {
+    for (int t = 0; t < 4; t++) for (int m : {4000, 24000, 32767}) {
+        EngineBench b(OSCX_FOLEY, t * 10922, m);
+        std::vector<double> y = b.play(57, 1.0);
+        const double r = rms_between(y, 0.2, 1.0);
+        std::printf("    foley timbre %d morph %d: rms %.0f peak %.0f\n", t, m, r, peak_of(y));
+        CHECK(r > 100.0);
+        CHECK(peak_of(y) < 32767.0);
+    }
+}

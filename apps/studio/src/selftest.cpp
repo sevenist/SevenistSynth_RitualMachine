@@ -1278,7 +1278,7 @@ void test_math_and_names() {
         if (j < 0 || !d->param[j].labels || d->param[j].curve != Int) return "(none)";
         return d->param[j].labels[v - static_cast<int>(d->param[j].min)];
     };
-    CHECK(!std::strcmp(label("RMOscEngines", "engine", 0), "Karp") && !std::strcmp(label("RMOscEngines", "engine", sc::OSCX_ENGINES - 1), "Strng"),
+    CHECK(!std::strcmp(label("RMOscEngines", "engine", 0), "Karp") && !std::strcmp(label("RMOscEngines", "engine", sc::OSCX_ENGINES - 1), "Foley"),
           "RMOscEngines' engine by name (%s)", label("RMOscEngines", "engine", 0));
     CHECK(!std::strcmp(label("RMMiOsc", "model", 0), "CSaw") && !std::strcmp(label("RMMiOsc", "model", sc::MI_MODELS - 1), "PHat2"), "RMMiOsc's model by name");
     CHECK(!std::strcmp(label("RMFilter", "mode", 4), "AP") && !std::strcmp(label("RMFilter", "sections", 4), "48dB"), "RMFilter's mode and slope by name");

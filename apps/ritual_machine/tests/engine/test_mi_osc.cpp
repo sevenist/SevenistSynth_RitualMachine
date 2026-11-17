@@ -62,14 +62,14 @@ TEST(mi_osc_is_registered_as_a_voice_module) {
     CHECK(t && std::string(t->info->name) == "MiOsc" && t->info->scope == Scope::Voice);
 }
 
-// The rack's Wav list (core/rack.c, C) names the models in the order of MiModel (mi_osc.h): the mapper sends Wav - OC_FIRST_MI as the model.
+// The rack's Wav list (core/rack.c, C) names each model: Wav -> rack_wave_id() - OC_FIRST_MI is the model (the list is ordered simple to complex).
 TEST(mi_rack_wave_names_follow_the_models) {
     CHECK_EQ(OC_WAVE_COUNT, OC_FIRST_MI + MI_MODELS);
     rack_slot_t s{};
     s.type = MOD_OSC;
     for (int m = 0; m < MI_MODELS; m++) {
         char name[24];
-        s.v[MP_OC_WAVE] = static_cast<float>(OC_FIRST_MI + m);
+        s.v[MP_OC_WAVE] = static_cast<float>(rack_wave_pos(OC_FIRST_MI + m));
         rack_mparam_format(&s, MP_OC_WAVE, name, sizeof name);
         if (std::string(name) != mi_model_name(m)) std::printf("    model %d: rack \"%s\", engine \"%s\"\n", m, name, mi_model_name(m));
         CHECK(std::string(name) == mi_model_name(m));

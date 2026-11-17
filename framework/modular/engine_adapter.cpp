@@ -33,7 +33,7 @@ const char *const kSkip[] = {"NoteIn", "VoiceOut", "BusIn", "MasterOut", "Sample
 const char *const kOffOn[] = {"Off", "On"};
 const char *const kQuality[] = {"Blep", "Mip", "Naive"};
 const char *const kOscWaves[] = {"Sine", "Saw", "Pulse", "Tri", "Noise", "SawDn"};                         // WAVE_*_
-const char *const kOscxEngines[] = {"Karp", "Modal", "FM2", "Fold", "SSaw", "Vowel", "Add", "Dust", "Strng"};   // OscxEngine
+const char *const kOscxEngines[] = {"Karp", "Modal", "FM2", "Fold", "SSaw", "Vowel", "Add", "Dust", "Strng", "Gendy", "Rossl", "CA", "Pulsar", "Tonew", "FOF", "Terra", "Scan", "Wind", "Foley"};   // OscxEngine
 const char *const kMiModels[] = {                                                                       // MiModel
     "CSaw", "Morph", "SawSq", "SinTri", "Buzz", "SqSub", "SawSub", "SqSync", "SwSync", "Toy", "ZLP", "ZPk", "ZBP", "ZHP", "Vosim", "FbFM",
     "Chaos", "Kick", "FNoise", "Twin", "Clock", "DigMod", "Morse", "3Saw", "3Sq", "3Tri", "3Sine", "3Ring", "WTbl", "WMap", "WLine", "Cloud",

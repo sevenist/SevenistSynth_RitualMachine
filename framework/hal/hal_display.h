@@ -42,6 +42,10 @@ void display_send(u8g2_t *g);
 // next one at once. A board with a colour screen shows it as it is; a board with a one-colour screen lights the pixels that are bright.
 // The two kinds of frame may follow each other: the first of the other kind is sent whole.
 void display_send_rgb565(const uint16_t *frame);
+// The same for an indexed frame (ui/canvas.h, canvas_init_indexed): DISPLAY_WIDTH x DISPLAY_HEIGHT bytes, each an index into `palette` (RGB565
+// colours, as many as the frame uses; it must stay valid). Half the memory of an RGB565 frame. Copied as display_send does; a board with a
+// colour screen converts it as it sends it, a one-colour one lights the bright pixels.
+void display_send_indexed(const uint8_t *frame, const uint16_t *palette);
 
 // The application has finished starting (the card was read, its settings and the pads' samples are in). A platform that plays a boot
 // animation of its own until then (display_boot_config; the prototype loops it back and forth in a task) lets it end and then shows

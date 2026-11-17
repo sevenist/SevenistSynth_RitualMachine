@@ -49,7 +49,7 @@ TEST(views_page_rings_stay_in_their_view) {
     ev_tap(CTL_JOY_RIGHT); ui_page_title(t, (int)sizeof t); CHECK_STR(t, "SEQ SETUP");
     ev_tap(CTL_JOY_RIGHT); ui_page_title(t, (int)sizeof t); CHECK_STR(t, "PATTERNS");
     ev_tap(CTL_JOY_RIGHT); CHECK(synth_ui_shows_seq(&ui_app.ui));
-    ev_tap(CTL_JOY_UP); ev_tap(CTL_JOY_RIGHT); ev_tap(CTL_JOY_DOWN);    // RACK: RACK and SOUND
+    ev_tap(CTL_JOY_UP); ev_tap(CTL_JOY_RIGHT); ev_tap(CTL_JOY_DOWN);    // RACK: RACK (the map) and SOUND
     CHECK(on_tab(TAB_RACK));
     ev_tap(CTL_JOY_RIGHT); CHECK(on_tab(TAB_SOUND));
     ev_tap(CTL_JOY_RIGHT); CHECK(on_tab(TAB_RACK));

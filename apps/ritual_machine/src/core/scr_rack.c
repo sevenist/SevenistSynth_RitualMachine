@@ -148,7 +148,18 @@ static void keep_visible(const ui_ctx_t *c) {
     ui->rack_cur = k.kind == CELL_MODULE ? k.slot : c->rack->count;  // the old cursor (jump slots, other screens): the module, else past the end
 }
 
-static void menu_close(const ui_ctx_t *c) { c->ui->rack_menu = false; c->ui->row = c->ui->rack_row + 1; c->ui->latched = false; }
+// The menu closes: the focus back on the cell. Opened from the map (scr_map.c, ui->map_menu set): back on the map, on the module the cell now holds
+// (the one just inserted, the one after a deleted one) or where the menu was opened.
+static void menu_close(const ui_ctx_t *c) {
+    synth_ui_t *ui = c->ui;
+    if (ui->map_menu) {
+        const cell_t k = sel_cell(c);                               // (while rack_menu is still set: the menu's cell)
+        ui->row = k.kind == CELL_MODULE ? k.slot + 1 : ui->map_menu;
+        ui->map_menu = 0;
+    } else ui->row = ui->rack_row + 1;
+    ui->rack_menu = false;
+    ui->latched = false;
+}
 
 /* ---------------- elements: the rows ---------------- */
 
@@ -545,5 +556,38 @@ static const el_def_t elements[E_COUNT] = {
 
 // After every edit: keep the selection valid and in view.
 static void after_edit(const ui_ctx_t *c) { keep_visible(c); }
+
+/* ---------------- the menu for the map (scr_map.c) ---------------- */
+// The map shows the rack as nodes and opens this same menu on them: it selects the cell (scr_rack_select), then its own elements run these items
+// by number (RM_* = M_*: the element's arg). So the rules of the rack stay in one place.
+
+_Static_assert((int)RM_EDIT == (int)M_EDIT && (int)RM_TYPE == (int)M_TYPE && (int)RM_INSERT == (int)M_INSERT && (int)RM_TGT == (int)M_TGT &&
+               (int)RM_DELETE == (int)M_DELETE && (int)RM_END == (int)E_COUNT,
+               "ui_screen.h's RM_* follow this file's menu");
+
+void scr_rack_select(synth_ui_t *ui, const rack_t *r, int row, int slot) {
+    if (row < 0 || row >= RACK_ROWS || !row_shown(r, row)) row = ROW_M;
+    ui->rack_row = row;
+    if (slot >= 0 && slot < r->count) ui->rack_col[row] = col_of_slot(r, slot);
+    else if (slot == RACK_SEL_MIX) ui->rack_col[row] = 0;
+    else { int s[RACK_MAX]; ui->rack_col[row] = has_mix(r, row) + row_modules(r, row, s); }       // the + cell
+}
+
+int scr_rack_selected_slot(const ui_ctx_t *c) { const cell_t k = sel_cell(c); return k.kind == CELL_MODULE ? k.slot : -1; }
+int scr_rack_insert_pos(const ui_ctx_t *c) { return insert_pos(c); }
+
+static const el_def_t *item(int i) { return i >= M_EDIT && i < E_COUNT ? &elements[i] : NULL; }
+bool scr_rack_item_enabled(const ui_ctx_t *c) { const el_def_t *e = item(c->arg); return e && e->enabled && e->enabled(c); }
+void scr_rack_item_value(const ui_ctx_t *c, char *out, int n) { const el_def_t *e = item(c->arg); out[0] = 0; if (e && e->value) e->value(c, out, n); }
+bool scr_rack_item_adjust(const ui_ctx_t *c, int dir) {
+    const el_def_t *e = item(c->arg);
+    const bool changed = e && e->adjust && e->adjust(c, dir);
+    keep_visible(c);
+    return changed;
+}
+void scr_rack_item_activate(const ui_ctx_t *c) { const el_def_t *e = item(c->arg); if (e && e->activate) e->activate(c); }
+const char *scr_rack_item_label(int i) { const el_def_t *e = item(i); return e ? e->label : ""; }
+el_kind_t scr_rack_item_kind(int i) { const el_def_t *e = item(i); return e ? e->kind : EL_VALUE; }
+void scr_rack_menu_close(const ui_ctx_t *c) { menu_close(c); }
 
 const screen_def_t scr_rack_screen = {elements, E_COUNT, false, false, layout, back, after_edit, draw_extra};

@@ -9,4 +9,7 @@ void display_panel_show(const uint8_t *frame, const uint8_t *shown);   // sends 
 // A board with a colour screen (HW_DISPLAY_RGB565 in board_pins.h) only: the same for a colour frame (hal_display.h's layout: RGB565, row
 // by row, the processor's byte order; in PSRAM). shown == NULL: what the panel shows is not known, every tile is sent.
 void display_panel_show_rgb565(const uint16_t *frame, const uint16_t *shown);
+// The same for an indexed frame (a byte a pixel, an index into `palette`, RGB565): converted as it is sent. shown: the frame the panel shows (the
+// same palette), or NULL.
+void display_panel_show_indexed(const uint8_t *frame, const uint8_t *shown, const uint16_t *palette);
 #endif

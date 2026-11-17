@@ -1,5 +1,6 @@
 // Rack rows (ADR-041): two branches and row M, the Para switch, the MIX; the model's rules (rack.c) and the RACK tab (scr_rack.c).
 #include "ui_test.h"
+#include "core/nav_graph.h"
 #include <math.h>
 
 #define CHECK_NEAR(a, b, eps) CHECK(fabs((double)(a) - (double)(b)) < (eps))
@@ -171,8 +172,10 @@ TEST(fx_modules_have_pages_and_spectral_a_cog) {
     }
 }
 
-// The RACK tab: rows 1 / 2 / M; the menu's Para row on a branch filter, the MIX cell's levels; FM shows row M only.
-enum { ROW_E_M = 3, MENU_PARA = 11, MENU_PENV = 12, MENU_LVL1 = 13 };     // ui->row of row M and of the menu rows (element index + 1, scr_rack.c)
+// The RACK tab (the map of nodes since 2026-11-17, scr_map.c): the menu's Para row on a branch filter, the MIX's levels; FM shows row M only.
+// ui->row of a node is its index + 1 (nav_graph.h); of the menu's items NAV_NODES + 2 + item (0 Edit, 1 Type ... 7 Para, 8 PEnv, 9 Lvl1).
+#define MAP_ITEM(i) (NAV_NODES + 2 + (i))
+enum { MENU_PARA = MAP_ITEM(7), MENU_PENV = MAP_ITEM(8), MENU_LVL1 = MAP_ITEM(9) };
 
 static int open_rack_tab(void) {
     ev_tap(CTL_BTN_1);
@@ -186,8 +189,7 @@ TEST(rack_tab_para_row_and_mix_cell) {
     synth_ui_init(&ui_app.ui, &ui_app.rack);
     CHECK(open_rack_tab() >= 0);
     const int fl = find_type(&ui_app.rack, MOD_FILTER);
-    ui_app.ui.row = 1;                                            // branch 1, the filter's cell
-    ui_app.ui.rack_col[0] = fl;
+    ui_app.ui.row = fl + 1;                                       // the filter's node
     ev_tap(CTL_JOY_SW);                                           // push: the menu
     CHECK(ui_app.ui.rack_menu);
     ui_app.ui.row = MENU_PARA;
@@ -199,8 +201,7 @@ TEST(rack_tab_para_row_and_mix_cell) {
     CHECK_EQ(ui_app.rack.slot[fl].penv, PARA_ENV_RETRIG);
     ev_tap(CTL_BTN_2);                                            // Back closes the menu
     CHECK(!ui_app.ui.rack_menu);
-    ui_app.ui.row = ROW_E_M;                                      // row M, the MIX cell (column 0)
-    ui_app.ui.rack_col[ROW_M] = 0;
+    ui_app.ui.row = NAV_MIX + 1;                                  // the MIX node
     ev_tap(CTL_JOY_SW);
     CHECK(ui_app.ui.rack_menu);
     ui_app.ui.row = MENU_LVL1;
@@ -215,5 +216,15 @@ TEST(rack_tab_fm_shows_row_m_only) {
     CHECK(tab_index_of(&ui_app.rack, TAB_FX) < 0);
     CHECK(open_rack_tab() >= 0);
     ev_idle(1);
-    CHECK_EQ(ui_app.ui.rack_row, ROW_M);
+    nav_graph_t g;                                                // the map: one chain (row M), no MIX, no branch's +
+    nav_build(&g, &ui_app.rack);
+    CHECK_EQ(g.node[NAV_MIX].kind, NODE_NONE);
+    CHECK_EQ(g.node[NAV_PLUS1].kind, NODE_NONE);
+    CHECK_EQ(g.node[NAV_PLUS2].kind, NODE_NONE);
+    int shown = 0;                                                // the branches' modules stay in the rack (they do not play): not on the map
+    for (int i = 0; i < ui_app.rack.count; i++) {
+        CHECK_EQ(g.node[i].kind == NODE_MODULE, ui_app.rack.slot[i].row == ROW_M);
+        shown += g.node[i].kind == NODE_MODULE;
+    }
+    CHECK(shown >= 1);
 }

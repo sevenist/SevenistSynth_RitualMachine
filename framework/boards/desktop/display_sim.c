@@ -115,6 +115,14 @@ void display_send_rgb565(const uint16_t *frame) {
         }
     SDL_UpdateWindowSurface(u8g_sdl_window);
 }
+
+// An indexed frame (hal_display.h): its colours looked up, then painted as an RGB565 one.
+void display_send_indexed(const uint8_t *frame, const uint16_t *palette) {
+    static uint16_t rgb[DISPLAY_WIDTH * DISPLAY_HEIGHT];
+    if (!frame || !palette) return;
+    for (int i = 0; i < DISPLAY_WIDTH * DISPLAY_HEIGHT; i++) rgb[i] = palette[frame[i]];
+    display_send_rgb565(rgb);
+}
 void display_boot_config(const display_boot_t *boot) { (void)boot; }   // (no animation of the board's own here)
 void display_boot_end(void) {}              // (the simulator's boot animation is the application's: app_boot_animation)
 void display_boot_progress(int percent) { (void)percent; }

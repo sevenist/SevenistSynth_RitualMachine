@@ -36,7 +36,9 @@ extern "C" {
 typedef struct canvas {
     u8g2_t u8g2;                                    // first: u8g2's callbacks find the canvas from the u8g2 they are given
     u8x8_display_info_t info;                       // the size u8g2 sees
-    uint16_t *px;                                   // w x h pixels, row by row from the top left (native byte order)
+    uint16_t *px;                                   // w x h pixels, row by row from the top left (native byte order); NULL when indexed
+    uint8_t *idx;                                   // an indexed canvas (canvas_init_indexed): w x h palette indexes instead; NULL otherwise
+    const uint16_t *palette;                        // ... its colours (RGB565)
     int w, h;
     uint16_t fg, bg;
     uint8_t mono[CANVAS_MAX_W * CANVAS_MAX_H / 8];  // u8g2's one-bit buffer: nothing is drawn in it (see above)
@@ -45,12 +47,16 @@ typedef struct canvas {
 // `pixels` holds w x h colours and stays the caller's. w and h: multiples of 8, at most CANVAS_MAX_W x CANVAS_MAX_H. False = a size
 // that does not fit (the canvas is not usable). The frame is cleared to black, the colours are white on black.
 bool canvas_init(canvas_t *c, uint16_t *pixels, int w, int h);
+// An indexed canvas: a byte a pixel, an index into `palette` (RGB565 colours, at most 256; it stays the caller's and is read when the frame
+// is sent). Half the memory of an RGB565 frame. Every colour given to the canvas (canvas_color, canvas_clear, canvas_fill) is then an INDEX into
+// the palette; canvas_get still answers a colour (the palette's), and canvas_send sends it with display_send_indexed.
+bool canvas_init_indexed(canvas_t *c, uint8_t *indexes, int w, int h, const uint16_t *palette);
 static inline u8g2_t *canvas_u8g2(canvas_t *c) { return &c->u8g2; }
 static inline void canvas_color(canvas_t *c, uint16_t fg, uint16_t bg) { c->fg = fg; c->bg = bg; }
 
 void canvas_clear(canvas_t *c, uint16_t color);                                 // the whole frame
 void canvas_fill(canvas_t *c, int x, int y, int w, int h, uint16_t color);      // a rectangle, clipped to the frame
-uint16_t canvas_get(const canvas_t *c, int x, int y);                           // a pixel (0 outside the frame): for tests
+uint16_t canvas_get(const canvas_t *c, int x, int y);                           // a pixel's colour, RGB565 (0 outside the frame): for tests
 void canvas_send(const canvas_t *c);                                            // display_send_rgb565 of the frame
 
 #ifdef __cplusplus

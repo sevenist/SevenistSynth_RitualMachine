@@ -2,6 +2,16 @@
 
 What changed in the library (`framework/`) and in the repo as a whole. Each app keeps its own update log.
 
+## 2026-11-17: colour for the Ritual Machine's UI (its node GUI rework)
+
+- `ui/canvas.*`: `canvas_init_indexed`, a canvas of a byte a pixel (an index into a palette of RGB565 colours given at the start; the colours
+  given to the canvas are indexes), sent with `display_send_indexed` (new in `hal/hal_display.h`).
+- `boards/esp32`: `display_esp32_colour_reserve(indexed)` takes the display's colour frames from PSRAM at once (3 x 41 KB RGB565, or
+  3 x 20 KB indexed): an application calls it before anything takes the PSRAM (the Ritual Machine's audio engine takes all but a headroom).
+  Without the memory it says so once (`[LCD] no memory ...`) and shows the frames in one colour. `boards/hwv2/display_panel.cpp` converts an
+  indexed frame tile by tile as it is sent. The ST7735S stays on its reset gamma curve (2.2).
+- `boards/desktop/display_sim.c` and the test stubs (`tests/stubs/stub_hwv2.cpp`) take indexed frames too.
+
 ## 2026-11-16: seven more OscEngines engines (Pulsar, Tonew, FOF, Terra, Scan, Wind, Foley)
 
 - Engines 12..18 of `osc_engines.*`: Pulsar (pulsaret length / cycles), Tonew (tonewheel organ drawbars; key click + leakage), FOF (four

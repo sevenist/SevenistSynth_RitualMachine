@@ -15,6 +15,10 @@ extern "C" void display_send_rgb565(const uint16_t *frame) {
     std::memcpy(stub_frame, frame, sizeof stub_frame);
     stub_frames++;
 }
+extern "C" void display_send_indexed(const uint8_t *frame, const uint16_t *palette) {   // (looked up into the same RGB565 frame)
+    for (int i = 0; i < DISPLAY_WIDTH * DISPLAY_HEIGHT; i++) stub_frame[i] = palette[frame[i]];
+    stub_frames++;
+}
 extern "C" void display_send(u8g2_t *) { stub_frames++; }
 namespace {
 const input_control_t *g_table = nullptr;       // stub_use_controls (nullptr: HWV2's)

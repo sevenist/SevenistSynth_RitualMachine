@@ -2,6 +2,7 @@
 // The rows: ".." first (below the root), then the folder's sub-folders, then its samples, as audio_dir_open sorted them. The screen keeps
 // only the rows it shows (br_page); the platform holds the folder's list. The app reads the highlighted sample once the highlight rests
 // (br_state BR_FRESH -> BR_SHOWN / BR_NONE, br_info) and acts on br_done.
+#include "core/ui_theme.h"
 #include "core/ui_screen.h"
 #include <stdio.h>
 #include <string.h>
@@ -140,7 +141,7 @@ void browse_ui_draw(const synth_ui_t *ui, u8g2_t *g) {
     gui_style_t style;
     gui_style_init(&style, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
     const gui_style_t *st = &style;
-    u8g2_ClearBuffer(g);
+    ui_clear(g);
     gui_begin(g, st);
     gui_rect_t screen = gui_inset(gui_screen(g), st->margin);
     const gui_rect_t bar = gui_take_top(&screen, GUI_BAR_H);

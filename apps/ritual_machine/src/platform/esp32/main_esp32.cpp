@@ -10,6 +10,8 @@
 #include "core/controls.h"
 #include "hal/hal_leds.h"
 #include "boards/esp32/board_esp32.h"
+#include "boards/esp32/board_pins.h"
+#include "core/ui_theme.h"
 #include "platform/esp32/serial_cmd_esp32.h"
 
 static app_t app;
@@ -64,12 +66,35 @@ void setup() {
 #ifdef BOOT_TRACE
     const uint32_t bt0 = millis();
 #endif
+    u8g2_t *ui_display = display;
+#ifndef UI_COLOUR_MODE                         // core/ui_theme.h: UI_MONO, UI_PALETTE, UI_RGB (platformio.ini); by default the screen's own
+#if HW_DISPLAY_RGB565
+#define UI_COLOUR_MODE UI_RGB
+#else
+#define UI_COLOUR_MODE UI_MONO
+#endif
+#endif
+#if UI_COLOUR_MODE != UI_MONO
+    {   // a colour UI: the app draws into a colour canvas (core/ui_theme.h). Its frame and the display's three are made BEFORE audio_init,
+        // which takes all the PSRAM but a headroom for the engine (audio_esp32.cpp); made after it, they find no room and the screen stays one colour.
+        static canvas_t canvas;
+        const bool indexed = UI_COLOUR_MODE == UI_PALETTE;
+        const size_t bytes = (size_t)DISPLAY_WIDTH * DISPLAY_HEIGHT * (indexed ? 1 : 2);
+        void *px = display_esp32_colour_reserve(indexed) ? heap_caps_malloc(bytes, MALLOC_CAP_SPIRAM) : nullptr;
+        const bool ok = px && (indexed ? canvas_init_indexed(&canvas, static_cast<uint8_t *>(px), DISPLAY_WIDTH, DISPLAY_HEIGHT, ui_palette())
+                                       : canvas_init(&canvas, static_cast<uint16_t *>(px), DISPLAY_WIDTH, DISPLAY_HEIGHT));
+        if (ok) { ui_colour_attach(&canvas); ui_display = canvas_u8g2(&canvas); }
+        Serial.println(!ok ? "[UI] one colour (no PSRAM for the colour frames)" : indexed ? "[UI] colour, palette (8-bit frames in PSRAM)" : "[UI] colour, RGB565 (frames in PSRAM)");
+    }
+#else
+    Serial.println("[UI] one colour (UI_COLOUR_MODE)");
+#endif
     audio_init();
     display_esp32_boot_stage(80);
 #ifdef BOOT_TRACE
     const uint32_t bt1 = millis();
 #endif
-    app_init(&app, display);                   // (its first frame waits in the display task until the boot animation has ended)
+    app_init(&app, ui_display);                // (its first frame waits in the display task until the boot animation has ended)
     display_esp32_boot_stage(100);             // the rest of the bar is the application's (display_boot_progress)
 #ifdef BOOT_TRACE
     Serial.printf("[BOOT] audio_init %u..%u ms, app_init ..%u ms\n", (unsigned)bt0, (unsigned)bt1, (unsigned)millis());

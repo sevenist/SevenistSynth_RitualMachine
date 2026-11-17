@@ -244,6 +244,7 @@ void synth_ui_init(synth_ui_t *ui, const rack_t *rack) {
     ui->page = 0; ui->row = 0; ui->cursor = 0; ui->seq_voice = 0; ui->seq_row_back = SEQ_ROW_NOTE; ui->seq_tool = 0; ui->seq_scope = 0; ui->seq_msg[0] = 0; ui->seq_knob_key = 0; ui->seq_rec = false; ui->seq_erase = false; ui->seq_audio = false; ui->seq_follow = false; ui->seq_touch = 0; ui->seq_chain_cur = 0; ui->bank = NULL;
     ui->rack_cur = 0; ui->rack_scroll = 0; ui->rack_type = MOD_OSC;
     ui->rack_row = synth_type_is_rack(rack->cfg.type) ? 0 : ROW_M; ui->rack_menu = false;
+    ui->map_at = 0; ui->map_page = 0; ui->map_pick = false; ui->pick_param = 0; ui->map_menu = 0;
     for (int l = 0; l < RACK_ROWS; l++) ui->rack_col[l] = 0;
     ui->rack_dirty = false; ui->rebuild = false; ui->in_rack = false; ui->menu_tab = 0; ui->fm_op = 0; ui->fm_pt = 0;
     ui->view_sel = false; ui->edit_pages = 0; ui->view_last = VIEW_RACK; ui->storage_req = false; ui->reset_id = 0;
@@ -263,7 +264,7 @@ void synth_ui_init(synth_ui_t *ui, const rack_t *rack) {
 }
 
 void synth_ui_sound_loaded(synth_ui_t *ui, const rack_t *rack) {
-    ui->page = 0; ui->cursor = 0; ui->seq_voice = 0; ui->seq_knob_key = 0; ui->rack_cur = 0; ui->rack_scroll = 0; ui->rack_menu = false; ui->cog_page = -1;
+    ui->page = 0; ui->cursor = 0; ui->seq_voice = 0; ui->seq_knob_key = 0; ui->rack_cur = 0; ui->rack_scroll = 0; ui->rack_menu = false; ui->cog_page = -1; ui->map_at = 0; ui->map_menu = 0; ui->map_pick = false;
     ui->rack_row = synth_type_is_rack(rack->cfg.type) ? 0 : ROW_M;
     for (int l = 0; l < RACK_ROWS; l++) ui->rack_col[l] = 0;
     ui->fm_op = 0; ui->fm_pt = 0; ui->ms_lane = 0; ui->ms_step = 0; ui->eg_pt = 0; ui->smp_tgt = 0; ui->macro_cur = 0; ui->macro_dest = 0;
@@ -297,7 +298,7 @@ bool synth_ui_shows_playhead(const synth_ui_t *ui, const rack_t *rack) {
 }
 
 /* ---------------- menu tabs, grouped by view ----------------
- * Every synth type, in view order (ADR-046 phase 3): RACK view: RACK (FM, Strings: row M only, ADR-041), SOUND (the synth's settings, then
+ * Every synth type, in view order (ADR-046 phase 3): RACK view: RACK (the rack as a map of nodes, scr_map.c; FM, Strings: row M only, ADR-041), SOUND (the synth's settings, then
  * the rack's sample (Modular) or the DX7 patch's algorithm (FM): ADR-044); PERFORM: MACROS, JOY; PRESETS; SETUP: KEYS, LEDS, MODIFIERS,
  * CURVES, MACHINE (Out, Spk, Knob, Storage). */
 
@@ -316,14 +317,14 @@ tab_t tab_kind(const rack_t *r, int idx) {
 }
 
 const char *tab_name(tab_t t) {
-    static const char *const n[] = {"RACK", "GENERAL", "ALGORITHM", "OPERATOR", "ENVELOPE", "FX RACK", "SAMPLES", "KEYS", "MODIFIERS", "MACROS", "CURVES", "LEDS", "JOY", "PRESETS", "SOUND", "MACHINE"};
+    static const char *const n[] = {"RACK", "GENERAL", "ALGORITHM", "OPERATOR", "ENVELOPE", "FX RACK", "SAMPLES", "KEYS", "MODIFIERS", "MACROS", "CURVES", "LEDS", "JOY", "PRESETS", "SOUND", "MACHINE", "MAP"};
     return n[t];
 }
 
 const char *tab_icon(tab_t t) {
     static const char *const n[] = {"16/tab_rack", "16/tab_general", "16/tab_algorithm", "16/tab_operator", "16/tab_envelope", "16/tab_fx",
                                     "16/tab_samples", "16/tab_keys", "16/tab_modifiers", "16/tab_macros", "16/tab_curves", "16/tab_leds", "16/tab_joy", "16/tab_presets",
-                                    "16/tab_general" /* SOUND: GENERAL's icon until one is painted */, "16/tab_general" /* MACHINE: the same */};
+                                    "16/tab_general" /* SOUND: GENERAL's icon until one is painted */, "16/tab_general" /* MACHINE: the same */, "16/tab_rack" /* MAP: the rack's until one is painted */};
     return n[t];
 }
 

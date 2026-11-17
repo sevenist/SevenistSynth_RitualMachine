@@ -1047,7 +1047,7 @@ static bool handle_event(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rac
 
     if (ui->in_rack) {
         const ui_ctx_t ctx = {ui, rack, 0, params, seq};
-        const screen_def_t *s = screen_for_tab(tab_kind(rack, ui->menu_tab));
+        const screen_def_t *s = screen_shown(ui, rack, tab_kind(rack, ui->menu_tab));
         if (e == UI_BACK) {                                      // Back goes up one level and never destroys (ADR-046 rule R10): a latch, the
             if (ui->latched) { ui->latched = false; return false; }          // screen's own (RACK: its cell menu), the focus to the header, then
             if (s->back && s->back(&ctx)) { if (s->after_edit) s->after_edit(&ctx); return false; }   // out of the menu (its edits applied)

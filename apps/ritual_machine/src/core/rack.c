@@ -532,6 +532,16 @@ void rack_cycle_target(rack_t *r, int slot, int dir) {
     }
 }
 
+bool rack_set_target(rack_t *r, int slot, int target, int param) {
+    if (slot < 0 || slot >= r->count || target < 0 || target >= r->count || slot == target) return false;
+    rack_slot_t *s = &r->slot[slot];
+    if (!rack_can_target((module_type_t)s->type) || param < 0 || param >= info[r->slot[target].type].nparams) return false;
+    s->tgt_id = r->slot[target].id;
+    s->tgt_param = (uint8_t)param;
+    depth_reset(r, slot);
+    return true;
+}
+
 void rack_cycle_param(rack_t *r, int slot, int dir) {
     rack_slot_t *s = &r->slot[slot];
     int ti = s->tgt_id ? rack_find(r, s->tgt_id) : RACK_NONE;

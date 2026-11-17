@@ -67,7 +67,7 @@ void synth_ui_seq_view(const synth_ui_t *ui, const seq_t *q, int *first, int *lo
 #define PRM_RESET 102      // the cog's last row: Reset (every value of the module back to its default, asked first)
 
 // The values are saved in ui.cfg (jump slots): never reorder. TAB_FM_OP / TAB_FM_ENV are no longer shown (the operators have main-view pages).
-typedef enum { TAB_RACK, TAB_GENERAL, TAB_FM_ALGO, TAB_FM_OP, TAB_FM_ENV, TAB_FX /* removed: row M (ADR-041) */, TAB_SAMPLES, TAB_KEYS, TAB_MODS, TAB_MACROS, TAB_CURVES, TAB_LEDS, TAB_JOY, TAB_PRESET, TAB_SOUND, TAB_MACHINE } tab_t;   // append only: jump slots save these values (GENERAL, SAMPLES, ALGORITHM: now SOUND, ADR-044)
+typedef enum { TAB_RACK, TAB_GENERAL, TAB_FM_ALGO, TAB_FM_OP, TAB_FM_ENV, TAB_FX /* removed: row M (ADR-041) */, TAB_SAMPLES, TAB_KEYS, TAB_MODS, TAB_MACROS, TAB_CURVES, TAB_LEDS, TAB_JOY, TAB_PRESET, TAB_SOUND, TAB_MACHINE, TAB_MAP /* a tab of its own on 2026-11-17 only: now the RACK tab */ } tab_t;   // append only: jump slots save these values (GENERAL, SAMPLES, ALGORITHM: now SOUND, ADR-044)
 
 // FM pages (global pages, ui_pages.c): FM SYNTH (Patch, Algo, Fb, Vol), then per operator OPn (Lvl, Crs, Fine, Fix) and OPn ENV (Pt, Lvl, Time).
 // The page def of operator k: GP_FM_OP_BASE + k and GP_FM_ENV_BASE + k.
@@ -128,7 +128,8 @@ void draw_delay_graph(u8g2_t *g, gui_rect_t box, int mix, int ms, int fb);
 void draw_reverb_graph(u8g2_t *g, gui_rect_t box, int mix, int decay, int size, int damp);
 void draw_comp_graph(u8g2_t *g, gui_rect_t box, int thr, int ratio, int gain);
 void draw_eq_graph(u8g2_t *g, gui_rect_t box, int low, int mid, int midf, int high);
-void draw_fx_module(u8g2_t *g, gui_rect_t box, const rack_slot_t *ms);   // an FX rack module: its effect's sketch, else its name
+void draw_fx_module(u8g2_t *g, gui_rect_t box, const rack_slot_t *ms);
+void ui_module_picture(u8g2_t *g, const gui_style_t *st, gui_rect_t box, const rack_slot_t *ms);   // ui_draw.c: a module's picture by its type (the node page)   // an FX rack module: its effect's sketch, else its name
 void draw_algo(u8g2_t *g, gui_rect_t box, const dx7_patch_t *p, int sel_op);
 void draw_eg_editor(u8g2_t *g, gui_rect_t box, const dx7_op_t *o, int sel);
 

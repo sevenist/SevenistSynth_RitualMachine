@@ -2,6 +2,7 @@
 // screen, see ui_screen.h). The grid: 4 x 4 cells (pad number, mode / loop, the start of its sample's name, mute and choke marks); a pad
 // that sounds is drawn inverted, the selected one has a double frame. The editor: the sample's overview with the trim across the top, then
 // the settings in two columns. The app (app/app_pads.c) owns the pads, plays them and sends every change to the engine.
+#include "core/ui_theme.h"
 #include "core/ui_screen.h"
 #include "core/fine_step.h"
 #include <stdio.h>
@@ -892,7 +893,7 @@ void pads_ui_draw(const synth_ui_t *ui, const rack_t *rack, u8g2_t *g, uint64_t 
     const int content_h = u8g2_GetDisplayHeight(g) - (ui_legend_shown(ui, rack, true) ? ui_legend_h(g) : 0);    // the knob legend's zone: the app draws it
     gui_style_init(&style, u8g2_GetDisplayWidth(g), content_h);
     const gui_style_t *st = &style;
-    u8g2_ClearBuffer(g);
+    ui_clear(g);
     gui_begin(g, st);
     if (!ui->pads) return;
     gui_rect_t screen = gui_inset(gui_rect(0, 0, u8g2_GetDisplayWidth(g), content_h), st->margin);

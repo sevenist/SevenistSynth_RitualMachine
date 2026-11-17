@@ -12,6 +12,13 @@ static void canvas_hvline(u8g2_t *g, u8g2_uint_t x, u8g2_uint_t y, u8g2_uint_t l
     const int step = dir ? c->w : 1;
     const u8g2_uint_t room = dir ? (u8g2_uint_t)(c->h - y) : (u8g2_uint_t)(c->w - x);
     if (len > room) len = room;
+    if (c->idx) {                                                   // an indexed canvas: fg and bg are palette indexes
+        uint8_t *q = c->idx + (size_t)y * (size_t)c->w + x;
+        const uint8_t fg = (uint8_t)c->fg, bg = (uint8_t)c->bg;
+        if (g->draw_color == 2) { for (; len; len--, q += step) *q = *q == fg ? bg : *q == bg ? fg : *q; }
+        else { const uint8_t v = g->draw_color ? fg : bg; for (; len; len--, q += step) *q = v; }
+        return;
+    }
     if (g->draw_color == 2) {
         const uint16_t swap = (uint16_t)(c->fg ^ c->bg);
         for (; len; len--, p += step) *p ^= swap;
@@ -28,10 +35,11 @@ static uint8_t canvas_display_cb(u8x8_t *u8x8, uint8_t msg, uint8_t arg_int, voi
     return 1;
 }
 
-bool canvas_init(canvas_t *c, uint16_t *pixels, int w, int h) {
+static bool setup(canvas_t *c, uint16_t *pixels, uint8_t *indexes, int w, int h) {
     memset(c, 0, sizeof *c);
-    if (!pixels || w <= 0 || h <= 0 || (w & 7) || (h & 7) || w > CANVAS_MAX_W || h > CANVAS_MAX_H) return false;
+    if ((!pixels && !indexes) || w <= 0 || h <= 0 || (w & 7) || (h & 7) || w > CANVAS_MAX_W || h > CANVAS_MAX_H) return false;
     c->px = pixels;
+    c->idx = indexes;
     c->w = w;
     c->h = h;
     c->info.chip_disable_level = 1;
@@ -42,13 +50,27 @@ bool canvas_init(canvas_t *c, uint16_t *pixels, int w, int h) {
     // (the u8x8 struct is the first member of u8g2_t, so the display callback's u8x8 is the canvas too)
     u8g2_SetupDisplay(&c->u8g2, canvas_display_cb, u8x8_cad_empty, u8x8_byte_empty, u8x8_dummy_cb);
     u8g2_SetupBuffer(&c->u8g2, c->mono, (uint8_t)(h / 8), canvas_hvline, &u8g2_cb_r0);
+    return true;
+}
+
+bool canvas_init(canvas_t *c, uint16_t *pixels, int w, int h) {
+    if (!pixels || !setup(c, pixels, NULL, w, h)) return false;
     canvas_color(c, 0xFFFF, 0x0000);
     canvas_clear(c, 0x0000);
     return true;
 }
 
+bool canvas_init_indexed(canvas_t *c, uint8_t *indexes, int w, int h, const uint16_t *palette) {
+    if (!indexes || !palette || !setup(c, NULL, indexes, w, h)) return false;
+    c->palette = palette;
+    canvas_color(c, 1, 0);                                          // (indexes: the palette's second and first colours)
+    canvas_clear(c, 0);
+    return true;
+}
+
 void canvas_clear(canvas_t *c, uint16_t color) {
     const size_t n = (size_t)c->w * (size_t)c->h;
+    if (c->idx) { memset(c->idx, (uint8_t)color, n); return; }
     for (size_t i = 0; i < n; i++) c->px[i] = color;
 }
 
@@ -58,6 +80,7 @@ void canvas_fill(canvas_t *c, int x, int y, int w, int h, uint16_t color) {
     if (x + w > c->w) w = c->w - x;
     if (y + h > c->h) h = c->h - y;
     if (w <= 0 || h <= 0) return;
+    if (c->idx) { for (int r = 0; r < h; r++) memset(c->idx + (size_t)(y + r) * (size_t)c->w + x, (uint8_t)color, (size_t)w); return; }
     for (int r = 0; r < h; r++) {
         uint16_t *p = c->px + (size_t)(y + r) * (size_t)c->w + x;
         for (int i = 0; i < w; i++) p[i] = color;
@@ -66,9 +89,12 @@ void canvas_fill(canvas_t *c, int x, int y, int w, int h, uint16_t color) {
 
 uint16_t canvas_get(const canvas_t *c, int x, int y) {
     if (x < 0 || y < 0 || x >= c->w || y >= c->h) return 0;
+    if (c->idx) return c->palette[c->idx[(size_t)y * (size_t)c->w + x]];
     return c->px[(size_t)y * (size_t)c->w + x];
 }
 
 void canvas_send(const canvas_t *c) {
-    if (c->w == DISPLAY_WIDTH && c->h == DISPLAY_HEIGHT) display_send_rgb565(c->px);   // (a frame of another size is not the screen's)
+    if (c->w != DISPLAY_WIDTH || c->h != DISPLAY_HEIGHT) return;                       // (a frame of another size is not the screen's)
+    if (c->idx) display_send_indexed(c->idx, c->palette);
+    else display_send_rgb565(c->px);
 }

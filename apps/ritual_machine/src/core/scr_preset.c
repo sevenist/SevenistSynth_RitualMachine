@@ -10,18 +10,22 @@
 
 static void request(const ui_ctx_t *c) { c->ui->preset_req = (uint8_t)c->arg; }
 
+// The screen is data only, with no layout() (ui_screen.h, widget geometry): the buttons are a column of rows in the left half (the first one in the
+// area, each next one below the one before it), the box on the right is a static widget that fills what is left of the area.
+#define COLUMN_FIRST {PL_IN, 0, {0, UN_PX, 0}, {2, UN_PX, 0}, {50, UN_PCT, -1}, {1, UN_ROW, 0}}
+#define COLUMN_NEXT  {PL_BELOW, 0, {0, UN_PX, 0}, {1, UN_GAP, 0}, {0, UN_SAME, 0}, {1, UN_ROW, 0}}
+#define INFO_BOX     {PL_IN, 0, {50, UN_PCT, 2}, {0, UN_PX, 0}, {1, UN_FILL, 0}, {1, UN_FILL, 0}}
+
+static void info_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t box, bool focused, bool latched);
+
 static const el_def_t elements[] = {
-    {"Load",    EL_BUTTON, 0, 0, 1, NULL, NULL, request, NULL, NULL, NULL, PRESET_REQ_LOAD,    0},
-    {"Save",    EL_BUTTON, 1, 0, 1, NULL, NULL, request, NULL, NULL, NULL, PRESET_REQ_SAVE,    0},
-    {"Save as", EL_BUTTON, 2, 0, 1, NULL, NULL, request, NULL, NULL, NULL, PRESET_REQ_SAVE_AS, 0},
-    {"Init",    EL_BUTTON, 3, 0, 1, NULL, NULL, request, NULL, NULL, NULL, PRESET_REQ_INIT,    0},
+    {"Load",    EL_BUTTON, 0, 0, 1, NULL, NULL, request, NULL, NULL, NULL, PRESET_REQ_LOAD,    0, COLUMN_FIRST},
+    {"Save",    EL_BUTTON, 1, 0, 1, NULL, NULL, request, NULL, NULL, NULL, PRESET_REQ_SAVE,    0, COLUMN_NEXT},
+    {"Save as", EL_BUTTON, 2, 0, 1, NULL, NULL, request, NULL, NULL, NULL, PRESET_REQ_SAVE_AS, 0, COLUMN_NEXT},
+    {"Init",    EL_BUTTON, 3, 0, 1, NULL, NULL, request, NULL, NULL, NULL, PRESET_REQ_INIT,    0, COLUMN_NEXT},
+    {"",        EL_VALUE,  0, 0, 1, NULL, NULL, NULL,    info_draw, NULL, NULL, 0, EF_STATIC,  INFO_BOX},
 };
 #define N_ELEMENTS ((int)(sizeof elements / sizeof elements[0]))
-
-static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, gui_rect_t *rect) {
-    (void)c;
-    ui_layout_column(g, st, area, N_ELEMENTS, rect);
-}
 
 // One line of the box, cut at its edges (a long name shows its start).
 static void box_line(u8g2_t *g, gui_rect_t box, int y, const char *s) {
@@ -31,9 +35,8 @@ static void box_line(u8g2_t *g, gui_rect_t box, int y, const char *s) {
     u8g2_SetMaxClipWindow(g);
 }
 
-static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, const gui_rect_t *rect) {
-    (void)area; (void)rect;
-    const gui_rect_t box = ui_picture_box(st);
+static void info_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t box, bool focused, bool latched) {
+    (void)focused; (void)latched;
     const int rh = gui_row_h(g, st);
     u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
     const char *name = c->ui->preset_name;
@@ -50,4 +53,4 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
     box_line(g, box, box.y + 3 * rh + 5, c->ui->preset_edited ? "edited" : "saved");
 }
 
-const screen_def_t scr_preset_screen = {elements, N_ELEMENTS, true, false, layout, NULL, NULL, draw_extra};
+const screen_def_t scr_preset_screen = {elements, N_ELEMENTS, true, false, NULL, NULL, NULL, NULL};

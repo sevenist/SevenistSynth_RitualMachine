@@ -13,6 +13,10 @@ int  board_led_of_control(int ctl);   // where the LED under a control of the bo
 void board_leds_refresh(void);        // called before each show of the chain: the LEDs that are the board's own (HW_LED_NOT_APP), through leds_esp32_put
 int  board_audio_peak(void);          // a board with HW_HAS_VU: the highest sample the engine has rendered since the last call, 0..32768
 void input_esp32_init(void);      // starts the input scan (keyboard, knobs, joystick); see input_esp32.cpp
+// A colour screen (HW_DISPLAY_RGB565): makes the display's three colour frames now instead of at the first colour frame: RGB565 ones (3 x 40 KB
+// at 128 x 160, PSRAM), or indexed ones (`indexed`: 3 x 20 KB, display_send_indexed). Call it before anything takes the PSRAM it leaves (the
+// audio engine takes all but a headroom); false: no memory, those frames are shown in one colour.
+bool display_esp32_colour_reserve(bool indexed);
 void display_esp32_boot_stage(int percent);   // setup() says how far it is (0..100): its part of the boot animation's loading bar (display_esp32.cpp)
 
 // The power button and the USB cable. The button is a latching switch: down = on. The cable feeds the board whatever the button says,

@@ -120,6 +120,11 @@ typedef struct {
     int rack_row;   // RACK tab (ADR-041): the row whose cell is selected (the menu acts on it)
     int rack_col[RACK_ROWS];    // the selected column of each row (row M: the MIX, its modules, the + cell, the OUT; a branch: its modules, the + cell)
     bool rack_menu; // the push menu of the selected cell is open
+    uint8_t map_at;     // MAP tab (scr_map.c, scr_node.c): 0 = the map, n = the page of node n - 1 (a module)
+    uint8_t map_page;   // ... that page's part: 0 VALUES, 1 PORTS
+    bool    map_pick;   // ... the PICK list over it (a modulation source for one of its parameters)
+    uint8_t pick_param; // ... PICK: the parameter the cable goes to (rack_param_name's index)
+    uint8_t map_menu;   // ... the rack's cell menu opened on the map: the map's focus to come back to (node + 1); 0: not from the map
     int  fm_op;            // FM editor: selected operator 0..5
     int  fm_pt;            // FM editor: selected envelope point 0..3
     int  cog_page;         // the page whose cog is open (its module's hidden settings shown in place of its rows), -1 = none

@@ -1,5 +1,6 @@
 // The application: its start, one frame, and the step that the platform's main loop calls (app.h). The rest is in the other files of
 // this folder (app_internal.h lists them).
+#include "core/ui_theme.h"
 #include "app/app_internal.h"
 #include "app/key_leds.h"
 #include "ui/gui.h"
@@ -151,7 +152,7 @@ static void start_poll(app_t *app, uint32_t now) {
 
 static void draw_keys_notice(app_t *app) {
     u8g2_t *g = app->display;
-    u8g2_ClearBuffer(g);
+    ui_clear(g);
     u8g2_SetFont(g, u8g2_font_5x7_tr);
     u8g2_DrawFrame(g, 0, 0, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
     u8g2_DrawBox(g, 0, 0, u8g2_GetDisplayWidth(g), 10);
@@ -186,7 +187,7 @@ void app_draw_frame(app_t *app) {
     u8g2_t *g = app->display;
     if (app->keys_notice) draw_keys_notice(app);   // the full-screen notice hides the popups until it goes (they wait in their queue)
     else if (app->boot_anim != GUI_ANIM_INVALID) {  // the boot animation, alone on the screen (popups wait too)
-        u8g2_ClearBuffer(g);
+        ui_clear(g);
         gui_anim_draw_centered(g, app->boot_anim, gui_rect(0, 0, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g)));
         app_boot_draw_text(g);
     } else {
@@ -209,7 +210,7 @@ void app_draw_frame(app_t *app) {
         gui_style_init(&st, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
         popup_draw(&app->popup, g, &st);
     }
-    display_send(g);
+    ui_frame_send(g);                               // (the colour canvas on a colour board: core/ui_theme.h)
 }
 
 /* ---------------- the step ---------------- */

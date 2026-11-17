@@ -1,4 +1,5 @@
 // The screens: the header, the parameter lists, the hand-drawn screens (sequencer, rack, effects, FM editor...) and synth_ui_draw().
+#include "core/ui_theme.h"
 #include "core/ui_screen.h"
 #include "core/bindings.h"
 #include "hal/hal_display.h"
@@ -395,6 +396,39 @@ static env_params_t module_env(const rack_slot_t *s) {
 
 // A module's page, the right half under the bar (8 px grid): the module's 24 px icon, three info lines under it and, on the first page of a module
 // with hidden settings, the cog in the top-right grid cell (focused: inverted; its row is the one after the last parameter row).
+// A module's picture by its type, for a page that is not the main view's (the MAP tab's node page, scr_node.c): the same drawings as the
+// module's first page below.
+void ui_module_picture(u8g2_t *g, const gui_style_t *st, gui_rect_t box, const rack_slot_t *ms) {
+    switch (ms->type) {
+        case MOD_OSC: {
+            const int gen = rack_wave_id((int)ms->v[MP_OC_WAVE]);
+            if (gen >= OC_FIRST_MI) {
+                char nm[16];
+                rack_mparam_format(ms, MP_OC_WAVE, nm, sizeof nm);
+                draw_mi_preview(g, box, gen - OC_FIRST_MI, ms->v[MP_OC_PW], ms->v[MP_OC_MORPH], ms->v[MP_OC_HARM], st->wave_cycles, nm);
+            } else if (gen >= OC_FIRST_ENGINE) draw_engine_preview(g, box, gen - OC_FIRST_ENGINE, ms->v[MP_OC_PW], ms->v[MP_OC_MORPH], st->wave_cycles);
+            else draw_wave(g, box, gen, ms->v[MP_OC_PW], st->wave_cycles);
+        } break;
+        case MOD_LFO: {
+            static const int lfo_wave[4] = {WAVE_SINE, WAVE_TRIANGLE, WAVE_SAW_DOWN, WAVE_PULSE};
+            draw_wave(g, box, lfo_wave[(int)ms->v[MP_LF_SHAPE] & 3], 0.5f, st->wave_cycles);
+        } break;
+        case MOD_ENV:     { env_params_t e = module_env(ms); draw_env(g, box, &e); } break;
+        case MOD_EG:      draw_eg_graph(g, box, ms, -1); break;
+        case MOD_COMB:    draw_comb(g, box, ms->v[MP_RS_FB], ms->v[MP_RS_MIX]); break;
+        case MOD_FILTER:  draw_filter(g, box, (int)ms->v[MP_FL_TYPE], ms->v[MP_FL_CUT], ms->v[MP_FL_RES]); break;
+        case MOD_SAT:     draw_sat(g, box, (int)ms->v[MP_SA_MODE], ms->v[MP_SA_DRIVE], ms->v[MP_SA_MIX]); break;
+        case MOD_SAMPLER: {
+            audio_sample_info_t in;
+            const bool have = audio_sample_info((int)ms->v[MP_SM_FILE] - 1, &in);
+            draw_sample_graph(g, box, have ? &in : NULL, (int)ms->v[MP_SM_SLICE] - 1, ms->v[MP_SM_START], ms->v[MP_SM_LOOP] != 1.0f);
+        } break;
+        default:
+            if (rack_is_fx((module_type_t)ms->type)) draw_fx_module(g, box, ms);
+            break;
+    }
+}
+
 static void draw_module_head(u8g2_t *g, const gui_style_t *st, const synth_ui_t *ui, const rack_t *rack, const page_t *pg, gui_rect_t r) {
     const rack_slot_t *ms = &rack->slot[pg->slot];
     gui_draw_sprite(g, ui_module_sprite(ms), r.x + GUI_GRID, r.y);
@@ -501,7 +535,7 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
     page_t pg;
     char val[24];
 
-    u8g2_ClearBuffer(g);
+    ui_clear(g);
     gui_begin(g, st);
 
     gui_rect_t screen = gui_inset(gui_rect(0, 0, u8g2_GetDisplayWidth(g), content_h), st->margin);
@@ -539,7 +573,7 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
 
     if (ui->in_rack) {                           // every tab of the menu is a declarative screen (ui_screen.h)
         const ui_ctx_t ctx = {(synth_ui_t *)ui, (rack_t *)rack, 0, (synth_params_t *)p, (seq_t *)seq};   // drawing only reads
-        screen_draw(screen_for_tab(tab_kind(rack, ui->menu_tab)), g, st, &ctx, screen);
+        screen_draw(screen_shown(ui, rack, tab_kind(rack, ui->menu_tab)), g, st, &ctx, screen);
         return;
     }
     if (pg.graph == GRAPH_SEQ) {

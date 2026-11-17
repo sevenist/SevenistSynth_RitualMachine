@@ -60,6 +60,27 @@ bool color_buffers() {
     pending565 = b[0];                         // (last: the task looks at it, under the mutex, only once color_frame is set)
     return true;
 }
+
+// Indexed frames (display_send_indexed): a byte a pixel and the palette they index; three of them (20 KB each at 128 x 160), as the RGB565 ones.
+constexpr size_t kIndexBytes = (size_t)DISPLAY_WIDTH * DISPLAY_HEIGHT;
+uint8_t *pending8 = nullptr, *work8 = nullptr, *sent8 = nullptr;
+const uint16_t *pending_pal = nullptr, *sent_pal = nullptr;   // the palette of each
+volatile bool indexed_frame = false;           // the newest frame is an indexed one (guarded by mtx with pending8)
+bool sent8_valid = false;
+
+bool indexed_buffers() {
+    if (pending8) return true;
+    uint8_t *b[3];
+    for (uint8_t *&p : b) p = static_cast<uint8_t *>(heap_caps_malloc_prefer(kIndexBytes, 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT));
+    if (!b[0] || !b[1] || !b[2]) {
+        for (uint8_t *p : b) heap_caps_free(p);
+        return false;
+    }
+    work8 = b[1];
+    sent8 = b[2];
+    pending8 = b[0];
+    return true;
+}
 #endif
 
 // A colour frame made one-colour, into a buffer of u8g2's layout: a pixel is lit when it is bright (the boards without a colour screen).
@@ -78,6 +99,22 @@ void display_task(void *) {
         ulTaskNotifyTake(pdTRUE, portMAX_DELAY);                  // pdTRUE: several frames sent meanwhile = one wake-up, the newest frame
         if (boot_playing || !have_frame) continue;                // (the boot task wakes this one when it is done)
 #if HW_DISPLAY_RGB565
+        if (indexed_frame) {
+            xSemaphoreTake(mtx, portMAX_DELAY);
+            memcpy(work8, pending8, kIndexBytes);
+            const uint16_t *pal = pending_pal;
+            xSemaphoreGive(mtx);
+            display_panel_show_indexed(work8, sent8_valid && pal == sent_pal ? sent8 : nullptr, pal);
+            uint8_t *const shown = work8;
+            work8 = sent8;
+            sent8 = shown;
+            sent_pal = pal;
+            sent8_valid = true;
+            sent565_valid = false;
+            sent_valid = false;
+            continue;
+        }
+        sent8_valid = false;
         if (color_frame) {
             xSemaphoreTake(mtx, portMAX_DELAY);
             memcpy(work565, pending565, kColorBytes);
@@ -223,17 +260,70 @@ extern "C" void display_send(u8g2_t *g) {
     have_frame = true;
 #if HW_DISPLAY_RGB565
     color_frame = false;
+    indexed_frame = false;
 #endif
+    xTaskNotifyGive(task);
+}
+
+bool display_esp32_colour_reserve(bool indexed) {
+#if HW_DISPLAY_RGB565
+    return indexed ? indexed_buffers() : color_buffers();
+#else
+    (void)indexed;
+    return false;
+#endif
+}
+
+extern "C" void display_send_indexed(const uint8_t *frame, const uint16_t *palette) {
+    if (!frame || !palette) return;
+#if HW_DISPLAY_RGB565
+    static bool told = false;
+    if (!indexed_buffers() && !told) {
+        told = true;
+        Serial.println("[LCD] no memory for the indexed frames: they are shown in one colour (reserve them before the audio takes the PSRAM)");
+    }
+    if (indexed_buffers()) {
+        xSemaphoreTake(mtx, portMAX_DELAY);
+        memcpy(pending8, frame, kIndexBytes);
+        pending_pal = palette;
+        indexed_frame = true;
+        color_frame = false;
+        xSemaphoreGive(mtx);
+        have_frame = true;
+        xTaskNotifyGive(task);
+        return;
+    }
+#endif
+    xSemaphoreTake(mtx, portMAX_DELAY);                       // a one-colour screen: a pixel is lit when its colour is bright
+    memset(pending, 0, kBytes);
+    for (int y = 0; y < DISPLAY_HEIGHT; y++)
+        for (int x = 0; x < DISPLAY_WIDTH; x++) {
+            const uint16_t v = palette[frame[y * DISPLAY_WIDTH + x]];
+            const int luma = ((v >> 11) * 2 * 77 + ((v >> 5) & 0x3F) * 150 + (v & 0x1F) * 2 * 29) >> 8;
+            if (luma >= 24) pending[(y / 8) * DISPLAY_WIDTH + x] |= (uint8_t)(1 << (y & 7));
+        }
+#if HW_DISPLAY_RGB565
+    color_frame = false;
+    indexed_frame = false;
+#endif
+    xSemaphoreGive(mtx);
+    have_frame = true;
     xTaskNotifyGive(task);
 }
 
 extern "C" void display_send_rgb565(const uint16_t *frame) {
     if (!frame) return;
 #if HW_DISPLAY_RGB565
+    static bool told = false;
+    if (!color_buffers() && !told) {             // (they are made at the first colour frame unless display_esp32_colour_reserve came first)
+        told = true;
+        Serial.println("[LCD] no memory for the colour frames: they are shown in one colour (reserve them before the audio takes the PSRAM)");
+    }
     if (color_buffers()) {
         xSemaphoreTake(mtx, portMAX_DELAY);
         memcpy(pending565, frame, kColorBytes);
         color_frame = true;
+        indexed_frame = false;
         xSemaphoreGive(mtx);
         have_frame = true;
         xTaskNotifyGive(task);
@@ -244,6 +334,7 @@ extern "C" void display_send_rgb565(const uint16_t *frame) {
     color_to_mono(frame, pending);
 #if HW_DISPLAY_RGB565
     color_frame = false;
+    indexed_frame = false;
 #endif
     xSemaphoreGive(mtx);
     have_frame = true;

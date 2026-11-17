@@ -8,7 +8,135 @@ real. The drawing helpers it uses (rectangles, text, fields, sprites, popups) ar
 Paths without a prefix are inside `apps/ritual_machine/src/` (`core/...`, `app/...`); `ui/...` and `hal/...` are
 `framework/ui` and `framework/hal`.
 
-The UI has **two ways of writing a screen**, and knowing which one a screen uses is the first thing to find out:
+> **Rework in progress (branch `gui-nodes`).** The sections below describe the code **as it was before the rework**, except where the
+> log says a part changed. The log is the record of the rework, newest last; when the rework is finished, the whole document is
+> rewritten from it and the log goes away. The plan is [GUI_NODES.md](GUI_NODES.md).
+>
+> **Rework log**
+>
+> **2026-11-16, step 1: widget geometry in the declarative screens** (`core/ui_screen.h`, `ui_screen.c`; the smallest change that lets a
+> screen be plain data, with nothing else rewritten).
+>
+> - **`el_def_t` gains a last field, `box` (`ui_box_t`)**, all zero by default. Every existing table keeps compiling and drawing as before
+>   (checked: a frame hash of every menu tab and of the PRESETS tab in each state is identical before and after).
+> - **A box says where the element sits and how big it is**, as data: `place` (`PL_IN` absolute, in the area or in another element;
+>   `PL_BELOW`, `PL_ABOVE`, `PL_RIGHT_OF`, `PL_LEFT_OF` relative to another element), `ref` (`UI_REF(i)` an earlier element; 0 = the area
+>   for `PL_IN`, the previous element for the others), and the lengths `x`, `y`, `w`, `h` (`ui_len_t`: a value in `UN_PX`, `UN_PCT` of the
+>   parent, `UN_CELL` of the 8 px grid, `UN_ROW` text rows, `UN_GAP` style gaps, `UN_FILL` to the parent's far edge, `UN_SAME` as the
+>   reference; plus `adj` pixels). An element may only refer to an earlier one.
+> - **`ui_layout_boxes()`** resolves the boxes into rectangles. `screen_draw` calls it after `layout()`, so a screen may place some
+>   elements by data and others by code. **`screen_def_t.layout` may now be `NULL`**: then every element needs a box, and an element
+>   without one is not drawn.
+> - **`EF_STATIC`**: a widget that only shows (a label, a picture, drawn by its `draw` callback); the focus, `nav` and `linear` skip it
+>   (`el_focusable`), and it is never drawn focused.
+> - **The PRESETS tab (`scr_preset.c`) is the first screen written this way**: no `layout()`, no `draw_extra()`. Its four buttons are a
+>   column (`PL_IN`, then `PL_BELOW` each) and its info box is a static widget filling the rest of the area. `tests/ui/test_widgets.c`
+>   checks the units and places, and that the boxes give exactly what `ui_layout_column()` and `ui_picture_box()` gave, at 128 x 64, 128 x 128 and 128 x 160.
+> - Not done: the other tabs still use `layout()`; the rack strip, the pages of the main view and the Pads screens are untouched; no colour.
+>
+> **2026-11-17, step 2: the MAP tab, the modular rack as nodes** (GUI_NODES.md level L0, read and move only).
+>
+> - **`core/nav_graph.[ch]`**: the rack as a graph, pure data, rebuilt whenever needed (`nav_build`, 16 modules), no state, no drawing. Node i is
+>   the module in slot i; `NAV_MIX` and `NAV_OUT` follow (so a node's index is also its element number in the screen's table). Layout: the signal
+>   runs down; branch 1 is column 0, branch 2 column 1, the MIX under the longer one, row M and the OUT under it in column 0; the modulators
+>   stand in columns 2 and 3 from the top, two by two; FM and Strings have one chain and no MIX. Edges: audio (each chain into the MIX or the
+>   OUT, the MIX into row M) and modulation (a modulator or an oscillator with a target to its target; a motion sequencer one per lane).
+>   `nav_move` is the cursor: down and up follow a column (the end of a branch goes on into the MIX, the MIX goes up into the longer branch),
+>   left and right go to the nearest column on that side, at about the same depth, up from the top of a column is the header.
+> - **`screen_def_t` gains a last field, `move`**: the joystick's move, when a screen's elements are not at fixed grid cells. NULL (every other
+>   screen) keeps the `row` / `col` grid.
+> - **`core/scr_map.c`, `TAB_MAP`**: a declarative screen. Nodes are 18 `EL_BUTTON` elements drawn by `tile_draw` (28 x 12 tiles in 32 x 14
+>   cells, placed by `layout()` from the graph; a screen too short shows the rows around the cursor, with no scroll state: it is worked out from
+>   the cursor), the strip under the map is a static widget placed by data (its `box`). Audio cables are solid, modulation cables dotted and
+>   routed along the gaps between tiles, a modulator's tile has its corners cut, the selected tile is filled. The strip says what the node is and
+>   where its ports go ("in OC1  out SA1", "LF1 > FL1 Cutoff"). A push opens that module's first page in the main view. No editing: the RACK
+>   tab, next to it, still does that.
+> - **`TAB_MAP` is appended to `tab_t`** and sits in the RACK view after RACK (the view has three tabs now: `tab_order`, `view_tabs`,
+>   `tab_name`, `tab_icon`, `screen_for_tab` in `ui_pages.c` / `ui_screen.c`). It has no icon of its own yet (RACK's). Not in the Shift + Menu map
+>   popup: it is reached from RACK with left / right on the header.
+> - **Tests**: `tests/ui/test_map.c` (the graph, the cursor, the tab, a push, drawing every node of a full rack). `test_views.c` and
+>   `test_lists.c` changed where they counted the tabs (10 to 11, the RACK view's list has MAP in it). 229 UI tests pass at 128 x 160 and 128 x 128.
+> - Not done: colour; editing from the map (cables, insert, delete); a Back and Menu of its own; the map in the page list; the second level (one
+>   node's values and ports on one page); the modulation cables overlap when two targets are on the same row; nothing flashed.
+>   (Flashed on HWV2 later that day, before step 3.)
+>
+> **2026-11-17, step 3: colour, the node GUI's widgets, the node page and the PICK list** (the look of `apps/gui_mockup` and its artifact).
+>
+> - **Colour: `core/ui_theme.[ch]`.** On a colour board the platform gives the app the u8g2 of a colour canvas (`framework/ui/canvas.h`)
+>   and attaches it (`ui_colour_attach`): HWV2 (`platform/esp32/main_esp32.cpp`, `HW_DISPLAY_RGB565`, its 40 KB frame in PSRAM; without
+>   the memory it stays one colour and says so: `[UI] one colour`), and the desktop window at 160 px (`platform/sim/main_sim.c`). The five
+>   `u8g2_ClearBuffer` of the frame (`app.c` twice, `ui_draw.c`, `scr_pads.c`, `scr_browse.c`) are `ui_clear`, its `display_send` is
+>   `ui_frame_send`; nothing else of the existing screens changed: they draw white on the theme's near-black. `ui_ink` / `ui_fill` paint a
+>   theme colour and do nothing in one colour; `ui_family` gives a module type its colour (sources green, shapers violet, modulators
+>   amber, effects cyan; the MIX grey, the OUT red). HWV1 and the UI tests attach nothing.
+> - **The widgets: `core/ui_widgets.[ch]`**, each in colour and as a high-contrast one-colour replacement saying the same thing: tile,
+>   cable (audio / modulation / gate), chip, title band, tabs, value row (a bar; "~" and an amber line when modulated), port row, list row,
+>   panel. The table of what each becomes in one colour is in the header.
+> - **`EF_SCROLL`** (`ui_screen.h`): the rows of a list placed by data; `screen_draw` moves them up together until the focused one is in
+>   view (no scroll state) and skips the rows moved above the list's top. `MAX_ELEMENTS` is 40 (a node page has 33).
+> - **The MAP** (`scr_map.c`) draws with the widgets: tiles with the family band and the main value's bar (an oscillator's level, a filter's
+>   cutoff, a saturator's drive, an LFO's rate, else the first continuous value), the cursor as an outline, colour cables, and a three-line
+>   strip with the ports as chips on a tall screen (128 x 160: 28 x 14 tiles in 32 x 16 cells); a short one (128 x 128) keeps 12 px tiles
+>   and the two-line strip. **A push opens the node's page** (it opened the module's first main-view page in step 2).
+> - **The node page and the PICK list: `core/scr_node.c`**, two declarative screens placed entirely by data (boxes, no `layout()`).
+>   `screen_shown(ui, rack, tab)` (`ui_screen.c`, used by `ui_draw.c` and `ui_input.c` in place of `screen_for_tab`) picks map / node / PICK
+>   from `synth_ui_t.map_at` (0 = the map, n = node n - 1), `map_page` (0 VALUES, 1 PORTS), `map_pick`, `pick_param`.
+>   Node page: the title band, the VALUES / PORTS tabs (the user's split: so it fits 128 x 128), VALUES = the module's picture
+>   (`ui_module_picture`, a new function of `ui_draw.c`: the same drawings as its first page, by type) and its values as bars (push latches,
+>   the joystick or encoder B edit, as on its own pages); PORTS = one row per cable (in, out, each modulation in with its depth, the module's
+>   own), push follows the cable to the module at the other end, left / right on a modulation row change its depth, "+ modulation" opens
+>   PICK. Back: the map, its cursor on the node. PICK: "To" (which of the module's parameters), then the rack's modulators (and oscillators)
+>   with where each goes now; a push connects (`rack_set_target`, new in `rack.c`: a modulator has one target, so it leaves the one it had,
+>   which the line above the list says), applied when the menu closes (`rack_dirty`), back on the PORTS.
+> - **Differences from the mock-up**: no live position of a modulated value (the engine does not report it to the UI: an amber line
+>   instead); no Replace / Add / Cancel buttons (a modulator has one target: the list says what it leaves); the header stays the UI's own
+>   (view badge, battery), the family's band is the page's title under it; no key legend line (the knob legend zone is the UI's); no gate
+>   cables (the rack has none yet: the widget has them).
+> - **Tests**: `tests/ui/test_map.c` (+5: the node page and Back, editing a value, the ports, following a cable, depth, PICK connecting,
+>   every node page drawn, and a colour canvas: the tiles' bands in their family's colour). 233 UI tests pass at 128 x 160 and 128 x 128.
+>   The frames were also rendered and looked at, in colour at 160 and in one colour at 128.
+> - Not done: flashed / looked at on the board; colour for the other screens (they are white on near-black); removing a cable from the node
+>   page (the RACK tab's Tgt does it); the map in the Shift + Menu map popup; its own tab icon.
+>
+> **2026-11-17, step 3b: colour on the board, the colour flag.**
+>
+> - **Colour did not reach the panel**: `audio_init` takes all the PSRAM but a 128 KB headroom (`audio_esp32.cpp`), and the display's three
+>   colour frames were made at the first colour frame, after it: they found 33 KB and every frame was shown in one colour, silently.
+>   `main_esp32.cpp` now makes the canvas and the display's frames **before** `audio_init` (`display_esp32_colour_reserve`, new in
+>   `framework/boards/esp32`); the driver says once when it has to fall back (`[LCD] no memory ...`). The engine's heap went from 1.96 MB to
+>   1.79 MB (its high water: 366 KB); 71.5 KB of PSRAM stay free.
+> - **`UI_COLOUR_MODE`** (build flag, `platformio.ini`; `core/ui_theme.h`): `0` one colour, `1` palette, `2` RGB565 (HWV2's setting). Palette
+>   mode is an **indexed canvas** (`canvas_init_indexed`, new in `framework/ui/canvas.[ch]`: a byte a pixel, an index into the theme's
+>   colours; colours given to the canvas are indexes) sent with `display_send_indexed` (new in `hal_display.h`; implemented by the ESP32
+>   driver, three 20 KB frames, converted tile by tile in `boards/hwv2/display_panel.cpp`; the desktop window; both test stubs; the mock-up).
+>   80 KB instead of 160 KB. The theme only uses its own colours: the value bars' dim colours are theme entries now (`UC_*_DIM`, `ui_dim`).
+>   Palette mode is tested on the desktop (the same pixels as RGB565), not built for the board yet.
+> - **Gamma**: the panel stays on the ST7735S's reset curve (2.2), as the mock-up does: a gamma switch was tried and removed.
+>
+> **2026-11-17, step 4: the map IS the RACK tab, with the rack's editing.**
+>
+> - **`TAB_RACK` shows the map** (`screen_for_tab`, `screen_shown`); the MAP tab is gone from the tab list (`TAB_MAP` stays in `tab_t`: a jump
+>   slot saved on it lands on the map). The tabs are as before step 2 (10; the RACK view: RACK, SOUND). **The strip (`scr_rack.c`) only shows
+>   the Pads section's FX chains now** (`scr_pads.c`).
+> - **"+" nodes** (`nav_graph.[ch]`: `NAV_PLUS1`, `NAV_PLUS2`, `NAV_PLUSM`, `NAV_PLUS_MOD`, kind `NODE_PLUS`, and each node's rack `row`): the end
+>   of branch 1, of branch 2 (above the MIX), of row M (above the OUT), and the next place among the modulators, while the rack has room.
+> - **A push on a node opens the rack's own menu** (one set of rules: `scr_rack.c`). The map selects the cell (`scr_rack_select`) and runs the
+>   menu's items by number (`RM_*` = scr_rack.c's `M_*`, `scr_rack_item_*`); its own first item is **Edit** (the node's page, step 3). So:
+>   on a module Edit, Type, Insert (before it), Tgt / Prm / Dpth (a modulator), Row, Para, PEnv, Delete; on the MIX the branches' levels and pans;
+>   on a "+" Type and Insert, the type set to one that fits there (a modulator on the modulators' "+"). The items stack in a box over the map
+>   (`EF_SCROLL`: it scrolls on a short screen); the joystick moves up and down them, left / right change a value; Back closes the menu
+>   (`map_back`); `scr_rack.c`'s `menu_close` brings the cursor back to the map (`synth_ui_t.map_menu`: on the module the cell now holds, the one
+>   just inserted, or where the menu was opened). The edits are the rack's: applied when the menu closes, "RACK*" until then, as before.
+> - **FM and Strings**: the map shows row M only; the modules left in the branches (they do not play) are not on it (`nav_build`).
+> - **Tests**: `test_map.c` (+6: a "+" inserts at the end of a branch, the modulators' "+" offers a modulator, Insert before a module and
+>   Delete, the MIX's levels, Back closes the menu and never deletes, every node's menu drawn); `test_rows.c`'s RACK tab tests rewritten for
+>   the map (Para, PEnv, the MIX; FM: row M only); `test_views.c`, `test_lists.c` back to 10 tabs; the safety tests (Back never deletes, Back
+>   closes the cell's menu first) pass on the map unchanged. 240 UI tests pass at 128 x 160 and 128 x 128. Flashed on HWV2 (colour, no crash
+>   at the start); not tried by hand.
+> - Not done: moving a module up / down its chain in place (Row moves it to another row; Insert + Delete does the rest); inserting between two
+>   modules from the cable between them (Insert on the module after does it); the map for the Pads section's FX chains.
+>
+> The UI has **two ways of writing a screen**, and knowing which one a screen uses is the first thing to find out:
 
 - **Declarative** (the newer one): the screen is a table of elements, and one generic piece of code draws it, moves the focus
   and edits the values (section 6). Every tab of the menu and the Pads section's editor pages are written this way.

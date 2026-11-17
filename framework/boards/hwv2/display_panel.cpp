@@ -71,6 +71,25 @@ void send_tiles_rgb565(const uint16_t *frame, int tx, int ty, int count) {
     send(pixels, (size_t)(count * 8 * 8) * sizeof pixels[0]);
 }
 
+// The same from an indexed frame: each byte looked up in the palette.
+void send_tiles_indexed(const uint8_t *frame, const uint16_t *palette, int tx, int ty, int count) {
+    window(tx, ty, count);
+    uint16_t *out = pixels;
+    for (int r = 0; r < 8; r++) {
+        const uint8_t *src = frame + (ty * 8 + r) * DISPLAY_WIDTH + tx * 8;
+        for (int x = 0; x < count * 8; x++) *out++ = __builtin_bswap16(palette[src[x]]);
+    }
+    send(pixels, (size_t)(count * 8 * 8) * sizeof pixels[0]);
+}
+
+bool tile_same_indexed(const uint8_t *a, const uint8_t *b, int tx, int ty) {
+    for (int r = 0; r < 8; r++) {
+        const int at = (ty * 8 + r) * DISPLAY_WIDTH + tx * 8;
+        if (memcmp(a + at, b + at, 8)) return false;
+    }
+    return true;
+}
+
 bool tile_same_rgb565(const uint16_t *a, const uint16_t *b, int tx, int ty) {
     for (int r = 0; r < 8; r++) {
         const int at = (ty * 8 + r) * DISPLAY_WIDTH + tx * 8;
@@ -165,6 +184,21 @@ void display_panel_show_rgb565(const uint16_t *frame, const uint16_t *shown) {
             while (end < kTilesX && (!tile_same_rgb565(frame, shown, end, ty) ||
                                      (end + 1 < kTilesX && !tile_same_rgb565(frame, shown, end + 1, ty)))) end++;
             send_tiles_rgb565(frame, tx, ty, end - tx);
+            tx = end;
+        }
+    }
+}
+void display_panel_show_indexed(const uint8_t *frame, const uint8_t *shown, const uint16_t *palette) {
+    if (!lcd) return;
+    for (int ty = 0; ty < kTilesY; ty++) {
+        if (!shown) { send_tiles_indexed(frame, palette, 0, ty, kTilesX); continue; }
+        int tx = 0;
+        while (tx < kTilesX) {
+            if (tile_same_indexed(frame, shown, tx, ty)) { tx++; continue; }
+            int end = tx + 1;                   // a run of changed tiles, a single unchanged one inside it sent too (as display_panel_show)
+            while (end < kTilesX && (!tile_same_indexed(frame, shown, end, ty) ||
+                                     (end + 1 < kTilesX && !tile_same_indexed(frame, shown, end + 1, ty)))) end++;
+            send_tiles_indexed(frame, palette, tx, ty, end - tx);
             tx = end;
         }
     }

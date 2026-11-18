@@ -214,3 +214,36 @@ TEST(preset_without_a_card_says_so) {
     CHECK_STR(ui_app.preset, "");
     CHECK(popup_info_showing(&ui_app.popup) || popup_modal(&ui_app.popup));
 }
+
+// The cables beyond the chains (rack_cable_t) and a chain cable cut or at a level: saved with the patch, read back the same.
+TEST(a_patch_keeps_its_cables) {
+    ui_fresh();
+    rack_t *r = &ui_app.rack;
+    rack_clear(r);
+    CHECK(rack_insert_row(r, 0, 0, MOD_OSC));
+    CHECK(rack_insert_row(r, 1, 0, MOD_FILTER));
+    CHECK(rack_insert_row(r, 2, 1, MOD_FILTER));
+    CHECK(rack_insert_row(r, 3, 0, MOD_LFO));
+    CHECK(rack_audio_connect(r, 0, 2));
+    r->cable[0].amt = 0.4f;
+    CHECK(rack_mod_connect(r, 3, 1, 0));
+    CHECK(rack_mod_connect(r, 3, 0, 0));
+    r->slot[1].cut = 1;
+    r->slot[2].out_lvl = 0.6f;
+    static char txt[STORAGE_FILE_MAX];
+    CHECK(patch_to_text(r, &ui_app.params, &ui_app.ui, false, NULL, false, txt, sizeof txt) > 0);
+    const rack_t before = *r;
+    rack_init(r);
+    CHECK(patch_from_text(r, &ui_app.params, &ui_app.ui, NULL, NULL, txt));
+    CHECK_EQ(r->n_cables, 2);
+    CHECK_EQ(r->cable[0].kind, CABLE_AUDIO);
+    CHECK_EQ(r->cable[0].from, before.slot[0].id);
+    CHECK_EQ(r->cable[0].to, before.slot[2].id);
+    CHECK_EQ((int)(r->cable[0].amt * 100 + 0.5f), 40);
+    CHECK_EQ(r->cable[1].kind, CABLE_MOD);
+    CHECK_EQ(r->cable[1].to, before.slot[0].id);
+    CHECK_EQ(r->slot[3].tgt_id, before.slot[1].id);
+    CHECK_EQ(r->slot[1].cut, 1);
+    CHECK_EQ((int)(r->slot[2].out_lvl * 100 + 0.5f), 60);
+    CHECK_EQ((int)(r->slot[0].out_lvl * 100 + 0.5f), 100);
+}

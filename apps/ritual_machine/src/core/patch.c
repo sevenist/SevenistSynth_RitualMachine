@@ -106,6 +106,20 @@ int patch_to_text(const rack_t *rack, const synth_params_t *params, const synth_
             add(buf, cap, &n, "\n");
         }
     }
+    for (int i = 0; i < rack->count; i++) {                                     // a chain cable cut, or at its own level (a source's: its Lvl)
+        const rack_slot_t *s = &rack->slot[i];
+        if (!s->cut && s->out_lvl == 1.0f) continue;
+        add(buf, cap, &n, "chain %d %d", s->id, s->cut);
+        add_f(buf, cap, &n, s->out_lvl);
+        add(buf, cap, &n, "\n");
+    }
+    for (int k = 0; k < rack->n_cables; k++) {                                   // the cables beyond the chains and the first targets
+        const rack_cable_t *c = &rack->cable[k];
+        if (c->kind == CABLE_AUDIO) add(buf, cap, &n, "cable a %d %d", c->from, c->to);
+        else add(buf, cap, &n, "cable m %d %d %d", c->from, c->to, c->param);
+        add_f(buf, cap, &n, c->amt);
+        add(buf, cap, &n, "\n");
+    }
     for (int k = 0; k < SYNTH_UI_MACROS; k++) {                                  // a macro's colour (its LED, ADR-045) when not its default
         if (ui->macro[k].color == synth_ui_macro_default_color(k)) continue;
         char cn[16];
@@ -287,10 +301,27 @@ bool patch_from_text(rack_t *rack, synth_params_t *params, synth_ui_t *ui, char 
             mapping_t mp;
             if (sscanf(line, "joy %3s %n", w, &at) != 1 || !at || (strcmp(w, "x") && strcmp(w, "y")) || !mapping_parse(line + at, &mp)) continue;
             joy[w[0] == 'y'] = mp;
+        } else if (word(line, "chain")) {
+            float lv;
+            if (sscanf(line, "chain %d %d %f", &a, &b, &lv) != 3) continue;
+            const int si = rack_find(&r, a);
+            if (si == RACK_NONE) continue;
+            r.slot[si].cut = (uint8_t)(b != 0);
+            r.slot[si].out_lvl = lv < 0 ? 0 : lv > 1 ? 1 : lv;
+        } else if (word(line, "cable")) {
+            float amt;
+            rack_cable_t cb = {0};
+            if (sscanf(line, "cable %3s %n", w, &at) != 1 || !at || r.n_cables >= RACK_CABLES) continue;
+            if (!strcmp(w, "a") && sscanf(line + at, "%d %d %f", &a, &b, &amt) == 3) cb = (rack_cable_t){CABLE_AUDIO, (uint8_t)a, (uint8_t)b, 0, amt};
+            else if (!strcmp(w, "m") && sscanf(line + at, "%d %d %d %f", &a, &b, &c, &amt) == 4) cb = (rack_cable_t){CABLE_MOD, (uint8_t)a, (uint8_t)b, (uint8_t)c, amt};
+            else continue;
+            r.cable[r.n_cables++] = cb;                                          // (checked once every module is read)
         } else if (word(line, "from")) {
             if (sscanf(line, "from %d%n", &from_edited, &at) == 1 && at) rest(line + at, from, sizeof from);
         }
     }
+    for (int k = r.n_cables - 1; k >= 0; k--)                                    // a cable to or from a module that is not in the file
+        if (rack_find(&r, r.cable[k].from) == RACK_NONE || rack_find(&r, r.cable[k].to) == RACK_NONE) rack_cable_remove(&r, k);
     for (int i = 0; i < r.count; i++) {
         rack_slot_t *s = &r.slot[i];
         if (s->tgt_id && rack_find(&r, s->tgt_id) == RACK_NONE) s->tgt_id = 0;       // a target that is not in the file

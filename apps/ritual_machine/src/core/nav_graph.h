@@ -25,7 +25,7 @@ extern "C" {
 #define NAV_PLUS_MOD (RACK_MAX + 5)     // the next place among the modulators
 #define NAV_NODES (RACK_MAX + 6)
 #define NAV_COLS  4
-#define NAV_EDGES 48
+#define NAV_EDGES 64
 
 typedef enum { NODE_NONE, NODE_MODULE, NODE_MIX, NODE_OUT, NODE_PLUS } nav_kind_t;
 typedef enum { EDGE_AUDIO, EDGE_MOD } nav_edge_kind_t;

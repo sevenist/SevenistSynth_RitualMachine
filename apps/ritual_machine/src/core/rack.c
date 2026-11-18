@@ -353,6 +353,7 @@ bool rack_delete(rack_t *r, int pos) {
     for (int p = 0; p < MS_POOL; p++)
         for (int l = 0; l < MS_LANES; l++)
             if (r->ms[p].lane[l].tgt_id == id) { r->ms[p].lane[l].tgt_id = 0; r->ms[p].lane[l].tgt_param = 0; }
+    for (int k = r->n_cables - 1; k >= 0; k--) if (r->cable[k].from == id || r->cable[k].to == id) rack_cable_remove(r, k);   // its cables
     return true;
 }
 
@@ -465,7 +466,7 @@ static bool insert_raw(rack_t *r, int pos, int row, module_type_t type) {
     int id = 1;                                                                // the lowest number no module has (as the Studio numbers them)
     while (rack_find(r, id) != RACK_NONE) id++;
     for (int i = r->count; i > pos; i--) r->slot[i] = r->slot[i - 1];
-    r->slot[pos] = (rack_slot_t){.type = (uint8_t)type, .id = (uint8_t)id, .row = (uint8_t)row, .penv = PARA_ENV_LEGATO};
+    r->slot[pos] = (rack_slot_t){.type = (uint8_t)type, .id = (uint8_t)id, .row = (uint8_t)row, .penv = PARA_ENV_LEGATO, .out_lvl = 1.0f};
     for (int i = 0; i < info[type].nmp; i++) r->slot[pos].v[i] = info[type].mp[i].def;
     if (pool >= 0) { r->slot[pos].v[MP_MS_POOL] = (float)pool; ms_pattern_default(&r->ms[pool]); }
     r->count++;
@@ -540,6 +541,13 @@ bool rack_unlink(rack_t *r, int slot) {
     if (slot < 0 || slot >= r->count) return false;
     const uint8_t id = r->slot[slot].id;
     bool any = false;
+    for (int k = r->n_cables - 1; k >= 0; k--)
+        if (r->cable[k].from == id || r->cable[k].to == id) { rack_cable_remove(r, k); any = true; }
+    if (rack_slot_is_audio(r, slot)) {                                          // its chain cables: out of it, and the one into it
+        if (rack_chain_to(r, slot) != RACK_NONE) { r->slot[slot].cut = 1; any = true; }
+        const int prev = rack_audio_prev(r, slot);
+        if (prev != RACK_NONE && !r->slot[prev].cut) { r->slot[prev].cut = 1; any = true; }
+    }
     for (int i = 0; i < r->count; i++) {
         rack_slot_t *s = &r->slot[i];
         if ((i == slot && s->tgt_id) || (i != slot && s->tgt_id == id)) { s->tgt_id = 0; s->tgt_param = 0; any = true; }
@@ -626,6 +634,149 @@ static bool adjust_in(float *v, const depth_unit_t *u, int dir) {
 }
 
 static void format_in(float v, const depth_unit_t *u, char *out, int n) { snprintf(out, n, "%+.*f%s", u->decimals, (double)v, u->unit); }
+
+/* ---------------- the cables beyond the chains and the first targets ---------------- */
+
+static bool says(char *why, int n, const char *fmt, const char *name) {
+    if (why && n > 0) snprintf(why, (size_t)n, fmt, name);
+    return false;
+}
+
+float rack_chain_level(const rack_t *r, int slot) {
+    const rack_slot_t *s = &r->slot[slot];
+    return s->type == MOD_OSC ? s->v[MP_OC_LEVEL] : s->type == MOD_SAMPLER ? s->v[MP_SM_LEVEL] : s->out_lvl;
+}
+
+void rack_set_chain_level(rack_t *r, int slot, float v) {
+    rack_slot_t *s = &r->slot[slot];
+    v = v < 0 ? 0 : v > 1 ? 1 : v;
+    if (s->type == MOD_OSC) s->v[MP_OC_LEVEL] = v;
+    else if (s->type == MOD_SAMPLER) s->v[MP_SM_LEVEL] = v;
+    else s->out_lvl = v;
+}
+
+int rack_chain_to(const rack_t *r, int slot) {
+    if (!rack_slot_is_audio(r, slot) || r->slot[slot].cut) return RACK_NONE;
+    return rack_audio_next(r, slot);
+}
+
+int rack_audio_ins(const rack_t *r, int slot) {
+    int n = 0;
+    const int prev = rack_audio_prev(r, slot);
+    if (prev != RACK_NONE && !r->slot[prev].cut) n++;
+    for (int k = 0; k < r->n_cables; k++) n += r->cable[k].kind == CABLE_AUDIO && r->cable[k].to == r->slot[slot].id;
+    return n;
+}
+
+int rack_audio_outs(const rack_t *r, int slot) {
+    int n = rack_chain_to(r, slot) != RACK_NONE;
+    for (int k = 0; k < r->n_cables; k++) n += r->cable[k].kind == CABLE_AUDIO && r->cable[k].from == r->slot[slot].id;
+    return n;
+}
+
+int rack_mod_targets(const rack_t *r, int slot) {
+    const rack_slot_t *s = &r->slot[slot];
+    int n = s->tgt_id && rack_find(r, s->tgt_id) != RACK_NONE;
+    for (int k = 0; k < r->n_cables; k++) n += r->cable[k].kind == CABLE_MOD && r->cable[k].from == s->id;
+    return n;
+}
+
+// The audio of `from` reaching `to`: along the chains (a branch's end into row M through the MIX) and the cables. 16 modules: a search.
+bool rack_audio_reaches(const rack_t *r, int from, int to) {
+    bool seen[RACK_MAX] = {false};
+    int stack[RACK_MAX * 4], n = 0;
+    stack[n++] = from;
+    while (n) {
+        const int at = stack[--n];
+        if (at == to) return true;
+        if (at < 0 || at >= r->count || seen[at]) continue;
+        seen[at] = true;
+        const int next = rack_chain_to(r, at);
+        if (next >= 0) stack[n++] = next;
+        else if (next == RACK_OUT && r->slot[at].row < ROW_M)                    // a branch's end: the MIX, then row M's first module
+            for (int i = 0; i < r->count; i++) if (r->slot[i].row == ROW_M && rack_slot_is_audio(r, i)) { stack[n++] = i; break; }
+        for (int k = 0; k < r->n_cables && n < RACK_MAX * 4; k++)
+            if (r->cable[k].kind == CABLE_AUDIO && r->cable[k].from == r->slot[at].id) {
+                const int t = rack_find(r, r->cable[k].to);
+                if (t != RACK_NONE) stack[n++] = t;
+            }
+    }
+    return false;
+}
+
+bool rack_audio_can(const rack_t *r, int from, int to, char *why, int n) {
+    char name[8] = "";
+    if (to >= 0 && to < r->count) rack_slot_name(r, to, name, sizeof name);
+    if (from < 0 || from >= r->count || to < 0 || to >= r->count || !rack_slot_is_audio(r, from)) return says(why, n, "No audio there", name);
+    if (from == to) return says(why, n, "Pick another module", name);
+    if (!rack_is_processor((module_type_t)r->slot[to].type)) return says(why, n, "%s takes no audio", name);
+    if (rack_chain_to(r, from) == to) return says(why, n, "Already cabled to %s", name);
+    for (int k = 0; k < r->n_cables; k++)
+        if (r->cable[k].kind == CABLE_AUDIO && r->cable[k].from == r->slot[from].id && r->cable[k].to == r->slot[to].id)
+            return says(why, n, "Already cabled to %s", name);
+    if (rack_audio_outs(r, from) >= RACK_AUDIO_MAX) return says(why, n, "4 audio cables out at most", name);
+    if (rack_audio_ins(r, to) >= RACK_AUDIO_MAX) return says(why, n, "%s: 4 audio cables in at most", name);
+    if (r->n_cables >= RACK_CABLES) return says(why, n, "No room for more cables", name);
+    if (rack_audio_reaches(r, to, from)) return says(why, n, "%s is before it: a loop", name);
+    const bool fs = rack_slot_is_shared(r, from), ts = rack_slot_is_shared(r, to);
+    if (fs && !ts) return says(why, n, "%s runs per voice: before it", name);
+    if (!fs && ts) return says(why, n, "%s runs once: not yet", name);              // (a voice module into a shared one: the voice sum, later)
+    return true;
+}
+
+bool rack_audio_connect(rack_t *r, int from, int to) {
+    if (!rack_audio_can(r, from, to, NULL, 0)) return false;
+    r->cable[r->n_cables++] = (rack_cable_t){CABLE_AUDIO, r->slot[from].id, r->slot[to].id, 0, 1.0f};
+    return true;
+}
+
+bool rack_mod_can(const rack_t *r, int from, int to, char *why, int n) {
+    char name[8] = "";
+    if (to >= 0 && to < r->count) rack_slot_name(r, to, name, sizeof name);
+    if (from < 0 || from >= r->count || to < 0 || to >= r->count) return says(why, n, "No module there", name);
+    if (from == to) return says(why, n, "Pick another module", name);
+    if (!rack_can_target((module_type_t)r->slot[from].type)) return says(why, n, "It modulates nothing", name);
+    if (rack_param_count((module_type_t)r->slot[to].type) <= 0) return says(why, n, "%s takes no modulation", name);
+    if (rack_mod_targets(r, from) >= RACK_MOD_MAX) return says(why, n, "6 targets at most", name);
+    if (r->slot[from].tgt_id && r->n_cables >= RACK_CABLES) return says(why, n, "No room for more cables", name);
+    return true;
+}
+
+bool rack_mod_connect(rack_t *r, int from, int to, int param) {
+    if (!rack_mod_can(r, from, to, NULL, 0)) return false;
+    rack_slot_t *s = &r->slot[from];
+    if (!s->tgt_id || rack_find(r, s->tgt_id) == RACK_NONE) return rack_set_target(r, from, to, param);   // its first target
+    const depth_unit_t *u = rack_depth_unit((module_type_t)r->slot[to].type, param);
+    r->cable[r->n_cables++] = (rack_cable_t){CABLE_MOD, s->id, r->slot[to].id, (uint8_t)param, u ? u->def : 1.0f};
+    return true;
+}
+
+void rack_cable_remove(rack_t *r, int k) {
+    if (k < 0 || k >= r->n_cables) return;
+    for (int i = k; i < r->n_cables - 1; i++) r->cable[i] = r->cable[i + 1];
+    r->n_cables--;
+}
+
+static const depth_unit_t du_level = {"", 0, 1, 0.05f, 1, 2};
+
+static const depth_unit_t *cable_unit(const rack_t *r, const rack_cable_t *c) {
+    if (c->kind == CABLE_AUDIO) return &du_level;
+    const int ti = rack_find(r, c->to);
+    const depth_unit_t *u = ti == RACK_NONE ? NULL : rack_depth_unit((module_type_t)r->slot[ti].type, c->param);
+    return u ? u : &du_plain;
+}
+
+bool rack_cable_adjust(rack_t *r, int k, int dir) {
+    if (k < 0 || k >= r->n_cables) return false;
+    return adjust_in(&r->cable[k].amt, cable_unit(r, &r->cable[k]), dir);
+}
+
+void rack_cable_format(const rack_t *r, int k, char *out, int n) {
+    if (k < 0 || k >= r->n_cables) { snprintf(out, (size_t)n, "--"); return; }
+    const rack_cable_t *c = &r->cable[k];
+    if (c->kind == CABLE_AUDIO) snprintf(out, (size_t)n, "%.2f", (double)c->amt);
+    else format_in(c->amt, cable_unit(r, c), out, n);
+}
 
 bool rack_depth_adjust(rack_t *r, int slot, int dir) {
     const int i = rack_depth_index((module_type_t)r->slot[slot].type);

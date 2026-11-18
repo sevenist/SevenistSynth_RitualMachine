@@ -113,8 +113,26 @@ typedef struct {
     uint8_t row;         // 0..RACK_ROWS-1: branch 1, branch 2, ROW_M (a modulator's row is only where the editor shows it)
     uint8_t para;        // a branch processor: 1 = from here on the branch runs once on the sum of its voices (rack_set_para)
     uint8_t penv;        // para_env_t: how the shared envelopes follow the keys, read on the branch's shared start (rack_shared_start)
+    uint8_t cut;         // an audio module: 1 = its chain cable (to the next audio module of its row, or the MIX / the output) removed
+    float   out_lvl;     // ... that cable's level, 0..1 (1 when made; a source's is its own Lvl instead: rack_chain_level)
     float   v[MOD_PARAM_MAX];   // the module's own parameter values (see rack_mparam_*)
 } rack_slot_t;
+
+/* ---- Cables beyond the chain and a modulator's first target (the user, 2026-11-18: "Audio to"; apps/ritual_machine/docs/UI.md step 12).
+ *      Audio: a module's output into a filter, a saturator, a resonator or an effect further down the signal (it sums what comes in), at a
+ *      level. The chain's own cable is one too (rack_slot_t.cut, .out_lvl). Modulation: a modulator's targets after its first (tgt_id /
+ *      tgt_param and its Dpth), each with its parameter and depth. At most RACK_AUDIO_MAX audio cables into a module and as many out of it,
+ *      RACK_MOD_MAX targets per modulator. A cable joins modules by id; deleting a module deletes its cables. ---- */
+#define RACK_CABLES    32
+#define RACK_AUDIO_MAX 4
+#define RACK_MOD_MAX   6
+typedef enum { CABLE_AUDIO, CABLE_MOD } rack_cable_kind_t;
+typedef struct {
+    uint8_t kind;        // rack_cable_kind_t
+    uint8_t from, to;    // module ids
+    uint8_t param;       // CABLE_MOD: the target's parameter (rack_param_name)
+    float   amt;         // CABLE_AUDIO: its level 0..1; CABLE_MOD: its depth in the target's unit (rack_depth_unit)
+} rack_cable_t;
 
 typedef struct {
     rack_slot_t slot[RACK_MAX];
@@ -124,6 +142,8 @@ typedef struct {
     float       br_lvl[RACK_BRANCHES], br_pan[RACK_BRANCHES];   // the MIX at the start of row M: each branch's level (0..1) and pan (-100..100 %)
     synth_config_t cfg;    // general settings (synth type, voices, volume): the GENERAL tab
     ms_pattern_t ms[MS_POOL];   // motion sequencer patterns (see ms_lane_t)
+    rack_cable_t cable[RACK_CABLES];   // the cables beyond the chains and the first targets (see rack_cable_t)
+    int          n_cables;
 } rack_t;
 
 void rack_init(rack_t *r);    // small demo rack (osc, filter, saturator, LFO; delay and reverb in row M; the tests build on it)
@@ -197,7 +217,23 @@ bool rack_slot_is_audio(const rack_t *r, int slot);        // in the audio chain
 void rack_cycle_target(rack_t *r, int slot, int dir);
 void rack_cycle_param(rack_t *r, int slot, int dir);
 bool rack_set_target(rack_t *r, int slot, int target, int param);   // modulator `slot` drives parameter `param` of slot `target` (its depth reset); false: refused
-bool rack_unlink(rack_t *r, int slot);     // every modulation cable of `slot` gone: its own target(s) and what modulates it; false: it had none
+bool rack_unlink(rack_t *r, int slot);     // every cable of `slot` gone, both ways: modulation, audio (its chain cables in and out cut); false: none
+
+// The cables (rack_cable_t). A refusal says why in `why` (may be NULL): "4 FL takes no audio", "a loop", ...
+float rack_chain_level(const rack_t *r, int slot);                  // an audio module's chain cable level (a source: its Lvl)
+void  rack_set_chain_level(rack_t *r, int slot, float v);
+int   rack_chain_to(const rack_t *r, int slot);                     // where its chain cable goes: a slot, RACK_OUT (the MIX / the output), RACK_NONE (cut)
+int   rack_audio_ins(const rack_t *r, int slot);                    // audio cables into it (its chain's and the others)
+int   rack_audio_outs(const rack_t *r, int slot);                   // ... out of it
+int   rack_mod_targets(const rack_t *r, int slot);                  // a modulator's targets (its first and the cables)
+bool  rack_audio_can(const rack_t *r, int from, int to, char *why, int n);
+bool  rack_audio_connect(rack_t *r, int from, int to);              // level 1; false: refused (rack_audio_can)
+bool  rack_mod_can(const rack_t *r, int from, int to, char *why, int n);
+bool  rack_mod_connect(rack_t *r, int from, int to, int param);     // its first target if it has none, else a cable (depth: the unit's default)
+void  rack_cable_remove(rack_t *r, int k);
+bool  rack_cable_adjust(rack_t *r, int k, int dir);                 // a level by 0.05, a depth by its unit's step; true if changed
+void  rack_cable_format(const rack_t *r, int k, char *out, int n);  // "0.80", "+2.00oct"
+bool  rack_audio_reaches(const rack_t *r, int from, int to);        // the audio of slot `from` gets to slot `to` (chains and cables)
 
 // Motion sequencer lanes (slot must be an MS). A lane's target is a (module, parameter) pair the engine mapper can realise.
 ms_pattern_t *rack_ms(rack_t *r, int slot);

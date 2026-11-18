@@ -257,6 +257,31 @@ Paths without a prefix are inside `apps/ritual_machine/src/` (`core/...`, `app/.
 > - Zooming out from 0 or 1 always lays the graph out anew (the last one is not kept).
 > - Tests: `test_map.c` (-1 <-> -2 does not move; back from the tiles it animates again). 246 UI tests at 160 and 128.
 >
+> **2026-11-18, step 12: cables beyond the chains, the model** (the user: "Audio to: the audio out of the selected module into another
+> module's audio input; a filter or an effect sums what comes in; the cable's index is its level; one level for each audio cable, in place
+> of the oscillators' level; at most 4 audio cables in and out, 6 for modulation"; their choices: anywhere downstream, the chain's cable a
+> cable like the others, 6 targets per modulator).
+>
+> - **`rack_cable_t`** (`core/rack.h`): `rack_t.cable[32]`, joined by module ids. *Audio*: from any audio module into a processor (a
+>   filter, a saturator, a resonator, an effect), at a level 0..1. *Modulation*: a modulator's targets after its first (which stays
+>   `tgt_id` / `tgt_param` / its Dpth), each with its parameter and its depth in the target's unit. Deleting a module deletes its cables.
+> - **The chain's own cable** (to the next audio module of the row, or the MIX / the output): `rack_slot_t.cut` removes it,
+>   `.out_lvl` is its level (an oscillator's and a sampler's: their Lvl, `rack_chain_level`). Made at 1 when a module is inserted.
+> - **The rules** (`rack_audio_can`, `rack_mod_can`, each refusal says why): 4 audio cables into a module and 4 out of it at most (its
+>   chain's included), 6 targets per modulator; no cable to a module before it (`rack_audio_reaches`: a loop); a voice module into a shared
+>   one (row M, a branch after its Para point) is refused for now (it needs the voices summed: step 15), a shared one into a voice one
+>   always. `rack_unlink` (Disconnect all) removes its cables both ways and cuts its chain cables in and out.
+> - **The patch file**: `chain <id> <cut> <level>` (only when not the default) and `cable a <from> <to> <level>` /
+>   `cable m <from> <to> <param> <depth>`; a cable to a module that is not in the file is dropped. Older files read as before.
+> - **The engine** (`rack_graph.cpp`): a processor's chain cable carries its level, a cut one ends the signal there; an oscillator or a
+>   sampler with other cables plays at full level, each cable at its own level (Mute silences them all); a processor fed only by cables
+>   is built (a branch fed only from the other one too). The audio cables are wired once every module is built (voice into voice, shared
+>   into shared, never a loop, never past the plan's fan-in); a modulator wires every target it has (shared targets make an LFO or an ENV
+>   global; a node that runs per voice skips the shared ones).
+> - The map draws the cables (`nav_build`: audio and modulation edges); a cut chain cable is not drawn. `NAV_EDGES` 64.
+> - Tests: `tests/engine/test_cables.cpp` (a cable into the other branch's filter, a cut chain cable and a chain level, a modulator with two
+>   targets, the refusals and the limits; every rack loads in the plan), `test_preset.c` (the cables round trip). 124 engine tests, 247 UI.
+>
 > The UI has **two ways of writing a screen**, and knowing which one a screen uses is the first thing to find out:
 
 - **Declarative** (the newer one): the screen is a table of elements, and one generic piece of code draws it, moves the focus

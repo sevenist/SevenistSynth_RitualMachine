@@ -305,6 +305,19 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
         e->param[ENV_A_CURVE] = q(params.amp_env.a_curve / 100.0); e->param[ENV_D_CURVE] = q(params.amp_env.d_curve / 100.0); e->param[ENV_R_CURVE] = q(params.amp_env.r_curve / 100.0);
     };
     auto take = [&](const Src *src, int n, int dst, int port) { for (int k = 0; k < n; k++) b.cable(src[k].node, src[k].port, dst, Dst::In, port, src[k].g); };
+    // The audio cables beyond the chains (rack_cable_t, wired once every module is built, below): each audio module's output (a node and port
+    // per channel; voice or shared; a mono pair, an effect's stereo node), and how many cables its input has already.
+    struct Out { bool built = false, shared = false, pair = false, fx = false; int l = 0, pl = 0, r = 0, pr = 0, in = 0; };
+    Out outp[RACK_MAX];
+    auto cable_in = [&](int i) {                                     // an audio cable comes into slot i (it is built even with no chain into it)
+        for (int k = 0; k < rack.n_cables; k++) if (rack.cable[k].kind == CABLE_AUDIO && rack.cable[k].to == rack.slot[i].id) return true;
+        return false;
+    };
+    auto cable_out = [&](int i) {
+        for (int k = 0; k < rack.n_cables; k++) if (rack.cable[k].kind == CABLE_AUDIO && rack.cable[k].from == rack.slot[i].id) return true;
+        return false;
+    };
+    auto chain_g = [&](int i) -> q15 { const double v = rack.slot[i].out_lvl; return v >= 1.0 ? kUnity : qd(v); };   // a processor's chain cable
     auto env_replaced = [&](int rack_id) {                           // an ENV module aimed at a filter's cutoff replaces the filter's own envelope
         for (int j = 0; j < rack.count; j++) if (rack.slot[j].type == MOD_ENV && rack.slot[j].tgt_id == rack_id && rack.slot[j].tgt_param == 0) return true;
         return false;
@@ -314,7 +327,7 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
     auto shared = [&](int i, Run2 &r, int gport) {
         const rack_slot_t &s = rack.slot[i];
         const int id = node_of(s.id);
-        if (r.n == 0) return;
+        if (r.n == 0 && !cable_in(i)) return;
         tgt_global[i] = true;
         gate_of[i] = gport;
         if (s.type == MOD_FILTER || s.type == MOD_SAT) {
@@ -343,7 +356,9 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                     if (!r.mono) b.cable(env, 0, id + 1, Dst::Param, FLT_CUTOFF, amt);
                 }
             }
+            outp[i] = Out{true, true, !r.mono, false, id, 0, r.mono ? id : id + 1, 0, r.n};
             if (r.mono) r.set_mono(id, 0); else r.set_stereo(id, 0, id + 1, 0);
+            if (s.cut) r.n = 0; else r.L[0].g = r.R[0].g = chain_g(i);     // its chain cable: cut, or at its level
             return;
         }
         const int t = fx_type(s.type, false);
@@ -357,7 +372,9 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
         }
         take(r.L, r.n, id, 0);
         take(r.R, r.n, id, 1);
+        outp[i] = Out{true, true, false, true, id, 0, id, 1, r.n};
         r.set_stereo(id, 0, id, 1);
+        if (s.cut) r.n = 0; else r.L[0].g = r.R[0].g = chain_g(i);
     };
 
     /* ---- voice ---- */
@@ -414,8 +431,13 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                          kParaAmpVcaR[2] = {RN_PARA_AMP_VCA_R, RN_PARA_AMP_VCA2_R};
         for (int br = 0; br < RACK_BRANCHES; br++) {
             int n_sources = 0;
-            for (int i = 0; i < rack.count; i++) if ((rack.slot[i].type == MOD_OSC || rack.slot[i].type == MOD_SAMPLER) && rack.slot[i].row == br) n_sources++;
-            if (n_sources == 0) continue;
+            bool fed = false;                                        // (a branch fed only by cables from the other one is built too)
+            for (int i = 0; i < rack.count; i++) {
+                if (rack.slot[i].row != br) continue;
+                if (rack.slot[i].type == MOD_OSC || rack.slot[i].type == MOD_SAMPLER) n_sources++;
+                else if (rack_slot_is_audio(&rack, i) && cable_in(i)) fed = true;
+            }
+            if (n_sources == 0 && !fed) continue;
             const double lvl_scale = n_sources > 1 ? 1.0 / std::sqrt(static_cast<double>(n_sources)) : 1.0;
             // The per-voice running signal: the sum of these nodes' output 0, each through a cable of the given depth (none yet = empty). The
             // next module gets one cable per entry; the plan sums them in one MIX step (one pass, one saturation) instead of mixer nodes.
@@ -423,6 +445,11 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
             RunSrc run[kMaxFanIn]; int n_run = 0;
             auto feed = [&](int dst, int port) { for (int k = 0; k < n_run; k++) b.cable(run[k].node, 0, dst, Dst::In, port, run[k].depth); };
             auto set_run = [&](int node) { run[0] = RunSrc{node, kUnity}; n_run = 1; };
+            auto feed_into = [&](int i, int node) { outp[i] = Out{true, false, false, false, node, 0, node, 0, n_run}; feed(node, 0); };
+            auto run_out = [&](int i, int node) {                    // a processor's chain cable: cut (nothing goes on down the row), or at its level
+                if (rack.slot[i].cut) { n_run = 0; return; }
+                run[0] = RunSrc{node, chain_g(i)}; n_run = 1;
+            };
             auto add_source = [&](int node, q15 depth, int spare) -> bool {
                 if (n_run == kMaxFanIn) {                            // more sources than cables into one input: fold the sum so far into a pass-through mixer
                     NodeDesc *m = b.add(spare, T_MIX4_V);
@@ -515,17 +542,18 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                     }
                     b.cable(RN_NOTE, 0, id, Dst::In, 0);
                     tgt[i] = Target{id, mi ? static_cast<int>(MI_PITCH) : (eng ? static_cast<int>(OSCX_PITCH) : static_cast<int>(OSC_PITCH)), true};
-                    const bool modulating = s.tgt_id != 0 && rack_find(&rack, s.tgt_id) != RACK_NONE;
-                    if (!modulating) {
+                    const bool modulating = rack_mod_targets(&rack, i) > 0;
+                    outp[i] = Out{true, false, false, false, id, 0, id, 0, 0};
+                    if (!modulating && !cable_out(i) && !s.cut) {
                         o->param[lvl_idx] = q(s.v[MP_OC_LEVEL] * lvl_scale);
                         if (!add_source(id, kUnity, aux)) break;
                     } else {
-                        // the oscillator runs at full level so the modulation signal does not depend on Lvl or Mute;
+                        // the oscillator runs at full level so the modulation signal (and its other audio cables) do not depend on Lvl or Mute;
                         // its cable into the chain applies Lvl (and Mute: depth 0). Never exactly unity, so a level change stays a live gain write.
                         o->param[lvl_idx] = kUnity;
                         const q15 g = s.v[MP_OC_MUTE] > 0.5f ? 0 : qd(s.v[MP_OC_LEVEL] * lvl_scale);
-                        if (!add_source(id, g, aux)) break;
-                        mod_osc[i] = true;
+                        if (!s.cut && !add_source(id, g, aux)) break;
+                        mod_osc[i] = modulating;
                     }
                 } else if (s.type == MOD_SAMPLER) {
                     // a sample player: a source like an oscillator. No file (or a file the bank could not take) = not in the chain.
@@ -542,20 +570,22 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                     sp->param[SMPR_START] = static_cast<int32_t>(std::lround(s.v[MP_SM_START] * 16.0));
                     sp->param[SMPR_SLICE] = static_cast<int32_t>(s.v[MP_SM_SLICE]) - 1;      // 0 = whole sample -> -1
                     sp->param[SMPR_SLICE_MODE] = s.v[MP_SM_SMODE] > 0.5f ? 1 : 0;
-                    sp->param[SMPR_GAIN] = q(s.v[MP_SM_LEVEL] * lvl_scale);
+                    const bool own = !cable_out(i) && !s.cut;               // (other cables: it plays at full level, its chain cable at Lvl)
+                    sp->param[SMPR_GAIN] = own ? q(s.v[MP_SM_LEVEL] * lvl_scale) : kUnity;
                     sp->param[SMPR_INTERP] = 1;
                     sp->param[SMPR_TRACK] = s.v[MP_SM_TRACK] > 0.5f ? 0 : 1;
                     b.cable(RN_NOTE, 0, id, Dst::In, 0);
                     tgt[i] = Target{id, SMPR_TUNE, true};
-                    if (!add_source(id, kUnity, aux)) break;
+                    outp[i] = Out{true, false, false, false, id, 0, id, 0, 0};
+                    if (!s.cut && !add_source(id, own ? kUnity : qd(s.v[MP_SM_LEVEL] * lvl_scale), aux)) break;
                 } else if (s.type == MOD_FILTER) {
                     const int type = static_cast<int>(s.v[MP_FL_TYPE]);
-                    if (n_run == 0 || type == FILT_OFF) continue;           // a filter with nothing to its left (or switched off) does nothing
+                    if ((n_run == 0 && !cable_in(i)) || type == FILT_OFF) continue;   // a filter with nothing into it (or switched off) does nothing
                     NodeDesc *f = b.add(id, T_FILTER_V);
                     if (!f) break;
                     filter_params(f, type < FILT_COUNT ? type : FILT_LP, s.v[MP_FL_CUT], s.v[MP_FL_RES]);
                     f->param[FLT_CUT_MOD] = 96 * kSemi;                   // full-scale modulation = 8 octaves
-                    feed(id, 0);
+                    feed_into(i, id);
                     tgt[i] = Target{id, FLT_CUTOFF, true};
                     // The filter's own envelope (an ENV module aimed at the cutoff replaces it). Always present (amount 0 = a cable with gain 0):
                     // creating it only above 0 made the amount knob change the graph's shape at 0.00, a full rebuild (a stall of 100+ ms).
@@ -566,9 +596,9 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                         b.cable(RN_NOTE, 1, aux, Dst::In, 0);
                         b.cable(aux, 0, id, Dst::Param, FLT_CUTOFF, qd(std::fmax(0.0, s.v[MP_FL_ENVAMT]) / 8.0));
                     }
-                    set_run(id);
+                    run_out(i, id);
                 } else if (s.type == MOD_COMB) {
-                    if (n_run == 0) continue;                                // nothing to its left
+                    if (n_run == 0 && !cable_in(i)) continue;                // nothing into it
                     NodeDesc *c = b.add(id, T_COMB);
                     if (!c) break;
                     c->param[CMB_TUNE] = 60 * kSemi + static_cast<int32_t>(std::lround(s.v[MP_RS_TUNE] * kSemi));
@@ -576,26 +606,26 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                     c->param[CMB_DAMP] = hz_pitch(s.v[MP_RS_DAMP]);
                     c->param[CMB_INTERVAL] = static_cast<int32_t>(s.v[MP_RS_INT]);
                     c->param[CMB_MIX] = q(s.v[MP_RS_MIX]);
-                    feed(id, 0);
+                    feed_into(i, id);
                     b.cable(RN_NOTE, 0, id, Dst::In, 1);                     // the pitch CV: the resonator follows the key
-                    set_run(id);
+                    run_out(i, id);
                 } else if (s.type == MOD_SAT) {
-                    if (n_run == 0) continue;
+                    if (n_run == 0 && !cable_in(i)) continue;
                     NodeDesc *sh_node = b.add(id, T_SHAPER_V);
                     if (!sh_node) break;
                     sat_params(sh_node, s);
-                    feed(id, 0);
+                    feed_into(i, id);
                     tgt[i] = Target{id, SHP_DRIVE, true};
-                    set_run(id);
+                    run_out(i, id);
                 } else if (rack_is_fx(static_cast<module_type_t>(s.type))) {
                     // a cheap effect before the Para point: its per-voice (mono) version (the heavy ones are always the split: never here)
                     const int t = fx_type(s.type, true);
-                    if (n_run == 0 || t < 0) continue;
+                    if ((n_run == 0 && !cable_in(i)) || t < 0) continue;
                     NodeDesc *n = b.add(id, t);
                     if (!n) break;
                     fx_params(n, s);
-                    feed(id, 0);
-                    set_run(id);
+                    feed_into(i, id);
+                    run_out(i, id);
                 }
             }
 
@@ -673,36 +703,80 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
         }
     }
     for (int i = 0; i < rack.count; i++)
-        if (rack.slot[i].row == ROW_M && rack_slot_is_audio(&rack, i) && m.n) shared(i, m, 0);   // (row M's envelopes: legato)
+        if (rack.slot[i].row == ROW_M && rack_slot_is_audio(&rack, i) && (m.n || cable_in(i))) shared(i, m, 0);   // (row M's envelopes: legato)
     take(m.L, m.n, RN_MASTER, 0);
     take(m.R, m.n, RN_MASTER, 1);
 
+    // ---- the audio cables beyond the chains (rack_cable_t): a voice module into a voice module (either branch), a shared one into a shared
+    //      one; a voice module into a shared one needs the voice sum (not yet: rack_audio_can refuses it); never into a module before it (a
+    //      loop: the plan would refuse the whole graph), never more cables into an input than the plan takes.
+    for (int k = 0; k < rack.n_cables; k++) {
+        const rack_cable_t &c = rack.cable[k];
+        if (c.kind != CABLE_AUDIO) continue;
+        const int a = rack_find(&rack, c.from), d = rack_find(&rack, c.to);
+        if (a == RACK_NONE || d == RACK_NONE || a == d || !outp[a].built || !outp[d].built || outp[a].shared != outp[d].shared) continue;
+        if (rack_audio_reaches(&rack, d, a)) continue;
+        Out &o = outp[a], &t = outp[d];
+        if (t.in >= kMaxFanIn - (t.fx || t.pair ? 0 : 1)) continue;
+        const bool muted = rack.slot[a].type == MOD_OSC && rack.slot[a].v[MP_OC_MUTE] > 0.5f;
+        const q15 g = muted ? 0 : c.amt >= 1.0f ? kUnity : qd(c.amt);
+        if (t.fx) { b.cable(o.l, o.pl, t.l, Dst::In, 0, g); b.cable(o.r, o.pr, t.l, Dst::In, 1, g); }
+        else if (t.pair) { b.cable(o.l, o.pl, t.l, Dst::In, 0, g); b.cable(o.r, o.pr, t.r, Dst::In, 0, g); }
+        else if (o.l != o.r || o.pl != o.pr) { const q15 h = static_cast<q15>(g / 2); b.cable(o.l, o.pl, t.l, Dst::In, 0, h); b.cable(o.r, o.pr, t.l, Dst::In, 0, h); t.in++; }
+        else b.cable(o.l, o.pl, t.l, Dst::In, 0, g);
+        t.in++;
+    }
+
     if (synth_type_is_rack(cfg.type)) {
-        // ---- modulators (of both branches and row M; a target that was not built is not supported). A target that runs once (shared) gets
-        //      a global modulator; a target that is a pair (a channel each) gets the cable twice.
+        // ---- modulators (of both branches and row M; a target that was not built is not supported), each with all its targets: its first
+        //      (tgt_id, tgt_param, its Dpth) and its cables (each its parameter and depth). A target that runs once (shared) makes the
+        //      modulator global, if it can be (an LFO, an envelope); a node that runs per voice cannot reach a shared target (skipped);
+        //      a target that is a pair (a channel each) gets the cable twice.
         for (int i = 0; i < rack.count; i++) {
             const rack_slot_t &s = rack.slot[i];
-            if (!rack_slot_is_mod(&rack, i) || !s.tgt_id) continue;
-            if (s.type == MOD_OSC && !mod_osc[i]) continue;       // (its target is gone)
-            const int ti = rack_find(&rack, s.tgt_id);
-            if (ti == RACK_NONE || ti == i) continue;
-            const rack_slot_t &t = rack.slot[ti];
+            if (!rack_slot_is_mod(&rack, i)) continue;
+            if (s.type == MOD_OSC && !mod_osc[i]) continue;          // (its targets are gone)
+            struct T { int ti; DepthTarget dt; double depth; };
+            T tg[RACK_MOD_MAX];
+            int nt = 0;
+            auto want = [&](int ti, int param, double depth) {
+                if (nt >= RACK_MOD_MAX || ti == RACK_NONE || ti == i) return;
+                DepthTarget dt;
+                if (!depth_target(rack.slot[ti], param, tgt[ti].supported, dt)) return;   // not realised (resonance, mix, a modulator, ...)
+                tg[nt++] = T{ti, dt, depth};
+            };
+            const int di = rack_depth_index(static_cast<module_type_t>(s.type));
+            if (s.tgt_id) want(rack_find(&rack, s.tgt_id), s.tgt_param, di >= 0 ? s.v[di] : 1.0);
+            for (int k = 0; k < rack.n_cables; k++)
+                if (rack.cable[k].kind == CABLE_MOD && rack.cable[k].from == s.id) want(rack_find(&rack, rack.cable[k].to), rack.cable[k].param, rack.cable[k].amt);
+            if (!nt) continue;
+            int first_global = -1;                                   // a shared target: the modulator runs once too (its gate: that target's)
+            for (int k = 0; k < nt && first_global < 0; k++) if (tgt_global[tg[k].ti]) first_global = tg[k].ti;
+            const bool to_global = first_global >= 0;
             const int id = node_of(s.id);
-            DepthTarget dt;
-            if (!depth_target(t, s.tgt_param, tgt[ti].supported, dt)) continue;   // not realised (resonance, mix, modulating a modulator, ...)
-            const int dst_param = dt.dst;
-            // the modulator itself
-            double dpth = 1.0;
-            const bool to_global = tgt_global[ti];                   // the target runs once (Para, row M): the modulator must be global too
+            bool per_voice = !to_global;                             // the node runs per voice: no shared target
+            if (s.type == MOD_VEL) {                                 // the note's velocity: no node of its own, a cable from the note per target
+                for (int k = 0; k < nt; k++) {                       // (a shared target: from the newest key, GateIn's "vel")
+                    const Target &tt = tgt[tg[k].ti];
+                    const bool g = tgt_global[tg[k].ti];
+                    const q15 dv = qd(tg[k].depth / tg[k].dt.range);
+                    if (g) ensure_gate_in();
+                    const int from = g ? RN_GATE_IN : RN_NOTE, port = g ? 3 : 2;
+                    b.cable(from, port, tt.node, Dst::Param, tg[k].dt.dst, dv);
+                    if (tt.node2) b.cable(from, port, tt.node2, Dst::Param, tg[k].dt.dst, dv);
+                }
+                continue;
+            }
+            bool reach = false;                                      // (a node only when some target can be reached from it)
+            for (int k = 0; k < nt; k++) reach |= !tgt_global[tg[k].ti] || (s.type == MOD_LFO || s.type == MOD_ENV);
+            if (!reach) continue;
             if (s.type == MOD_LFO) {
                 NodeDesc *l = b.add(id, to_global ? T_LFO_G : T_LFO_V);
                 if (!l) break;
                 l->param[LFO_SHAPE] = lfo_shape(static_cast<int>(s.v[MP_LF_SHAPE]));
                 l->param[LFO_RATE] = static_cast<int32_t>(std::lround(12.0 * kSemi * std::log2(s.v[MP_LF_RATE])));
-                dpth = s.v[MP_LF_DEPTH];
             } else if (s.type == MOD_OSC) {
-                if (to_global) continue;                             // a voice oscillator cannot reach the shared chain
-                dpth = s.v[MP_OC_DEPTH];                             // the node already exists: it is the chain's oscillator
+                per_voice = true;                                    // the node already exists: it is the chain's oscillator (a voice cannot reach the shared chain)
             } else if (s.type == MOD_ENV) {
                 NodeDesc *e = b.add(id, to_global ? T_ENV_G : T_ENV);
                 if (!e) break;
@@ -710,17 +784,9 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                 e->param[ENV_SUSTAIN] = q(s.v[MP_EN_S]); e->param[ENV_RELEASE] = ms_i(s.v[MP_EN_R]);
                 e->param[ENV_HOLD] = static_cast<int32_t>(s.v[MP_EN_HOLD]); e->param[ENV_START] = q(s.v[MP_EN_START]);
                 e->param[ENV_A_CURVE] = q(s.v[MP_EN_ACV] / 100.0); e->param[ENV_D_CURVE] = q(s.v[MP_EN_DCV] / 100.0); e->param[ENV_R_CURVE] = q(s.v[MP_EN_RCV] / 100.0);
-                if (to_global) { ensure_gate_in(); b.cable(RN_GATE_IN, gate_of[ti], id, Dst::In, 0); } else b.cable(RN_NOTE, 1, id, Dst::In, 0);
-                dpth = s.v[MP_EN_DEPTH];
-            } else if (s.type == MOD_VEL) {                          // the note's velocity: no node of its own, a cable from the note
-                const q15 dv = qd(s.v[MP_VL_DEPTH] / dt.range);      // (a shared target: from the newest key, GateIn's "vel")
-                if (to_global) ensure_gate_in();
-                const int from = to_global ? RN_GATE_IN : RN_NOTE, port = to_global ? 3 : 2;
-                b.cable(from, port, tgt[ti].node, Dst::Param, dst_param, dv);
-                if (tgt[ti].node2) b.cable(from, port, tgt[ti].node2, Dst::Param, dst_param, dv);
-                continue;
+                if (to_global) { ensure_gate_in(); b.cable(RN_GATE_IN, gate_of[first_global], id, Dst::In, 0); } else b.cable(RN_NOTE, 1, id, Dst::In, 0);
             } else if (s.type == MOD_EG) {
-                if (to_global) continue;                             // (no global EG yet: not realised on the shared chain)
+                per_voice = true;                                    // (no global EG yet: a shared target is not realised)
                 NodeDesc *e = b.add(id, T_EG);
                 if (!e) break;
                 for (int pt = 0; pt < 4; pt++) {
@@ -731,13 +797,16 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                 e->param[EG_SUSTAIN] = static_cast<int32_t>(s.v[MP_EG_SUS]); e->param[EG_RELEASE] = ms_i(s.v[MP_EG_REL]);
                 e->param[EG_RCURVE] = q(s.v[MP_EG_RCV] / 100.0); e->param[EG_ONESHOT] = s.v[MP_EG_ONE] > 0.5f ? 1 : 0;
                 b.cable(RN_NOTE, 1, id, Dst::In, 0);
-                dpth = s.v[MP_EG_DEPTH];
             } else {
-                continue;                                            // MS: not realised yet
+                continue;                                            // MS: its lanes, below
             }
-            const q15 d = qd(dpth / dt.range);                       // Dpth is in the target's unit
-            b.cable(id, 0, tgt[ti].node, Dst::Param, dst_param, d);
-            if (tgt[ti].node2) b.cable(id, 0, tgt[ti].node2, Dst::Param, dst_param, d);
+            for (int k = 0; k < nt; k++) {
+                if (per_voice && tgt_global[tg[k].ti]) continue;
+                const Target &tt = tgt[tg[k].ti];
+                const q15 d = qd(tg[k].depth / tg[k].dt.range);      // Dpth is in the target's unit
+                b.cable(id, 0, tt.node, Dst::Param, tg[k].dt.dst, d);
+                if (tt.node2) b.cable(id, 0, tt.node2, Dst::Param, tg[k].dt.dst, d);
+            }
         }
 
         // ---- motion sequencers: one engine node per MS module, one cable per lane that has a realisable target

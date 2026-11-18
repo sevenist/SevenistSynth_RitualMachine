@@ -50,7 +50,7 @@ void nav_build(nav_graph_t *g, const rack_t *r) {
     int first_m = NAV_OUT;
     for (int i = 0; i < r->count && i < RACK_MAX; i++) if (row_of[i] == ROW_M) { first_m = i; break; }
     for (int i = 0; i < r->count && i < RACK_MAX; i++) {
-        if (row_of[i] < 0) continue;
+        if (row_of[i] < 0 || r->slot[i].cut) continue;                          // (a cut chain cable: none)
         const int next = rack_audio_next(r, i);
         add_edge(g, i, next >= 0 ? next : (row_of[i] == ROW_M ? NAV_OUT : NAV_MIX), EDGE_AUDIO);
     }
@@ -69,6 +69,10 @@ void nav_build(nav_graph_t *g, const rack_t *r) {
             const int ti = rack_find(r, s->tgt_id);
             if (ti != RACK_NONE) add_edge(g, i, ti, EDGE_MOD);
         }
+    }
+    for (int k = 0; k < r->n_cables; k++) {                                     // the cables beyond the chains and the first targets
+        const int a = rack_find(r, r->cable[k].from), b = rack_find(r, r->cable[k].to);
+        if (a != RACK_NONE && b != RACK_NONE && a < RACK_MAX && b < RACK_MAX) add_edge(g, a, b, r->cable[k].kind == CABLE_AUDIO ? EDGE_AUDIO : EDGE_MOD);
     }
 }
 

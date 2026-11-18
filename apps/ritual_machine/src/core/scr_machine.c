@@ -2,6 +2,7 @@
 // output, the speaker, the knobs' mode, and Storage (the USB card reader: the app asks, saves everything, then restarts). The picture
 // on the right: the battery. A declarative screen (see ui_screen.h): list on the left, picture on the right.
 #include "core/ui_screen.h"
+#include "core/ui_widgets.h"
 #include "hal/hal_power.h"
 #include <stdio.h>
 
@@ -32,7 +33,7 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
     (void)area; (void)rect;
     const gui_rect_t box = ui_picture_box(st);
     const int rh = gui_row_h(g, st);
-    u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
+    uw_box(g, box);                                         // (the picture's frame: dim in colour)
     char buf[32];
     if (c->ui->row == 4) {
         gui_draw_text_centered(g, gui_rect(box.x, box.y + 2, box.w, rh), "USB card");

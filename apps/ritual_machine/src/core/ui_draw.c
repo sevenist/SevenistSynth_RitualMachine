@@ -1,4 +1,5 @@
 // The screens: the header, the parameter lists, the hand-drawn screens (sequencer, rack, effects, FM editor...) and synth_ui_draw().
+#include "core/ui_widgets.h"
 #include "core/ui_theme.h"
 #include "core/ui_screen.h"
 #include "core/bindings.h"
@@ -250,7 +251,7 @@ static void draw_seq_pat(u8g2_t *g, const gui_style_t *st, gui_rect_t box, const
 
 // A page row: focused = a frame, latched = filled with the value between < > (push = Enter on the pages, ADR-046 phase 2).
 static void draw_row(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const char *label, const char *val, const synth_ui_t *ui, int row) {
-    gui_draw_field_state(g, st, r, label, val, ui->row != row ? GUI_PLAIN : ui->latched ? GUI_LATCHED : GUI_FOCUSED);
+    uw_field(g, st, r, label, val, ui_accent(), ui->row != row ? GUI_PLAIN : ui->latched ? GUI_LATCHED : GUI_FOCUSED, false);
 }
 
 /* ---------------- motion sequencer ---------------- */
@@ -527,6 +528,19 @@ void synth_ui_legend(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t 
     }
 }
 
+// Each menu tab's colour (its header's rule, its latched values, its buttons): the sound's in the sources' green, the controls' in the
+// modulators' amber, the curves' in the shapers' violet, the LEDs in the effects' blue, the presets in the output's red, the machine grey.
+static ui_colour_t tab_accent(tab_t t) {
+    switch (t) {
+        case TAB_SOUND: case TAB_GENERAL: case TAB_SAMPLES: case TAB_FM_ALGO: case TAB_FM_OP: case TAB_FM_ENV: return UC_SRC;
+        case TAB_KEYS: case TAB_MODS: case TAB_MACROS: case TAB_JOY:                                       return UC_MOD;
+        case TAB_CURVES:                                                                                   return UC_SHP;
+        case TAB_LEDS:                                                                                     return UC_FX;
+        case TAB_PRESET:                                                                                   return UC_OUT;
+        default:                                                                                           return UC_UTL;
+    }
+}
+
 void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *seq, const rack_t *rack, u8g2_t *g) {
     gui_style_t style;
     const int content_h = u8g2_GetDisplayHeight(g) - (ui_legend_shown(ui, rack, false) ? ui_legend_h(g) : 0);   // the knob legend's zone: the app draws it
@@ -549,7 +563,11 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
     if (ui->in_rack) snprintf(title, sizeof title, "%s%s", tab_name(tab_kind(rack, ui->menu_tab)), ui->rack_dirty ? "*" : "");   // "*": structural edits, applied when the rack's tabs are left
     else { get_page(ui, rack, ui->page, &pg); snprintf(title, sizeof title, "%s", pg.title); }
     const view_t view = synth_ui_view(ui, rack);
+    ui_accent_set(ui->in_rack ? tab_accent(tab_kind(rack, ui->menu_tab))
+                              : pg.slot != GLOBAL_PAGE ? ui_family((module_type_t)rack->slot[pg.slot].type) : UC_UTL);
+    ui_ink(g, ui_accent());                                             // (the rule under the header in the screen's colour)
     u8g2_DrawHLine(g, bar.x, gui_bottom(bar) - 1, bar.w);
+    ui_ink(g, UC_TEXT);
     if (ui->row == 0 && !ui->view_sel) { u8g2_DrawBox(g, header.x, header.y, header.w, header.h); u8g2_SetDrawColor(g, 0); }
     const int badge = ui_view_badge(g, header.x, header.y, header.h, view, ui->row == 0 && ui->view_sel);
     int first;
@@ -641,8 +659,10 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
         row = gui_below(row, row_gap, row_h);
     }
 
-    // graph of the current page
+    // graph of the current page (in colour: a dim frame, the picture in the page's colour)
+    ui_ink(g, UC_DIM);
     u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
+    ui_ink(g, ui_accent());
     switch (pg.graph) {
         case GRAPH_WAVE:
             if (ms->type == MOD_LFO) {
@@ -686,4 +706,5 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
         case GRAPH_FM_ENV:  draw_eg_editor(g, box, &rack->cfg.fm.op[pg.def - GP_FM_ENV_BASE], ui->fm_pt & 3); break;
         default: break;
     }
+    ui_ink(g, UC_TEXT);
 }

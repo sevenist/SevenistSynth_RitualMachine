@@ -9,6 +9,7 @@
 // A macro is played by R1..R3 (macros 1..3) or by any knob given "Macro N" in the MODIFIERS tab. Saved with the sound (core/patch.h).
 // A declarative screen (see ui_screen.h).
 #include "core/ui_screen.h"
+#include "core/ui_widgets.h"
 #include "core/led_roles.h"
 #include "core/curves.h"
 #include "core/fine_step.h"
@@ -136,7 +137,7 @@ static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect
 static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, const gui_rect_t *rect) {
     (void)area; (void)rect;
     const gui_rect_t box = ui_picture_box(st);
-    u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
+    uw_box(g, box);                                         // (the picture's frame: dim in colour)
     char line[32];
     snprintf(line, sizeof line, "M%d: %d dest", c->ui->macro_cur + 1, mac(c)->n);
     const int lh = gui_text_h(g) + 1;

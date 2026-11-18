@@ -232,6 +232,21 @@ Paths without a prefix are inside `apps/ritual_machine/src/` (`core/...`, `app/.
 >   Delete; `rack_unlink` both ways and on the lanes). 247 UI tests at 160 and 128; the HWV2 simulator builds. Rendered and looked at (the
 >   menu, the choosing with its cable, the Prm / Dpth menu).
 >
+> **2026-11-18, step 10: colour for the other screens** (the user: "update the other menus with colours").
+>
+> - **The screen's accent** (`ui_accent_set` / `ui_accent`, `core/ui_theme.c`), set by `synth_ui_draw` at each frame: a module's page its
+>   family's colour, a global page grey, each menu tab its own (`tab_accent`, `ui_draw.c`: SOUND and the sound's tabs green, KEYS /
+>   MODIFIERS / MACROS / JOY amber, CURVES violet, LEDS blue, PRESETS red, MACHINE grey).
+> - **The generic rows and buttons** of every declarative screen (`screen_draw`, `ui_screen.c`) and the pages' rows (`draw_row`) go
+>   through two new widgets (`ui_widgets.c`): `uw_field` (the node page's look: a tile, the label, the value; focused: the cursor's frame;
+>   latched: the value `<between>` in the accent on a dim gold tile, an accent frame; "n/a" dim; a long label cut under its value) and
+>   `uw_button` (a tile; focused: filled with the accent).
+> - **The header's rule** is drawn in the accent; **a page's picture** in the accent, its frame dim; the tabs' picture boxes too (`uw_box`).
+> - **One colour: unchanged** (the widgets fall back to the drawing kit's field and button; every frame-hash test still passes).
+> - Not in colour yet: what a tab draws itself inside its picture (the KEYS list, the curves, the LED grid: white), the Pads section's
+>   screens, the sequencer's roll.
+> - 246 UI tests at 160 and 128; the HWV2 simulator builds. Rendered and looked at (the nine tabs, a latched value, the module pages).
+>
 > The UI has **two ways of writing a screen**, and knowing which one a screen uses is the first thing to find out:
 
 - **Declarative** (the newer one): the screen is a table of elements, and one generic piece of code draws it, moves the focus

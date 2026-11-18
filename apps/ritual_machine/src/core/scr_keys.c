@@ -3,6 +3,7 @@
 // On the right: the list of the keys with their functions, the selected one highlighted. Saved to the card when the menu closes.
 // A declarative screen (see ui_screen.h).
 #include "core/ui_screen.h"
+#include "core/ui_widgets.h"
 #include "core/keymap.h"
 #include "core/controls.h"
 #include <stdio.h>
@@ -60,7 +61,7 @@ static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect
 // The key list in the picture box: one line per key the board has, scrolled so the selected key stays in view (a third from the top).
 static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, const gui_rect_t *rect) {
     const gui_rect_t box = ui_picture_box(st);
-    u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
+    uw_box(g, box);                                         // (the picture's frame: dim in colour)
     const int lh = gui_text_h(g) + 1;
     const int lines = (box.h - 2) / lh;
     int keys[KEY_COUNT], n = 0, sel = 0;

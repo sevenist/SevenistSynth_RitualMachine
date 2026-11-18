@@ -45,9 +45,17 @@ void uw_title(u8g2_t *g, gui_rect_t r, const char *left, const char *right, ui_c
 void uw_tabs(u8g2_t *g, gui_rect_t r, const char *const *names, int n, int sel, bool focused);
 void uw_value_row(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const char *label, const char *value, float frac, ui_colour_t family,
                   gui_state_t state, bool modulated);                            // frac < 0: no bar (a list value)
+// A row of a menu or a page in colour (the node page's look): its label left and its value right on a tile; focused: the cursor's frame;
+// latched: the value <between> in the accent, an accent frame; dim: a value that does not apply (n/a). One colour: the drawing kit's
+// field (gui_draw_field_state), as before.
+void uw_field(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const char *label, const char *value, ui_colour_t accent, gui_state_t state,
+              bool dim);
+// A button in colour: a tile with its label in the middle; focused: filled with the accent. One colour: gui_draw_button, as before.
+void uw_button(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const char *label, ui_colour_t accent, gui_state_t state);
 void uw_port_row(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const char *left, const char *right, ui_colour_t right_c, bool focused);
 void uw_list_row(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const char *name, const char *info, ui_colour_t family, bool focused);
 void uw_panel(u8g2_t *g, gui_rect_t r);
+void uw_box(u8g2_t *g, gui_rect_t r);                                            // a picture's frame: dim in colour, plain in one colour
 void uw_text(u8g2_t *g, int x, int baseline, const char *s, ui_colour_t c);      // text in a colour (one colour: plain), transparent over fills
 
 #ifdef __cplusplus

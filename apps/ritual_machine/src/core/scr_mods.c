@@ -6,6 +6,7 @@
 // On the right: the controls with their function in the layer, the selected one highlighted. Saved in ui.cfg by itself (core/ui_settings.c).
 // A declarative screen (see ui_screen.h).
 #include "core/ui_screen.h"
+#include "core/ui_widgets.h"
 #include "core/modifiers.h"
 #include "core/curves.h"
 #include <stdio.h>
@@ -84,7 +85,7 @@ static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect
 // The control list in the picture box: one line per control the board has, scrolled so the selected one stays in view (a third from the top).
 static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, const gui_rect_t *rect) {
     const gui_rect_t box = ui_picture_box(st);
-    u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
+    uw_box(g, box);                                         // (the picture's frame: dim in colour)
     const int lh = gui_text_h(g) + 1;
     const int lines = (box.h - 2) / lh;
     const int n = modifiers_ctl_count();

@@ -49,6 +49,10 @@ ui_colour_t ui_dim(ui_colour_t family) {
     }
 }
 
+static ui_colour_t g_accent = UC_UTL;
+void        ui_accent_set(ui_colour_t c) { g_accent = c; }
+ui_colour_t ui_accent(void) { return g_accent; }
+
 void ui_ink(u8g2_t *g, ui_colour_t c) { if (ui_colour(g)) canvas_color(g_canvas, value(c), value(UC_BG)); }
 
 void ui_fill(u8g2_t *g, int x, int y, int w, int h, ui_colour_t c) { if (ui_colour(g)) canvas_fill(g_canvas, x, y, w, h, value(c)); }

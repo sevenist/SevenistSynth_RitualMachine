@@ -4,6 +4,7 @@
 // On the right: the axis' response (stick left / down to right / up, the parameter bottom to top) and whether XY mode is on.
 // Saved in ui.cfg. A declarative screen (see ui_screen.h).
 #include "core/ui_screen.h"
+#include "core/ui_widgets.h"
 #include "core/curves.h"
 #include <stdio.h>
 #include <string.h>
@@ -63,7 +64,7 @@ static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect
 static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, const gui_rect_t *rect) {
     (void)area; (void)rect;
     const gui_rect_t box = ui_picture_box(st);
-    u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
+    uw_box(g, box);                                         // (the picture's frame: dim in colour)
     const int lh = gui_text_h(g) + 1;
     u8g2_DrawStr(g, box.x + 3, box.y + lh, c->ui->joy_xy ? "XY on" : "XY off");
     const mapping_t *m = bound(c);

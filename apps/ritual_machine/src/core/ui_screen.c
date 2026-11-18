@@ -1,4 +1,6 @@
 #include "core/ui_screen.h"
+#include "core/ui_widgets.h"
+#include "core/ui_theme.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -189,8 +191,8 @@ void screen_draw(const screen_def_t *s, u8g2_t *g, const gui_style_t *st0, const
         char val[24] = "";
         if (!enabled) snprintf(val, sizeof val, "n/a");
         else if (e->value) e->value(&x, val, sizeof val);
-        if (e->kind == EL_BUTTON) { gui_draw_button(g, st, rect[i], (enabled && val[0]) ? val : label, state); continue; }
-        gui_draw_field_state(g, st, rect[i], label, val, enabled ? state : GUI_PLAIN);
+        if (e->kind == EL_BUTTON) { uw_button(g, st, rect[i], (enabled && val[0]) ? val : label, ui_accent(), state); continue; }
+        uw_field(g, st, rect[i], label, val, ui_accent(), enabled ? state : GUI_PLAIN, !enabled);
     }
     u8g2_SetMaxClipWindow(g);
 }

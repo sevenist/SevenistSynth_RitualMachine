@@ -5,6 +5,7 @@
 // whether the sound was edited since. The app does the work (app/app_preset.c): a button only raises ui->preset_req.
 // A declarative screen (see ui_screen.h).
 #include "core/ui_screen.h"
+#include "core/ui_widgets.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -38,7 +39,7 @@ static void box_line(u8g2_t *g, gui_rect_t box, int y, const char *s) {
 static void info_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t box, bool focused, bool latched) {
     (void)focused; (void)latched;
     const int rh = gui_row_h(g, st);
-    u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
+    uw_box(g, box);                                         // (the picture's frame: dim in colour)
     const char *name = c->ui->preset_name;
     if (!name[0]) {
         box_line(g, box, box.y + rh + 1, "new sound");

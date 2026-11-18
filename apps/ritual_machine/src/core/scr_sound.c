@@ -5,6 +5,7 @@
 // fm_page_row). The picture on the right follows the part the focus is in: the info box, the file's overview, the operator tree.
 // A declarative screen (see ui_screen.h): list on the left, picture on the right; the list scrolls.
 #include "core/ui_screen.h"
+#include "core/ui_widgets.h"
 #include <stdio.h>
 
 /* ---------------- the synth's settings (GENERAL) ---------------- */
@@ -127,7 +128,7 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
         draw_sample_graph(g, box, have ? &in : NULL, -1, 0.0f, true);
         return;
     }
-    u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
+    uw_box(g, box);                                         // (the picture's frame: dim in colour)
     draw_synth_info(g, st, box, c->rack);                               // (the battery: the header, and the MACHINE tab's picture)
 }
 

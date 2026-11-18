@@ -5,6 +5,7 @@
 // On the right: the curve, its points, the selected one as a box. Saved in curves.cfg by itself (app/app_card.c).
 // A declarative screen (see ui_screen.h).
 #include "core/ui_screen.h"
+#include "core/ui_widgets.h"
 #include "core/curves.h"
 #include <stdio.h>
 
@@ -81,7 +82,7 @@ static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect
 static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, const gui_rect_t *rect) {
     (void)area; (void)rect;
     const gui_rect_t box = ui_picture_box(st);
-    u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
+    uw_box(g, box);                                         // (the picture's frame: dim in colour)
     const user_curve_t *u = cu(c);
     if (!u) { gui_draw_text_centered(g, gui_rect(box.x, box.y + box.h / 2 - 4, box.w, 9), "empty: New"); return; }
     const int x0 = box.x + 3, x1 = box.x + box.w - 4, y0 = box.y + 3, y1 = box.y + box.h - 4;

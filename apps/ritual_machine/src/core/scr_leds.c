@@ -7,6 +7,7 @@
 // On the right: the keys of the board, the ones with this role filled. Saved in ui.cfg by itself.
 // A declarative screen (see ui_screen.h).
 #include "core/ui_screen.h"
+#include "core/ui_widgets.h"
 #include "core/led_roles.h"
 #include "core/controls.h"
 #include <stdio.h>
@@ -70,7 +71,7 @@ static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect
 static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, const gui_rect_t *rect) {
     (void)area; (void)rect;
     const gui_rect_t box = ui_picture_box(st);
-    u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
+    uw_box(g, box);                                         // (the picture's frame: dim in colour)
     if (role(c) == LR_ENC) {
         gui_draw_text_centered(g, gui_rect(box.x, box.y + box.h / 2 - gui_row_h(g, st) / 2, box.w, gui_row_h(g, st)), "encoder A");
         return;

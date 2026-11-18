@@ -42,6 +42,10 @@ void     ui_colour_attach(canvas_t *c);       // the canvas the app draws into (
 bool     ui_colour(const u8g2_t *g);          // g draws in colour
 uint16_t ui_rgb(ui_colour_t c);               // RGB565
 ui_colour_t ui_dim(ui_colour_t family);       // a family's dim colour (UC_SRC -> UC_SRC_DIM); others: UC_TILE
+// The screen's accent: the colour of what is on show (a module's page: its family; a menu tab: its own), set at the start of each frame
+// (synth_ui_draw); the generic rows, buttons and pictures take it (ui_screen.c, ui_draw.c). One colour: unused.
+void        ui_accent_set(ui_colour_t c);
+ui_colour_t ui_accent(void);
 
 void ui_ink(u8g2_t *g, ui_colour_t c);                           // the colour of what u8g2 draws next (colour index 1); one colour: nothing
 void ui_fill(u8g2_t *g, int x, int y, int w, int h, ui_colour_t c);      // a filled rectangle in that colour; one colour: nothing

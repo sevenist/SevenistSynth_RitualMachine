@@ -239,6 +239,30 @@ void uw_value_row(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const char *la
     if (state != GUI_PLAIN) { ui_ink(g, state == GUI_LATCHED ? family : UC_CURSOR); u8g2_DrawFrame(g, r.x, r.y, r.w, r.h); ui_ink(g, UC_TEXT); }
 }
 
+void uw_field(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const char *label, const char *value, ui_colour_t accent, gui_state_t state,
+              bool dim) {
+    if (!ui_colour(g)) { gui_draw_field_state(g, st, r, label, value, state); return; }
+    const int base = baseline_mid(g, r);
+    ui_fill(g, r.x, r.y, r.w, r.h, state == GUI_LATCHED ? UC_HILITE : UC_TILE);
+    uw_text(g, r.x + 3, base, label, state == GUI_PLAIN ? UC_TEXT : UC_CURSOR);
+    if (value && value[0]) {
+        char val[40];
+        snprintf(val, sizeof val, state == GUI_LATCHED ? "<%s>" : "%s", value);
+        const int vx = r.x + r.w - 2 - u8g2_GetStrWidth(g, val);
+        ui_fill(g, vx - 2, r.y, r.x + r.w - vx + 2, r.h, state == GUI_LATCHED ? UC_HILITE : UC_TILE);   // (a long label: cut under the value)
+        uw_text(g, vx, base, val, dim ? UC_DIM : state == GUI_LATCHED ? accent : UC_TEXT);
+    }
+    if (state != GUI_PLAIN) { ui_ink(g, state == GUI_LATCHED ? accent : UC_CURSOR); u8g2_DrawFrame(g, r.x, r.y, r.w, r.h); ui_ink(g, UC_TEXT); }
+}
+
+void uw_button(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const char *label, ui_colour_t accent, gui_state_t state) {
+    if (!ui_colour(g)) { gui_draw_button(g, st, r, label, state); return; }
+    const int base = baseline_mid(g, r), w = u8g2_GetStrWidth(g, label);
+    ui_fill(g, r.x, r.y, r.w, r.h, state == GUI_PLAIN ? UC_TILE : accent);
+    uw_text(g, r.x + (r.w - w) / 2, base, label, state == GUI_PLAIN ? UC_TEXT : UC_BG);
+    if (state != GUI_PLAIN) { ui_ink(g, UC_CURSOR); u8g2_DrawFrame(g, r.x, r.y, r.w, r.h); ui_ink(g, UC_TEXT); }
+}
+
 void uw_port_row(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const char *left, const char *right, ui_colour_t right_c, bool focused) {
     u8g2_SetFont(g, SMALL);
     const int base = baseline_mid(g, r), rw = u8g2_GetStrWidth(g, right);
@@ -281,6 +305,12 @@ void uw_list_row(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const char *nam
     u8g2_SetFont(g, st->font);
     u8g2_SetFontMode(g, was);
     u8g2_SetDrawColor(g, 1);
+}
+
+void uw_box(u8g2_t *g, gui_rect_t r) {
+    ui_ink(g, UC_DIM);
+    u8g2_DrawFrame(g, r.x, r.y, r.w, r.h);
+    ui_ink(g, UC_TEXT);
 }
 
 void uw_panel(u8g2_t *g, gui_rect_t r) {

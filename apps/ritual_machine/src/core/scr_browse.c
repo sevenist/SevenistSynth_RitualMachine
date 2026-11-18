@@ -4,6 +4,7 @@
 // (br_state BR_FRESH -> BR_SHOWN / BR_NONE, br_info) and acts on br_done.
 #include "core/ui_theme.h"
 #include "core/ui_screen.h"
+#include "core/ui_widgets.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -161,7 +162,7 @@ void browse_ui_draw(const synth_ui_t *ui, u8g2_t *g) {
     const gui_rect_t box = gui_rect(screen.x, screen.y + 1, screen.w, BR_WAVE_H);
     const audio_dir_entry_t *cur = br_entry(ui, ui->br_cur);
     if (br_presets(ui)) {                                                                // no picture: what the keys play now
-        u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
+        uw_box(g, box);                                         // (the picture's frame: dim in colour)
         gui_draw_text_centered(g, box, ui->br_state == BR_READING ? "reading the card..." : !cur ? "empty folder" : cur->dir ? "folder" :
                                        ui->br_state == BR_FRESH ? "..." : ui->br_state == BR_SHOWN ? "play it, push to keep" : "cannot be read");
     } else if (cur && !cur->dir && ui->br_state == BR_SHOWN && !ui->br_info.pending && ui->br_info.frames >= 4) {
@@ -180,7 +181,7 @@ void browse_ui_draw(const synth_ui_t *ui, u8g2_t *g) {
         u8g2_SetDrawColor(g, 1);
         u8g2_DrawStr(g, box.x + box.w - lw - 1, box.y + 7, len);
     } else {
-        u8g2_DrawFrame(g, box.x, box.y, box.w, box.h);
+        uw_box(g, box);                                         // (the picture's frame: dim in colour)
         gui_draw_text_centered(g, box, ui->br_state == BR_READING ? "reading the card..." : !cur ? "empty folder" : cur->dir ? "folder" :
                                        ui->br_state == BR_FRESH ? "..." :
                                        ui->br_state == BR_SHOWN ? "not converted yet" : "cannot be read");

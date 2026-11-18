@@ -28,7 +28,14 @@ UI's background is pure black (as the boot animation's). The user's answers on w
   (`core/nav_force.[ch]`), spawned from zoom 0's places, animated. Step 9 `f7c0f08`: the graph's menu (Connect, Disconnect all, Delete;
   a zoom or Back cancels a Connect with a popup). Open: the user picks a default control for the zoom, if any; the force graph's feel
   (its strengths, the rest length, 5 s at most) once seen moving.
-- [ ] Moving a module up / down its chain in place; colour for the other screens.
+- [x] **Colour for the menus and the pages** (step 10, `6b3c412`): each screen's accent, rows / buttons / picture frames. Still white: what a
+  tab draws inside its picture, the Pads screens, the sequencer's roll.
+- [x] **After the user's first try** (2026-11-18, steps 11 to 15; UI.md's log). **To try.** 11 `d0b61e0`: zoom 1 the number alone; -1
+  nodes x 1.5 and cables x 1.3; -1 <-> -2 at once; laid out anew on each zoom out. 12 `63938a2`: cables beyond the chains (`rack_cable_t`:
+  audio cables with levels, 6 targets per modulator, the chain cable cut / levelled; the patch file; the engine). 13 `73ec736`: the graph's
+  menu (Mod to, Audio to, a row per cable). 14 `ea47538`: the strip at 160 shows the cables only. 15: a voice module into a shared one
+  (two send buses in the engine). Open: three modulators of one target overlap at zoom 0 (the layout); a full rack is crowded at -1.
+- [ ] Moving a module up / down its chain in place.
 - [ ] **The map for the Pads section's FX chains**: the user decides how the routing shows (FXA / FXB / FXC in series or in parallel,
   `fx_route`); `nav_build` shows row M only for an FX rack today, and the map's Edit opens the synth's node page, not `fxmod_screen`.
 - [ ] **Docs: rewrite `docs/UI.md` whole** (it will be the base of the user manual; the rework log at its top folds into it), and update

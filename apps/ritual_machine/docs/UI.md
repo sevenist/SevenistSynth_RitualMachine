@@ -247,6 +247,16 @@ Paths without a prefix are inside `apps/ritual_machine/src/` (`core/...`, `app/.
 >   screens, the sequencer's roll.
 > - 246 UI tests at 160 and 128; the HWV2 simulator builds. Rendered and looked at (the nine tabs, a latched value, the module pages).
 >
+> **2026-11-18, step 11: the zoom levels after the user's first try.**
+>
+> - Zoom 1: a tile's name is the module's number alone, in white, its type beside it in grey (no "OC").
+> - Zoom -1: nodes 24 x 16 (x 1.5), a cable's rest length 31 px (x 1.3; shorter when crowded: 0.975 x the side of each node's room).
+>   A full rack (16 modules) is crowded at -1: -2 is the view for it.
+> - Zoom -2 is zoom -1's graph at half size about the room's middle (nodes 12 x 8): -1 <-> -2 is at once, nothing re-runs. Spawned straight
+>   into -2 (two detents at once), the nodes start where their tiles were there.
+> - Zooming out from 0 or 1 always lays the graph out anew (the last one is not kept).
+> - Tests: `test_map.c` (-1 <-> -2 does not move; back from the tiles it animates again). 246 UI tests at 160 and 128.
+>
 > The UI has **two ways of writing a screen**, and knowing which one a screen uses is the first thing to find out:
 
 - **Declarative** (the newer one): the screen is a table of elements, and one generic piece of code draws it, moves the focus

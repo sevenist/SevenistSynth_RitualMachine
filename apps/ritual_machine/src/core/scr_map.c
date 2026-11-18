@@ -47,12 +47,14 @@ typedef struct { int tile_w, tile_h, gap_x, gap_y, strip_h; bool tall; } metrics
 static metrics_t metrics(gui_rect_t area, int zoom) {
     const bool tall = area.h >= 120;
     if (zoom > 0) return tall ? (metrics_t){84, 30, 12, 10, 32, true} : (metrics_t){84, 23, 12, 8, 21, false};     // (3 x the pitch across)
-    if (zoom == -1) return (metrics_t){16, 11, 0, 0, tall ? 32 : 21, tall};                                         // (a node; no grid)
-    if (zoom < -1) return (metrics_t){12, 7, 0, 0, tall ? 32 : 21, tall};
+    if (zoom == -1) return (metrics_t){24, 16, 0, 0, tall ? 32 : 21, tall};                                         // (a node; no grid)
+    if (zoom < -1) return (metrics_t){12, 8, 0, 0, tall ? 32 : 21, tall};                                           // (half of -1's)
     return tall ? (metrics_t){28, 14, 4, 4, 32, true} : (metrics_t){28, 12, 4, 3, 21, false};
 }
 static gui_rect_t g_menu_box;            // the menu's box (layout -> strip_draw, which paints it before the items)
 static metrics_t g_m = {28, 14, 4, 4, 32, true}, g_m0 = {28, 14, 4, 4, 32, true};   // the sizes in use and those of zoom 0 (layout -> graph, draw_extra)
+static metrics_t g_m1 = {24, 16, 0, 0, 32, true};                                     // ... and of zoom -1, the force graph's own (-2 is it at half size)
+#define HALF 0.5f                                                                     // zoom -2: the graph of -1 at half its size, about the room's middle
 static int g_zoom, g_map_w = 128 - 2 * TILE_PAD, g_map_x, g_map_y, g_scroll, g_scroll_x;
 static nav_force_t g_force;              // zoomed out: where the nodes float (layout -> graph)
 
@@ -90,8 +92,10 @@ static const nav_graph_t *graph(const ui_ctx_t *c) {
         for (int i = 0; i < NAV_NODES; i++) {
             nav_node_t *n = &floating.node[i];
             if (!on_graph(n) || !g_force.on[i]) { n->kind = NODE_NONE; continue; }
-            n->x = (int16_t)(g_force.x[i] - g_force.hw + 0.5f);
-            n->y = (int16_t)(g_force.y[i] - g_force.hh + 0.5f);
+            const float s = g_zoom < -1 ? HALF : 1.0f, x = g_force.w / 2 + (g_force.x[i] - g_force.w / 2) * s,
+                        y = g_force.h / 2 + (g_force.y[i] - g_force.h / 2) * s;
+            n->x = (int16_t)(x - (float)g_m.tile_w / 2 + 0.5f);
+            n->y = (int16_t)(y - (float)g_m.tile_h / 2 + 0.5f);
         }
         return &floating;
     }
@@ -129,19 +133,19 @@ bool synth_ui_map_zoom(synth_ui_t *ui, int steps) {
 
 /* ---------------- zoomed out: the force graph (core/nav_force.h) ---------------- */
 
-static int g_force_zoom;                 // the zoom the graph was set going for; 0: none (the next zoom out spawns it again)
+static bool g_force_set;                 // the graph is set going; false: the next zoom out spawns it again (and lays it out anew)
 static uint8_t g_force_key[NAV_NODES];   // what each of its nodes is: a module's number, KEY_MIX, KEY_OUT (a slot's index moves on a delete)
 static uint32_t g_force_ms;              // the clock at its last step
 #define KEY_MIX 254
 #define KEY_OUT 255
 #define STEP_MS 16                       // a step every 16 ms (about 60 a second, whatever the frame rate)
 
-// A cable's length at rest: 24 px at -1, 14 at -2, shorter when the room is crowded (the room each node has, three quarters of its side);
-// the push between nodes goes with its square.
-static float rest_of(int zoom, float w, float h, const nav_graph_t *p) {
+// A cable's length at rest (zoom -1's units: -2 shows it at half size): 31 px, shorter when the room is crowded (the room each node has,
+// its side x 0.975); the push between nodes goes with its square.
+static float rest_of(float w, float h, const nav_graph_t *p) {
     int n = 0;
     for (int i = 0; i < NAV_NODES; i++) n += on_graph(&p->node[i]);
-    const float most = zoom < -1 ? 14.0f : 24.0f, fit = n ? 0.75f * sqrtf(w * h / (float)n) : most;
+    const float most = 31.0f, fit = n ? 0.975f * sqrtf(w * h / (float)n) : most;
     return fit < most ? fit : most;
 }
 static float push_of(float rest) { return 0.26f * rest * rest; }
@@ -165,33 +169,27 @@ static void force_springs(const nav_graph_t *g, const rack_t *r) {
     }
 }
 
-// Before each frame zoomed out: the graph set going (each node where its tile was at zoom 0: `scroll0`, that map's scroll), scaled between
-// -1 and -2, kept in step with the rack (a node keeps its place by what it is; one joining starts beside a node it is cabled to), then the
+// Before each frame zoomed out: the graph set going (each node where its tile was at zoom 0: `scroll0`, that map's scroll; anew each time
+// the map zooms out from 0 or 1; -1 <-> -2 is the same graph at half size, at once), kept in step with the rack (a node keeps its place by what it is; one joining starts beside a node it is cabled to), then the
 // steps the time since the last frame asks for (no clock, as in the tests: one a frame).
 static void force_update(const ui_ctx_t *c, int room, int scroll0) {
-    if (g_zoom >= 0) { g_force_zoom = 0; return; }
+    if (g_zoom >= 0) { g_force_set = false; return; }
     const nav_graph_t *p = placed_graph(c);
     const rack_t *r = c->rack;
     const float w = (float)g_map_w, h = (float)room;
-    if (!g_force_zoom || g_force.w != w || g_force.h != h) {
-        const float rest = rest_of(g_zoom, w, h, p);
-        nav_force_init(&g_force, w, h, (float)g_m.tile_w / 2, (float)g_m.tile_h / 2, rest, push_of(rest));
+    if (!g_force_set || g_force.w != w || g_force.h != h) {
+        const float rest = rest_of(w, h, p), unscale = g_zoom < -1 ? 1.0f / HALF : 1.0f;   // (spawned straight into -2: where its tiles were there)
+        nav_force_init(&g_force, w, h, (float)g_m1.tile_w / 2, (float)g_m1.tile_h / 2, rest, push_of(rest));
         const float fit = p->height > room ? (float)room / (float)p->height : 1.0f;    // (a map taller than the screen: all of it, squeezed)
         for (int i = 0; i < NAV_NODES; i++) {
             g_force_key[i] = key_of(p, r, i);
             const float y = fit < 1 ? (float)p->node[i].y * fit : (float)(p->node[i].y - scroll0);
-            if (on_graph(&p->node[i])) nav_force_put(&g_force, i, (float)p->node[i].x + (float)g_m0.tile_w / 2, y + (float)g_m0.tile_h / 2 * fit);
+            const float x = (float)p->node[i].x + (float)g_m0.tile_w / 2, yc = y + (float)g_m0.tile_h / 2 * fit;
+            if (on_graph(&p->node[i])) nav_force_put(&g_force, i, w / 2 + (x - w / 2) * unscale, h / 2 + (yc - h / 2) * unscale);
         }
         force_springs(p, r);
-        g_force_zoom = g_zoom;
+        g_force_set = true;
         g_force_ms = c->ui->now_ms;
-    } else if (g_force_zoom != g_zoom) {                                           // -1 <-> -2: the graph scaled about the middle
-        const float rest = rest_of(g_zoom, w, h, p), s = rest / g_force.rest;
-        g_force.rest = rest; g_force.push = push_of(rest);
-        g_force.hw = (float)g_m.tile_w / 2; g_force.hh = (float)g_m.tile_h / 2;
-        for (int i = 0; i < NAV_NODES; i++)
-            if (g_force.on[i]) nav_force_put(&g_force, i, w / 2 + (g_force.x[i] - w / 2) * s, h / 2 + (g_force.y[i] - h / 2) * s);
-        g_force_zoom = g_zoom;
     }
     bool changed = false;
     for (int i = 0; i < NAV_NODES && !changed; i++) changed = key_of(p, r, i) != g_force_key[i] || on_graph(&p->node[i]) != g_force.on[i];
@@ -217,7 +215,7 @@ static void force_update(const ui_ctx_t *c, int room, int scroll0) {
             nav_force_put(&g_force, i, x, y);
         }
         force_springs(p, r);
-        g_force.rest = rest_of(g_zoom, w, h, p);
+        g_force.rest = rest_of(w, h, p);
         g_force.push = push_of(g_force.rest);
         nav_force_go(&g_force);
     }
@@ -232,7 +230,7 @@ static void force_update(const ui_ctx_t *c, int room, int scroll0) {
 }
 
 bool synth_ui_map_animating(const synth_ui_t *ui) {
-    return ui->in_rack && (ui->menu_tab == TAB_RACK || ui->menu_tab == TAB_MAP) && !ui->map_at && ui->map_zoom < 0 && g_force_zoom < 0 &&
+    return ui->in_rack && (ui->menu_tab == TAB_RACK || ui->menu_tab == TAB_MAP) && !ui->map_at && ui->map_zoom < 0 && g_force_set &&
            g_force.moving;
 }
 
@@ -386,6 +384,7 @@ static void tile_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_r
             const rack_slot_t *s = &c->rack->slot[n->slot];
             const module_type_t t = (module_type_t)s->type;
             kind = rack_type_name(t);
+            snprintf(name, sizeof name, "%d", s->id);                // (the number alone, the type beside it in grey)
             const int first = main_index(s);
             for (int i = -1; i < rack_mparam_count(t) && k < 4; i++) {
                 const int p = i < 0 ? first : i;
@@ -667,6 +666,8 @@ static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect
     g_zoom = c->ui->map_zoom < ZOOM_MIN ? ZOOM_MIN : c->ui->map_zoom > ZOOM_MAX ? ZOOM_MAX : c->ui->map_zoom;
     g_m = metrics(area, g_zoom);
     g_m0 = metrics(area, 0);
+    g_m1 = metrics(area, -1);
+    if (g_zoom >= 0) g_force_set = false;                                          // (back out to -1 later: laid out anew)
     g_map_w = area.w - 2 * TILE_PAD;
     g_map_x = area.x + TILE_PAD;
     g_map_y = area.y + 2;                                                          // (room for the cursor's outline over the top tile)

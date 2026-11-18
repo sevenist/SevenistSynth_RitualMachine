@@ -452,6 +452,7 @@ TEST(the_force_graph_pushes_the_nodes_apart_inside_the_room_and_comes_to_rest) {
 
 // On the map: zoomed out, the graph animates (the app draws frames while it moves) and stops; the cursor goes between its nodes and never
 // onto a "+" (not on the graph: a cursor left on one moves to the nearest node); a module deleted meanwhile leaves the graph.
+static void frame(void) { synth_ui_draw(&ui_app.ui, &ui_app.params, &ui_app.seq, &ui_app.rack, ui_app.display); }
 static int map_move(int cur, char dir) { const ui_ctx_t c = ctx(); return scr_map_screen.move(&c, cur, dir); }
 
 TEST(zoomed_out_the_graph_settles_and_the_cursor_walks_its_nodes) {
@@ -471,6 +472,19 @@ TEST(zoomed_out_the_graph_settles_and_the_cursor_walks_its_nodes) {
         frames++;
     }
     CHECK(frames < 200);                                                           // (300 steps at most)
+    CHECK(synth_ui_map_zoom(&ui_app.ui, -1));                                      // -1 -> -2 and back: the same graph scaled, at once
+    frame();
+    CHECK(!synth_ui_map_animating(&ui_app.ui));
+    CHECK(synth_ui_map_zoom(&ui_app.ui, 1));
+    frame();
+    CHECK(!synth_ui_map_animating(&ui_app.ui));
+    CHECK(synth_ui_map_zoom(&ui_app.ui, 1));                                       // to the tiles and out again: laid out anew
+    frame();
+    CHECK(synth_ui_map_zoom(&ui_app.ui, -1));
+    ui_app.ui.now_ms += 33;
+    frame();
+    CHECK(synth_ui_map_animating(&ui_app.ui));
+    while (synth_ui_map_animating(&ui_app.ui) && frames < 800) { ui_app.ui.now_ms += 33; frame(); frames++; }
     bool seen[NAV_NODES] = {false};                                                // every node on the graph reached, never a "+"
     int stack[NAV_NODES * 4], n = 0;
     stack[n++] = ui_app.ui.row - 1;
@@ -500,7 +514,6 @@ TEST(zoomed_out_the_graph_settles_and_the_cursor_walks_its_nodes) {
 // cable), Delete. Connect: a push on the target, then the rack's Prm and Dpth for it; Back or a zoom cancels (a popup says so); the module
 // itself, the MIX or the OUT is refused and the choosing goes on.
 #define GRAPH_ROW(k) MENU_ROW(14 + (k))               // ui->row of the graph's item k (0 Connect, 1 Disconnect all, 2 Delete: after the rack's)
-static void frame(void) { synth_ui_draw(&ui_app.ui, &ui_app.params, &ui_app.seq, &ui_app.rack, ui_app.display); }
 static void push_on(int node) { ui_app.ui.row = node + 1; frame(); ev(UI_LATCH); frame(); }
 
 TEST(zoomed_out_a_push_offers_connect_disconnect_all_and_delete) {

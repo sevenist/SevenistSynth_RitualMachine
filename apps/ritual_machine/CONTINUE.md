@@ -16,9 +16,13 @@ UI's background is pure black (as the boot animation's). The user's answers on w
   removing a cable from the node page.
 - [ ] **Inserting a module on the cable between two others**: wanted, but after more work on the Studio, once the modular synth model is
   "perfect".
-- [ ] **A simpler graph: floating nodes** pulled by the tension of their audio links (a vector toward the module that feeds the node's
-  audio in and one toward the module that takes its out), in place of the grid layout of `nav_graph.c`.
-- [ ] Moving a module up / down its chain in place; the map for the Pads section's FX chains; colour for the other screens.
+- [x] **A simpler graph: floating nodes** pulled by the tension of their audio links: built 2026-11-18 (step 5, `c554b92`, and 5b,
+  `225081b`; UI.md's log). Heights from the signal, floating across, chains straight, the cursor by the screen. **To try on the board.**
+  Free in both directions was tried and dropped (long chains zigzagged on 128 px). Open: with two modulators on a row M module the MIX
+  column moves aside (a row M modulator could take the side with more room).
+- [ ] Moving a module up / down its chain in place; colour for the other screens.
+- [ ] **The map for the Pads section's FX chains**: the user decides how the routing shows (FXA / FXB / FXC in series or in parallel,
+  `fx_route`); `nav_build` shows row M only for an FX rack today, and the map's Edit opens the synth's node page, not `fxmod_screen`.
 - [ ] **Docs: rewrite `docs/UI.md` whole** (it will be the base of the user manual; the rework log at its top folds into it), and update
   every other document that still describes the old RACK strip or the 11-tab MAP (DEVELOPING.md's controls table, GUI_NODES.md's status,
   DESIGN.md, the README, an ADR for the rework, CHANGELOG): no outdated document left.

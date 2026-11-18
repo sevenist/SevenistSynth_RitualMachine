@@ -211,6 +211,27 @@ Paths without a prefix are inside `apps/ritual_machine/src/` (`core/...`, `app/.
 >   the tiles nothing moves). 245 UI tests at 160 and 128; the HWV2 simulator builds. Rendered and looked at: the sample rack (the spawn,
 >   12 and 72 steps, settled; -2) and a full rack (16 modules, 7 of them modulators), -1 and -2.
 >
+> **2026-11-18, step 9: the graph's menu: Connect, Disconnect all, Delete** (the user: "in zoom -1 and -2 the user can select a node, choose
+> an action, for now only disconnect all, delete and connect; connect returns to the view, the user selects a second node and connects the
+> cable to a parameter (the UI shows the parameters and the modulation index); unzooming stops the selection and a popup tells the user").
+>
+> - **A push on a module zoomed out** opens the graph's menu (`scr_map.c`: three more items after the rack's, `MAP_CONNECT`, `MAP_UNLINK`,
+>   `MAP_DELETE`; `synth_ui_t.map_act` says which stage a push is at). On the MIX or the OUT a push does nothing. Back closes the menu.
+> - **Connect** (a modulator or an oscillator: FM; not a motion sequencer, whose lanes have their own targets): the menu closes and the
+>   target is chosen on the graph: the strip reads "Connect 4 LF to 3 OC", a pink dashed cable runs from the source to the cursor. A push
+>   on a module takes it (`rack_set_target`, its parameter 0 first), then the rack's menu opens on the source with only **Prm** and
+>   **Dpth**. The module itself, the MIX or the OUT is refused ("Pick another module", "MIX takes no modulation") and the choosing goes on.
+>   **Back or a zoom cancels** it, nothing changed, a popup says "Connect cancelled" (`synth_ui_t.rack_msg`, shown by the app as a RACK
+>   popup, as `seq_msg` is for the sequencer).
+> - **Disconnect all**: every modulation cable of the module, both ways: its own target, what modulates it, a motion sequencer's lanes on it
+>   or its own (`rack_unlink`, `core/rack.c`). Only while it has one.
+> - **Delete**: the rack's Delete.
+> - The rack's model stays as it is: audio follows a module's place in its chain (the user, 2026-11-18: "rack rules now"; free patching
+>   with the Studio's modular model, later).
+> - Tests: `test_map.c` (the menu per node, Disconnect all, Connect with its refusals and its Prm / Dpth, a zoom and Back cancelling,
+>   Delete; `rack_unlink` both ways and on the lanes). 247 UI tests at 160 and 128; the HWV2 simulator builds. Rendered and looked at (the
+>   menu, the choosing with its cable, the Prm / Dpth menu).
+>
 > The UI has **two ways of writing a screen**, and knowing which one a screen uses is the first thing to find out:
 
 - **Declarative** (the newer one): the screen is a table of elements, and one generic piece of code draws it, moves the focus

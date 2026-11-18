@@ -21,7 +21,9 @@
 // the room for the cables), each tile its name, its type and its values as bars, the map scrolling sideways to keep the cursor in view;
 // -1 and -2 the graph zoomed out: small rounded nodes, a module's colour and number (no "+"), which spawn where zoom 0's tiles were and
 // float into a graph pulled by their cables (core/nav_force.h: audio, FM and pitch strongly, the other modulations weakly), the screen
-// drawing each step (synth_ui_map_animating); straight cables from centre to centre.
+// drawing each step (synth_ui_map_animating); straight cables from centre to centre. There a push on a module opens the graph's own menu:
+// Connect (a modulator or an oscillator: then a push on the target, then its parameter and depth, the rack's Prm and Dpth; Back or a zoom
+// cancels, a popup says so), Disconnect all (its modulation cables, both ways), Delete.
 #include "core/ui_screen.h"
 #include "core/ui_widgets.h"
 #include "core/nav_graph.h"
@@ -31,7 +33,11 @@
 #include <string.h>
 
 #define MAP_EDIT 100                     // the menu's first item, the map's own: the node's page
-enum { E_INFO = NAV_NODES, E_M0, E_COUNT = E_M0 + 1 + (RM_END - RM_TYPE) };
+#define MAP_CONNECT 101                  // the graph's menu (zoomed out): Connect, Disconnect all, Delete
+#define MAP_UNLINK  102
+#define MAP_DELETE  103
+enum { E_INFO = NAV_NODES, E_M0, E_G0 = E_M0 + 1 + (RM_END - RM_TYPE), E_COUNT = E_G0 + 3 };
+enum { MAP_ACT_NONE, MAP_ACT_MENU, MAP_ACT_PICK, MAP_ACT_PARAM };      // ui->map_act
 
 #define TILE_PAD 2                       // the margin left and right of the map (the cursor's outline is 2 px outside a tile)
 #define MENU_W   96
@@ -104,11 +110,19 @@ static const nav_graph_t *graph(const ui_ctx_t *c) {
     return &wide;
 }
 
+// A Connect choosing its target stops (Back, a zoom); the popup says so.
+static void pick_cancel(synth_ui_t *ui) {
+    ui->map_act = MAP_ACT_NONE;
+    ui->map_src = 0;
+    snprintf(ui->rack_msg, sizeof ui->rack_msg, "Connect cancelled");
+}
+
 bool synth_ui_map_zoom(synth_ui_t *ui, int steps) {
     if (!ui->in_rack || (ui->menu_tab != TAB_RACK && ui->menu_tab != TAB_MAP) || ui->map_at || ui->rack_menu) return false;   // (the map on show)
     int z = ui->map_zoom + steps;
     z = z < ZOOM_MIN ? ZOOM_MIN : z > ZOOM_MAX ? ZOOM_MAX : z;
     if (z == ui->map_zoom) return false;
+    if (ui->map_act == MAP_ACT_PICK) pick_cancel(ui);
     ui->map_zoom = (int8_t)z;
     return true;
 }
@@ -222,7 +236,7 @@ bool synth_ui_map_animating(const synth_ui_t *ui) {
            g_force.moving;
 }
 
-static int item_arg(int e) { return e == E_M0 ? MAP_EDIT : RM_TYPE + (e - E_M0 - 1); }
+static int item_arg(int e) { return e >= E_G0 ? MAP_CONNECT + (e - E_G0) : e == E_M0 ? MAP_EDIT : RM_TYPE + (e - E_M0 - 1); }
 
 /* ---------------- the nodes ---------------- */
 
@@ -245,10 +259,38 @@ static void fit_type(const ui_ctx_t *c, bool modulator) {
     }
 }
 
-// A push on a node: its menu (the rack's), on the cell it is.
+// Zoomed out, a Connect choosing its target: a push on a module takes it (its parameter 0 at first), then the rack's menu on the source
+// with only its Prm and Dpth; anything else is refused, the popup says why, and the choosing goes on.
+static void pick_target(const ui_ctx_t *c) {
+    synth_ui_t *ui = c->ui;
+    const nav_node_t *n = &graph(c)->node[c->arg];
+    const int src = ui->map_src - 1;
+    char name[8] = "";
+    if (n->kind == NODE_MODULE) rack_slot_name(c->rack, n->slot, name, sizeof name);
+    if (n->kind == NODE_MODULE && n->slot == src) { snprintf(ui->rack_msg, sizeof ui->rack_msg, "Pick another module"); return; }
+    if (n->kind != NODE_MODULE || !rack_set_target(c->rack, src, n->slot, 0)) {
+        snprintf(ui->rack_msg, sizeof ui->rack_msg, "%s takes no modulation", n->kind == NODE_MODULE ? name : n->kind == NODE_MIX ? "MIX" : "OUT");
+        return;
+    }
+    ui->rack_dirty = true;
+    scr_rack_select(ui, c->rack, c->rack->slot[src].row, src);
+    ui->rack_menu = true;
+    ui->map_menu = (uint8_t)(src + 1);
+    ui->map_act = MAP_ACT_PARAM;
+    ui->latched = false;
+    const int first = first_item(c);
+    ui->row = first >= 0 ? first + 1 : src + 1;
+}
+
+// A push on a node: its menu (the rack's; zoomed out, the graph's), on the cell it is.
 static void node_activate(const ui_ctx_t *c) {
     const nav_node_t *n = &graph(c)->node[c->arg];
     synth_ui_t *ui = c->ui;
+    if (ui->map_zoom < 0) {
+        if (ui->map_act == MAP_ACT_PICK) { pick_target(c); return; }
+        if (n->kind != NODE_MODULE) return;                    // (the MIX, the OUT: nothing to do there)
+        ui->map_act = MAP_ACT_MENU;
+    }
     if (n->kind == NODE_MODULE) scr_rack_select(ui, c->rack, c->rack->slot[n->slot].row, n->slot);
     else if (n->kind == NODE_MIX) scr_rack_select(ui, c->rack, ROW_M, RACK_SEL_MIX);
     else if (n->kind == NODE_PLUS) scr_rack_select(ui, c->rack, n->row, RACK_SEL_PLUS);
@@ -277,8 +319,10 @@ static int node_move(const ui_ctx_t *c, int cur, char dir) {
 }
 
 static bool map_back(const ui_ctx_t *c) {
+    if (c->ui->map_act == MAP_ACT_PICK) { pick_cancel(c->ui); return true; }
     if (!c->ui->rack_menu) return false;                       // (then up: the header, then out of the menu: ui_input.c)
     scr_rack_menu_close(c);
+    c->ui->map_act = MAP_ACT_NONE;
     return true;
 }
 
@@ -390,6 +434,12 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
                 const gui_rect_t a = tile_at(gr, ed->from), b = tile_at(gr, ed->to);
                 uw_wire(g, a.x + a.w / 2, a.y + a.h / 2, b.x + b.w / 2, b.y + b.h / 2, ed->kind == EDGE_MOD ? UW_CABLE_MOD : UW_CABLE_AUDIO);
             }
+        const int src = c->ui->map_src - 1, to = c->ui->row - 1;                    // a Connect choosing: the cable to be, to the cursor
+        if (c->ui->map_act == MAP_ACT_PICK && src >= 0 && src < NAV_NODES && to >= 0 && to < NAV_NODES && to != src &&
+            gr->node[src].kind != NODE_NONE && gr->node[to].kind != NODE_NONE) {
+            const gui_rect_t a = tile_at(gr, src), b = tile_at(gr, to);
+            uw_wire(g, a.x + a.w / 2, a.y + a.h / 2, b.x + b.w / 2, b.y + b.h / 2, UW_CABLE_GATE);
+        }
         u8g2_SetClipWindow(g, area.x, area.y, area.x + area.w, area.y + area.h);
         return;
     }
@@ -465,6 +515,17 @@ static void strip_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
     const nav_graph_t *gr = graph(c);
     const rack_t *rk = c->rack;
     uw_panel(g, r);
+    if (ui->map_act == MAP_ACT_PICK && ui->map_src) {                              // a Connect choosing its target
+        const int asc = u8g2_GetAscent(g), rh = gui_row_h(g, st);
+        char src[8], to[8] = "?", l1[40];
+        rack_slot_name(rk, ui->map_src - 1, src, sizeof src);
+        if (node >= 0 && node < NAV_NODES && gr->node[node].kind == NODE_MODULE) rack_slot_name(rk, gr->node[node].slot, to, sizeof to);
+        else if (node >= 0 && node < NAV_NODES && gr->node[node].kind != NODE_NONE) snprintf(to, sizeof to, "%s", gr->node[node].kind == NODE_MIX ? "MIX" : "OUT");
+        snprintf(l1, sizeof l1, "Connect %s to %s", src, to);
+        uw_text(g, r.x + 3, r.y + 2 + asc, l1, UC_MOD);
+        uw_text(g, r.x + 3, r.y + 2 + rh + asc, "push: pick  Back: cancel", UC_DIM);
+        return;
+    }
     if (node < 0 || node >= NAV_NODES || gr->node[node].kind == NODE_NONE) {
         uw_text(g, r.x + 3, r.y + 2 + u8g2_GetAscent(g), "push: a node's menu", UC_DIM);
     } else {
@@ -548,12 +609,52 @@ static void edit_activate(const ui_ctx_t *c) {                                  
     c->ui->row = 4;                                                                // the node page's first value row (scr_node.c: element 3)
 }
 
-static bool item_enabled(const ui_ctx_t *c) { return c->arg == MAP_EDIT ? edit_enabled(c) : scr_rack_item_enabled(c); }
-static void item_activate(const ui_ctx_t *c) { if (c->arg == MAP_EDIT) edit_activate(c); else scr_rack_item_activate(c); }
+// The graph's menu (zoomed out) on a module: Connect from what can modulate (a modulator, an oscillator: FM; not a motion sequencer, whose
+// lanes have their own targets), Disconnect all while it has a modulation cable, Delete.
+static bool graph_item_enabled(const ui_ctx_t *c) {
+    const int slot = scr_rack_selected_slot(c);
+    if (slot < 0) return false;
+    const module_type_t t = (module_type_t)c->rack->slot[slot].type;
+    if (c->arg == MAP_CONNECT) return rack_can_target(t) && t != MOD_MSEQ;
+    if (c->arg == MAP_UNLINK) {
+        const nav_graph_t *gr = graph(c);
+        for (int e = 0; e < gr->n_edges; e++) if (gr->edge[e].kind == EDGE_MOD && (gr->edge[e].from == slot || gr->edge[e].to == slot)) return true;
+        return false;
+    }
+    return true;
+}
+static void graph_item_activate(const ui_ctx_t *c) {
+    synth_ui_t *ui = c->ui;
+    const int slot = scr_rack_selected_slot(c);
+    if (c->arg == MAP_DELETE) {                                                    // (the rack's Delete)
+        ui_ctx_t x = *c;
+        x.arg = RM_DELETE;
+        scr_rack_item_activate(&x);
+    } else {
+        if (c->arg == MAP_UNLINK && slot >= 0 && rack_unlink(c->rack, slot)) ui->rack_dirty = true;
+        scr_rack_menu_close(c);
+    }
+    ui->map_act = MAP_ACT_NONE;
+    if (c->arg == MAP_CONNECT && slot >= 0) { ui->map_act = MAP_ACT_PICK; ui->map_src = (uint8_t)(slot + 1); }
+}
+
+static bool item_enabled(const ui_ctx_t *c) {
+    const uint8_t act = c->ui->map_act;
+    if (c->arg >= MAP_CONNECT) return c->ui->rack_menu && act == MAP_ACT_MENU && graph_item_enabled(c);
+    if (act == MAP_ACT_MENU) return false;
+    if (act == MAP_ACT_PARAM) return (c->arg == RM_PRM || c->arg == RM_DPTH) && scr_rack_item_enabled(c);   // (a Connect: its parameter, its depth)
+    return c->arg == MAP_EDIT ? edit_enabled(c) : scr_rack_item_enabled(c);
+}
+static void item_activate(const ui_ctx_t *c) {
+    if (c->arg >= MAP_CONNECT) graph_item_activate(c);
+    else if (c->arg == MAP_EDIT) edit_activate(c);
+    else scr_rack_item_activate(c);
+}
 
 static void item_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t r, bool focused, bool latched) {
-    const char *label = c->arg == MAP_EDIT ? "Edit" : scr_rack_item_label(c->arg);
-    const bool button = c->arg == MAP_EDIT || scr_rack_item_kind(c->arg) == EL_BUTTON;
+    static const char *const graph_label[] = {"Connect", "Disconnect all", "Delete"};
+    const char *label = c->arg >= MAP_CONNECT ? graph_label[c->arg - MAP_CONNECT] : c->arg == MAP_EDIT ? "Edit" : scr_rack_item_label(c->arg);
+    const bool button = c->arg >= MAP_CONNECT || c->arg == MAP_EDIT || scr_rack_item_kind(c->arg) == EL_BUTTON;
     char val[24] = "";
     if (button) snprintf(val, sizeof val, ">");
     else scr_rack_item_value(c, val, sizeof val);
@@ -639,8 +740,10 @@ static const el_def_t elements[E_COUNT] = {
     MENU_ITEM(E_M0 + 7, EL_VALUE, RM_PARA),   MENU_ITEM(E_M0 + 8, EL_VALUE, RM_PENV),    MENU_ITEM(E_M0 + 9, EL_VALUE, RM_LVL1),
     MENU_ITEM(E_M0 + 10, EL_VALUE, RM_PAN1),  MENU_ITEM(E_M0 + 11, EL_VALUE, RM_LVL2),   MENU_ITEM(E_M0 + 12, EL_VALUE, RM_PAN2),
     MENU_ITEM(E_M0 + 13, EL_BUTTON, RM_DELETE),
+    MENU_ITEM(E_G0, EL_BUTTON, MAP_CONNECT),  MENU_ITEM(E_G0 + 1, EL_BUTTON, MAP_UNLINK), MENU_ITEM(E_G0 + 2, EL_BUTTON, MAP_DELETE),
 };
 _Static_assert(RACK_MAX == 16 && NAV_NODES == RACK_MAX + 6, "N4 x 4 covers the module nodes, then the MIX, the OUT and the four +");
-_Static_assert(E_COUNT == E_M0 + 14 && RM_DELETE - RM_TYPE == 12, "the menu's items: Edit, then the rack's Type .. Delete");
+_Static_assert(E_G0 == E_M0 + 14 && E_COUNT == E_G0 + 3 && RM_DELETE - RM_TYPE == 12,
+               "the menu's items: Edit, then the rack's Type .. Delete, then the graph's Connect, Disconnect all, Delete");
 
 const screen_def_t scr_map_screen = {elements, E_COUNT, false, false, layout, map_back, NULL, draw_extra, node_move};

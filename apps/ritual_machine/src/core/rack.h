@@ -197,6 +197,7 @@ bool rack_slot_is_audio(const rack_t *r, int slot);        // in the audio chain
 void rack_cycle_target(rack_t *r, int slot, int dir);
 void rack_cycle_param(rack_t *r, int slot, int dir);
 bool rack_set_target(rack_t *r, int slot, int target, int param);   // modulator `slot` drives parameter `param` of slot `target` (its depth reset); false: refused
+bool rack_unlink(rack_t *r, int slot);     // every modulation cable of `slot` gone: its own target(s) and what modulates it; false: it had none
 
 // Motion sequencer lanes (slot must be an MS). A lane's target is a (module, parameter) pair the engine mapper can realise.
 ms_pattern_t *rack_ms(rack_t *r, int slot);

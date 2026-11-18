@@ -127,6 +127,9 @@ typedef struct {
     uint8_t map_menu;   // ... the rack's cell menu opened on the map: the map's focus to come back to (node + 1); 0: not from the map
     int8_t  map_zoom;   // ... the map's zoom (scr_map.c): 0 tiles, 1 wide tiles with more values, -1 / -2 the floating graph (synth_ui_map_zoom)
     uint32_t now_ms;    // the app's clock for the frame being drawn (set by the app; the map's animation); 0: none (a step a frame)
+    uint8_t map_act;    // ... zoomed out, what a push is doing (scr_map.c MAP_ACT_*): the node's menu, a Connect choosing its target, then its parameter
+    uint8_t map_src;    // ... the Connect's source: its slot + 1
+    char    rack_msg[28];  // what the map just did or refused ("Connect cancelled"), for the app to show (a popup); "" = nothing
     int  fm_op;            // FM editor: selected operator 0..5
     int  fm_pt;            // FM editor: selected envelope point 0..3
     int  cog_page;         // the page whose cog is open (its module's hidden settings shown in place of its rows), -1 = none

@@ -536,6 +536,23 @@ bool rack_set_target(rack_t *r, int slot, int target, int param) {
     return true;
 }
 
+bool rack_unlink(rack_t *r, int slot) {
+    if (slot < 0 || slot >= r->count) return false;
+    const uint8_t id = r->slot[slot].id;
+    bool any = false;
+    for (int i = 0; i < r->count; i++) {
+        rack_slot_t *s = &r->slot[i];
+        if ((i == slot && s->tgt_id) || (i != slot && s->tgt_id == id)) { s->tgt_id = 0; s->tgt_param = 0; any = true; }
+    }
+    const int own = r->slot[slot].type == MOD_MSEQ ? (int)r->slot[slot].v[MP_MS_POOL] : -1;   // a motion sequencer: its lanes' targets too
+    for (int p = 0; p < MS_POOL; p++)
+        for (int l = 0; l < MS_LANES; l++) {
+            ms_lane_t *ln = &r->ms[p].lane[l];
+            if (ln->tgt_id && (p == own || ln->tgt_id == id)) { ln->tgt_id = 0; ln->tgt_param = 0; any = true; }
+        }
+    return any;
+}
+
 void rack_cycle_param(rack_t *r, int slot, int dir) {
     rack_slot_t *s = &r->slot[slot];
     int ti = s->tgt_id ? rack_find(r, s->tgt_id) : RACK_NONE;

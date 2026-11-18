@@ -12,6 +12,18 @@ static void set_status(app_t *app, const binding_t *b, int amount) {
 
 /* ---------------- UI events ---------------- */
 
+// What the UI asks the app to say: a popup.
+static void ui_messages(app_t *app) {
+    if (app->ui.seq_msg[0]) {                                                                                  // a sequencer tool ran: what it did
+        popup_info(&app->popup, "SEQUENCER", app->ui.seq_msg, 0, audio_millis(), POPUP_INFO_MS);
+        app->ui.seq_msg[0] = 0;
+    }
+    if (app->ui.rack_msg[0]) {                                                                                 // the map: a Connect cancelled ...
+        popup_info(&app->popup, "RACK", app->ui.rack_msg, 0, audio_millis(), POPUP_INFO_MS);
+        app->ui.rack_msg[0] = 0;
+    }
+}
+
 // Gives the UI one event; pushes the sound to the audio side when a value changed.
 void app_ui_event(app_t *app, ui_event_t ev) {
     if (app->ui.br_open) { browse_ui_event(&app->ui, ev, audio_millis()); app->dirty = true; return; }   // the sample browser is on top
@@ -20,10 +32,7 @@ void app_ui_event(app_t *app, ui_event_t ev) {
     if (app->ui.br_req) { app->ui.br_req = 0; app_browse_open(app, BROWSE_RACK); }                             // the SAMPLES tab's File row
     if (app->ui.storage_req) { app->ui.storage_req = false; app_storage_ask(app); }                            // the MACHINE tab's Storage
     if (app->ui.reset_id) { const uint8_t id = app->ui.reset_id; app->ui.reset_id = 0; app_module_reset_ask(app, id); }   // a cog's Reset
-    if (app->ui.seq_msg[0]) {                                                                                  // a sequencer tool ran: what it did
-        popup_info(&app->popup, "SEQUENCER", app->ui.seq_msg, 0, audio_millis(), POPUP_INFO_MS);
-        app->ui.seq_msg[0] = 0;
-    }
+    ui_messages(app);
     app->dirty = true;
     app_catch_stale = true;
 }
@@ -183,7 +192,10 @@ void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             else if (!in_pads(app)) app_joy_mode(app, !app->ui.joy_xy);
             break;
         case ACT_VALUE_RESET:  if (!in_pads(app) || app->ui.in_rack) value_reset(app); break;
-        case ACT_ZOOM:         if (synth_ui_map_zoom(&app->ui, n)) app->dirty = true; break;      // (the RACK map on show; elsewhere nothing)
+        case ACT_ZOOM:                                      // (the RACK map on show; elsewhere nothing)
+            if (synth_ui_map_zoom(&app->ui, n)) app->dirty = true;
+            ui_messages(app);
+            break;
         case ACT_VALUE_ADJUST: ui_event_n(app, n, UI_VALUE_INC, UI_VALUE_DEC); set_status(app, b, n); break;
         case ACT_VALUE_FINE:                                // the same in fine steps (core/fine_step.h)
             g_fine_step = true;

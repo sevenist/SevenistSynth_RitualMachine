@@ -496,6 +496,111 @@ TEST(zoomed_out_the_graph_settles_and_the_cursor_walks_its_nodes) {
     CHECK(!synth_ui_map_animating(&ui_app.ui));
 }
 
+// Zoomed out, a push on a module opens the graph's menu: Connect (a modulator, an oscillator), Disconnect all (while it has a modulation
+// cable), Delete. Connect: a push on the target, then the rack's Prm and Dpth for it; Back or a zoom cancels (a popup says so); the module
+// itself, the MIX or the OUT is refused and the choosing goes on.
+#define GRAPH_ROW(k) MENU_ROW(14 + (k))               // ui->row of the graph's item k (0 Connect, 1 Disconnect all, 2 Delete: after the rack's)
+static void frame(void) { synth_ui_draw(&ui_app.ui, &ui_app.params, &ui_app.seq, &ui_app.rack, ui_app.display); }
+static void push_on(int node) { ui_app.ui.row = node + 1; frame(); ev(UI_LATCH); frame(); }
+
+TEST(zoomed_out_a_push_offers_connect_disconnect_all_and_delete) {
+    map_on_sample_rack();                                                          // slot 1 the filter, 2 branch 2's oscillator, 3 the LFO -> the filter
+    const ui_ctx_t c = ctx();
+    CHECK(synth_ui_map_zoom(&ui_app.ui, -1));
+    frame();
+    push_on(1);                                                                    // the filter: no Connect (it modulates nothing)
+    CHECK(ui_app.ui.rack_menu);
+    CHECK_EQ(ui_app.ui.row, GRAPH_ROW(1));
+    CHECK(scr_map_screen.back(&c));
+    CHECK(!ui_app.ui.rack_menu);
+    CHECK_EQ(ui_app.ui.map_act, 0);
+    push_on(NAV_MIX);                                                              // the MIX: no menu
+    CHECK(!ui_app.ui.rack_menu);
+
+    push_on(3);                                                                    // the LFO: Connect first
+    CHECK_EQ(ui_app.ui.row, GRAPH_ROW(0));
+    ev(UI_NAV_DOWN);                                                               // Disconnect all
+    CHECK_EQ(ui_app.ui.row, GRAPH_ROW(1));
+    ev(UI_LATCH);
+    CHECK_EQ(ui_app.rack.slot[3].tgt_id, 0);
+    CHECK(ui_app.ui.rack_dirty);
+    CHECK(!ui_app.ui.rack_menu);
+    CHECK_EQ(ui_app.ui.row, 4);                                                    // back on the LFO
+
+    push_on(3);
+    ev(UI_LATCH);                                                                  // Connect: now choosing
+    CHECK_EQ(ui_app.ui.map_act, 2);
+    CHECK(!ui_app.ui.rack_menu);
+    push_on(3);                                                                    // itself: refused, still choosing
+    CHECK_STR(ui_app.ui.rack_msg, "Pick another module");
+    CHECK_EQ(ui_app.ui.map_act, 2);
+    push_on(NAV_MIX);
+    CHECK_STR(ui_app.ui.rack_msg, "MIX takes no modulation");
+    CHECK_EQ(ui_app.ui.map_act, 2);
+    push_on(2);                                                                    // branch 2's oscillator: taken; then its parameter and depth
+    CHECK_EQ(ui_app.rack.slot[3].tgt_id, ui_app.rack.slot[2].id);
+    CHECK(ui_app.ui.rack_menu);
+    CHECK_EQ(ui_app.ui.map_act, 3);
+    CHECK_EQ(ui_app.ui.row, MENU_ROW(4));                                          // Prm
+    ev(UI_NAV_DOWN);
+    CHECK_EQ(ui_app.ui.row, MENU_ROW(5));                                          // Dpth, and nothing else of the rack's menu
+    ev(UI_NAV_DOWN);
+    CHECK_EQ(ui_app.ui.row, MENU_ROW(5));
+    CHECK(scr_map_screen.back(&c));
+    CHECK(!ui_app.ui.rack_menu);
+    CHECK_EQ(ui_app.ui.map_act, 0);
+
+    ui_app.ui.rack_msg[0] = 0;                                                     // a zoom while choosing: cancelled, and the zoom happens
+    push_on(3);
+    ev(UI_LATCH);
+    CHECK_EQ(ui_app.ui.map_act, 2);
+    CHECK(synth_ui_map_zoom(&ui_app.ui, -1));
+    CHECK_EQ(ui_app.ui.map_act, 0);
+    CHECK_EQ(ui_app.ui.map_zoom, -2);
+    CHECK_STR(ui_app.ui.rack_msg, "Connect cancelled");
+    frame();
+    ui_app.ui.rack_msg[0] = 0;                                                     // Back while choosing: cancelled
+    push_on(3);
+    ev(UI_LATCH);
+    CHECK(scr_map_screen.back(&c));
+    CHECK_EQ(ui_app.ui.map_act, 0);
+    CHECK_STR(ui_app.ui.rack_msg, "Connect cancelled");
+    CHECK_EQ(ui_app.rack.slot[3].tgt_id, ui_app.rack.slot[2].id);                // (nothing changed)
+
+    const int count = ui_app.rack.count;                                           // Delete
+    push_on(2);
+    ev(UI_NAV_DOWN);
+    ev(UI_NAV_DOWN);
+    CHECK_EQ(ui_app.ui.row, GRAPH_ROW(2));
+    ev(UI_LATCH);
+    CHECK_EQ(ui_app.rack.count, count - 1);
+    CHECK_EQ(ui_app.rack.slot[2].tgt_id, 0);                                       // (the LFO, now slot 2, lost its target with it)
+    CHECK_EQ(ui_app.ui.map_act, 0);
+    CHECK(!ui_app.ui.rack_menu);
+}
+
+// rack_unlink: every modulation cable of a module, both ways, a motion sequencer's lanes too; false when it had none.
+TEST(disconnect_all_removes_a_modules_cables_both_ways) {
+    rack_t r;
+    sample_rack(&r);
+    CHECK(rack_insert_row(&r, r.count, 0, MOD_ENV));
+    const int env = r.count - 1;
+    CHECK(rack_set_target(&r, env, 3, 0));                                         // the envelope modulates the LFO, which modulates the filter
+    CHECK(rack_unlink(&r, 3));
+    CHECK_EQ(r.slot[3].tgt_id, 0);
+    CHECK_EQ(r.slot[env].tgt_id, 0);
+    CHECK(!rack_unlink(&r, 3));
+    CHECK(rack_insert_row(&r, r.count, 0, MOD_MSEQ));
+    const int ms = r.count - 1;
+    ms_pattern_t *p = rack_ms(&r, ms);
+    p->lane[0].tgt_id = r.slot[1].id;                                              // a lane on the filter
+    CHECK(rack_unlink(&r, 1));
+    CHECK_EQ(p->lane[0].tgt_id, 0);
+    p->lane[1].tgt_id = r.slot[0].id;
+    CHECK(rack_unlink(&r, ms));                                                    // the sequencer's own lanes
+    CHECK_EQ(p->lane[1].tgt_id, 0);
+}
+
 /* ---------------- editing on the map: the rack's menu on its nodes ---------------- */
 
 static int find_slot(module_type_t t, int from) { for (int i = from; i < ui_app.rack.count; i++) if (ui_app.rack.slot[i].type == t) return i; return -1; }

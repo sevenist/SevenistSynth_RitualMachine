@@ -757,6 +757,33 @@ void rack_cable_remove(rack_t *r, int k) {
     r->n_cables--;
 }
 
+void rack_cable_cycle_param(rack_t *r, int k, int dir) {
+    if (k < 0 || k >= r->n_cables || r->cable[k].kind != CABLE_MOD) return;
+    rack_cable_t *c = &r->cable[k];
+    const int ti = rack_find(r, c->to);
+    if (ti == RACK_NONE) return;
+    const int n = info[r->slot[ti].type].nparams;
+    if (n <= 0) return;
+    c->param = (uint8_t)((c->param + dir + n) % n);
+    const depth_unit_t *u = rack_depth_unit((module_type_t)r->slot[ti].type, c->param);
+    c->amt = u ? u->def : 1.0f;
+}
+
+void rack_target_remove(rack_t *r, int slot) {
+    rack_slot_t *s = &r->slot[slot];
+    s->tgt_id = 0;
+    s->tgt_param = 0;
+    for (int k = 0; k < r->n_cables; k++) {
+        if (r->cable[k].kind != CABLE_MOD || r->cable[k].from != s->id) continue;
+        s->tgt_id = r->cable[k].to;                                             // its next cable becomes its first target
+        s->tgt_param = r->cable[k].param;
+        const int di = rack_depth_index((module_type_t)s->type);
+        if (di >= 0) s->v[di] = r->cable[k].amt;
+        rack_cable_remove(r, k);
+        return;
+    }
+}
+
 static const depth_unit_t du_level = {"", 0, 1, 0.05f, 1, 2};
 
 static const depth_unit_t *cable_unit(const rack_t *r, const rack_cable_t *c) {

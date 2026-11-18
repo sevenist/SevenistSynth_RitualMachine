@@ -129,6 +129,7 @@ typedef struct {
     uint32_t now_ms;    // the app's clock for the frame being drawn (set by the app; the map's animation); 0: none (a step a frame)
     uint8_t map_act;    // ... zoomed out, what a push is doing (scr_map.c MAP_ACT_*): the node's menu, a Connect choosing its target, then its parameter
     uint8_t map_src;    // ... the Connect's source: its slot + 1
+    uint8_t map_cable;  // ... the cable it just made (its parameter, its depth or level: MAP_ACT_CABLE): its index + 1
     char    rack_msg[28];  // what the map just did or refused ("Connect cancelled"), for the app to show (a popup); "" = nothing
     int  fm_op;            // FM editor: selected operator 0..5
     int  fm_pt;            // FM editor: selected envelope point 0..3

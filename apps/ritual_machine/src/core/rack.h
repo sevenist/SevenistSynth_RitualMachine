@@ -231,6 +231,8 @@ bool  rack_audio_connect(rack_t *r, int from, int to);              // level 1; 
 bool  rack_mod_can(const rack_t *r, int from, int to, char *why, int n);
 bool  rack_mod_connect(rack_t *r, int from, int to, int param);     // its first target if it has none, else a cable (depth: the unit's default)
 void  rack_cable_remove(rack_t *r, int k);
+void  rack_cable_cycle_param(rack_t *r, int k, int dir);            // a modulation cable's parameter, the next one of its target (its depth reset)
+void  rack_target_remove(rack_t *r, int slot);                      // a modulator's first target gone (its next cable, if any, becomes the first)
 bool  rack_cable_adjust(rack_t *r, int k, int dir);                 // a level by 0.05, a depth by its unit's step; true if changed
 void  rack_cable_format(const rack_t *r, int k, char *out, int n);  // "0.80", "+2.00oct"
 bool  rack_audio_reaches(const rack_t *r, int from, int to);        // the audio of slot `from` gets to slot `to` (chains and cables)

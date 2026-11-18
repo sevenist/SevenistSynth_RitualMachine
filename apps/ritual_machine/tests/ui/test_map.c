@@ -513,7 +513,8 @@ TEST(zoomed_out_the_graph_settles_and_the_cursor_walks_its_nodes) {
 // Zoomed out, a push on a module opens the graph's menu: Connect (a modulator, an oscillator), Disconnect all (while it has a modulation
 // cable), Delete. Connect: a push on the target, then the rack's Prm and Dpth for it; Back or a zoom cancels (a popup says so); the module
 // itself, the MIX or the OUT is refused and the choosing goes on.
-#define GRAPH_ROW(k) MENU_ROW(14 + (k))               // ui->row of the graph's item k (0 Connect, 1 Disconnect all, 2 Delete: after the rack's)
+// ui->row of the graph's item k (after the rack's): 0 Mod to, 1 Audio to, 2..11 the cable rows, 12 Disconnect all, 13 Delete, 14 Prm, 15 Dpth / Lvl
+#define GRAPH_ROW(k) MENU_ROW(14 + (k))
 static void push_on(int node) { ui_app.ui.row = node + 1; frame(); ev(UI_LATCH); frame(); }
 
 TEST(zoomed_out_a_push_offers_connect_disconnect_all_and_delete) {
@@ -521,19 +522,23 @@ TEST(zoomed_out_a_push_offers_connect_disconnect_all_and_delete) {
     const ui_ctx_t c = ctx();
     CHECK(synth_ui_map_zoom(&ui_app.ui, -1));
     frame();
-    push_on(1);                                                                    // the filter: no Connect (it modulates nothing)
+    push_on(1);                                                                    // the filter: no Mod to (it modulates nothing), Audio to first
     CHECK(ui_app.ui.rack_menu);
     CHECK_EQ(ui_app.ui.row, GRAPH_ROW(1));
+    ev(UI_NAV_DOWN);                                                               // its chain cable, to the MIX
+    CHECK_EQ(ui_app.ui.row, GRAPH_ROW(2));
     CHECK(scr_map_screen.back(&c));
     CHECK(!ui_app.ui.rack_menu);
     CHECK_EQ(ui_app.ui.map_act, 0);
     push_on(NAV_MIX);                                                              // the MIX: no menu
     CHECK(!ui_app.ui.rack_menu);
 
-    push_on(3);                                                                    // the LFO: Connect first
+    push_on(3);                                                                    // the LFO: Mod to first (no Audio to: it is no audio module)
     CHECK_EQ(ui_app.ui.row, GRAPH_ROW(0));
+    ev(UI_NAV_DOWN);                                                               // its target, a row
+    CHECK_EQ(ui_app.ui.row, GRAPH_ROW(2));
     ev(UI_NAV_DOWN);                                                               // Disconnect all
-    CHECK_EQ(ui_app.ui.row, GRAPH_ROW(1));
+    CHECK_EQ(ui_app.ui.row, GRAPH_ROW(12));
     ev(UI_LATCH);
     CHECK_EQ(ui_app.rack.slot[3].tgt_id, 0);
     CHECK(ui_app.ui.rack_dirty);
@@ -581,15 +586,76 @@ TEST(zoomed_out_a_push_offers_connect_disconnect_all_and_delete) {
     CHECK_EQ(ui_app.rack.slot[3].tgt_id, ui_app.rack.slot[2].id);                // (nothing changed)
 
     const int count = ui_app.rack.count;                                           // Delete
-    push_on(2);
-    ev(UI_NAV_DOWN);
-    ev(UI_NAV_DOWN);
-    CHECK_EQ(ui_app.ui.row, GRAPH_ROW(2));
+    push_on(2);                                                                    // the oscillator: Mod to, Audio to, its chain cable, ...
+    for (int i = 0; i < 4; i++) ev(UI_NAV_DOWN);
+    CHECK_EQ(ui_app.ui.row, GRAPH_ROW(13));
     ev(UI_LATCH);
     CHECK_EQ(ui_app.rack.count, count - 1);
     CHECK_EQ(ui_app.rack.slot[2].tgt_id, 0);                                       // (the LFO, now slot 2, lost its target with it)
     CHECK_EQ(ui_app.ui.map_act, 0);
     CHECK(!ui_app.ui.rack_menu);
+}
+
+// Audio to, the cable rows and a second target: a push on a processor further down makes an audio cable and shows its Lvl; a cable row's
+// left / right sets its level, a push removes it; Mod to on a modulator that has a target already makes a cable with its own Prm and Dpth.
+TEST(zoomed_out_audio_to_and_the_cable_rows) {
+    map_on_sample_rack();                                                          // slot 0 OSC, 1 FILTER (branch 1), 2 OSC (branch 2), 3 LFO -> the filter
+    const ui_ctx_t c = ctx();
+    CHECK(rack_insert_row(&ui_app.rack, 3, 1, MOD_FILTER));                        // a filter for branch 2, after its oscillator (slot 3; the LFO now 4)
+    synth_ui_rebuild_pages(&ui_app.ui, &ui_app.rack);
+    CHECK(synth_ui_map_zoom(&ui_app.ui, -1));
+    frame();
+    push_on(0);                                                                    // branch 1's oscillator: Audio to
+    ev(UI_NAV_DOWN);
+    CHECK_EQ(ui_app.ui.row, GRAPH_ROW(1));
+    ev(UI_LATCH);
+    CHECK_EQ(ui_app.ui.map_act, 4);                                                // choosing (audio)
+    push_on(2);                                                                    // an oscillator: takes no audio
+    CHECK(strstr(ui_app.ui.rack_msg, "takes no audio") != NULL);
+    push_on(3);                                                                    // branch 2's filter: taken
+    CHECK_EQ(ui_app.rack.n_cables, 1);
+    CHECK_EQ(ui_app.rack.cable[0].kind, CABLE_AUDIO);
+    CHECK_EQ(ui_app.ui.map_act, 5);                                                // its Lvl, alone
+    CHECK_EQ(ui_app.ui.row, GRAPH_ROW(15));
+    ev(UI_NAV_LEFT);                                                               // 1.00 -> 0.95
+    CHECK_EQ((int)(ui_app.rack.cable[0].amt * 100 + 0.5f), 95);
+    CHECK(scr_map_screen.back(&c));
+    CHECK_EQ(ui_app.ui.map_act, 0);
+
+    push_on(0);                                                                    // its rows: the chain cable, then the new one
+    ev(UI_NAV_DOWN);
+    ev(UI_NAV_DOWN);
+    CHECK_EQ(ui_app.ui.row, GRAPH_ROW(2));
+    ev(UI_NAV_LEFT);                                                               // the chain cable's level: the oscillator's Lvl
+    CHECK_EQ((int)(ui_app.rack.slot[0].v[MP_OC_LEVEL] * 100 + 0.5f), 95);
+    ev(UI_NAV_DOWN);
+    CHECK_EQ(ui_app.ui.row, GRAPH_ROW(3));
+    ev(UI_LATCH);                                                                  // a push: that cable goes
+    CHECK_EQ(ui_app.rack.n_cables, 0);
+    CHECK_STR(ui_app.ui.rack_msg, "Cable removed");
+    CHECK(ui_app.ui.rack_menu);                                                    // (the menu stays)
+    CHECK(scr_map_screen.back(&c));
+
+    push_on(4);                                                                    // the LFO, on the filter already: Mod to the oscillator too
+    ev(UI_LATCH);
+    push_on(0);
+    CHECK_EQ(ui_app.rack.n_cables, 1);
+    CHECK_EQ(ui_app.rack.cable[0].kind, CABLE_MOD);
+    CHECK_EQ(ui_app.rack.slot[4].tgt_id, ui_app.rack.slot[1].id);                  // (its first target stays)
+    CHECK_EQ(ui_app.ui.map_act, 5);                                                // the cable's Prm and Dpth
+    CHECK_EQ(ui_app.ui.row, GRAPH_ROW(14));
+    ev(UI_NAV_RIGHT);                                                              // the next parameter
+    CHECK_EQ(ui_app.rack.cable[0].param, 1);
+    ev(UI_NAV_DOWN);
+    CHECK_EQ(ui_app.ui.row, GRAPH_ROW(15));
+    CHECK(scr_map_screen.back(&c));
+    push_on(4);                                                                    // its two targets, two rows; the first removed, the cable takes its place
+    ev(UI_NAV_DOWN);
+    CHECK_EQ(ui_app.ui.row, GRAPH_ROW(2));
+    ev(UI_LATCH);
+    CHECK_EQ(ui_app.rack.slot[4].tgt_id, ui_app.rack.slot[0].id);
+    CHECK_EQ(ui_app.rack.slot[4].tgt_param, 1);
+    CHECK_EQ(ui_app.rack.n_cables, 0);
 }
 
 // rack_unlink: every modulation cable of a module, both ways, a motion sequencer's lanes too; false when it had none.

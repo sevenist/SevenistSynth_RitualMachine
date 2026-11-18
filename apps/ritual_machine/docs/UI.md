@@ -282,6 +282,21 @@ Paths without a prefix are inside `apps/ritual_machine/src/` (`core/...`, `app/.
 > - Tests: `tests/engine/test_cables.cpp` (a cable into the other branch's filter, a cut chain cable and a chain level, a modulator with two
 >   targets, the refusals and the limits; every rack loads in the plan), `test_preset.c` (the cables round trip). 124 engine tests, 247 UI.
 >
+> **2026-11-18, step 13: the graph's menu with the cables.**
+>
+> - A push on a module zoomed out: **Mod to** (was Connect: a modulator or an oscillator, while it has fewer than 6 targets), **Audio to**
+>   (an audio module with fewer than 4 cables out), then **a row per cable out of it**: its chain cable (">2 FL", ">MIX"), its audio
+>   cables, its targets (">2 FL Cut") with their level or depth; then Disconnect all (any cable, audio or modulation) and Delete.
+> - **A cable row**: left / right its level (0.05 steps; the chain cable of an oscillator or a sampler: its Lvl) or its depth (the target's
+>   unit), a push removes it ("Cable removed"; the menu stays). A first target removed: the modulator's next cable becomes its first.
+> - **Audio to**: the target is chosen on the graph as for Mod to (a grey cable to the cursor; the strip reads "Audio 1 OC to 3 FL"); a
+>   refusal says why (`rack_audio_can`: "3 OC takes no audio", "... a loop", "4 audio cables out at most"); taken, the menu shows the new
+>   cable's **Lvl** alone. **Mod to** on a modulator that has a target already: a cable, then its own **Prm** and **Dpth**.
+> - Rows that are cables are `EL_DIRECT` (left / right edit, a push acts). `MAX_ELEMENTS` 56 (the map has 53).
+> - Tests: `test_map.c` (the menus per module, Audio to with a refusal and its Lvl, a cable row's level and removal, a second target with
+>   its Prm, the first removed and the cable promoted). 248 UI tests at 160 and 128. Rendered and looked at (an oscillator's and an LFO's
+>   menus with their cables).
+>
 > The UI has **two ways of writing a screen**, and knowing which one a screen uses is the first thing to find out:
 
 - **Declarative** (the newer one): the screen is a table of elements, and one generic piece of code draws it, moves the focus

@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define MAX_ELEMENTS 40                 // the pad editor has 19, a node page (scr_node.c) 34
+#define MAX_ELEMENTS 56                 // the pad editor has 19, a node page (scr_node.c) 34, the map (scr_map.c) 53
 
 // The context for the callbacks of element i: the same, with that element's `arg`.
 static ui_ctx_t ctx_for(const screen_def_t *s, const ui_ctx_t *c, int i) { ui_ctx_t x = *c; x.arg = s->el[i].arg; return x; }

@@ -33,11 +33,17 @@
 #include <string.h>
 
 #define MAP_EDIT 100                     // the menu's first item, the map's own: the node's page
-#define MAP_CONNECT 101                  // the graph's menu (zoomed out): Connect, Disconnect all, Delete
-#define MAP_UNLINK  102
-#define MAP_DELETE  103
-enum { E_INFO = NAV_NODES, E_M0, E_G0 = E_M0 + 1 + (RM_END - RM_TYPE), E_COUNT = E_G0 + 3 };
-enum { MAP_ACT_NONE, MAP_ACT_MENU, MAP_ACT_PICK, MAP_ACT_PARAM };      // ui->map_act
+#define MAP_CONNECT 101                  // the graph's menu (zoomed out): Mod to, Audio to, its cables, Disconnect all, Delete
+#define MAP_AUDIO   102
+#define MAP_UNLINK  103
+#define MAP_DELETE  104
+#define MAP_CPRM    105                  // ... a cable just made: its parameter (modulation) ...
+#define MAP_CAMT    106                  // ... and its depth (modulation) or its level (audio)
+#define MAP_K0      110                  // ... the module's cables out, a row each (its chain's, its audio cables, its targets)
+#define OUT_MAX     (RACK_AUDIO_MAX + RACK_MOD_MAX)
+enum { E_INFO = NAV_NODES, E_M0, E_G0 = E_M0 + 1 + (RM_END - RM_TYPE), E_COUNT = E_G0 + 6 + OUT_MAX };
+// ui->map_act: the graph's menu open; a cable choosing its target (modulation, audio); the rack's Prm / Dpth of a first target; a cable's own
+enum { MAP_ACT_NONE, MAP_ACT_MENU, MAP_ACT_PICK, MAP_ACT_PARAM, MAP_ACT_PICK_AUDIO, MAP_ACT_CABLE };
 
 #define TILE_PAD 2                       // the margin left and right of the map (the cursor's outline is 2 px outside a tile)
 #define MENU_W   96
@@ -114,19 +120,20 @@ static const nav_graph_t *graph(const ui_ctx_t *c) {
     return &wide;
 }
 
-// A Connect choosing its target stops (Back, a zoom); the popup says so.
+// A cable choosing its target stops (Back, a zoom); the popup says so.
 static void pick_cancel(synth_ui_t *ui) {
     ui->map_act = MAP_ACT_NONE;
     ui->map_src = 0;
     snprintf(ui->rack_msg, sizeof ui->rack_msg, "Connect cancelled");
 }
 
+static bool picking(const synth_ui_t *ui);
 bool synth_ui_map_zoom(synth_ui_t *ui, int steps) {
     if (!ui->in_rack || (ui->menu_tab != TAB_RACK && ui->menu_tab != TAB_MAP) || ui->map_at || ui->rack_menu) return false;   // (the map on show)
     int z = ui->map_zoom + steps;
     z = z < ZOOM_MIN ? ZOOM_MIN : z > ZOOM_MAX ? ZOOM_MAX : z;
     if (z == ui->map_zoom) return false;
-    if (ui->map_act == MAP_ACT_PICK) pick_cancel(ui);
+    if (picking(ui)) pick_cancel(ui);
     ui->map_zoom = (int8_t)z;
     return true;
 }
@@ -234,7 +241,14 @@ bool synth_ui_map_animating(const synth_ui_t *ui) {
            g_force.moving;
 }
 
-static int item_arg(int e) { return e >= E_G0 ? MAP_CONNECT + (e - E_G0) : e == E_M0 ? MAP_EDIT : RM_TYPE + (e - E_M0 - 1); }
+// The graph's items in their order on screen: Mod to, Audio to, the cable rows, Disconnect all, Delete; then a new cable's Prm and Dpth / Lvl.
+static int item_arg(int e) {
+    if (e < E_G0) return e == E_M0 ? MAP_EDIT : RM_TYPE + (e - E_M0 - 1);
+    const int k = e - E_G0;
+    static const int tail[4] = {MAP_UNLINK, MAP_DELETE, MAP_CPRM, MAP_CAMT};
+    return k == 0 ? MAP_CONNECT : k == 1 ? MAP_AUDIO : k < 2 + OUT_MAX ? MAP_K0 + (k - 2) : tail[k - 2 - OUT_MAX];
+}
+static bool picking(const synth_ui_t *ui) { return ui->map_act == MAP_ACT_PICK || ui->map_act == MAP_ACT_PICK_AUDIO; }
 
 /* ---------------- the nodes ---------------- */
 
@@ -259,22 +273,27 @@ static void fit_type(const ui_ctx_t *c, bool modulator) {
 
 // Zoomed out, a Connect choosing its target: a push on a module takes it (its parameter 0 at first), then the rack's menu on the source
 // with only its Prm and Dpth; anything else is refused, the popup says why, and the choosing goes on.
+// Audio to: a push on a processor further down takes it, at level 1, then its Lvl row; refused (rack_audio_can) the popup says why.
+// Mod to: its first target (then the rack's Prm and Dpth) or one more (then that cable's Prm and Dpth: rack_mod_can).
 static void pick_target(const ui_ctx_t *c) {
     synth_ui_t *ui = c->ui;
     const nav_node_t *n = &graph(c)->node[c->arg];
     const int src = ui->map_src - 1;
-    char name[8] = "";
-    if (n->kind == NODE_MODULE) rack_slot_name(c->rack, n->slot, name, sizeof name);
-    if (n->kind == NODE_MODULE && n->slot == src) { snprintf(ui->rack_msg, sizeof ui->rack_msg, "Pick another module"); return; }
-    if (n->kind != NODE_MODULE || !rack_set_target(c->rack, src, n->slot, 0)) {
-        snprintf(ui->rack_msg, sizeof ui->rack_msg, "%s takes no modulation", n->kind == NODE_MODULE ? name : n->kind == NODE_MIX ? "MIX" : "OUT");
+    const bool audio = ui->map_act == MAP_ACT_PICK_AUDIO;
+    if (n->kind != NODE_MODULE) {
+        snprintf(ui->rack_msg, sizeof ui->rack_msg, "%s takes no %s", n->kind == NODE_MIX ? "MIX" : "OUT", audio ? "cable" : "modulation");
         return;
     }
+    if (audio ? !rack_audio_can(c->rack, src, n->slot, ui->rack_msg, sizeof ui->rack_msg)
+              : !rack_mod_can(c->rack, src, n->slot, ui->rack_msg, sizeof ui->rack_msg)) return;
+    const bool is_first = !audio && rack_mod_targets(c->rack, src) == 0;
+    if (audio ? !rack_audio_connect(c->rack, src, n->slot) : !rack_mod_connect(c->rack, src, n->slot, 0)) return;
     ui->rack_dirty = true;
+    ui->map_cable = is_first ? 0 : (uint8_t)c->rack->n_cables;
     scr_rack_select(ui, c->rack, c->rack->slot[src].row, src);
     ui->rack_menu = true;
     ui->map_menu = (uint8_t)(src + 1);
-    ui->map_act = MAP_ACT_PARAM;
+    ui->map_act = is_first ? MAP_ACT_PARAM : MAP_ACT_CABLE;
     ui->latched = false;
     const int first = first_item(c);
     ui->row = first >= 0 ? first + 1 : src + 1;
@@ -285,7 +304,7 @@ static void node_activate(const ui_ctx_t *c) {
     const nav_node_t *n = &graph(c)->node[c->arg];
     synth_ui_t *ui = c->ui;
     if (ui->map_zoom < 0) {
-        if (ui->map_act == MAP_ACT_PICK) { pick_target(c); return; }
+        if (picking(ui)) { pick_target(c); return; }
         if (n->kind != NODE_MODULE) return;                    // (the MIX, the OUT: nothing to do there)
         ui->map_act = MAP_ACT_MENU;
     }
@@ -317,7 +336,7 @@ static int node_move(const ui_ctx_t *c, int cur, char dir) {
 }
 
 static bool map_back(const ui_ctx_t *c) {
-    if (c->ui->map_act == MAP_ACT_PICK) { pick_cancel(c->ui); return true; }
+    if (picking(c->ui)) { pick_cancel(c->ui); return true; }
     if (!c->ui->rack_menu) return false;                       // (then up: the header, then out of the menu: ui_input.c)
     scr_rack_menu_close(c);
     c->ui->map_act = MAP_ACT_NONE;
@@ -434,10 +453,10 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
                 uw_wire(g, a.x + a.w / 2, a.y + a.h / 2, b.x + b.w / 2, b.y + b.h / 2, ed->kind == EDGE_MOD ? UW_CABLE_MOD : UW_CABLE_AUDIO);
             }
         const int src = c->ui->map_src - 1, to = c->ui->row - 1;                    // a Connect choosing: the cable to be, to the cursor
-        if (c->ui->map_act == MAP_ACT_PICK && src >= 0 && src < NAV_NODES && to >= 0 && to < NAV_NODES && to != src &&
+        if (picking(c->ui) && src >= 0 && src < NAV_NODES && to >= 0 && to < NAV_NODES && to != src &&
             gr->node[src].kind != NODE_NONE && gr->node[to].kind != NODE_NONE) {
             const gui_rect_t a = tile_at(gr, src), b = tile_at(gr, to);
-            uw_wire(g, a.x + a.w / 2, a.y + a.h / 2, b.x + b.w / 2, b.y + b.h / 2, UW_CABLE_GATE);
+            uw_wire(g, a.x + a.w / 2, a.y + a.h / 2, b.x + b.w / 2, b.y + b.h / 2, c->ui->map_act == MAP_ACT_PICK_AUDIO ? UW_CABLE_AUDIO : UW_CABLE_GATE);
         }
         u8g2_SetClipWindow(g, area.x, area.y, area.x + area.w, area.y + area.h);
         return;
@@ -514,13 +533,13 @@ static void strip_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
     const nav_graph_t *gr = graph(c);
     const rack_t *rk = c->rack;
     uw_panel(g, r);
-    if (ui->map_act == MAP_ACT_PICK && ui->map_src) {                              // a Connect choosing its target
+    if (picking(ui) && ui->map_src) {                                              // a cable choosing its target
         const int asc = u8g2_GetAscent(g), rh = gui_row_h(g, st);
         char src[8], to[8] = "?", l1[40];
         rack_slot_name(rk, ui->map_src - 1, src, sizeof src);
         if (node >= 0 && node < NAV_NODES && gr->node[node].kind == NODE_MODULE) rack_slot_name(rk, gr->node[node].slot, to, sizeof to);
         else if (node >= 0 && node < NAV_NODES && gr->node[node].kind != NODE_NONE) snprintf(to, sizeof to, "%s", gr->node[node].kind == NODE_MIX ? "MIX" : "OUT");
-        snprintf(l1, sizeof l1, "Connect %s to %s", src, to);
+        snprintf(l1, sizeof l1, "%s %s to %s", ui->map_act == MAP_ACT_PICK_AUDIO ? "Audio" : "Mod", src, to);
         uw_text(g, r.x + 3, r.y + 2 + asc, l1, UC_MOD);
         uw_text(g, r.x + 3, r.y + 2 + rh + asc, "push: pick  Back: cancel", UC_DIM);
         return;
@@ -608,40 +627,144 @@ static void edit_activate(const ui_ctx_t *c) {                                  
     c->ui->row = 4;                                                                // the node page's first value row (scr_node.c: element 3)
 }
 
-// The graph's menu (zoomed out) on a module: Connect from what can modulate (a modulator, an oscillator: FM; not a motion sequencer, whose
-// lanes have their own targets), Disconnect all while it has a modulation cable, Delete.
+// The graph's menu (zoomed out) on a module. Mod to: from what can modulate (a modulator, an oscillator: FM; not a motion sequencer, whose
+// lanes have their own targets), while it has fewer than 6 targets. Audio to: from an audio module with fewer than 4 cables out. Then a
+// row per cable out of it (its chain cable, its audio cables, its targets): left / right its level or depth, a push removes it. Disconnect
+// all while it has a cable. Delete.
+typedef enum { OUT_CHAIN, OUT_FIRST, OUT_CABLE } out_kind_t;
+typedef struct { uint8_t kind; int8_t k; } out_t;
+static int outs_of(const rack_t *r, int slot, out_t *o) {
+    int n = 0;
+    if (rack_chain_to(r, slot) != RACK_NONE) o[n++] = (out_t){OUT_CHAIN, -1};
+    const uint8_t id = r->slot[slot].id;
+    for (int k = 0; k < r->n_cables && n < OUT_MAX; k++) if (r->cable[k].kind == CABLE_AUDIO && r->cable[k].from == id) o[n++] = (out_t){OUT_CABLE, (int8_t)k};
+    if (r->slot[slot].tgt_id && rack_find(r, r->slot[slot].tgt_id) != RACK_NONE && n < OUT_MAX) o[n++] = (out_t){OUT_FIRST, -1};
+    for (int k = 0; k < r->n_cables && n < OUT_MAX; k++) if (r->cable[k].kind == CABLE_MOD && r->cable[k].from == id) o[n++] = (out_t){OUT_CABLE, (int8_t)k};
+    return n;
+}
+static bool out_at(const ui_ctx_t *c, int slot, out_t *o) {   // the cable row c->arg stands for
+    out_t all[OUT_MAX];
+    const int n = outs_of(c->rack, slot, all), i = c->arg - MAP_K0;
+    if (i < 0 || i >= n) return false;
+    *o = all[i];
+    return true;
+}
+static void out_label(const ui_ctx_t *c, int slot, out_t o, char *out, int n) {
+    const rack_t *r = c->rack;
+    char to[8] = "?";
+    if (o.kind == OUT_CHAIN) {
+        const int next = rack_chain_to(r, slot);
+        if (next >= 0) rack_slot_name(r, next, to, sizeof to);
+        else snprintf(to, sizeof to, "%s", r->slot[slot].row < ROW_M && synth_type_is_rack(r->cfg.type) ? "MIX" : "OUT");
+        snprintf(out, (size_t)n, ">%s", to);
+        return;
+    }
+    const int ti = rack_find(r, o.kind == OUT_FIRST ? r->slot[slot].tgt_id : r->cable[o.k].to);
+    if (ti != RACK_NONE) rack_slot_name(r, ti, to, sizeof to);
+    if (o.kind == OUT_CABLE && r->cable[o.k].kind == CABLE_AUDIO) { snprintf(out, (size_t)n, ">%s", to); return; }
+    const int p = o.kind == OUT_FIRST ? r->slot[slot].tgt_param : r->cable[o.k].param;
+    snprintf(out, (size_t)n, ">%s %s", to, ti != RACK_NONE ? rack_param_name((module_type_t)r->slot[ti].type, p) : "");
+}
+static void out_value(const ui_ctx_t *c, int slot, out_t o, char *out, int n) {
+    if (o.kind == OUT_CHAIN) snprintf(out, (size_t)n, "%.2f", (double)rack_chain_level(c->rack, slot));
+    else if (o.kind == OUT_FIRST) rack_depth_format(c->rack, slot, out, n);
+    else rack_cable_format(c->rack, o.k, out, n);
+}
+
 static bool graph_item_enabled(const ui_ctx_t *c) {
     const int slot = scr_rack_selected_slot(c);
     if (slot < 0) return false;
-    const module_type_t t = (module_type_t)c->rack->slot[slot].type;
-    if (c->arg == MAP_CONNECT) return rack_can_target(t) && t != MOD_MSEQ;
-    if (c->arg == MAP_UNLINK) {
-        const nav_graph_t *gr = graph(c);
-        for (int e = 0; e < gr->n_edges; e++) if (gr->edge[e].kind == EDGE_MOD && (gr->edge[e].from == slot || gr->edge[e].to == slot)) return true;
-        return false;
+    const rack_t *r = c->rack;
+    const module_type_t t = (module_type_t)r->slot[slot].type;
+    out_t o;
+    switch (c->arg) {
+        case MAP_CONNECT: return rack_can_target(t) && t != MOD_MSEQ && rack_mod_targets(r, slot) < RACK_MOD_MAX;
+        case MAP_AUDIO:   return rack_slot_is_audio(r, slot) && rack_audio_outs(r, slot) < RACK_AUDIO_MAX;
+        case MAP_UNLINK: {
+            const nav_graph_t *gr = graph(c);
+            for (int e = 0; e < gr->n_edges; e++) if (gr->edge[e].from == slot || gr->edge[e].to == slot) return true;
+            return false;
+        }
+        case MAP_DELETE:  return true;
+        default:          return c->arg >= MAP_K0 && out_at(c, slot, &o);
     }
-    return true;
 }
+
+// A new cable's own items (MAP_ACT_CABLE): its parameter (modulation) and its depth, or its level (audio).
+static rack_cable_t *new_cable(const ui_ctx_t *c) {
+    const int k = c->ui->map_cable - 1;
+    return k >= 0 && k < c->rack->n_cables ? &c->rack->cable[k] : NULL;
+}
+static bool cable_item_enabled(const ui_ctx_t *c) {
+    const rack_cable_t *cb = new_cable(c);
+    return c->ui->rack_menu && c->ui->map_act == MAP_ACT_CABLE && cb && (c->arg == MAP_CAMT || cb->kind == CABLE_MOD);
+}
+
+static void graph_value(const ui_ctx_t *c, char *out, int n) {
+    out[0] = 0;
+    const int slot = scr_rack_selected_slot(c);
+    out_t o;
+    if (c->arg == MAP_CPRM || c->arg == MAP_CAMT) {
+        const rack_cable_t *cb = new_cable(c);
+        if (!cb) return;
+        if (c->arg == MAP_CAMT) { rack_cable_format(c->rack, c->ui->map_cable - 1, out, n); return; }
+        const int ti = rack_find(c->rack, cb->to);
+        snprintf(out, (size_t)n, "%s", ti != RACK_NONE ? rack_param_name((module_type_t)c->rack->slot[ti].type, cb->param) : "--");
+    } else if (slot >= 0 && c->arg >= MAP_K0 && out_at(c, slot, &o)) out_value(c, slot, o, out, n);
+}
+
+static bool graph_adjust(const ui_ctx_t *c, int dir) {
+    const int slot = scr_rack_selected_slot(c);
+    rack_t *r = c->rack;
+    out_t o;
+    if (c->arg == MAP_CPRM) rack_cable_cycle_param(r, c->ui->map_cable - 1, dir);
+    else if (c->arg == MAP_CAMT) rack_cable_adjust(r, c->ui->map_cable - 1, dir);
+    else if (slot < 0 || c->arg < MAP_K0 || !out_at(c, slot, &o)) return false;
+    else if (o.kind == OUT_CHAIN) rack_set_chain_level(r, slot, rack_chain_level(r, slot) + 0.05f * (float)dir);
+    else if (o.kind == OUT_FIRST) rack_depth_adjust(r, slot, dir);
+    else rack_cable_adjust(r, o.k, dir);
+    c->ui->rack_dirty = true;
+    return false;
+}
+
 static void graph_item_activate(const ui_ctx_t *c) {
     synth_ui_t *ui = c->ui;
+    rack_t *r = c->rack;
     const int slot = scr_rack_selected_slot(c);
+    out_t o;
+    if (c->arg >= MAP_K0) {                                                        // a cable row: the cable goes, the menu stays
+        if (slot < 0 || !out_at(c, slot, &o)) return;
+        if (o.kind == OUT_CHAIN) r->slot[slot].cut = 1;
+        else if (o.kind == OUT_FIRST) rack_target_remove(r, slot);
+        else rack_cable_remove(r, o.k);
+        ui->rack_dirty = true;
+        snprintf(ui->rack_msg, sizeof ui->rack_msg, "Cable removed");
+        const int first = first_item(c);
+        if (first >= 0) ui->row = first + 1;
+        return;
+    }
+    if (c->arg == MAP_CPRM || c->arg == MAP_CAMT) return;                          // (values: left / right)
     if (c->arg == MAP_DELETE) {                                                    // (the rack's Delete)
         ui_ctx_t x = *c;
         x.arg = RM_DELETE;
         scr_rack_item_activate(&x);
     } else {
-        if (c->arg == MAP_UNLINK && slot >= 0 && rack_unlink(c->rack, slot)) ui->rack_dirty = true;
+        if (c->arg == MAP_UNLINK && slot >= 0 && rack_unlink(r, slot)) ui->rack_dirty = true;
         scr_rack_menu_close(c);
     }
     ui->map_act = MAP_ACT_NONE;
-    if (c->arg == MAP_CONNECT && slot >= 0) { ui->map_act = MAP_ACT_PICK; ui->map_src = (uint8_t)(slot + 1); }
+    if ((c->arg == MAP_CONNECT || c->arg == MAP_AUDIO) && slot >= 0) {
+        ui->map_act = c->arg == MAP_AUDIO ? MAP_ACT_PICK_AUDIO : MAP_ACT_PICK;
+        ui->map_src = (uint8_t)(slot + 1);
+    }
 }
 
 static bool item_enabled(const ui_ctx_t *c) {
     const uint8_t act = c->ui->map_act;
+    if (c->arg == MAP_CPRM || c->arg == MAP_CAMT) return cable_item_enabled(c);
     if (c->arg >= MAP_CONNECT) return c->ui->rack_menu && act == MAP_ACT_MENU && graph_item_enabled(c);
-    if (act == MAP_ACT_MENU) return false;
-    if (act == MAP_ACT_PARAM) return (c->arg == RM_PRM || c->arg == RM_DPTH) && scr_rack_item_enabled(c);   // (a Connect: its parameter, its depth)
+    if (act == MAP_ACT_MENU || act == MAP_ACT_CABLE) return false;
+    if (act == MAP_ACT_PARAM) return (c->arg == RM_PRM || c->arg == RM_DPTH) && scr_rack_item_enabled(c);   // (a first target: its parameter, its depth)
     return c->arg == MAP_EDIT ? edit_enabled(c) : scr_rack_item_enabled(c);
 }
 static void item_activate(const ui_ctx_t *c) {
@@ -649,15 +772,22 @@ static void item_activate(const ui_ctx_t *c) {
     else if (c->arg == MAP_EDIT) edit_activate(c);
     else scr_rack_item_activate(c);
 }
+static void item_value(const ui_ctx_t *c, char *out, int n) { if (c->arg >= MAP_CONNECT) graph_value(c, out, n); else scr_rack_item_value(c, out, n); }
+static bool item_adjust(const ui_ctx_t *c, int dir) { return c->arg >= MAP_CONNECT ? graph_adjust(c, dir) : scr_rack_item_adjust(c, dir); }
 
 static void item_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t r, bool focused, bool latched) {
-    static const char *const graph_label[] = {"Connect", "Disconnect all", "Delete"};
-    const char *label = c->arg >= MAP_CONNECT ? graph_label[c->arg - MAP_CONNECT] : c->arg == MAP_EDIT ? "Edit" : scr_rack_item_label(c->arg);
-    const bool button = c->arg >= MAP_CONNECT || c->arg == MAP_EDIT || scr_rack_item_kind(c->arg) == EL_BUTTON;
+    static const char *const graph_label[] = {"Mod to", "Audio to", "Disconnect all", "Delete", "Prm", "Dpth"};
+    char label_buf[24];
+    const char *label = c->arg == MAP_EDIT ? "Edit" : c->arg < MAP_CONNECT ? scr_rack_item_label(c->arg) : c->arg < MAP_K0 ? graph_label[c->arg - MAP_CONNECT] : label_buf;
+    if (c->arg == MAP_CAMT && new_cable(c) && new_cable(c)->kind == CABLE_AUDIO) label = "Lvl";
+    const int slot = scr_rack_selected_slot(c);
+    out_t o;
+    if (c->arg >= MAP_K0) { label_buf[0] = 0; if (slot >= 0 && out_at(c, slot, &o)) out_label(c, slot, o, label_buf, sizeof label_buf); }
+    const bool button = (c->arg >= MAP_CONNECT && c->arg <= MAP_DELETE) || c->arg == MAP_EDIT || (c->arg < MAP_CONNECT && scr_rack_item_kind(c->arg) == EL_BUTTON);
     char val[24] = "";
     if (button) snprintf(val, sizeof val, ">");
-    else scr_rack_item_value(c, val, sizeof val);
-    uw_value_row(g, st, r, label, val, -1.0f, UC_MOD, latched ? GUI_LATCHED : focused ? GUI_FOCUSED : GUI_PLAIN, false);
+    else item_value(c, val, sizeof val);
+    uw_field(g, st, r, label, val, UC_MOD, latched ? GUI_LATCHED : focused ? GUI_FOCUSED : GUI_PLAIN, false);
 }
 
 /* ---------------- layout ---------------- */
@@ -730,6 +860,8 @@ static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect
 
 #define NODE(i) [i] = {"", EL_BUTTON, 0, 0, 1, NULL, NULL, node_activate, tile_draw, node_enabled, NULL, i, 0, {0}}
 #define N4(i) NODE(i), NODE(i + 1), NODE(i + 2), NODE(i + 3)
+#define GRAPH_ITEM(e, kind, arg) [e] = {"", kind, 0, 0, 1, item_value, item_adjust, item_activate, item_draw, item_enabled, NULL, arg, \
+                                        EF_HIDE_WHEN_DISABLED | EF_SCROLL, {0}}
 #define MENU_ITEM(e, kind, arg) [e] = {"", kind, 0, 0, 1, scr_rack_item_value, scr_rack_item_adjust, item_activate, item_draw, item_enabled, NULL, arg, \
                                        EF_HIDE_WHEN_DISABLED | EF_SCROLL, {0}}
 static const el_def_t elements[E_COUNT] = {
@@ -741,10 +873,16 @@ static const el_def_t elements[E_COUNT] = {
     MENU_ITEM(E_M0 + 7, EL_VALUE, RM_PARA),   MENU_ITEM(E_M0 + 8, EL_VALUE, RM_PENV),    MENU_ITEM(E_M0 + 9, EL_VALUE, RM_LVL1),
     MENU_ITEM(E_M0 + 10, EL_VALUE, RM_PAN1),  MENU_ITEM(E_M0 + 11, EL_VALUE, RM_LVL2),   MENU_ITEM(E_M0 + 12, EL_VALUE, RM_PAN2),
     MENU_ITEM(E_M0 + 13, EL_BUTTON, RM_DELETE),
-    MENU_ITEM(E_G0, EL_BUTTON, MAP_CONNECT),  MENU_ITEM(E_G0 + 1, EL_BUTTON, MAP_UNLINK), MENU_ITEM(E_G0 + 2, EL_BUTTON, MAP_DELETE),
+    GRAPH_ITEM(E_G0, EL_BUTTON, MAP_CONNECT), GRAPH_ITEM(E_G0 + 1, EL_BUTTON, MAP_AUDIO),
+    GRAPH_ITEM(E_G0 + 2, EL_DIRECT, MAP_K0),     GRAPH_ITEM(E_G0 + 3, EL_DIRECT, MAP_K0 + 1), GRAPH_ITEM(E_G0 + 4, EL_DIRECT, MAP_K0 + 2),
+    GRAPH_ITEM(E_G0 + 5, EL_DIRECT, MAP_K0 + 3), GRAPH_ITEM(E_G0 + 6, EL_DIRECT, MAP_K0 + 4), GRAPH_ITEM(E_G0 + 7, EL_DIRECT, MAP_K0 + 5),
+    GRAPH_ITEM(E_G0 + 8, EL_DIRECT, MAP_K0 + 6), GRAPH_ITEM(E_G0 + 9, EL_DIRECT, MAP_K0 + 7), GRAPH_ITEM(E_G0 + 10, EL_DIRECT, MAP_K0 + 8),
+    GRAPH_ITEM(E_G0 + 11, EL_DIRECT, MAP_K0 + 9),
+    GRAPH_ITEM(E_G0 + 12, EL_BUTTON, MAP_UNLINK), GRAPH_ITEM(E_G0 + 13, EL_BUTTON, MAP_DELETE),
+    GRAPH_ITEM(E_G0 + 14, EL_VALUE, MAP_CPRM),   GRAPH_ITEM(E_G0 + 15, EL_VALUE, MAP_CAMT),
 };
 _Static_assert(RACK_MAX == 16 && NAV_NODES == RACK_MAX + 6, "N4 x 4 covers the module nodes, then the MIX, the OUT and the four +");
-_Static_assert(E_G0 == E_M0 + 14 && E_COUNT == E_G0 + 3 && RM_DELETE - RM_TYPE == 12,
-               "the menu's items: Edit, then the rack's Type .. Delete, then the graph's Connect, Disconnect all, Delete");
+_Static_assert(E_G0 == E_M0 + 14 && E_COUNT == E_G0 + 16 && OUT_MAX == 10 && RM_DELETE - RM_TYPE == 12,
+               "the menu's items: Edit, then the rack's Type .. Delete, then the graph's Mod to, Audio to, 10 cables, Disconnect all, Delete, Prm, Dpth");
 
 const screen_def_t scr_map_screen = {elements, E_COUNT, false, false, layout, map_back, NULL, draw_extra, node_move};

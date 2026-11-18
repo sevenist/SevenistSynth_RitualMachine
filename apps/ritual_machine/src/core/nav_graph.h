@@ -6,7 +6,7 @@
 // Nodes: node i < RACK_MAX is the module in slot i (kind NODE_NONE when the rack has no such slot); NAV_MIX is the MIX where the two branches
 // meet (Modular only) and NAV_OUT the output; then the empty places where a module can be added (NODE_PLUS, while the rack has room): the end
 // of branch 1, of branch 2, of row M, and the next place among the modulators. So a node's index is also its element number in the screen's table.
-// Layout: the signal runs down. Branch 1 is column 0 and branch 2 column 1, from the top; the MIX comes under the longer one, then row M's
+// The grid (col, depth: where the floating layout below starts, and the cell it pulls each node toward): the signal runs down. Branch 1 is column 0 and branch 2 column 1, from the top; the MIX comes under the longer one, then row M's
 // modules, then OUT, all in column 0. The modulators (not in the audio chain) stand in columns 2 and 3, from the top, two by two. FM and
 // Strings have no branches: their row M chain starts at the top of column 0, and the modules left in the branches (they do not play there) are
 // not on the map. A chain's "+" is under its last module.
@@ -30,22 +30,35 @@ extern "C" {
 typedef enum { NODE_NONE, NODE_MODULE, NODE_MIX, NODE_OUT, NODE_PLUS } nav_kind_t;
 typedef enum { EDGE_AUDIO, EDGE_MOD } nav_edge_kind_t;
 
-typedef struct { uint8_t kind; int8_t slot; int8_t col, depth; int8_t row; } nav_node_t;   // slot: the module (NODE_MODULE), else -1; row: the
-                                                                                    // rack row it is in (a module, a "+"), ROW_M for the MIX and the OUT
+typedef struct { uint8_t kind; int8_t slot; int8_t col, depth; int8_t row; int16_t x, y; } nav_node_t;   // slot: the module (NODE_MODULE), else
+    // -1; row: the rack row it is in (a module, a "+"), ROW_M for the MIX and the OUT; col, depth: its cell in the grid above (nav_build);
+    // x, y: where it floats, the top left of its tile in pixels from the map's top left (nav_place; 0 until then)
 typedef struct { int8_t from, to; uint8_t kind; } nav_edge_t;                         // nodes; a modulation cable runs from the modulator to its target
 
 typedef struct {
     nav_node_t node[NAV_NODES];
     nav_edge_t edge[NAV_EDGES];
     int        n_edges;
-    int        rows;                // the map's depth: one more than the deepest node
+    int        rows;                // the grid's depth: one more than the deepest node
+    int        height;              // the floating map's height in pixels: the lowest tile's bottom (nav_place)
 } nav_graph_t;
 
 void nav_build(nav_graph_t *g, const rack_t *r);
 
-// Where the cursor goes from node `cur` (-1: the header, for 'd'). dir: 'u', 'd', 'l', 'r'. Returns a node, -1 for the header (up from the top
-// of a column), or `cur` when there is nowhere to go. Down and up follow a column (a branch's last module continues into the MIX; the MIX goes
-// up into the longer branch); left and right go to the nearest column on that side, to the node at about the same depth.
+// The floating layout (the user's idea, 2026-11-17: "floating nodes, attracted by the audio links' tension"). A node's height comes from
+// the signal: one tile-and-gap under the node feeding its audio in (a short branch hangs just above the MIX it feeds, row M runs under the
+// MIX, the OUT ends it); a modulator stands at the height of what it modulates. Across, the nodes float: springs pull each one under the
+// node feeding it and over the one it feeds, a modulator one tile beside its target on the map's outer side (left of branch 1, right of
+// anything else), every node a little toward its grid column; tiles at one height are pushed apart, none overlaps, all stay inside `w`, and
+// the map is centred across. (Free in both directions, a long chain buckled into a zigzag on a 128 px screen: tried, 2026-11-18.)
+// Deterministic: the same rack always gives the same picture. 60 short passes over 22 nodes: cheap, but done once per rack change (the
+// map keeps the result: scr_map.c), not per frame.
+typedef struct { int w, tile_w, tile_h, gap_x, gap_y; } nav_metrics_t;
+void nav_place(nav_graph_t *g, const nav_metrics_t *m);
+
+// Where the cursor goes from node `cur` (-1: the header, for 'd'), on the floating map (nav_place first). dir: 'u', 'd', 'l', 'r'. Returns a
+// node, -1 for the header (up when nothing is above), or `cur` when there is nowhere to go. The nearest node on that side of the screen:
+// first among those within 45 degrees of the direction, else any further that way; nearness counts the sideways distance twice.
 int nav_move(const nav_graph_t *g, int cur, char dir);
 
 #ifdef __cplusplus

@@ -1,7 +1,7 @@
 // The RACK tab of the menu: the rack as a map of nodes (apps/ritual_machine/docs/GUI_NODES.md level L0, the look of apps/gui_mockup). It replaced
 // the strip of three rows (scr_rack.c, which still shows the Pads section's FX chains) on 2026-11-17.
 //
-//   joystick       follows the cables from node to node (nav_graph.h: down / up a column, left / right to the next column)
+//   joystick       to the nearest node on that side of the screen (nav_graph.h: nav_move)
 //   push           the node's menu (the rack's own, scr_rack.c): Edit (the node's page: scr_node.c), Type, Insert (before this module), Tgt, Prm,
 //                  Dpth (a modulator), Row, Para, PEnv, Delete; on the MIX its levels and pans; on a "+" (an empty place at the end of a branch,
 //                  of row M, or among the modulators) Type and Insert. Back closes it; Back never deletes (ADR-046)
@@ -10,12 +10,13 @@
 //
 // A declarative screen (see ui_screen.h) with its own joystick move (`move`):
 //   - the nodes are elements 0..NAV_NODES-1, element i = node i of nav_graph.h (slot i, the MIX, the OUT, the four "+"), placed by layout() where
-//     the graph's layout puts them; the strip under the map is a static widget; the menu's items follow, stacked in a box over the map;
+//     they float (nav_place: pulled by their cables, never overlapping); the strip under the map is a static widget; the menu's items follow,
+//     stacked in a box over the map;
 //   - a node is a tile (core/ui_widgets.h): its family's band, its name, its main value as a bar; the cursor outlines it;
-//   - audio cables are solid, modulation cables dashed (dotted in one colour) and run along the gaps between the tiles;
+//   - audio cables are solid, modulation cables dashed (dotted in one colour), straight runs with elbows in the gaps between the tiles;
 //   - the strip names the selected node and its ports, so a cable is read without opening the module.
-// Two sizes: a tall screen (an area of 120 px or more: 128 x 160) has 28 x 14 tiles in 32 x 16 cells and a three-line strip with the ports as
-// chips; a short one (128 x 128) 28 x 12 tiles in 32 x 14 cells and a two-line strip. A map deeper than the room shows the rows around the cursor.
+// Two sizes: a tall screen (an area of 120 px or more: 128 x 160) has 28 x 14 tiles 4 px apart and a three-line strip with the ports as chips;
+// a short one (128 x 128) 28 x 12 tiles 4 x 3 px apart and a two-line strip. A map taller than the room shows the part around the cursor.
 #include "core/ui_screen.h"
 #include "core/ui_widgets.h"
 #include "core/nav_graph.h"
@@ -25,19 +26,30 @@
 #define MAP_EDIT 100                     // the menu's first item, the map's own: the node's page
 enum { E_INFO = NAV_NODES, E_M0, E_COUNT = E_M0 + 1 + (RM_END - RM_TYPE) };
 
-#define TILE_PAD 2                       // the gap left of a tile in its column
+#define TILE_PAD 2                       // the margin left and right of the map (the cursor's outline is 2 px outside a tile)
 #define MENU_W   96
-typedef struct { int cell_h, tile_h, strip_h; bool tall; } metrics_t;
+typedef struct { int tile_w, tile_h, gap_x, gap_y, strip_h; bool tall; } metrics_t;
 static metrics_t metrics(gui_rect_t area) {
-    return area.h >= 120 ? (metrics_t){16, 14, 32, true} : (metrics_t){14, 12, 21, false};
+    return area.h >= 120 ? (metrics_t){28, 14, 4, 4, 32, true} : (metrics_t){28, 12, 4, 3, 21, false};
 }
 static gui_rect_t g_menu_box;            // the menu's box (layout -> strip_draw, which paints it before the items)
+static metrics_t g_m = {28, 14, 4, 4, 32, true};   // the sizes in use, and where the map is drawn (layout -> graph, draw_extra)
+static int g_map_w = 128 - 2 * TILE_PAD, g_map_x, g_map_y, g_scroll;
 
-// The graph of the rack on show. It is rebuilt at every use (16 modules: nothing to keep in step with the rack).
+// The graph of the rack on show, its nodes floating (nav_place). The graph is rebuilt at every use (16 modules: cheap, and nothing to keep
+// in step with the rack); its layout is only worked out again when the graph or the sizes changed.
 static const nav_graph_t *graph(const ui_ctx_t *c) {
-    static nav_graph_t g;
-    nav_build(&g, c->rack);
-    return &g;
+    static nav_graph_t built, placed;
+    static nav_metrics_t at;
+    static bool have;
+    nav_graph_t fresh;
+    nav_build(&fresh, c->rack);
+    const nav_metrics_t m = {g_map_w, g_m.tile_w, g_m.tile_h, g_m.gap_x, g_m.gap_y};
+    if (!have || memcmp(&fresh, &built, sizeof fresh) != 0 || memcmp(&m, &at, sizeof m) != 0) {
+        built = fresh; placed = fresh; at = m; have = true;
+        nav_place(&placed, &m);
+    }
+    return &placed;
 }
 
 static int item_arg(int e) { return e == E_M0 ? MAP_EDIT : RM_TYPE + (e - E_M0 - 1); }
@@ -145,33 +157,41 @@ static void tile_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_r
     uw_tile(g, r, name, node_family(c, c->arg), bar, selected, n->kind == NODE_MODULE && n->col >= 2);
 }
 
-// The cables, under the tiles. rect[i] is node i's tile (empty while it is out of view).
+// A node's tile on the screen, whether or not it is in view (the cables are drawn from it; the clip window keeps them on the map).
+static gui_rect_t tile_at(const nav_graph_t *gr, int i) {
+    return gui_rect(g_map_x + gr->node[i].x, g_map_y + gr->node[i].y - g_scroll, g_m.tile_w, g_m.tile_h);
+}
+
+// The cables, under the tiles, as straight runs with elbows. Audio: out of the bottom of a tile, down its own column, then across just above
+// the tile it feeds (so two branches meet in the gap over the MIX). Modulation (dashed): out of the modulator's side toward its target,
+// straight across when they stand side by side, else across to the target's middle and then up or down to it.
 static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, const gui_rect_t *rect) {
     (void)st;
     const nav_graph_t *gr = graph(c);
+    const int tw = g_m.tile_w, th = g_m.tile_h;
     u8g2_SetClipWindow(g, area.x, area.y, area.x + area.w, rect[E_INFO].y);      // not over the strip
     for (int e = 0; e < gr->n_edges; e++) {
         if (gr->edge[e].kind != EDGE_AUDIO) continue;
-        const gui_rect_t a = rect[gr->edge[e].from], b = rect[gr->edge[e].to];
-        if (a.w <= 0 && b.w <= 0) continue;
-        const int ax = a.x + a.w / 2, ay = a.y + a.h;
-        if (gr->node[gr->edge[e].from].col == gr->node[gr->edge[e].to].col) {    // down the column
-            if (a.w > 0 && b.w > 0 && b.y > ay) uw_line(g, ax, ay, ax, b.y - 1, UW_CABLE_AUDIO);
-            else if (a.w > 0 && b.w <= 0) uw_line(g, ax, ay, ax, ay + 2, UW_CABLE_AUDIO);       // goes on below the part on show
-        } else if (a.w > 0 && b.w > 0) {                                           // the end of branch 2 into the MIX: down, then across
-            const int my = b.y + b.h / 2;
-            uw_line(g, ax, ay, ax, my, UW_CABLE_AUDIO);
-            uw_line(g, b.x + b.w, my, ax, my, UW_CABLE_AUDIO);
-        }
+        const gui_rect_t a = tile_at(gr, gr->edge[e].from), b = tile_at(gr, gr->edge[e].to);
+        const int ax = a.x + tw / 2, ay = a.y + th, bx = b.x + tw / 2, by = b.y - 1;
+        if (ax == bx) { uw_line(g, ax, ay, ax, by, UW_CABLE_AUDIO); continue; }
+        const int my = by - g_m.gap_y / 2;
+        uw_line(g, ax, ay, ax, my, UW_CABLE_AUDIO);
+        uw_line(g, ax, my, bx, my, UW_CABLE_AUDIO);
+        uw_line(g, bx, my, bx, by, UW_CABLE_AUDIO);
     }
-    for (int e = 0; e < gr->n_edges; e++) {                                        // modulation: out of the modulator's left side, along the gap column and the gap row under the target
+    for (int e = 0; e < gr->n_edges; e++) {
         if (gr->edge[e].kind != EDGE_MOD) continue;
-        const gui_rect_t m = rect[gr->edge[e].from], t = rect[gr->edge[e].to];
-        if (m.w <= 0 || t.w <= 0) continue;
-        const int gx = m.x - TILE_PAD, gy = t.y + t.h, tx = t.x + t.w - 4;
-        uw_line(g, gx, m.y + m.h / 2, m.x - 1, m.y + m.h / 2, UW_CABLE_MOD);
-        uw_line(g, gx, m.y + m.h / 2, gx, gy, UW_CABLE_MOD);
-        uw_line(g, tx, gy, gx, gy, UW_CABLE_MOD);
+        const gui_rect_t m = tile_at(gr, gr->edge[e].from), t = tile_at(gr, gr->edge[e].to);
+        const bool left = t.x < m.x;                                               // the target is on the modulator's left
+        const int mx = left ? m.x - 1 : m.x + tw, my = m.y + th / 2;
+        if (my >= t.y && my < t.y + th) {                                          // side by side: straight across
+            uw_line(g, mx, my, left ? t.x + tw : t.x - 1, my, UW_CABLE_MOD);
+        } else {
+            const int tx = t.x + tw / 2 + (left ? 4 : -4);                         // (beside the audio cable through its middle)
+            uw_line(g, mx, my, tx, my, UW_CABLE_MOD);
+            uw_line(g, tx, my, tx, t.y > m.y ? t.y - 1 : t.y + th, UW_CABLE_MOD);
+        }
     }
     u8g2_SetClipWindow(g, area.x, area.y, area.x + area.w, area.y + area.h);
 }
@@ -309,20 +329,21 @@ static void item_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_r
 /* ---------------- layout ---------------- */
 
 static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, gui_rect_t *rect) {
-    const metrics_t m = metrics(area);
-    rect[E_INFO] = gui_rect(area.x, area.y + area.h - m.strip_h, area.w, m.strip_h);
-    const int room = rect[E_INFO].y - area.y;                                      // the map's height
-    const int vis = room / m.cell_h > 0 ? room / m.cell_h : 1;
+    g_m = metrics(area);
+    g_map_w = area.w - 2 * TILE_PAD;
+    g_map_x = area.x + TILE_PAD;
+    g_map_y = area.y + 2;                                                          // (room for the cursor's outline over the top tile)
+    rect[E_INFO] = gui_rect(area.x, area.y + area.h - g_m.strip_h, area.w, g_m.strip_h);
+    const int room = rect[E_INFO].y - 2 - g_map_y;                                 // the map's height on show (the outline under the lowest tile)
     const nav_graph_t *gr = graph(c);
     const int focus = c->ui->rack_menu ? c->ui->map_menu - 1 : c->ui->row - 1;
-    int scroll = 0;
-    if (focus >= 0 && focus < NAV_NODES && gr->node[focus].kind != NODE_NONE && gr->node[focus].depth >= vis) scroll = gr->node[focus].depth - vis + 1;
-    const int pitch = area.w / NAV_COLS;
+    g_scroll = 0;                                                                  // a map taller than the room: the part around the cursor (no state)
+    if (focus >= 0 && focus < NAV_NODES && gr->node[focus].kind != NODE_NONE && gr->node[focus].y + g_m.tile_h > room)
+        g_scroll = gr->node[focus].y + g_m.tile_h - room;
     for (int i = 0; i < NAV_NODES; i++) {
-        const nav_node_t *n = &gr->node[i];
-        const int row = n->depth - scroll;
-        if (n->kind == NODE_NONE || row < 0 || row >= vis) { rect[i] = gui_rect(0, 0, 0, 0); continue; }
-        rect[i] = gui_rect(area.x + n->col * pitch + TILE_PAD, area.y + row * m.cell_h + 2, pitch - 2 * TILE_PAD, m.tile_h);
+        const gui_rect_t t = tile_at(gr, i);
+        const bool in_view = t.y >= g_map_y && t.y + t.h <= g_map_y + room;
+        rect[i] = gr->node[i].kind != NODE_NONE && in_view ? t : gui_rect(0, 0, 0, 0);
     }
     // the menu: its items that apply, stacked in a box over the map (a list: it scrolls on a short screen)
     const int h = gui_row_h(g, st) + 2, x = area.x + (area.w - MENU_W) / 2;

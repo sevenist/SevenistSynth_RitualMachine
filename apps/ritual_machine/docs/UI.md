@@ -136,6 +136,29 @@ Paths without a prefix are inside `apps/ritual_machine/src/` (`core/...`, `app/.
 > - Not done: moving a module up / down its chain in place (Row moves it to another row; Insert + Delete does the rest); inserting between two
 >   modules from the cable between them (Insert on the module after does it); the map for the Pads section's FX chains.
 >
+> **2026-11-18, step 5: floating nodes** (the user's idea: "a simpler graph, floating nodes attracted by the audio links' tension").
+>
+> - **`nav_place`** (`nav_graph.[ch]`): each node gets a position in pixels (`nav_node_t.x`, `.y`; `nav_graph_t.height`). Heights come from
+>   the signal: a branch hangs just above the MIX it feeds (a short one lower down, its cable to the MIX short), row M runs under the MIX, the
+>   OUT ends it; a modulator stands at the height of what it modulates (the nearest height with room: 4 tiles across), the modulators' "+"
+>   under the last modulator. Across, the nodes float: springs pull a node under the one feeding it, a modulator one tile beside its target
+>   on the map's outer side (left of branch 1, right of anything else), every node weakly toward its old grid column; a chain moves as one
+>   straight column; tiles at one height keep a fixed order and are pushed apart; the map is centred. Deterministic. Free in both directions
+>   was tried first: a long chain buckled into a zigzag on 128 px, and nodes swapped places; hence the heights from the signal, the fixed
+>   order and the rigid chains.
+> - **The cursor goes by the screen** (`nav_move`): to the nearest node on that side (within 45 degrees first; the sideways distance counts
+>   twice); up from the top node: the header.
+> - **The map** (`scr_map.c`) draws the tiles where they float (28 x 14 tiles 4 px apart at 160; 28 x 12, 4 x 3 px apart at 128), scrolls by
+>   pixels to keep the cursor in view, and draws the cables as straight runs with elbows: audio down its column then across just above the
+>   tile it feeds (the branches meet in the gap over the MIX), modulation straight across between neighbours. The layout is only worked out
+>   again when the rack's graph or the sizes change (the screen keeps the last one).
+> - **Tests**: `test_map.c`: tiles apart, inside the width, audio running down, the MIX between the branches, the LFO beside its filter, the
+>   same picture twice, FM's straight chain; every move goes that way on the screen, every node reachable (the sample rack and a full one);
+>   the colour test reads the bands where the tiles float. 241 UI tests pass at 128 x 160 and 128 x 128. The screens were rendered and
+>   looked at (the sample rack, two modulators and an envelope, a full rack scrolled).
+> - Not done: flashed; a modulator's cable to a target two tiles away crosses the tile between (the fixed order keeps a modulator next to its
+>   target, so it does not happen in the racks tried).
+>
 > The UI has **two ways of writing a screen**, and knowing which one a screen uses is the first thing to find out:
 
 - **Declarative** (the newer one): the screen is a table of elements, and one generic piece of code draws it, moves the focus

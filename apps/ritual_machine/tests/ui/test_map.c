@@ -5,6 +5,8 @@
 #include "core/nav_graph.h"
 #include "core/ui_screen.h"
 #include "core/ui_theme.h"
+#include <stdio.h>
+#include <string.h>
 
 // Two branches, a modulator, row M:  slot 0 OSC and 1 FILTER (branch 1), 2 OSC (branch 2), 3 LFO -> the filter's cutoff, 4 DELAY, 5 REVERB (row M).
 static void sample_rack(rack_t *r) {
@@ -71,29 +73,116 @@ TEST(a_synth_without_branches_has_one_chain_and_no_mix) {
     CHECK(has_edge(&g, 1, NAV_OUT, EDGE_AUDIO));
 }
 
-TEST(the_cursor_follows_the_cables_and_the_columns) {
+// The floating layout (nav_place), at the tall screen's sizes.
+static const nav_metrics_t kMetrics = {128, 28, 14, 4, 4};
+
+// A full rack: branch 1 as deep as the rack allows, one oscillator in branch 2, an LFO on the first filter, a delay in row M.
+static void full_rack(rack_t *r) {
+    rack_clear(r);
+    for (int i = 0; i < RACK_MAX - 3; i++) rack_insert_row(r, r->count, 0, i ? MOD_FILTER : MOD_OSC);
+    rack_insert_row(r, r->count, 1, MOD_OSC);
+    rack_insert_row(r, r->count, 0, MOD_LFO);
+    rack_insert_row(r, r->count, ROW_M, MOD_DELAY);
+    r->slot[RACK_MAX - 2].tgt_id = r->slot[1].id;
+    r->slot[RACK_MAX - 2].tgt_param = MP_FL_CUT;
+}
+
+static int iabs(int v) { return v < 0 ? -v : v; }
+
+// No two tiles overlap, every tile is inside the width, every audio cable runs down (its end lower than its start).
+static void check_layout(const nav_graph_t *g, const nav_metrics_t *m) {
+    for (int i = 0; i < NAV_NODES; i++) {
+        if (g->node[i].kind == NODE_NONE) continue;
+        CHECK(g->node[i].x >= 0 && g->node[i].x + m->tile_w <= m->w);
+        CHECK(g->node[i].y >= 0 && g->node[i].y + m->tile_h <= g->height);
+        for (int j = i + 1; j < NAV_NODES; j++) {
+            if (g->node[j].kind == NODE_NONE) continue;
+            const bool apart = iabs(g->node[i].x - g->node[j].x) >= m->tile_w || iabs(g->node[i].y - g->node[j].y) >= m->tile_h;
+            if (!apart) printf("    nodes %d (%d,%d) and %d (%d,%d) overlap\n", i, g->node[i].x, g->node[i].y, j, g->node[j].x, g->node[j].y);
+            CHECK(apart);
+        }
+    }
+    for (int e = 0; e < g->n_edges; e++)
+        if (g->edge[e].kind == EDGE_AUDIO) CHECK(g->node[g->edge[e].to].y > g->node[g->edge[e].from].y);
+}
+
+TEST(the_floating_map_keeps_the_tiles_apart_on_the_screen_and_the_signal_running_down) {
+    rack_t r;
+    nav_graph_t g, again;
+    sample_rack(&r);
+    nav_build(&g, &r);
+    nav_place(&g, &kMetrics);
+    check_layout(&g, &kMetrics);
+    const int mix_x = g.node[NAV_MIX].x, b1 = g.node[NAV_PLUS1].x, b2 = g.node[NAV_PLUS2].x;   // (each branch ends in its +)
+    CHECK(mix_x >= (b1 < b2 ? b1 : b2) && mix_x <= (b1 > b2 ? b1 : b2));        // the MIX between the branches it joins
+    CHECK(g.node[4].y > g.node[NAV_MIX].y && g.node[NAV_OUT].y > g.node[5].y);   // row M under the MIX, the OUT at the bottom
+    CHECK_EQ(g.node[3].y, g.node[1].y);                                          // the LFO at the height of the filter it modulates ...
+    CHECK_EQ(g.node[1].x - g.node[3].x, kMetrics.tile_w + kMetrics.gap_x);      // ... right beside it, on the outer side (branch 1: left)
+    nav_build(&again, &r);                                                       // the same rack, the same picture
+    nav_place(&again, &kMetrics);
+    CHECK(memcmp(&g, &again, sizeof g) == 0);
+
+    full_rack(&r);
+    nav_build(&g, &r);
+    nav_place(&g, &kMetrics);
+    check_layout(&g, &kMetrics);
+
+    rack_clear(&r);                                                              // FM: one chain, no MIX
+    r.cfg.type = SYNTH_FM;
+    rack_add_m(&r, MOD_DELAY);
+    rack_add_m(&r, MOD_REVERB);
+    nav_build(&g, &r);
+    nav_place(&g, &kMetrics);
+    check_layout(&g, &kMetrics);
+    CHECK_EQ(g.node[0].x, g.node[1].x);                                          // a straight chain
+    CHECK_EQ(g.node[0].x, g.node[NAV_OUT].x);
+}
+
+// From a node, every node can be reached with the joystick (a walk over every move from every node reached).
+static bool all_reachable(const nav_graph_t *g) {
+    bool seen[NAV_NODES] = {false};
+    int queue[NAV_NODES], n = 0;
+    const int first = nav_move(g, -1, 'd');
+    if (first < 0) return false;
+    seen[first] = true; queue[n++] = first;
+    for (int k = 0; k < n; k++)
+        for (const char *d = "udlr"; *d; d++) {
+            const int to = nav_move(g, queue[k], *d);
+            if (to >= 0 && !seen[to]) { seen[to] = true; queue[n++] = to; }
+        }
+    for (int i = 0; i < NAV_NODES; i++) if (g->node[i].kind != NODE_NONE && !seen[i]) { printf("    node %d is out of reach\n", i); return false; }
+    return true;
+}
+
+TEST(the_cursor_goes_to_the_nearest_node_on_that_side_of_the_screen) {
     rack_t r;
     nav_graph_t g;
     sample_rack(&r);
     nav_build(&g, &r);
-    CHECK_EQ(nav_move(&g, 0, 'd'), 1);
-    CHECK_EQ(nav_move(&g, 1, 'd'), NAV_PLUS1);                                  // the branch's +, then the MIX
-    CHECK_EQ(nav_move(&g, NAV_PLUS1, 'd'), NAV_MIX);
-    CHECK_EQ(nav_move(&g, 2, 'd'), NAV_PLUS2);
-    CHECK_EQ(nav_move(&g, NAV_PLUS2, 'd'), NAV_MIX);                            // the end of branch 2 goes on into the MIX, across
-    CHECK_EQ(nav_move(&g, NAV_MIX, 'u'), NAV_PLUS1);                            // back up into the longer branch
-    CHECK_EQ(nav_move(&g, 0, 'u'), -1);                                         // the top of a column: the header
-    CHECK_EQ(nav_move(&g, -1, 'd'), 0);                                         // from the header: the top left
-    CHECK_EQ(nav_move(&g, 0, 'r'), 2);                                          // the next column, the same depth
-    CHECK_EQ(nav_move(&g, 2, 'r'), 3);
-    CHECK_EQ(nav_move(&g, 3, 'r'), NAV_PLUS_MOD);
-    CHECK_EQ(nav_move(&g, 3, 'l'), 2);
-    CHECK_EQ(nav_move(&g, 2, 'l'), 0);
-    CHECK_EQ(nav_move(&g, 1, 'r'), NAV_PLUS2);                                  // from the deeper node of column 0: the same depth over there
-    CHECK_EQ(nav_move(&g, NAV_MIX, 'l'), NAV_MIX);                              // nowhere to go
-    CHECK_EQ(nav_move(&g, NAV_OUT, 'd'), NAV_OUT);
-    CHECK_EQ(nav_move(&g, 4, 'u'), NAV_MIX);
-    CHECK_EQ(nav_move(&g, NAV_MIX, 'd'), 4);
+    nav_place(&g, &kMetrics);
+    const int top = nav_move(&g, -1, 'd');                                       // from the header: the top node (the leftmost of a tie)
+    CHECK(top >= 0);
+    for (int i = 0; i < NAV_NODES; i++) if (g.node[i].kind != NODE_NONE) CHECK(g.node[i].y >= g.node[top].y);
+    CHECK_EQ(nav_move(&g, top, 'u'), -1);                                        // up from the top: the header
+    CHECK_EQ(nav_move(&g, 0, 'd'), 1);                                           // down a chain, along its cable
+    CHECK_EQ(nav_move(&g, 1, 'u'), 0);
+    CHECK_EQ(nav_move(&g, 4, 'd'), 5);
+    CHECK_EQ(nav_move(&g, 1, 'l'), 3);                                           // the LFO, beside the filter
+    CHECK_EQ(nav_move(&g, 3, 'r'), 1);
+    CHECK_EQ(nav_move(&g, NAV_OUT, 'd'), NAV_OUT);                               // nowhere to go
+    for (int i = 0; i < NAV_NODES; i++) {                                        // a move always goes that way on the screen
+        if (g.node[i].kind == NODE_NONE) continue;
+        const int d = nav_move(&g, i, 'd'), u = nav_move(&g, i, 'u'), l = nav_move(&g, i, 'l'), rt = nav_move(&g, i, 'r');
+        if (d != i) CHECK(g.node[d].y > g.node[i].y);
+        if (u >= 0) CHECK(g.node[u].y < g.node[i].y);
+        if (l != i) CHECK(g.node[l].x < g.node[i].x);
+        if (rt != i) CHECK(g.node[rt].x > g.node[i].x);
+    }
+    CHECK(all_reachable(&g));
+    full_rack(&r);
+    nav_build(&g, &r);
+    nav_place(&g, &kMetrics);
+    CHECK(all_reachable(&g));
 }
 
 // The tab, on the app's own rack and screen.
@@ -230,10 +319,15 @@ static void colours_on(canvas_t *cv) {
     CHECK(!ui_colour(ui_app.display));
     ui_app.ui.row = 0;
     synth_ui_draw(&ui_app.ui, &ui_app.params, &ui_app.seq, &ui_app.rack, g);
-    CHECK_EQ(canvas_get(cv, 2, 22), ui_rgb(UC_SRC));                               // OC1: the source's green band, top left
-    CHECK_EQ(canvas_get(cv, 2 + 32, 22), ui_rgb(UC_SRC));                          // OC2, branch 2
-    CHECK_EQ(canvas_get(cv, 2, 22 + 16), ui_rgb(UC_SHP));                          // FL1 under OC1: a shaper's violet
-    CHECK_EQ(canvas_get(cv, 2 + 64, 22), ui_rgb(UC_MOD));                          // LF1, a modulator's amber
+    nav_graph_t gr;                                                                // where the tiles float (scr_map.c: the map from x 2, y 22 at 160 px)
+    nav_build(&gr, &ui_app.rack);
+    nav_place(&gr, &(nav_metrics_t){128 - 4, 28, 14, 4, 4});
+    #define BAND(i) canvas_get(cv, 2 + gr.node[i].x, 22 + gr.node[i].y + 5)       // a tile's family band: its left 2 px
+    CHECK_EQ(BAND(0), ui_rgb(UC_SRC));                                              // OC1: the source's green
+    CHECK_EQ(BAND(2), ui_rgb(UC_SRC));                                              // OC2, branch 2
+    CHECK_EQ(BAND(1), ui_rgb(UC_SHP));                                              // FL1 under OC1: a shaper's violet
+    CHECK_EQ(BAND(3), ui_rgb(UC_MOD));                                              // LF1, a modulator's amber
+    #undef BAND
     CHECK_EQ(canvas_get(cv, 127, 100), ui_rgb(UC_BG));                             // the background
     ui_app.ui.map_at = 2;                                                          // the filter's page: its title in the shaper's colour
     ui_app.ui.row = 4;
@@ -385,3 +479,4 @@ TEST(the_menu_and_the_plus_draw_on_every_node) {
         if (ui_app.ui.rack_menu) { const ui_ctx_t c = ctx(); scr_map_screen.back(&c); }
     }
 }
+

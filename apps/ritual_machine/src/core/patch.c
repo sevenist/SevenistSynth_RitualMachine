@@ -239,9 +239,6 @@ bool patch_from_text(rack_t *rack, synth_params_t *params, synth_ui_t *ui, char 
             if (sscanf(line, "mod %d %15s %d %d %d %d %d :%n", &a, w, &b, &c, &d, &e, &f, &at) != 7 || !at) continue;
             int type = MOD_TYPE_COUNT;
             for (int t = 0; t < MOD_TYPE_COUNT; t++) if (!strcmp(w, rack_type_code((module_type_t)t))) type = t;
-            int top = 0;                                      // (the id it gets until its own is set: above every id so far)
-            for (int i = 0; i < r.count; i++) if (r.slot[i].id > top) top = r.slot[i].id;
-            r.next_id = (uint8_t)(top >= 255 ? 1 : top + 1);
             if (type == MOD_TYPE_COUNT || b < 0 || b >= RACK_ROWS || !rack_insert_row(&r, r.count, b, (module_type_t)type)) continue;
             rack_slot_t *s = &r.slot[r.count - 1];
             if (a >= 1 && a <= 255 && rack_find(&r, a) == RACK_NONE) s->id = (uint8_t)a;       // its own id (the targets, the macros and the jumps name it)
@@ -294,14 +291,11 @@ bool patch_from_text(rack_t *rack, synth_params_t *params, synth_ui_t *ui, char 
             if (sscanf(line, "from %d%n", &from_edited, &at) == 1 && at) rest(line + at, from, sizeof from);
         }
     }
-    int top = 0;
     for (int i = 0; i < r.count; i++) {
         rack_slot_t *s = &r.slot[i];
-        if (s->id > top) top = s->id;
         if (s->tgt_id && rack_find(&r, s->tgt_id) == RACK_NONE) s->tgt_id = 0;       // a target that is not in the file
         if (para[i]) rack_set_para(&r, i, true);
     }
-    r.next_id = (uint8_t)(top >= 255 ? 1 : top + 1);
     r.cfg.type = (uint8_t)type_now;
 
     *rack = r;

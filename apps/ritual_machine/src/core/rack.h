@@ -119,7 +119,6 @@ typedef struct {
 typedef struct {
     rack_slot_t slot[RACK_MAX];
     int         count;
-    uint8_t     next_id;   // ids start at 1
     uint8_t     fx;        // 1 = the pads' FX rack (rows = the chains FXA / FXB / FXC)
     uint8_t     fx_route;  // rack_route_t (an FX rack)
     float       br_lvl[RACK_BRANCHES], br_pan[RACK_BRANCHES];   // the MIX at the start of row M: each branch's level (0..1) and pan (-100..100 %)
@@ -188,7 +187,6 @@ char        rack_wave_class(int wav);  // A one shape, B blends / stacks, C shap
 
 // Lookup / connections
 int  rack_find(const rack_t *r, int id);                   // slot index or RACK_NONE
-int  rack_instance(const rack_t *r, int slot);             // 1-based count of this type so far
 int  rack_audio_prev(const rack_t *r, int slot);           // previous audio slot or RACK_NONE
 int  rack_audio_next(const rack_t *r, int slot);           // next audio slot or RACK_OUT
 bool rack_has_signal(const rack_t *r, int slot);           // a source exists at or before slot (row M: a branch has one, or FM / Strings)
@@ -219,7 +217,8 @@ void rack_depth_format(const rack_t *r, int slot, char *out, int n);       // "+
 bool rack_ms_depth_adjust(const rack_t *r, int slot, ms_lane_t *l, int dir);
 void rack_ms_depth_format(const rack_t *r, ms_lane_t *l, char *out, int n);
 
-// "OC2" style short name, and "LF1 > FL1 Cutoff" description (modulators) / full name.
+// "7 FL" style short name (the module's number, then its type: the numbers of the Studio), and "4 LF > 7 FL Cutoff" description
+// (modulators) / full name.
 void rack_slot_name(const rack_t *r, int slot, char *buf, int n);
 void rack_describe(const rack_t *r, int slot, char *buf, int n);
 

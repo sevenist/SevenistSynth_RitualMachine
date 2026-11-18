@@ -23,7 +23,7 @@ TEST(cog_opens_and_closes_the_hidden_settings) {
     CHECK_EQ(ui->row, 5);                                      // the focus stays on the cog
     char title[32];
     ui_page_title(title, sizeof title);
-    CHECK_STR(title, "OSC 1 SET");
+    CHECK_STR(title, "1 OSC SET");
     ev_tap(CTL_BTN_2);                                         // Back closes
     CHECK_EQ(ui->cog_page, -1);
     CHECK_EQ(ui->row, 5);

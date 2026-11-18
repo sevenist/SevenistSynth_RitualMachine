@@ -162,6 +162,17 @@ Paths without a prefix are inside `apps/ritual_machine/src/` (`core/...`, `app/.
 > - Not done: flashed. Seen in that render: with two modulators on a row M module, the MIX and row M column moves aside to make room and the
 >   branches' cables into the MIX get longer (still clear; a modulator of row M could take the side with more room).
 >
+> **2026-11-18, step 6: the modules' numbers, as the Studio numbers them** (the user: "7 Filter", "13 Filter"; the number first, so the
+> small nodes of the zoomed-out map show it alone).
+>
+> - **A module's name is its number, then its type**: `rack_slot_name` gives "7 FL" (was "FL1", the count of that type so far), the pages
+>   "7 FILTER", "7 FILT ENV" (was "FILTER 1"); every place that names a module goes through these two (targets, macros, the legend, the
+>   strip). `rack_instance` is gone.
+> - **The number is the module's id** (`rack_slot_t.id`, already saved in the patch file and used by the targets): a new module takes the
+>   lowest number no module has, like the Studio (`Patch::add`); `rack_t.next_id` is gone. A preset keeps its numbers.
+> - The Studio writes the number first too ("7 Filter", "7 Filter.Out", the hints, the inspector, the Modular synth's sections).
+> - Tests: three titles. 241 UI tests at 160 and 128, the engine's 120, the Studio's self-test.
+>
 > The UI has **two ways of writing a screen**, and knowing which one a screen uses is the first thing to find out:
 
 - **Declarative** (the newer one): the screen is a table of elements, and one generic piece of code draws it, moves the focus

@@ -249,7 +249,6 @@ const char *rack_param_long(module_type_t t, int p) { return info[t].plong[p]; }
 
 void rack_clear(rack_t *r) {
     memset(r, 0, sizeof *r);
-    r->next_id = 1;
     for (int b = 0; b < RACK_BRANCHES; b++) r->br_lvl[b] = 1.0f;   // the MIX: both branches at full level, centre
     synth_config_init(&r->cfg);
 }
@@ -362,12 +361,6 @@ int rack_find(const rack_t *r, int id) {
     return RACK_NONE;
 }
 
-int rack_instance(const rack_t *r, int slot) {
-    int n = 0;
-    for (int i = 0; i <= slot; i++) if (r->slot[i].type == r->slot[slot].type) n++;
-    return n;
-}
-
 bool rack_slot_is_mod(const rack_t *r, int slot) {
     const rack_slot_t *s = &r->slot[slot];
     return info[s->type].modulator || (s->type == MOD_OSC && s->tgt_id != 0);
@@ -469,11 +462,12 @@ static bool insert_raw(rack_t *r, int pos, int row, module_type_t type) {
     if (r->count >= RACK_MAX || pos < 0 || pos > r->count || type >= MOD_TYPE_COUNT) return false;
     int pool = -1;
     if (type == MOD_MSEQ && (pool = ms_pool_free(r)) < 0) return false;      // both motion sequencers are in use
+    int id = 1;                                                                // the lowest number no module has (as the Studio numbers them)
+    while (rack_find(r, id) != RACK_NONE) id++;
     for (int i = r->count; i > pos; i--) r->slot[i] = r->slot[i - 1];
-    r->slot[pos] = (rack_slot_t){.type = (uint8_t)type, .id = r->next_id++, .row = (uint8_t)row, .penv = PARA_ENV_LEGATO};
+    r->slot[pos] = (rack_slot_t){.type = (uint8_t)type, .id = (uint8_t)id, .row = (uint8_t)row, .penv = PARA_ENV_LEGATO};
     for (int i = 0; i < info[type].nmp; i++) r->slot[pos].v[i] = info[type].mp[i].def;
     if (pool >= 0) { r->slot[pos].v[MP_MS_POOL] = (float)pool; ms_pattern_default(&r->ms[pool]); }
-    if (r->next_id == 0) r->next_id = 1;
     r->count++;
     return true;
 }
@@ -552,7 +546,7 @@ void rack_cycle_param(rack_t *r, int slot, int dir) {
 }
 
 void rack_slot_name(const rack_t *r, int slot, char *buf, int n) {
-    snprintf(buf, n, "%s%d", info[r->slot[slot].type].code, rack_instance(r, slot));
+    snprintf(buf, n, "%d %s", r->slot[slot].id, info[r->slot[slot].type].code);
 }
 
 void rack_describe(const rack_t *r, int slot, char *buf, int n) {

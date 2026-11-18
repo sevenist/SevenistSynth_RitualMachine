@@ -24,13 +24,14 @@ TEST(velocity_module_is_a_modulator_with_its_page_and_goes_with_the_sound) {
     CHECK_EQ(r->slot[vl].type, MOD_VEL);
     CHECK(rack_slot_is_mod(r, vl));
     synth_ui_rebuild_pages(&ui_app.ui, r);
-    // its page: VEL 1 with Tgt, Prm, Dpth
-    char t[24];
+    // its page: "<its number> VEL" with Tgt, Prm, Dpth
+    char t[24], want[24];
+    snprintf(want, sizeof want, "%d VEL", r->slot[vl].id);
     bool found = false;
     for (int p = 0; p < ui_app.ui.page_count && !found; p++) {
         ui_app.ui.page = p;
         ui_page_title(t, sizeof t);
-        found = !strcmp(t, "VEL 1");
+        found = !strcmp(t, want);
     }
     CHECK(found);
     page_t pg;

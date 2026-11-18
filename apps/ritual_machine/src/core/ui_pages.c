@@ -12,55 +12,55 @@
 typedef struct { const char *fmt; graph_t graph; int count; int p[6]; bool needs_mod; } mpage_def_t;   // needs_mod: only while the module acts as a modulator
 
 static const mpage_def_t oc_pages[] = {
-    {"OSC %d",      GRAPH_WAVE,   4, {MP_OC_WAVE, MP_OC_PW, MP_OC_MORPH, MP_OC_LEVEL}},
-    {"OSC %d TUNE", GRAPH_WAVE,   2, {MP_OC_COARSE, MP_OC_FINE}},
-    {"OSC %d DEST", GRAPH_WAVE,   3, {PRM_TGT, PRM_TPRM, MP_OC_DEPTH}},   // Tgt "--" = a plain oscillator
+    {"%d OSC",      GRAPH_WAVE,   4, {MP_OC_WAVE, MP_OC_PW, MP_OC_MORPH, MP_OC_LEVEL}},
+    {"%d OSC TUNE", GRAPH_WAVE,   2, {MP_OC_COARSE, MP_OC_FINE}},
+    {"%d OSC DEST", GRAPH_WAVE,   3, {PRM_TGT, PRM_TPRM, MP_OC_DEPTH}},   // Tgt "--" = a plain oscillator
 };
 static const mpage_def_t fl_pages[] = {
-    {"FILTER %d",   GRAPH_FILTER, 4, {MP_FL_TYPE, MP_FL_CUT, MP_FL_RES, MP_FL_ENVAMT}},
-    {"FILT %d ENV", GRAPH_ENV,    4, {MP_FL_A, MP_FL_D, MP_FL_S, MP_FL_R}},
-    {"FILT %d CRV", GRAPH_ENV,    3, {MP_FL_ACV, MP_FL_DCV, MP_FL_RCV}},
+    {"%d FILTER",   GRAPH_FILTER, 4, {MP_FL_TYPE, MP_FL_CUT, MP_FL_RES, MP_FL_ENVAMT}},
+    {"%d FILT ENV", GRAPH_ENV,    4, {MP_FL_A, MP_FL_D, MP_FL_S, MP_FL_R}},
+    {"%d FILT CRV", GRAPH_ENV,    3, {MP_FL_ACV, MP_FL_DCV, MP_FL_RCV}},
 };
-static const mpage_def_t sa_pages[] = {{"SAT %d", GRAPH_SAT, 3, {MP_SA_MODE, MP_SA_DRIVE, MP_SA_MIX}}};
+static const mpage_def_t sa_pages[] = {{"%d SAT", GRAPH_SAT, 3, {MP_SA_MODE, MP_SA_DRIVE, MP_SA_MIX}}};
 static const mpage_def_t lf_pages[] = {
-    {"LFO %d",      GRAPH_WAVE, 3, {MP_LF_SHAPE, MP_LF_RATE, MP_LF_DEPTH}},
-    {"LFO %d DEST", GRAPH_WAVE, 3, {PRM_TGT, PRM_TPRM, MP_LF_DEPTH}},
+    {"%d LFO",      GRAPH_WAVE, 3, {MP_LF_SHAPE, MP_LF_RATE, MP_LF_DEPTH}},
+    {"%d LFO DEST", GRAPH_WAVE, 3, {PRM_TGT, PRM_TPRM, MP_LF_DEPTH}},
 };
 static const mpage_def_t en_pages[] = {
-    {"ENV %d",      GRAPH_ENV, 5, {MP_EN_A, MP_EN_D, MP_EN_S, MP_EN_R, MP_EN_DEPTH}},
-    {"ENV %d CRV",  GRAPH_ENV, 5, {MP_EN_ACV, MP_EN_DCV, MP_EN_RCV, MP_EN_HOLD, MP_EN_START}},
-    {"ENV %d DEST", GRAPH_ENV, 3, {PRM_TGT, PRM_TPRM, MP_EN_DEPTH}},
+    {"%d ENV",      GRAPH_ENV, 5, {MP_EN_A, MP_EN_D, MP_EN_S, MP_EN_R, MP_EN_DEPTH}},
+    {"%d ENV CRV",  GRAPH_ENV, 5, {MP_EN_ACV, MP_EN_DCV, MP_EN_RCV, MP_EN_HOLD, MP_EN_START}},
+    {"%d ENV DEST", GRAPH_ENV, 3, {PRM_TGT, PRM_TPRM, MP_EN_DEPTH}},
 };
 // multi-stage envelope: page 1 edits the selected point (rows Pt / Time / Lvl / Crv, drawn by hand), page 2 the rest
 static const mpage_def_t eg_pages[] = {
-    {"EG %d",     GRAPH_EG,     4, {0}},
-    {"EG %d REL", GRAPH_EG_REL, 5, {MP_EG_SUS, MP_EG_REL, MP_EG_RCV, MP_EG_ONE, MP_EG_DEPTH}},
-    {"EG %d DEST", GRAPH_EG_REL, 3, {PRM_TGT, PRM_TPRM, MP_EG_DEPTH}},
+    {"%d EG",     GRAPH_EG,     4, {0}},
+    {"%d EG REL", GRAPH_EG_REL, 5, {MP_EG_SUS, MP_EG_REL, MP_EG_RCV, MP_EG_ONE, MP_EG_DEPTH}},
+    {"%d EG DEST", GRAPH_EG_REL, 3, {PRM_TGT, PRM_TPRM, MP_EG_DEPTH}},
 };
 // motion sequencer: its rows are drawn and edited by hand (the data is not in slot.v[]): Lane / Step / Val / On, and Lane / Tgt / Mode / Pol / Dpth
-static const mpage_def_t rs_pages[] = {{"RES %d", GRAPH_COMB, 5, {MP_RS_TUNE, MP_RS_FB, MP_RS_DAMP, MP_RS_INT, MP_RS_MIX}}};
+static const mpage_def_t rs_pages[] = {{"%d RES", GRAPH_COMB, 5, {MP_RS_TUNE, MP_RS_FB, MP_RS_DAMP, MP_RS_INT, MP_RS_MIX}}};
 static const mpage_def_t sm_pages[] = {
-    {"SMP %d",       GRAPH_SAMPLE, 4, {MP_SM_FILE, MP_SM_LEVEL, MP_SM_COARSE, MP_SM_FINE}},
-    {"SMP %d LOOP",  GRAPH_SAMPLE, 4, {MP_SM_LOOP, MP_SM_REV, MP_SM_START, MP_SM_TRACK}},
-    {"SMP %d SLICE", GRAPH_SAMPLE, 2, {MP_SM_SLICE, MP_SM_SMODE}},
+    {"%d SMP",       GRAPH_SAMPLE, 4, {MP_SM_FILE, MP_SM_LEVEL, MP_SM_COARSE, MP_SM_FINE}},
+    {"%d SMP LOOP",  GRAPH_SAMPLE, 4, {MP_SM_LOOP, MP_SM_REV, MP_SM_START, MP_SM_TRACK}},
+    {"%d SMP SLICE", GRAPH_SAMPLE, 2, {MP_SM_SLICE, MP_SM_SMODE}},
 };
 // Sum and FX modules (ADR-040): one page each; Spectral's last three rows sit behind its cog (mod_hidden)
-static const mpage_def_t tr_pages[] = {{"TREM %d",     GRAPH_FX, 4, {MP_TR_RATE, MP_TR_DEPTH, MP_TR_SHAPE, MP_TR_MODE}}};
-static const mpage_def_t eq_pages[] = {{"EQ %d",       GRAPH_FX, 4, {MP_EQ_LOW, MP_EQ_MID, MP_EQ_MIDF, MP_EQ_HIGH}}};
-static const mpage_def_t rg_pages[] = {{"RING %d",     GRAPH_FX, 3, {MP_RG_MODE, MP_RG_FREQ, MP_RG_MIX}}};
-static const mpage_def_t ph_pages[] = {{"PHASER %d",   GRAPH_FX, 4, {MP_PH_RATE, MP_PH_DEPTH, MP_PH_FB, MP_PH_MIX}}};
-static const mpage_def_t fg_pages[] = {{"FLANGER %d",  GRAPH_FX, 4, {MP_PH_RATE, MP_PH_DEPTH, MP_PH_FB, MP_PH_MIX}}};
-static const mpage_def_t cp_pages[] = {{"COMP %d",     GRAPH_FX, 4, {MP_CP_THR, MP_CP_RATIO, MP_CP_REL, MP_CP_GAIN}}};
-static const mpage_def_t dl_pages[] = {{"DELAY %d",    GRAPH_FX, 4, {MP_DL_TIME, MP_DL_FB, MP_DL_MIX, MP_DL_PONG}}};
-static const mpage_def_t rv_pages[] = {{"REVERB %d",   GRAPH_FX, 4, {MP_RV_MIX, MP_RV_DEC, MP_RV_SIZE, MP_RV_DAMP}}};
-static const mpage_def_t ch_pages[] = {{"CHORUS %d",   GRAPH_FX, 2, {MP_CH_MODE, MP_CH_MIX}}};
-static const mpage_def_t sp_pages[] = {{"SPECTRAL %d", GRAPH_FX, 4, {MP_SP_MODE, MP_SP_SHIFT, MP_SP_AMT, MP_SP_MIX}}};
-static const mpage_def_t cb_pages[] = {{"CAB %d",      GRAPH_FX, 4, {MP_CB_IR, MP_CB_LEN, MP_CB_MIX, MP_CB_LEVEL}}};
-static const mpage_def_t es_pages[] = {{"ENSEMBLE %d", GRAPH_FX, 4, {MP_ES_RATE, MP_ES_DEPTH, MP_ES_SHIM, MP_ES_MIX}}};
-static const mpage_def_t vl_pages[] = {{"VEL %d", GRAPH_FX, 3, {PRM_TGT, PRM_TPRM, MP_VL_DEPTH}}};   // (the box shows its name)
+static const mpage_def_t tr_pages[] = {{"%d TREM",     GRAPH_FX, 4, {MP_TR_RATE, MP_TR_DEPTH, MP_TR_SHAPE, MP_TR_MODE}}};
+static const mpage_def_t eq_pages[] = {{"%d EQ",       GRAPH_FX, 4, {MP_EQ_LOW, MP_EQ_MID, MP_EQ_MIDF, MP_EQ_HIGH}}};
+static const mpage_def_t rg_pages[] = {{"%d RING",     GRAPH_FX, 3, {MP_RG_MODE, MP_RG_FREQ, MP_RG_MIX}}};
+static const mpage_def_t ph_pages[] = {{"%d PHASER",   GRAPH_FX, 4, {MP_PH_RATE, MP_PH_DEPTH, MP_PH_FB, MP_PH_MIX}}};
+static const mpage_def_t fg_pages[] = {{"%d FLANGER",  GRAPH_FX, 4, {MP_PH_RATE, MP_PH_DEPTH, MP_PH_FB, MP_PH_MIX}}};
+static const mpage_def_t cp_pages[] = {{"%d COMP",     GRAPH_FX, 4, {MP_CP_THR, MP_CP_RATIO, MP_CP_REL, MP_CP_GAIN}}};
+static const mpage_def_t dl_pages[] = {{"%d DELAY",    GRAPH_FX, 4, {MP_DL_TIME, MP_DL_FB, MP_DL_MIX, MP_DL_PONG}}};
+static const mpage_def_t rv_pages[] = {{"%d REVERB",   GRAPH_FX, 4, {MP_RV_MIX, MP_RV_DEC, MP_RV_SIZE, MP_RV_DAMP}}};
+static const mpage_def_t ch_pages[] = {{"%d CHORUS",   GRAPH_FX, 2, {MP_CH_MODE, MP_CH_MIX}}};
+static const mpage_def_t sp_pages[] = {{"%d SPECTRAL", GRAPH_FX, 4, {MP_SP_MODE, MP_SP_SHIFT, MP_SP_AMT, MP_SP_MIX}}};
+static const mpage_def_t cb_pages[] = {{"%d CAB",      GRAPH_FX, 4, {MP_CB_IR, MP_CB_LEN, MP_CB_MIX, MP_CB_LEVEL}}};
+static const mpage_def_t es_pages[] = {{"%d ENSEMBLE", GRAPH_FX, 4, {MP_ES_RATE, MP_ES_DEPTH, MP_ES_SHIM, MP_ES_MIX}}};
+static const mpage_def_t vl_pages[] = {{"%d VEL", GRAPH_FX, 3, {PRM_TGT, PRM_TPRM, MP_VL_DEPTH}}};   // (the box shows its name)
 static const mpage_def_t ms_pages[] = {
-    {"MOTION %d",  GRAPH_MS_STEPS, 4, {0}},
-    {"MS %d LANE", GRAPH_MS_LANE,  5, {0}},
+    {"%d MOTION",  GRAPH_MS_STEPS, 4, {0}},
+    {"%d MS LANE", GRAPH_MS_LANE,  5, {0}},
 };
 
 static const struct { const mpage_def_t *defs; int n; } mod_pages[MOD_TYPE_COUNT] = {
@@ -226,14 +226,14 @@ void get_page(const synth_ui_t *ui, const rack_t *rack, int idx, page_t *out) {
         for (int i = 0; i < 6; i++) out->params[i] = g->params[i];
     } else {
         const mpage_def_t *m = &mod_pages[rack->slot[slot].type].defs[def];
-        snprintf(out->title, sizeof out->title, m->fmt, rack_instance(rack, slot));
+        snprintf(out->title, sizeof out->title, m->fmt, rack->slot[slot].id);
         out->graph = m->graph; out->count = m->count;
         for (int i = 0; i < 6; i++) out->params[i] = m->p[i];
         const int type = rack->slot[slot].type;
         if (def == 0 && idx == ui->cog_page && type_has_cog(type)) {                        // its cog is open: the hidden settings instead, then Reset
             const int n = mod_hidden[type].n;
             out->count = n + 1;
-            snprintf(out->title, sizeof out->title, m->fmt, rack_instance(rack, slot));
+            snprintf(out->title, sizeof out->title, m->fmt, rack->slot[slot].id);
             strncat(out->title, " SET", sizeof out->title - strlen(out->title) - 1);
             for (int i = 0; i < 6; i++) out->params[i] = i < n ? mod_hidden[type].p[i] : i == n ? PRM_RESET : 0;
         }

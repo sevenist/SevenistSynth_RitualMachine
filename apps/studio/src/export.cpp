@@ -246,7 +246,7 @@ std::string param_list(const mod::Patch &p, const int *base, std::vector<std::pa
     for (int i = 0; i < p.n_nodes; i++) {
         if (base[i] < 0 || mod::is_macro(p.node[i])) continue;
         const mod::Node &n = p.node[i];
-        o += fmt("    lab::section(\"%s %d\"),\n", n.def->name, n.id);
+        o += fmt("    lab::section(\"%d %s\"),\n", n.id, n.def->name);
         if (rows) rows->push_back({0, -1});
         for (int j = 0; j < n.def->n_param; j++) {
             const mod::Param &q = n.def->param[j];

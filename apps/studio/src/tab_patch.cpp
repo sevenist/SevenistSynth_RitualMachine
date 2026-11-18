@@ -212,7 +212,7 @@ void draw_menu(wg_ctx_t &c) {
     wg_fill(&c, r, t.panel2);
     wg_frame(&c, r, t.accent);
     char text[48];
-    std::snprintf(text, sizeof text, "%s %d.%s", n->def->name, n->id, jname);
+    std::snprintf(text, sizeof text, "%d %s.%s", n->id, n->def->name, jname);
     wg_text_small(&c, r.x + 5, r.y + 10, text, t.dim);
     // the items (one for now)
     const gui_rect_t item = gui_rect(r.x + 2, r.y + 2 + kMenuRowH, r.w - 4, kMenuRowH);
@@ -224,7 +224,7 @@ void draw_menu(wg_ctx_t &c) {
     if (on) std::snprintf(text, sizeof text, ncab == 1 ? "Remove cable" : "Remove %d cables", ncab);
     else std::snprintf(text, sizeof text, "No cable");
     wg_text_small(&c, item.x + 3, item.y + 9, text, on ? t.text : t.dim);
-    if (c.hot == id) wg_set_hint(&c, on ? "Removes the cables of %s %d.%s" : "%s %d.%s has no cable", n->def->name, n->id, jname);
+    if (c.hot == id) wg_set_hint(&c, on ? "Removes the cables of %d %s.%s" : "%d %s.%s has no cable", n->id, n->def->name, jname);
     if (was && (in.released & WG_BTN_LEFT) && inside(item, in.x, in.y)) {
         if (on) {
             for (int q = p.n_cables - 1; q >= 0; q--) {
@@ -271,7 +271,7 @@ void draw_node(wg_ctx_t &c, const View &v, mod::Node &n, int idx) {
     wg_fill(&c, head, wg_mix(t.panel2, cat, 70));
     char title[24];
     if (mod::is_macro(n)) mod::macro_name(n, title, sizeof title);
-    else std::snprintf(title, sizeof title, "%s %d", d->name, n.id);
+    else std::snprintf(title, sizeof title, "%d %s", n.id, d->name);
     wg_text(&c, head.x + 3, head.y + 9, title, t.text);
 
     // the header: a click selects (Ctrl / Shift: adds or takes away), a drag moves the selection; its x removes the module
@@ -336,12 +336,12 @@ void draw_node(wg_ctx_t &c, const View &v, mod::Node &n, int idx) {
             const bool hot = c.hot == jid;
             wg_fill(&c, gui_rect(j.x - 3, j.y - 3, 7, 7), ncab ? cable_color(out ? n.id : p.cable[last].src) : t.bg);
             wg_frame(&c, gui_rect(j.x - 3, j.y - 3, 7, 7), hot ? t.accent : t.text);
-            if (hot) wg_set_hint(&c, "%s %d.%s: %d cable(s). %s; right click: a menu", d->name, n.id, name, ncab,
+            if (hot) wg_set_hint(&c, "%d %s.%s: %d cable(s). %s; right click: a menu", n.id, d->name, name, ncab,
                                  out ? "Drag onto an input, or onto a value (modulation)" : "Drop a cable here; drag its cable away to move it");
             if (pin && (in.pressed & WG_BTN_RIGHT) && inside(jr, in.x, in.y)) open_menu(v.cv, in.x, in.y, n.id, out, k);
             if (out) {
                 char label[32];
-                std::snprintf(label, sizeof label, "%s %d.%s", d->name, n.id, name);
+                std::snprintf(label, sizeof label, "%d %s.%s", n.id, d->name, name);
                 wg_drag_source(&c, jid, kDndJack, payload_of(n.id, k), label);
             } else {
                 // pick up the last cable into this input: it leaves, and travels from its source
@@ -350,7 +350,7 @@ void draw_node(wg_ctx_t &c, const View &v, mod::Node &n, int idx) {
                     const mod::Node *s = p.find(cb.src);
                     p.disconnect(last);
                     char label[32];
-                    std::snprintf(label, sizeof label, "%s %d.%s", s ? s->def->name : "?", cb.src, s ? s->def->out_name[cb.src_port] : "?");
+                    std::snprintf(label, sizeof label, "%d %s.%s", cb.src, s ? s->def->name : "?", s ? s->def->out_name[cb.src_port] : "?");
                     wg_drag_source(&c, jid, kDndJack, payload_of(cb.src, cb.src_port), label);
                     structural(nullptr);
                 }
@@ -414,7 +414,7 @@ void draw_node(wg_ctx_t &c, const View &v, mod::Node &n, int idx) {
         else std::snprintf(txt, sizeof txt, "%g", static_cast<double>(val));
         wg_text_small(&c, r.x + r.w - 2 - wg_text_w(&c, txt, true), r.y + 7, txt, t.text);
         if (wg_has_focus(&c, rid)) wg_focus_ring(&c, gui_inset(r, -1));
-        if (hot) wg_set_hint(&c, "%s %d %s %s   drag sideways, wheel, arrows; double click: default; drop a cable: modulation", d->name, n.id, q.name, txt);
+        if (hot) wg_set_hint(&c, "%d %s %s %s   drag sideways, wheel, arrows; double click: default; drop a cable: modulation", n.id, d->name, q.name, txt);
         int pay;
         if (wg_drop_target(&c, r, kDndJack, &pay)) {
             if (p.connect(pay / 16, pay % 16, n.id, j, true, 0.5f)) structural("Modulation: its depth is in the inspector (on the right)");
@@ -739,8 +739,8 @@ void switch_impl(mod::Node &n, const mod::ModuleDef *to) {
     std::memcpy(n.v, nv, sizeof nv);
     patch_apply();
     mark_dirty();
-    if (dropped) message("%s %d is now %s: %d cable(s) had no place there (dropped)", from->name, n.id, to->name, dropped);
-    else message("%s %d is now %s (its cables kept)", from->name, n.id, to->name);
+    if (dropped) message("%d %s is now %s: %d cable(s) had no place there (dropped)", n.id, from->name, to->name, dropped);
+    else message("%d %s is now %s (its cables kept)", n.id, from->name, to->name);
 }
 
 void add_module(int which) {
@@ -925,7 +925,7 @@ void draw_inspector(wg_ctx_t &c, gui_rect_t r) {
     const bool naming = macro && st.editing && st.edit_what == kEditNode && st.edit_node == n.id;
     if (naming) std::snprintf(text, sizeof text, "%s_", st.edit_text.c_str());
     else if (macro) mod::macro_name(n, text, sizeof text);
-    else std::snprintf(text, sizeof text, "%s %d", d->name, n.id);
+    else std::snprintf(text, sizeof text, "%d %s", n.id, d->name);
     wg_fill(&c, gui_rect(r.x, r.y, r.w, 18), wg_mix(t.panel2, category_color(d->category), 70));
     wg_text(&c, x, y + 1, text, naming ? t.accent : t.text);
     if (macro) {                                    // a Macro's name: the exported synth's parameter
@@ -1055,7 +1055,7 @@ void draw_inspector(wg_ctx_t &c, gui_rect_t r) {
         if (cb.src != n.id && cb.dst != n.id) continue;
         const mod::Node *s = p.find(cb.src), *dn = p.find(cb.dst);
         if (!s || !dn) continue;
-        std::snprintf(text, sizeof text, "%s%d.%s>%s%d.%s", s->def->name, s->id, s->def->out_name[cb.src_port], dn->def->name, dn->id,
+        std::snprintf(text, sizeof text, "%d %s.%s>%d %s.%s", s->id, s->def->name, s->def->out_name[cb.src_port], dn->id, dn->def->name,
                       cb.to_param ? dn->def->param[cb.dst_port].name : dn->def->in_name[cb.dst_port]);
         wg_fill(&c, gui_rect(x - 2, y + 2, 3, 3), cable_color(cb.src));
         wg_text_small(&c, x + 3, y + 7, text, t.text);
@@ -1094,7 +1094,7 @@ void draw_inspector(wg_ctx_t &c, gui_rect_t r) {
         y += 17;
         const Target &tg = targets[st.pick_in];
         const mod::Node *o = p.find(tg.node);
-        std::snprintf(text, sizeof text, "to %s%d.%s%s", o->def->name, o->id, tg.param ? o->def->param[tg.port].name : o->def->in_name[tg.port], tg.param ? " (mod)" : "");
+        std::snprintf(text, sizeof text, "to %d %s.%s%s", o->id, o->def->name, tg.param ? o->def->param[tg.port].name : o->def->in_name[tg.port], tg.param ? " (mod)" : "");
         st.pick_in += wg_stepper(&c, WG_ID(F_PINSP, 401), gui_rect(x, y, r.w - 12, 14), text);
         y += 17;
         if (wg_button(&c, WG_ID(F_PINSP, 402), gui_rect(x, y, r.w - 12, 14), "Connect", false)) {

@@ -904,7 +904,7 @@ void test_modular() {
     if (!st.loaded[mi]) load_presets(mi);
     st.patch.init_default();
     patch_apply();
-    CHECK(std::strcmp(cur().params[0].name, "Note 1") == 0 && cur().n_params > 20, "the Modular synth lists the patch's values (%s, %d)", cur().params[0].name, cur().n_params);
+    CHECK(std::strcmp(cur().params[0].name, "1 Note") == 0 && cur().n_params > 20, "the Modular synth lists the patch's values (%s, %d)", cur().params[0].name, cur().n_params);
     synth_note_on(57);
     static int16_t pcm[2 * 4096];
     int16_t pk = 0;

@@ -218,7 +218,7 @@ TEST(seq_motion_lanes_keep_sixteen_steps_under_a_long_pattern) {
     for (int p = 0; p < ui_app.ui.page_count && !found; p++) {
         ui_app.ui.page = p;
         ui_page_title(t, sizeof t);
-        found = !strncmp(t, "MOTION", 6);
+        found = strstr(t, " MOTION") != NULL;
     }
     CHECK(found);
     ui_app.ui.ms_step = 0;

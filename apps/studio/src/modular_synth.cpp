@@ -110,7 +110,7 @@ void modular_publish(const mod::Patch &p) {
             g_params[base[i] + 1] = lab::Param{g_titles[i], q.min, q.max, nd.v[0], q.unit, static_cast<lab::Curve>(q.curve), q.labels};
             continue;
         }
-        std::snprintf(g_titles[i], sizeof g_titles[i], "%s %d", nd.def->name, nd.id);
+        std::snprintf(g_titles[i], sizeof g_titles[i], "%d %s", nd.id, nd.def->name);
         g_params[base[i]] = lab::section(g_titles[i]);
         for (int j = 0; j < nd.def->n_param && base[i] + 1 + j < n; j++) {
             const mod::Param &q = nd.def->param[j];

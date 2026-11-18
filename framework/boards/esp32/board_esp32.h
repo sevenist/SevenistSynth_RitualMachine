@@ -2,6 +2,7 @@
 // ESP32 board services that are not one of the HAL areas (power latch, power button, battery, audio-chip enables) plus the init of the
 // input driver.
 #if defined(ARDUINO_ARCH_ESP32)
+#include <stdint.h>
 void board_power_init(void);      // FIRST thing in setup(): latches the power rail so the board stays on while the firmware has work to finish
 void board_audio_enable(void);    // sets up the DAC's mute pin (muted) and the speaker amplifier's pin
 void board_audio_open(void);      // the loading screen has ended: the DAC is unmuted and the audio task's output let through (display_esp32.cpp calls it)
@@ -12,6 +13,7 @@ void board_speaker_level(int pct);    // the built-in loudspeaker's level, 0..10
 int  board_led_of_control(int ctl);   // where the LED under a control of the board's table sits in the chain, -1 = it has none
 void board_leds_refresh(void);        // called before each show of the chain: the LEDs that are the board's own (HW_LED_NOT_APP), through leds_esp32_put
 int  board_audio_peak(void);          // a board with HW_HAS_VU: the highest sample the engine has rendered since the last call, 0..32768
+uint32_t board_audio_stalls(void);    // the audio task's stalls since the start (the DMA ran out of new sound: a click or a gap), ever growing
 void input_esp32_init(void);      // starts the input scan (keyboard, knobs, joystick); see input_esp32.cpp
 // A colour screen (HW_DISPLAY_RGB565): makes the display's three colour frames now instead of at the first colour frame: RGB565 ones (3 x 40 KB
 // at 128 x 160, PSRAM), or indexed ones (`indexed`: 3 x 20 KB, display_send_indexed). Call it before anything takes the PSRAM it leaves (the

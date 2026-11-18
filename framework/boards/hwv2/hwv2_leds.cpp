@@ -1,7 +1,8 @@
 // Where each LED of the second prototype sits in its chain (boards/esp32/board_esp32.h, board_led_of_control), from the PCB: the LED next to each
 // switch and pot. The chain: K4, K3, K2, K1 (0..3), volume (4), the VU meter (5..10), the indicator (11), the top key row (12..15), R2, R3, R1
 // (16..18), then the 4 x 4 as a serpentine. The VU meter and the indicator are under no control: HW_LED_NOT_APP. The VU meter is the board's own
-// (board_leds_refresh): no app has to know it is there. The indicator stays off for now.
+// (board_leds_refresh): no app has to know it is there; all of it blue while the audio task stalls (the user, 2026-11-18). The indicator
+// stays off for now.
 #if defined(ARDUINO_ARCH_ESP32) && defined(HWV2)
 #include <Arduino.h>
 #include "boards/esp32/board_esp32.h"
@@ -18,6 +19,8 @@ const int8_t kKeyLeds[HWV2_KEY_ROWS][HWV2_KEY_COLS] = {
 };
 // From the bottom of the meter: as in the photo shoot, green, then orange, then red on top.
 const led_color_t kVuColors[HWV2_VU_COUNT] = {{0, 128, 0}, {0, 128, 0}, {0, 128, 0}, {128, 50, 0}, {128, 50, 0}, {128, 0, 0}};
+const led_color_t kStallColor = {0, 0, 128};
+constexpr uint32_t kStallHoldMs = 300;          // a stall keeps the meter blue this long (one missed buffer is 1.5 ms: seen all the same)
 }  // namespace
 
 int board_led_of_control(int ctl) {
@@ -47,8 +50,13 @@ void board_leds_refresh(void) {
     level *= HWV2_VU_FALL;
     const int peak = board_audio_peak();
     if (peak > level) level = (float)peak;
+    static uint32_t stalls_seen = 0, stall_ms = 0;
+    static bool stalled = false;
+    const uint32_t stalls = board_audio_stalls();
+    if (stalls != stalls_seen) { stalls_seen = stalls; stall_ms = now; stalled = true; }
+    else if (stalled && now - stall_ms >= kStallHoldMs) stalled = false;
     const int lit = hwv2_vu_lit((int)level);
     for (int i = 0; i < HWV2_VU_COUNT; i++)     // chain order runs from the top of the meter: bottom = the last LED
-        leds_esp32_put(HWV2_VU_FIRST + HWV2_VU_COUNT - 1 - i, i < lit ? kVuColors[i] : led_color_t{0, 0, 0});
+        leds_esp32_put(HWV2_VU_FIRST + HWV2_VU_COUNT - 1 - i, stalled ? kStallColor : i < lit ? kVuColors[i] : led_color_t{0, 0, 0});
 }
 #endif

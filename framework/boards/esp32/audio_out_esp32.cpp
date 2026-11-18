@@ -20,11 +20,20 @@ namespace {
 static_assert(DEV_OUTPUT_GAIN_PCT >= 0 && DEV_OUTPUT_GAIN_PCT <= 100, "DEV_OUTPUT_GAIN_PCT is a percentage, 0..100");
 constexpr int32_t kOutGainQ15 = DEV_OUTPUT_GAIN_PCT * 32768 / 100;
 constexpr int kFrames = 64;                        // frames per I2S write (an engine renders its own block size inside)
+// I2S "send queue overflow" events: the DMA re-sent a buffer the task had not refilled (the audio task stalled). Always counted: the VU
+// meter shows them (board_audio_stalls); the debug report counts its own since its last report.
+volatile uint32_t g_stalls = 0;
 #ifdef HWV1_DEBUG_AUDIO
-volatile uint32_t g_dma_underruns = 0;              // I2S "send queue overflow" events: the DMA re-sent a buffer the task had not refilled
-bool IRAM_ATTR dma_underrun_cb(i2s_chan_handle_t, i2s_event_data_t *, void *) { g_dma_underruns = g_dma_underruns + 1; return false; }
+volatile uint32_t g_dma_underruns = 0;
 audio_report_fn g_report = nullptr;
 #endif
+bool IRAM_ATTR dma_underrun_cb(i2s_chan_handle_t, i2s_event_data_t *, void *) {
+    g_stalls = g_stalls + 1;
+#ifdef HWV1_DEBUG_AUDIO
+    g_dma_underruns = g_dma_underruns + 1;
+#endif
+    return false;
+}
 
 i2s_chan_handle_t tx;
 TaskHandle_t audio_task;
@@ -123,6 +132,7 @@ void audio_esp32_open(void) { g_out_open.store(true, std::memory_order_relaxed);
 #ifdef HW_HAS_VU
 int board_audio_peak(void) { return g_peak.exchange(0, std::memory_order_relaxed); }
 #endif
+uint32_t board_audio_stalls(void) { return g_stalls; }
 
 // The loudspeaker's level, 0..100 (0 = off). Off is a zero gain on the speaker channel and the LM4871 shut down (its pin HIGH; until
 // 2026-10-22 the pin was pulled LOW, which is its "on": that alone did not silence the speaker on 2026-10-05). The headphones did
@@ -151,13 +161,11 @@ extern "C" bool audio_out_start(audio_render_fn render, int sample_rate) {
     chan.dma_desc_num = 6;
     chan.dma_frame_num = kFrames;
     if (i2s_new_channel(&chan, &tx, nullptr) != ESP_OK) { Serial.println("[AUDIO] i2s_new_channel failed"); return false; }
-#ifdef HWV1_DEBUG_AUDIO
     {   // count the real underruns: the DMA ring ran empty and re-sent old data (a render over its budget alone is not one: the ring absorbs it)
         i2s_event_callbacks_t cbs = {};
         cbs.on_send_q_ovf = dma_underrun_cb;
         i2s_channel_register_event_callback(tx, &cbs, nullptr);
     }
-#endif
     i2s_std_config_t cfg = {
         .clk_cfg = I2S_STD_CLK_DEFAULT_CONFIG(static_cast<uint32_t>(sample_rate)),
         .slot_cfg = I2S_STD_MSB_SLOT_DEFAULT_CONFIG(I2S_DATA_BIT_WIDTH_16BIT, I2S_SLOT_MODE_STEREO),

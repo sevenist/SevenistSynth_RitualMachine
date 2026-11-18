@@ -720,7 +720,21 @@ bool rack_audio_can(const rack_t *r, int from, int to, char *why, int n) {
     if (rack_audio_reaches(r, to, from)) return says(why, n, "%s is before it: a loop", name);
     const bool fs = rack_slot_is_shared(r, from), ts = rack_slot_is_shared(r, to);
     if (fs && !ts) return says(why, n, "%s runs per voice: before it", name);
-    if (!fs && ts) return says(why, n, "%s runs once: not yet", name);              // (a voice module into a shared one: the voice sum, later)
+    if (!fs && ts) {                                                            // a voice module into a shared one: the voices summed on a send bus
+        uint8_t used[RACK_CABLES];
+        int nu = 0;
+        bool have = false;
+        for (int k = 0; k < r->n_cables; k++) {
+            const rack_cable_t *c = &r->cable[k];
+            const int a = rack_find(r, c->from), b = rack_find(r, c->to);
+            if (c->kind != CABLE_AUDIO || a == RACK_NONE || b == RACK_NONE || rack_slot_is_shared(r, a) || !rack_slot_is_shared(r, b)) continue;
+            if (c->to == r->slot[to].id) have = true;
+            bool seen = false;
+            for (int i = 0; i < nu; i++) seen |= used[i] == c->to;
+            if (!seen) used[nu++] = c->to;
+        }
+        if (!have && nu >= RACK_SENDS) return says(why, n, "2 shared modules take voice cables at most", name);
+    }
     return true;
 }
 

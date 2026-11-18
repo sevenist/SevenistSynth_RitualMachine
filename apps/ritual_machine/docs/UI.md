@@ -308,6 +308,19 @@ Paths without a prefix are inside `apps/ritual_machine/src/` (`core/...`, `app/.
 > - Seen in the full rack's render, older: three modulators of one target do not fit beside its column and their tiles overlap (the layout
 >   gives a row 4 tiles but does not move the column aside).
 >
+> **2026-11-18, step 15: a voice module cabled into a shared one** (row M, a branch after its Para point; refused until now).
+>
+> - **The engine** (`framework/engine`, its CHANGELOG): two send buses beside the voice buses; `VoiceOut` inputs 3 and 4 feed them, `BusIn`
+>   bus 2 / 3 reads them.
+> - **The graph** (`rack_graph.cpp`): such a cable goes through the voice's amp (a VCA on the AMP ENV page's envelope: the voices are
+>   enveloped as on their own path) into VoiceOut's input 3 or 4; a `BusIn` on that bus feeds the shared module (its pair, or its stereo
+>   effect, both channels). One bus per shared module: every voice cable into it shares the bus, each at its own level.
+> - **The rule** (`rack_audio_can`): at most `RACK_SENDS` (2) shared modules fed by voice modules ("2 shared modules take voice cables at
+>   most"); a module already fed takes more. A shared module into a voice one stays refused (it runs once, before nothing per voice).
+> - Tests: `test_cables.cpp` (an oscillator, its chain cable cut, cabled into row M's filter: silent, then sounding; the second shared module
+>   takes the other bus, a third is refused; every rack loads). 125 engine tests, 249 UI tests at 160 and 128, the Studio's self-test (6777),
+>   the HWV2 simulator builds.
+>
 > The UI has **two ways of writing a screen**, and knowing which one a screen uses is the first thing to find out:
 
 - **Declarative** (the newer one): the screen is a table of elements, and one generic piece of code draws it, moves the focus

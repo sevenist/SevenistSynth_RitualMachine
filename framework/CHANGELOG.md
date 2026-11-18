@@ -2,6 +2,15 @@
 
 What changed in the library (`framework/`) and in the repo as a whole. Each app keeps its own update log.
 
+## 2026-11-18: two send buses in the engine (the Ritual Machine's audio cables)
+
+- `engine/core`: `kSendBuses` (2) more voice buses beside the two main ones: `ProcessCtx.send_l` / `send_r`, cleared each block like the
+  others. `VoiceOut` has 4 inputs (`in3`, `in4` with their switches `VO_IN3`, `VO_IN4`, off by default: nothing changes for a graph that does
+  not use them; a voice ends when all the inputs in use are quiet); `BusIn`'s `bus` reads 0..3 (2, 3: the sends).
+- Why: in the Ritual Machine a voice module may now be cabled into a shared one (row M): its cable goes through the voice's amp into a send
+  bus, the voices are summed there, a `BusIn` feeds the shared module. SynthLab and the Studio do not use them (the Studio's catalog has its
+  own VoiceOut); its self-test passes.
+
 ## 2026-11-17: colour for the Ritual Machine's UI (its node GUI rework)
 
 - `ui/canvas.*`: `canvas_init_indexed`, a canvas of a byte a pixel (an index into a palette of RGB565 colours given at the start; the colours

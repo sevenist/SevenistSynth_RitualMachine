@@ -100,6 +100,7 @@ struct VoiceState {
     bool done = false;          // set by a sink (VoiceOut) when the voice has gone silent: engine frees it
 };
 
+constexpr int kSendBuses = 2;   // voice buses beyond the two main ones (ProcessCtx.send_l / send_r)
 struct ProcessCtx {
     int frames;                 // always kBlock for now
     uint64_t time;              // blocks rendered so far
@@ -112,6 +113,8 @@ struct ProcessCtx {
     int nvoices = 0;
     int keys_held = 0;          // voices whose key is down
     int32_t *bus2_l = nullptr, *bus2_r = nullptr;   // the second voice bus (VoiceOut's input 2, BusIn with bus 1): the rack's branch 2 (ADR-041)
+    int32_t *send_l[kSendBuses] = {}, *send_r[kSendBuses] = {};   // the send buses (VoiceOut's inputs 3, 4; BusIn with bus 2, 3): a voice module
+                                                    // cabled into a shared one (the Ritual Machine's audio cables, its UI.md step 15)
     const Transport *transport = nullptr;           // the machine clock at the start of this block
     const q15 *silence = nullptr;                   // what an unplugged input reads: a module may tell it from a silent signal (the
                                                     //   catalog's modules read a default there: framework/modular/engine_modules.h)

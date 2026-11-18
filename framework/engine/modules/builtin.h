@@ -23,7 +23,7 @@ constexpr q15 pitch_to_cv(int32_t pitch) {
     return sat16(static_cast<int32_t>(v));
 }
 
-enum { VO_LEVEL, VO_PAN, VO_TAIL_MS, VO_IN2 };
+enum { VO_LEVEL, VO_PAN, VO_TAIL_MS, VO_IN2, VO_IN3, VO_IN4 };   // in3 / in4: into the send buses (ProcessCtx.send_l / send_r)
 enum { BUS_SEL };
 
 void register_builtin_modules(Registry &reg);

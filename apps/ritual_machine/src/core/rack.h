@@ -126,6 +126,7 @@ typedef struct {
 #define RACK_CABLES    32
 #define RACK_AUDIO_MAX 4
 #define RACK_MOD_MAX   6
+#define RACK_SENDS     2       // shared modules that voice modules may cable into (each takes one of the engine's send buses)
 typedef enum { CABLE_AUDIO, CABLE_MOD } rack_cable_kind_t;
 typedef struct {
     uint8_t kind;        // rack_cable_kind_t

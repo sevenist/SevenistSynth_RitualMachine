@@ -35,6 +35,7 @@ enum RackNode : int {
     RN_GATE_IN, RN_PARA_GATE, RN_PARA_AMP_ENV, RN_PARA_AMP_VCA,   // Para: the keyboard gate, the voice gate, the shared amp
     RN_AMP_VCA2, RN_PARA_GATE2, RN_PARA_AMP_ENV2, RN_PARA_AMP_VCA2, RN_BUS2,   // the same for the rack's branch 2 (ADR-041; the amp env is shared)
     RN_PARA_AMP_VCA_R, RN_PARA_AMP_VCA2_R,                           // a branch's shared amp on the right channel, once its shared part is stereo
+    RN_SEND_VCA, RN_SEND_VCA2, RN_SEND_BUS, RN_SEND_BUS2,            // a voice module cabled into a shared one: the voice's amp, then the voices summed
     RN_MODULES = 32,         // module nodes: RN_MODULES + 2 * (rack id % 100) (+1 for the helper node of the same module, or the right channel of a pair)
     RN_EXTRA = 232           // RN_EXTRA + slot: a third node of a module (the envelope of a filter that is a pair), up to 255
 };

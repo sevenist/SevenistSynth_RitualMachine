@@ -130,7 +130,7 @@ TEST(the_rack_refuses_a_loop_a_source_input_and_too_many_cables) {
     CHECK(!rack_audio_can(&r, 2, 1, why, sizeof why));                  // back: a loop
     CHECK(std::string(why).find("loop") != std::string::npos);
     CHECK(rack_insert_row(&r, 3, ROW_M, MOD_DELAY));
-    CHECK(!rack_audio_can(&r, 0, 3, why, sizeof why));                  // a voice module into a shared one: not yet
+    CHECK(rack_audio_can(&r, 0, 3, why, sizeof why));                   // a voice module into a shared one: through a send bus
     CHECK(rack_insert_row(&r, 4, 0, MOD_SAT));
     for (int i = 0; i < 4; i++) CHECK(rack_insert_row(&r, r.count, 1, MOD_FILTER));
     int made = 0;
@@ -144,5 +144,30 @@ TEST(the_rack_refuses_a_loop_a_source_input_and_too_many_cables) {
     CHECK(rack_delete(&r, 0));                                          // a deleted module takes its cables with it
     for (int k = 0; k < r.n_cables; k++) CHECK(rack_find(&r, r.cable[k].from) != RACK_NONE && rack_find(&r, r.cable[k].to) != RACK_NONE);
     RackGraph rg;
+    CHECK(loads(r, p, rg));
+}
+
+// A voice module into a shared one: through the voice's amp and a send bus (VoiceOut's input 3 / 4, the voices summed), at most two shared
+// modules fed that way.
+TEST(a_voice_module_cabled_into_row_m_sounds_through_a_send_bus) {
+    rack_t r; synth_params_t p;
+    make_rack(r, p);
+    CHECK(rack_insert_row(&r, 3, ROW_M, MOD_FILTER));                   // row M: a filter (shared, mono)
+    r.slot[3].v[MP_FL_CUT] = 12000; r.slot[3].v[MP_FL_ENVAMT] = 0;
+    r.slot[0].cut = 1;                                                  // the oscillator's chain cable cut: silence ...
+    RackGraph rg;
+    CHECK(loads(r, p, rg));
+    CHECK(rms(r, p) < 20);
+    CHECK(rack_audio_connect(&r, 0, 3));                                // ... then its cable straight into row M's filter
+    CHECK(loads(r, p, rg));
+    CHECK_EQ(cables_into(rg, node_of_slot(r, 3), Dst::In), 2);         // (the MIX, silent here, and the send bus)
+    CHECK(rms(r, p) > 300);
+    CHECK(rack_insert_row(&r, 4, ROW_M, MOD_FILTER));                   // two more shared modules: the second takes the other bus,
+    CHECK(rack_insert_row(&r, 5, ROW_M, MOD_FILTER));                   // the third is refused
+    CHECK(rack_audio_connect(&r, 1, 4));
+    char why[48];
+    CHECK(!rack_audio_can(&r, 0, 5, why, sizeof why));
+    CHECK(std::string(why).find("2 shared") != std::string::npos);
+    CHECK(rack_audio_can(&r, 1, 3, why, sizeof why));                   // (one already fed: its bus takes more)
     CHECK(loads(r, p, rg));
 }

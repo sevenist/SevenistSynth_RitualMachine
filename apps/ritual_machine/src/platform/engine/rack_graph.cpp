@@ -708,13 +708,50 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
     take(m.R, m.n, RN_MASTER, 1);
 
     // ---- the audio cables beyond the chains (rack_cable_t): a voice module into a voice module (either branch), a shared one into a shared
-    //      one; a voice module into a shared one needs the voice sum (not yet: rack_audio_can refuses it); never into a module before it (a
-    //      loop: the plan would refuse the whole graph), never more cables into an input than the plan takes.
+    //      one, a voice module into a shared one through the voice's amp (the AMP ENV page) and a send bus (VoiceOut input 3 / 4, BusIn bus
+    //      2 / 3: the voices summed; one bus per shared module, two of them); never into a module before it (a loop: the plan would refuse
+    //      the whole graph), never more cables into an input than the plan takes.
+    int send_to[kSendBuses] = {-1, -1};                              // a voice module into a shared one: the shared module each send bus feeds
     for (int k = 0; k < rack.n_cables; k++) {
         const rack_cable_t &c = rack.cable[k];
         if (c.kind != CABLE_AUDIO) continue;
         const int a = rack_find(&rack, c.from), d = rack_find(&rack, c.to);
-        if (a == RACK_NONE || d == RACK_NONE || a == d || !outp[a].built || !outp[d].built || outp[a].shared != outp[d].shared) continue;
+        if (a == RACK_NONE || d == RACK_NONE || a == d || !outp[a].built || !outp[d].built) continue;
+        if (!outp[a].shared && outp[d].shared) {                     // through the voice's amp into a send bus, summed over the voices
+            int bus = -1;
+            for (int s2 = 0; s2 < kSendBuses && bus < 0; s2++) if (send_to[s2] == d) bus = s2;
+            for (int s2 = 0; s2 < kSendBuses && bus < 0; s2++) if (send_to[s2] < 0) bus = s2;
+            if (bus < 0) continue;                                   // (more than the buses: rack_audio_can refuses them)
+            const int vca = bus ? RN_SEND_VCA2 : RN_SEND_VCA, sb = bus ? RN_SEND_BUS2 : RN_SEND_BUS;
+            if (send_to[bus] < 0) {
+                if (outp[d].in >= kMaxFanIn - 1) continue;
+                if (!have_amp_env) {                                 // (the AMP ENV page, as the branches' amp)
+                    NodeDesc *ae = b.add(RN_AMP_ENV, T_ENV);
+                    if (!ae) continue;
+                    amp_env_params(ae);
+                    b.cable(RN_NOTE, 1, RN_AMP_ENV, Dst::In, 0);
+                    have_amp_env = true;
+                }
+                NodeDesc *v = b.add(vca, T_VCA_V), *bi = b.add(sb, T_BUS_IN);
+                if (!v || !bi) continue;
+                v->param[VCA_LEVEL] = 0;
+                b.cable(RN_AMP_ENV, 0, vca, Dst::Param, VCA_LEVEL);
+                b.cable(vca, 0, RN_VOICE_OUT, Dst::In, 2 + bus);
+                vo->param[VO_IN3 + bus] = 1;
+                vo->param[VO_TAIL_MS] = ms_i(params.amp_env.release_ms) + 400;
+                bi->param[BUS_SEL] = 2 + bus;
+                Out &t = outp[d];
+                if (t.fx) { b.cable(sb, 0, t.l, Dst::In, 0); b.cable(sb, 1, t.l, Dst::In, 1); }
+                else if (t.pair) { b.cable(sb, 0, t.l, Dst::In, 0); b.cable(sb, 1, t.r, Dst::In, 0); }
+                else b.cable(sb, 0, t.l, Dst::In, 0);                // (the voices are centred: left = right)
+                t.in++;
+                send_to[bus] = d;
+            }
+            const bool muted = rack.slot[a].type == MOD_OSC && rack.slot[a].v[MP_OC_MUTE] > 0.5f;
+            b.cable(outp[a].l, outp[a].pl, vca, Dst::In, 0, muted ? 0 : c.amt >= 1.0f ? kUnity : qd(c.amt));
+            continue;
+        }
+        if (outp[a].shared != outp[d].shared) continue;
         if (rack_audio_reaches(&rack, d, a)) continue;
         Out &o = outp[a], &t = outp[d];
         if (t.in >= kMaxFanIn - (t.fx || t.pair ? 0 : 1)) continue;

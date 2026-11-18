@@ -606,6 +606,7 @@ SC_HOT void Engine::render(q15 *l, q15 *r) {
     block_clear(l);
     block_clear(r);
     for (int i = 0; i < kBlock; i++) { bus_l_[i] = 0; bus_r_[i] = 0; bus2_l_[i] = 0; bus2_r_[i] = 0; }
+    for (int b = 0; b < kSendBuses; b++) for (int i = 0; i < kBlock; i++) { send_l_[b][i] = 0; send_r_[b][i] = 0; }
     const uint64_t t = time_.fetch_add(1, std::memory_order_relaxed) + 1;
 #ifdef ENGINE_PROFILE
     prof_blocks_++;
@@ -624,6 +625,7 @@ SC_HOT void Engine::render(q15 *l, q15 *r) {
     }
     ProcessCtx ctx{kBlock, t, nullptr, bus_l_, bus_r_, l, r};
     ctx.bus2_l = bus2_l_; ctx.bus2_r = bus2_r_;
+    for (int b = 0; b < kSendBuses; b++) { ctx.send_l[b] = send_l_[b]; ctx.send_r[b] = send_r_[b]; }
     ctx.transport = &tr_;
     ctx.silence = pl->silence;
     ctx.fsilence = pl->fsilence;

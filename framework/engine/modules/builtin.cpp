@@ -21,8 +21,9 @@ public:
 class VoiceOut : public Module {
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"VoiceOut", Scope::Voice, 2, 0, 4, false, {"in", "in2"}, {},
-                                     {{"level", kUnity, 0, kUnity}, {"pan", 0, -32768, 32767}, {"tail_ms", 4000, 0, 60000}, {"in2", 0, 0, 1}}};
+        static const ModuleInfo i = {"VoiceOut", Scope::Voice, 4, 0, 6, false, {"in", "in2", "in3", "in4"}, {},
+                                     {{"level", kUnity, 0, kUnity}, {"pan", 0, -32768, 32767}, {"tail_ms", 4000, 0, 60000}, {"in2", 0, 0, 1},
+                                      {"in3", 0, 0, 1}, {"in4", 0, 0, 1}}};
         return i;
     }
     void reset() override { silent_ = 0; }
@@ -31,6 +32,8 @@ public:
         else if (idx == VO_PAN) pan_ = static_cast<q15>(v);
         else if (idx == VO_TAIL_MS) tail_blocks_ = static_cast<uint32_t>(v) * kControlRate / 1000u;
         else if (idx == VO_IN2) in2_ = v != 0;
+        else if (idx == VO_IN3) send_[0] = v != 0;
+        else if (idx == VO_IN4) send_[1] = v != 0;
     }
     SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         // pan: linear, the louder side stays at `level` (centre = both at level)
@@ -40,10 +43,12 @@ public:
         // The bus is 32 bits: the voices add without clipping, BusIn saturates the sum once (a q15 bus clipped after every voice).
         add(ctx.frames, p.in[0], gl, gr, ctx.bus_l, ctx.bus_r);
         if (in2_ && ctx.bus2_l) add(ctx.frames, p.in[1], gl, gr, ctx.bus2_l, ctx.bus2_r);
+        for (int b = 0; b < kSendBuses; b++) if (send_[b] && ctx.send_l[b]) add(ctx.frames, p.in[2 + b], gl, gr, ctx.send_l[b], ctx.send_r[b]);
 
         VoiceState *v = ctx.voice;
         if (!v || v->gate) { silent_ = 0; return; }
-        const bool quiet = block_peak(p.in[0], ctx.frames) <= 4 && (!in2_ || block_peak(p.in[1], ctx.frames) <= 4);
+        bool quiet = block_peak(p.in[0], ctx.frames) <= 4 && (!in2_ || block_peak(p.in[1], ctx.frames) <= 4);
+        for (int b = 0; b < kSendBuses; b++) quiet = quiet && (!send_[b] || block_peak(p.in[2 + b], ctx.frames) <= 4);
         silent_ = quiet ? silent_ + 1 : 0;
         if (silent_ >= 8 || v->release_age >= tail_blocks_) v->done = true;
     }
@@ -56,23 +61,25 @@ private:
         }
     }
     q15 level_ = kUnity, pan_ = 0;
-    bool in2_ = false;
+    bool in2_ = false, send_[kSendBuses] = {};
     uint32_t silent_ = 0, tail_blocks_ = 4000u * kControlRate / 1000u;
 };
 
 class BusIn : public Module {
 public:
     const ModuleInfo &info() const override {
-        static const ModuleInfo i = {"BusIn", Scope::Global, 0, 2, 1, true, {}, {"L", "R"}, {{"bus", 0, 0, 1}}};
+        static const ModuleInfo i = {"BusIn", Scope::Global, 0, 2, 1, true, {}, {"L", "R"}, {{"bus", 0, 0, 1 + kSendBuses}}};
         return i;
     }
-    void set_param(int idx, int32_t v) override { if (idx == BUS_SEL) bus2_ = v != 0; }
+    void set_param(int idx, int32_t v) override { if (idx == BUS_SEL) bus_ = static_cast<int>(v); }   // 0, 1: the voice buses; 2, 3: the sends
     SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
-        const int32_t *bl = bus2_ && ctx.bus2_l ? ctx.bus2_l : ctx.bus_l, *br = bus2_ && ctx.bus2_r ? ctx.bus2_r : ctx.bus_r;
+        const int32_t *bl = ctx.bus_l, *br = ctx.bus_r;
+        if (bus_ == 1 && ctx.bus2_l) { bl = ctx.bus2_l; br = ctx.bus2_r; }
+        else if (bus_ >= 2 && bus_ < 2 + kSendBuses && ctx.send_l[bus_ - 2]) { bl = ctx.send_l[bus_ - 2]; br = ctx.send_r[bus_ - 2]; }
         for (int i = 0; i < ctx.frames; i++) { p.out[0][i] = sat16(bl[i]); p.out[1][i] = sat16(br[i]); }
     }
 private:
-    bool bus2_ = false;
+    int bus_ = 0;
 };
 
 class MasterOut : public Module {

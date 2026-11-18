@@ -105,12 +105,12 @@ Paths without a prefix are inside `apps/ritual_machine/src/` (`core/...`, `app/.
 >   `main_esp32.cpp` now makes the canvas and the display's frames **before** `audio_init` (`display_esp32_colour_reserve`, new in
 >   `framework/boards/esp32`); the driver says once when it has to fall back (`[LCD] no memory ...`). The engine's heap went from 1.96 MB to
 >   1.79 MB (its high water: 366 KB); 71.5 KB of PSRAM stay free.
-> - **`UI_COLOUR_MODE`** (build flag, `platformio.ini`; `core/ui_theme.h`): `0` one colour, `1` palette, `2` RGB565 (HWV2's setting). Palette
+> - **`UI_COLOUR_MODE`** (build flag, `platformio.ini`; `core/ui_theme.h`): `0` one colour, `1` palette (HWV2's setting since 2026-11-17, after step 4), `2` RGB565. Palette
 >   mode is an **indexed canvas** (`canvas_init_indexed`, new in `framework/ui/canvas.[ch]`: a byte a pixel, an index into the theme's
 >   colours; colours given to the canvas are indexes) sent with `display_send_indexed` (new in `hal_display.h`; implemented by the ESP32
 >   driver, three 20 KB frames, converted tile by tile in `boards/hwv2/display_panel.cpp`; the desktop window; both test stubs; the mock-up).
 >   80 KB instead of 160 KB. The theme only uses its own colours: the value bars' dim colours are theme entries now (`UC_*_DIM`, `ui_dim`).
->   Palette mode is tested on the desktop (the same pixels as RGB565), not built for the board yet.
+>   Palette mode is tested on the desktop (the same pixels as RGB565); after step 4 it became HWV2's and the 160 px window's mode (80 KB of PSRAM back for the engine).
 > - **Gamma**: the panel stays on the ST7735S's reset curve (2.2), as the mock-up does: a gamma switch was tried and removed.
 >
 > **2026-11-17, step 4: the map IS the RACK tab, with the rack's editing.**

@@ -3,7 +3,27 @@
 The app's state, todo and history. Its guide is [docs/DEVELOPING.md](docs/DEVELOPING.md), its decisions [docs/DESIGN.md](docs/DESIGN.md).
 The library's notes, the user's working style and the traps of the environment are in the root [CONTINUE.md](../../CONTINUE.md).
 
-## Session todo (updated 2026-11-16)
+## Session todo (updated 2026-11-17)
+
+**2026-11-17 (branch `gui-nodes`): the node GUI rework.** Steps 1 to 4 committed (`96143c1`; the oscillator engines of the same
+days apart, `012698a`). Proposal: [docs/GUI_NODES.md](docs/GUI_NODES.md), step log at the top of [docs/UI.md](docs/UI.md), the look's
+reference `apps/gui_mockup`. **Flashed and tried by the user: everything built works.** The panel stays on its reset gamma (2.2); the
+UI's background is pure black (as the boot animation's). The user's answers on what is left:
+- [ ] **Palette mode on HWV2** (`UI_COLOUR_MODE=1`, set in platformio.ini, the 160 px desktop window too): build, flash, check the
+  colours look the same as RGB565; 80 KB of PSRAM go back to the engine. The user wants a simple UI of about 16 colours (the theme has
+  20 entries: 14 + 6 dim ones). A 4-bit canvas would save 40 KB more: only if the memory is wanted.
+- [ ] **Cables as in the Studio's PATCH tab**: the same information and a similar behaviour. **The user explains it first.** Includes
+  removing a cable from the node page.
+- [ ] **Inserting a module on the cable between two others**: wanted, but after more work on the Studio, once the modular synth model is
+  "perfect".
+- [ ] **A simpler graph: floating nodes** pulled by the tension of their audio links (a vector toward the module that feeds the node's
+  audio in and one toward the module that takes its out), in place of the grid layout of `nav_graph.c`.
+- [ ] Moving a module up / down its chain in place; the map for the Pads section's FX chains; colour for the other screens.
+- [ ] **Docs: rewrite `docs/UI.md` whole** (it will be the base of the user manual; the rework log at its top folds into it), and update
+  every other document that still describes the old RACK strip or the 11-tab MAP (DEVELOPING.md's controls table, GUI_NODES.md's status,
+  DESIGN.md, the README, an ADR for the rework, CHANGELOG): no outdated document left.
+- Small loose ends (the map's tab icon, the map in the Shift + Menu popup, modulation cables overlapping): the user lists what is needed
+  once there is more to test.
 
 **2026-11-16 (board session on the `synthlab` branch; details in the root CONTINUE.md, "The section switch fixed on the board"):**
 - **The Pads section silent after a switch from the synth: fixed.** The pads graph did not load, out of memory: the fast heap is in

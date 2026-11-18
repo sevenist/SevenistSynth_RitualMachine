@@ -258,6 +258,7 @@ void synth_ui_init(synth_ui_t *ui, const rack_t *rack) {
     ui->joy_fresh = -1; ui->joy_next = 0; ui->joy_xy = false; ui->joy_tab = 0;
     for (int a = 0; a < 2; a++) { ui->joy_rest[a] = -1.0f; ui->joy_centre[a] = 0.5f; ui->joy_wrote[a] = 0.0f; ui->joy_last[a] = JOY_POS_CENTRE; }
     for (int i = 0; i < SYNTH_UI_JUMP_SLOTS; i++) ui->jump[i].valid = false;
+    memset(ui->macro, 0, sizeof ui->macro);     // the rebuild below prunes the macros: none yet (macros_default sets them after it)
     synth_ui_rebuild_pages(ui, rack);
     macros_default(ui, rack);
     for (int k = 0; k < SYNTH_UI_MACROS; k++) ui->macro[k].pos = -1.0f;   // not set since the start

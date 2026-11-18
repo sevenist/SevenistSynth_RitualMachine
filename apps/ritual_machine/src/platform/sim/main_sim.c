@@ -9,13 +9,13 @@
 #include "core/ui_theme.h"
 
 int main(void) {
-    app_t app;
+    static app_t app;                 // static, as on the board (main_esp32.cpp): it starts zeroed, and it is too big for the stack
     controls_init();                  // the board's controls as the app's roles, before the app asks which it has
     card_layout_apply();              // the card's folders, before anything looks at the card
     audio_init();
     u8g2_t *display = display_init();
-#ifndef UI_COLOUR_MODE                  // core/ui_theme.h; by default the second prototype's screen (160 px high) is a colour one, so is its window
-#define UI_COLOUR_MODE (DISPLAY_HEIGHT >= 160 ? UI_RGB : UI_MONO)
+#ifndef UI_COLOUR_MODE                  // core/ui_theme.h; by default the second prototype's screen (160 px high) is a colour one, so is its window, in palette mode as the board
+#define UI_COLOUR_MODE (DISPLAY_HEIGHT >= 160 ? UI_PALETTE : UI_MONO)
 #endif
 #if UI_COLOUR_MODE == UI_RGB
     static uint16_t px[DISPLAY_WIDTH * DISPLAY_HEIGHT];

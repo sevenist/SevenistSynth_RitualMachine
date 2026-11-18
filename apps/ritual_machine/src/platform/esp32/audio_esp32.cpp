@@ -90,6 +90,9 @@ void report(const audio_out_stats_t *s) {
                     if (g_sec_prof[16] || g_sec_prof[17])                                   // the Pads player: 16..19
                         Serial.printf("[SEC] pads: grid waits %u, samplers %u, filter+mix %u, block end %u\n", (unsigned)(g_sec_prof[16] / nblocks),
                                       (unsigned)(g_sec_prof[17] / nblocks), (unsigned)(g_sec_prof[18] / nblocks), (unsigned)(g_sec_prof[19] / nblocks));
+                    if (g_sec_prof[21])                                                     // the Hadamard reverb: 20..23 (22 is inside 21)
+                        Serial.printf("[SEC] hadamard: in + diffusion %u, line reads %u, matrix + writes %u, out + mix %u\n", (unsigned)(g_sec_prof[20] / nblocks),
+                                      (unsigned)(g_sec_prof[22] / nblocks), (unsigned)((g_sec_prof[21] - g_sec_prof[22]) / nblocks), (unsigned)(g_sec_prof[23] / nblocks));
                     for (auto &v : g_sec_prof) v = 0;
                     static const char *const names[sc::OSCX_ENGINES] = {"karp", "modal", "fm2", "fold", "ssaw", "vowel", "add", "dust", "str", "gendy", "rossl", "ca", "pulsar", "tonew", "fof", "terra", "scan", "wind", "foley"};
                     {

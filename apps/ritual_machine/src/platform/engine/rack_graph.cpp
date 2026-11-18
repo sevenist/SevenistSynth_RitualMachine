@@ -138,6 +138,7 @@ int fx_type(int mod, bool voice) {
         case MOD_SPECTRAL: return voice ? -1 : T_SPECTRAL;
         case MOD_CAB:      return voice ? -1 : T_CONV;
         case MOD_ENSEMBLE: return voice ? -1 : T_ENSEMBLE;
+        case MOD_HADAMARD: return voice ? -1 : T_HADAMARD;
         default:           return -1;
     }
 }
@@ -183,6 +184,12 @@ void fx_params(NodeDesc *n, const rack_slot_t &s) {
             n->param[RVB_SIZE] = q(v[MP_RV_SIZE]);
             n->param[RVB_DAMP] = 130 * kSemi - static_cast<int32_t>(std::lround(v[MP_RV_DAMP] * 75.0 * kSemi));
             n->param[RVB_PREDELAY] = 20;
+            break;
+        case MOD_HADAMARD:
+            n->param[HDM_MIX] = q(v[MP_HD_MIX]);
+            n->param[HDM_DECAY] = static_cast<int32_t>(std::lround(v[MP_HD_DEC] * 1000.0));              // ms of T60
+            n->param[HDM_SIZE] = q(v[MP_HD_SIZE]); n->param[HDM_DAMP] = q(v[MP_HD_DAMP]);
+            n->param[HDM_DIFF] = q(v[MP_HD_DIFF]); n->param[HDM_MOD] = q(v[MP_HD_MOD]);
             break;
         case MOD_ENSEMBLE:
             n->param[ENS_RATE] = static_cast<int32_t>(std::lround(v[MP_ES_RATE] * 100.0));   // hundredths of Hz

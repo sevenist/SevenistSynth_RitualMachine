@@ -57,6 +57,7 @@ static const mpage_def_t ch_pages[] = {{"%d CHORUS",   GRAPH_FX, 2, {MP_CH_MODE,
 static const mpage_def_t sp_pages[] = {{"%d SPECTRAL", GRAPH_FX, 4, {MP_SP_MODE, MP_SP_SHIFT, MP_SP_AMT, MP_SP_MIX}}};
 static const mpage_def_t cb_pages[] = {{"%d CAB",      GRAPH_FX, 4, {MP_CB_IR, MP_CB_LEN, MP_CB_MIX, MP_CB_LEVEL}}};
 static const mpage_def_t es_pages[] = {{"%d ENSEMBLE", GRAPH_FX, 4, {MP_ES_RATE, MP_ES_DEPTH, MP_ES_SHIM, MP_ES_MIX}}};
+static const mpage_def_t hd_pages[] = {{"%d HADAMARD", GRAPH_FX, 4, {MP_HD_MIX, MP_HD_DEC, MP_HD_SIZE, MP_HD_DAMP}}};
 static const mpage_def_t vl_pages[] = {{"%d VEL", GRAPH_FX, 3, {PRM_TGT, PRM_TPRM, MP_VL_DEPTH}}};   // (the box shows its name)
 static const mpage_def_t ms_pages[] = {
     {"%d MOTION",  GRAPH_MS_STEPS, 4, {0}},
@@ -78,6 +79,7 @@ static const struct { const mpage_def_t *defs; int n; } mod_pages[MOD_TYPE_COUNT
     [MOD_REVERB]   = {rv_pages, 1}, [MOD_CHORUS]  = {ch_pages, 1}, [MOD_SPECTRAL] = {sp_pages, 1}, [MOD_CAB]    = {cb_pages, 1},
     [MOD_ENSEMBLE] = {es_pages, 1},
     [MOD_VEL]      = {vl_pages, 1},
+    [MOD_HADAMARD] = {hd_pages, 1},
 };
 
 // The hidden settings of a module: rarely used rows, shown in place of its first page's rows while its cog is open (ui->cog_page), then
@@ -85,6 +87,7 @@ static const struct { const mpage_def_t *defs; int n; } mod_pages[MOD_TYPE_COUNT
 static const struct { int n; int p[4]; } mod_hidden[MOD_TYPE_COUNT] = {
     [MOD_OSC] = {3, {MP_OC_QUAL, MP_OC_MUTE, MP_OC_HARM}},   // Harm: the MI models' third control
     [MOD_SPECTRAL] = {3, {MP_SP_HOLD, MP_SP_LO, MP_SP_HI}},   // ADR-040: Freeze's hold, the Gate band
+    [MOD_HADAMARD] = {2, {MP_HD_DIFF, MP_HD_MOD}},            // the input diffusion, the two modulated lines
 };
 
 int module_hidden_count(int type) { return type >= 0 && type < MOD_TYPE_COUNT ? mod_hidden[type].n : 0; }

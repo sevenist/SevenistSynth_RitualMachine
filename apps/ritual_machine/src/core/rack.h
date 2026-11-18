@@ -52,6 +52,7 @@ typedef enum {
     MOD_TREM, MOD_EQ, MOD_RING, MOD_PHASER, MOD_FLANGER, MOD_COMP,                            // FX: per voice, or shared after a Para point / in row M
     MOD_DELAY, MOD_REVERB, MOD_CHORUS, MOD_SPECTRAL, MOD_CAB, MOD_ENSEMBLE,                   // FX: always shared (rack_type_shared_only)
     MOD_VEL,                                                                                  // a modulator: the note's velocity (user, 2026-10-11)
+    MOD_HADAMARD,                                                                             // FX, always shared: the 8-line FDN reverb (2026-11-18)
     MOD_TYPE_COUNT
 } module_type_t;
 
@@ -84,6 +85,7 @@ enum { MP_CH_MODE, MP_CH_MIX };
 enum { MP_SP_MODE, MP_SP_SHIFT, MP_SP_AMT, MP_SP_MIX, MP_SP_HOLD, MP_SP_LO, MP_SP_HI };
 enum { MP_CB_IR, MP_CB_LEN, MP_CB_MIX, MP_CB_LEVEL };
 enum { MP_ES_RATE, MP_ES_DEPTH, MP_ES_SHIM, MP_ES_MIX };
+enum { MP_HD_MIX, MP_HD_DEC, MP_HD_SIZE, MP_HD_DAMP, MP_HD_DIFF, MP_HD_MOD };   // Dec: T60 in seconds; Diff, Mod behind the cog
 // SM (sampler): File = catalog index + 1 (0 = none), Slc 0 = whole sample / n = slice n, Out values are indexes of the enums in rack.c
 enum { MP_SM_FILE, MP_SM_LEVEL, MP_SM_COARSE, MP_SM_FINE, MP_SM_LOOP, MP_SM_REV, MP_SM_START, MP_SM_TRACK, MP_SM_SLICE, MP_SM_SMODE };    // MS: index into rack_t.ms (not editable)
 

@@ -622,6 +622,34 @@ static const uint8_t spr_mod_vel_data[24 * 3] = {
 };
 static const gui_sprite_t spr_mod_vel = {24, 24, spr_mod_vel_data, 1};
 
+static const uint8_t spr_mod_hadamard_data[24 * 3] = {
+    0x7F, 0xFF, 0xFE,   // .XXXXXXXXXXXXXXXXXXXXXX.
+    0x80, 0x00, 0x01,   // X......................X
+    0x80, 0x00, 0x01,   // X......................X
+    0x80, 0x00, 0x01,   // X......................X
+    0x80, 0x00, 0x01,   // X......................X
+    0xB0, 0x3F, 0xF1,   // X.XX......XXXXXXXXXX...X
+    0xB0, 0x3F, 0xF1,   // X.XX......XXXXXXXXXX...X
+    0xB0, 0x3C, 0x0D,   // X.XX......XXXX......XX.X
+    0xB0, 0x3C, 0x0D,   // X.XX......XXXX......XX.X
+    0xB0, 0x3C, 0x0D,   // X.XX......XXXX......XX.X
+    0xB0, 0x3C, 0x0D,   // X.XX......XXXX......XX.X
+    0xBF, 0xFC, 0x0D,   // X.XXXXXXXXXXXX......XX.X
+    0xBF, 0xFC, 0x0D,   // X.XXXXXXXXXXXX......XX.X
+    0xB0, 0x3C, 0x0D,   // X.XX......XXXX......XX.X
+    0xB0, 0x3C, 0x0D,   // X.XX......XXXX......XX.X
+    0xB0, 0x3C, 0x0D,   // X.XX......XXXX......XX.X
+    0xB0, 0x3C, 0x0D,   // X.XX......XXXX......XX.X
+    0xB0, 0x3F, 0xF1,   // X.XX......XXXXXXXXXX...X
+    0xB0, 0x3F, 0xF1,   // X.XX......XXXXXXXXXX...X
+    0x80, 0x00, 0x01,   // X......................X
+    0x80, 0x00, 0x01,   // X......................X
+    0x80, 0x00, 0x01,   // X......................X
+    0x80, 0x00, 0x01,   // X......................X
+    0x7F, 0xFF, 0xFE,   // .XXXXXXXXXXXXXXXXXXXXXX.
+};
+static const gui_sprite_t spr_mod_hadamard = {24, 24, spr_mod_hadamard_data, 1};
+
 static const uint8_t spr_slot_empty_data[24 * 3] = {
     0x55, 0x55, 0x54,   // .X.X.X.X.X.X.X.X.X.X.X..
     0x80, 0x00, 0x01,   // X......................X

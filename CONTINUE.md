@@ -12,6 +12,16 @@ next, the user's working style, known debt and traps.
 For any CPU / memory optimization work on the board, use the project skill `.claude/skills/esp32-optimize/SKILL.md` (the loop that worked: measure with
 `apps/ritual_machine/tools/serial_test.py`, locate, change, host-test, the user flashes, re-measure).
 
+## 2026-11-19: Hadamard, an 8-line FDN reverb (ADR-051), host only
+
+- `engine/modules/fx_hadamard.cpp` (type 81) and its tests `framework/tests/test_hadamard.cpp`; the Ritual Machine's HD module (its
+  CONTINUE.md has the todo: measure on the board, the user's ears). Not built by PlatformIO, not flashed.
+- Learned from the S3's instructions (xtensa g++ 14.2 -O2): GCC never writes `clamps` and puts no loop with inline asm in a zero-overhead
+  `LOOP`, so an inline CLAMPS costs more than `sat16`'s MAX + MIN; a multiply by 16384 is not folded into `trunc.s`'s scale (keep the
+  numbers in the storage's units instead); `int32_t` is `long` there (`std::max(int32_t, int)` does not compile).
+- `chaos_periodic_at_low_morph_follows_the_pitch_roughly` fails at 32 kHz and 96 kHz in the library's matrix (an oscillator engine's
+  test; unrelated to the reverb, seen in this run).
+
 ## Session todo (updated 2026-11-10)
 
 **2026-11-15 (branch `synthlab`, commits de94e75 .. da059be): the library's side of SynthLab Studio's cycles wallet and module work.**

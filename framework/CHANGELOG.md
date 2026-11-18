@@ -2,6 +2,16 @@
 
 What changed in the library (`framework/`) and in the repo as a whole. Each app keeps its own update log.
 
+## 2026-11-19: Hadamard, an 8-line FDN reverb (ADR-051)
+
+- `engine/modules/fx_hadamard.cpp`: engine type 81 `T_HADAMARD`, registered by `register_fx_modules` (parameters `HDM_*` in `fx_modules.h`;
+  `hadamard_delays` gives its eight prime delays for a size). Stereo in and out, the tank at half the rate, eight int16 lines in one
+  power-of-two ring read and written as whole runs per pass, the feedback matrix P . H8 . D (the symmetry of a plain Hadamard network
+  broken; ADR-051 has the design and the numbers). 16 + 4 KB of the fast heap at 44.1 kHz.
+- `g_sec_prof` has 24 counters (20..23: the Hadamard's stages, printed as `[SEC] hadamard:` by the Ritual Machine's HWV1 profile).
+- `tests/test_hadamard.cpp`: 10 tests (prime delays at every size, T60, density and stereo, no ringing mode, damping, silence, the size
+  glide, bypass and memory, the level against the plate, host time).
+
 ## 2026-11-18: two send buses in the engine (the Ritual Machine's audio cables)
 
 - `engine/core`: `kSendBuses` (2) more voice buses beside the two main ones: `ProcessCtx.send_l` / `send_r`, cleared each block like the

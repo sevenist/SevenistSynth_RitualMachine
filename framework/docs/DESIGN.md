@@ -1169,6 +1169,44 @@ Chosen by me while building (say if one is wrong):
 - **Guideline 2 changes** with the port (float is the audio path's type in the modules that declare `Sig::F32`); for the q15 modules it
   stands with ADR-035's exception. Guideline 2 now also says: never `double` at run time in the engine.
 
+### ADR-051: Hadamard, an 8-line FDN reverb beside the plate (Accepted 2026-11-19 at the user's request: "the Hadamard matrix reverb on the Ritual Machine, break up the symmetry, N = 8, mutually prime delay lengths, optimize it"; host-tested, not yet measured on the board)
+Engine type 81 `T_HADAMARD` (`engine/modules/fx_hadamard.cpp`, parameters in `fx_modules.h`), the Ritual Machine's rack module HD. The plate
+(Reverb, RV) stays. It grew from SynthLab's 4-line Room (`modular/modules.h` RoomM: four lines, a plain 4 x 4 Hadamard, the input on a row
+of the matrix, one feedback gain from the mean length).
+- **The symmetry, broken:** the feedback matrix is P . H8 . D (a permutation after H8, sign flips before it): orthogonal, so lossless,
+  but neither symmetric nor its own inverse (H8's eigenvalues are only +1 and -1; this one's spread around the unit circle, smallest gap
+  0.72 rad of the 0.785 possible, and no power of it is the identity). The eight delays are primes snapped from the size, each above the
+  one before (`hadamard_delays`: distinct, so pairwise coprime at every size), and no pair is within 25 cents of a ratio p / q with
+  p, q < 8 (571 .. 1361 tank samples at 22.05 kHz, 26 .. 62 ms). The two inputs join two different lines before the matrix; the two outputs
+  are orthogonal sign patterns that are no row of H8. Two lines move with two slow sines (0.71 and 0.97 Hz, up to +-8 samples). The
+  decay gain and the damping pole of each line come from its own length (Jot: every line loses the same dB per second, at the top as at
+  the bottom). The lengths, the permutation and the signs were chosen by a search (scripted: lengths against simple ratios, matrices by
+  their eigenvalue spread and order).
+- **The cost:** the tank runs at half the sample rate (the plate's half-band in, cubic midpoint out); in passes of up to 16 tank samples,
+  every line is longer than a pass, so each line's output for the pass was written before the pass starts: a line is read as one run
+  (a pointer), the matrix runs over the pass with the eight values in registers, each line is written back as one run. All the lines
+  share one power-of-two ring and one write pointer. A size change glides (at most 1/8 sample per sample), the moving lines read with
+  linear interpolation; the others are integer runs. Everything per parameter change only. Read in the S3's instructions (xtensa g++
+  -O2): a line read and damping 6.5 instructions a sample (two lines at a time, their two state chains overlapping), the matrix 55 a
+  tank sample (10 loads, 32 adds, 10 stores, no spill), a line write 7, the in / out filters and the mix about 25: about 5 300
+  instructions a 32-frame block, **estimated 6k cycles against the plate's 20.5k (mono, half rate)**, with stereo in and out. IRAM 3.2
+  KB. Measured on the host: 0.53 against 1.94 us a block.
+- **Memory:** 16 KB of int16 lines + 4 KB of float diffusers in the fast heap at 44.1 kHz (the ring is a power of two: 32 KB at 48 kHz).
+- **Q15 ports, float inside:** its neighbours in the Ritual Machine's row M are q15 (Delay, the plate, MasterOut), and a Sig::F32 module
+  there would add four conversions (~1.4k cycles); the conversions inside cost less (an int16 to float is one instruction). This is
+  ADR-050's direction (float for recursive state, int16 storage) inside a q15 module: Guideline 2's exception, **still to be measured on
+  the board**.
+- **What it trades (built as chosen, open to the user's ears):** the top octave (the half-rate tank, as ENGINE_REVERB_HALF); the int16
+  lines truncate towards zero, so a tail's last ~25 dB decay faster than its T60 and it ends in exact silence (no limit cycle on the last
+  bit); Mod above 0 adds a little top-end damping (linear interpolation on two lines); a size change bends the pitch of the tail while
+  it glides (as the plate's).
+- **Measured on the host** (`framework/tests/test_hadamard.cpp`, all six rate / block configurations): T60 within 3 % (1 s: 61 dB/s,
+  3 s: 20.3); L/R correlation 0.06 .. 0.31 from one input; the tallest mode of the late tail 11.7 .. 13.7 dB above the median (a noise
+  spectrum: ~10); exactly silent after the input stops; no click at the largest size jumps; the wet level within 2.1 dB of the plate's
+  for the same decay; the Ritual Machine's six knobs never rebuild the graph (`apps/ritual_machine/tests/engine/test_hadamard_rack.cpp`).
+- **Options, not done (the user's choices):** a mono input (saves a decimator and two all-passes, ~10 %); float lines (+16 KB, no
+  conversions); a cheaper or no input diffusion.
+
 ## Known limits and ideas for later
 
 - Not hooked to the UI yet: the **Sampler** and **Granular** modules and the sample bank (stage 6 is engine-level and
@@ -1213,6 +1251,7 @@ Chosen by me while building (say if one is wrong):
 | Full subtractive patch, 8 voices (Osc+Env+Filter 2 sections+VCA, LFO cabled to cutoff), 48k/32 | 5000 cycles/sample/core on the S3 | 1.5 % of real time on a PC (about 10 us per 667 us block); NOT representative of the S3, measure on hardware |
 | Tables in flash | | sine 2 KB, exp2 1 KB, tan 0.9 KB, tanh 2 KB, FFT twiddles + bit reversal + window 3 KB, CORDIC 80 B |
 | Reverb (Dattorro, 48 kHz) | | full rate 91 KB fast + 19 KB bulk, 38k cycles per block; half-rate tank 49 KB fast + 9 KB bulk, 20.5k cycles |
+| Hadamard (8-line FDN, ADR-051, 44.1 kHz) | | 16 KB fast (lines) + 4 KB fast (diffusers), stereo; ~5 300 instructions per block, estimated 6k cycles: **not measured on the board** |
 | SpectralFx (STFT 512) | | about 20 KB fast per instance |
 | Delay (1 s) | | stereo 192 KB bulk, 12.4k cycles per block; mono 96 KB, 8.4k |
 | Convolver (Cab / Body, stereo) | | ~14 KB fast; 7.9k / 10.0k / 14.2k / 22.3k cycles per block at 64 / 128 / 256 / 512 taps (PIE kernel, 2026-10-09) |

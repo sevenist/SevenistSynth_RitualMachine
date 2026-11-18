@@ -7,10 +7,10 @@
 #endif
 
 // Section cycle counters (ESP32 with -DENGINE_PROFILE): the reverb and delay loops add the cycles of each stage to g_sec_prof[]; the audio task prints
-// and clears them with the [PROF] line. No effect (and no code) otherwise. 0..5 reverb, 8..11 delay, 12..14 SpectralFx, 16..19 the Pads player.
+// and clears them with the [PROF] line. No effect (and no code) otherwise. 0..5 reverb, 8..11 delay, 12..14 SpectralFx, 16..19 the Pads player, 20..23 Hadamard.
 #if defined(ENGINE_PROFILE) && defined(ARDUINO_ARCH_ESP32)
 #include <esp_cpu.h>
-extern uint32_t g_sec_prof[20];
+extern uint32_t g_sec_prof[24];
 #define SEC_BEGIN() uint32_t sec_t = esp_cpu_get_cycle_count()
 #define SEC_MARK(n) do { const uint32_t sec_n = esp_cpu_get_cycle_count(); g_sec_prof[n] += sec_n - sec_t; sec_t = sec_n; } while (0)
 #else
@@ -52,6 +52,20 @@ enum { CHRM_OFF, CHRM_I, CHRM_II, CHRM_I_II };
 // pitch units (MIDI * 256); mod q15 scales the 16-sample excursion of the two modulated all-passes; mix crossfades
 // dry / wet.
 enum { RVB_PREDELAY, RVB_DECAY, RVB_DAMP, RVB_BANDWIDTH, RVB_SIZE, RVB_MOD, RVB_MIX, RVB_N };
+
+// Hadamard (stereo FDN reverb, fx_hadamard.cpp): ins L, R; outs L, R. Eight int16 delay lines of prime lengths fed back through an 8 x 8
+// Hadamard matrix with a permutation and sign flips around it (orthogonal, neither symmetric nor its own inverse), a decay gain and a
+// one-pole damping filter per line, both scaled by the line's length (every line decays at the same rate); two input all-passes per
+// channel; two lines slowly modulated. The tank runs at half the sample rate, in blocks: every line is longer than a pass, so each is
+// read as a whole run before any is written. Lines in the fast heap (16 KB at 44.1 kHz), diffusers 4 KB.
+//   decay  T60 in ms (100 .. 30000)   size q15 (line lengths x0.2 .. x1, snapped to distinct primes; changes glide)
+//   damp   q15 (0 bright .. 1 dark)    diff q15 (input all-pass gain x0.7)   mod q15 (up to +-8 samples of the 22 kHz tank)
+//   mix    q15, crossfades dry / wet (0 = bypass, the tank cleared once)
+constexpr int T_HADAMARD = 81;
+enum { HDM_DECAY, HDM_SIZE, HDM_DAMP, HDM_DIFF, HDM_MOD, HDM_MIX, HDM_N };
+ModuleType hadamard_reverb_type();
+// Its eight delays for a size (q15), in tank samples (kSampleRate / 2): primes, rising, all distinct (so pairwise coprime).
+void hadamard_delays(int32_t size, int out[8]);
 
 void register_fx_modules(Registry &reg);
 

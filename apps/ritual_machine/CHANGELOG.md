@@ -22,6 +22,17 @@ on the hardware.
   and the next panel (4 columns, encoders).
 - **For developers:** the repo is now a library and the apps built on it. Its guide: [framework/CHANGELOG.md](../../framework/CHANGELOG.md), 2026-10-13.
 
+## 2026-11-19: a second reverb, Hadamard (HD)
+
+- A new effect for row M (and the Pads' FX chains): **Hadamard**, an eight-line reverb, denser and smoother than a plain Hadamard network:
+  its lines are primes that never line up, its matrix is scrambled so no echo pattern repeats, its inputs and outputs keep the stereo
+  apart. Its page: Mix, Dec (the decay time, 0.1 .. 30 s), Size, Damp; behind the cog: Diff (the input diffusion) and Mod (two lines
+  slowly moving). About a third of the plate's CPU (an estimate until it is measured on the board), with stereo in and out. The plate
+  (RV) stays.
+- For developers: `MOD_HADAMARD` appended after `MOD_VEL` (code HD; `rack_is_fx` / `rack_type_shared_only` name it beside the
+  `MOD_TREM .. MOD_ENSEMBLE` range), engine type `T_HADAMARD` (framework ADR-051), its sprite generated (`tools/gen_module_sprites.py`),
+  `[SEC] hadamard:` in the HWV1 profile, `tests/engine/test_hadamard_rack.cpp` (its knobs never rebuild the graph).
+
 ## 2026-11-14: a macro can drive another macro
 
 - **Macros in a chain.** A macro's destination can now be another macro: in the MACROS tab, the **Add** row (where Learn was)

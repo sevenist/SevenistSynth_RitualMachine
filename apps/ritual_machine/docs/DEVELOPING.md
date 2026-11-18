@@ -171,7 +171,7 @@ apps/ritual_machine/
    │  ├─ dsp/               q15/q31 math, tables (GENERATED), phase/pitch, oscillators, SVF, FFT/STFT, delay, smoothing, CORDIC
    │  ├─ core/              module API, graph description, plan compiler, engine (voices, command queue), heap, sequencer (the two step sequencers: notes, pads)
    │  ├─ modules/           builtin, synth (Osc Env Lfo Filter Vca Mix Mult Shaper Const), fx (Delay Spectral Vocoder Chorus
-   │  │                     Reverb), dx7_voice (FM), sampler_modules (Sampler Granular Pads), strings_modules (Strings voice, Ensemble), para_modules (GateIn, ParaGate: the Para switch)
+   │  │                     Reverb; fx_hadamard: the Hadamard FDN reverb), dx7_voice (FM), sampler_modules (Sampler Granular Pads), strings_modules (Strings voice, Ensemble), para_modules (GateIn, ParaGate: the Para switch)
    │  ├─ offline/           sample processing off the audio thread, block by block (process.*: normalize, gain, fades, trim, crop, reverse, DC, pad; stretch (WSOLA or phase vocoder), resample, pitch, paulstretch; lo-fi rate, bits, drive, filters; rfft.*: the 4096-point float FFT of the spectral ones)
    │  └─ sampler/           .smp format, storage interface, sample bank, streaming loader
    └─ platform/          THE APP'S OWN SIDE of each platform (the boards themselves are the library's: framework/boards)
@@ -473,7 +473,7 @@ The host tests take the same engine flags: `.\test.ps1 -Defs "-DENGINE_REVERB_HA
   dropout. A `worst` of 80-250 ms with `graph builds` rising means a knob changed the graph's shape (rebuild stall; the reason text says which cable or node).
 - `[SD] N reads in T ms: X KB/s, avg A us, worst ever W us; opens, seeks, errors | [SMP] stream blocks +B, underruns U (+d)` every 2 s while samples stream (needs `HWV1_DEBUG_AUDIO`): what the card delivered and whether a sampler playhead ran dry
   (`underruns` rising = audible dropouts; avg read time near 1000 us or more = the card is the limit).
-- `[PROF] cycles per block (budget 160000), total T: Name=cycles(xN) ...` per module type, summed over voices (xN = instances). `[SEC]` stage timers inside Reverb and Delay (and `[SEC] pads:` inside the Pads player: grid waits, samplers, filter + mix, block end), `[OSC]` per oscillator engine, `[HEAP]` fast heap used / spilled bytes.
+- `[PROF] cycles per block (budget 160000), total T: Name=cycles(xN) ...` per module type, summed over voices (xN = instances). `[SEC]` stage timers inside Reverb and Delay (and `[SEC] pads:` inside the Pads player: grid waits, samplers, filter + mix, block end; `[SEC] hadamard:` inside the Hadamard reverb: in + diffusion, line reads, matrix + writes, out + mix), `[OSC]` per oscillator engine, `[HEAP]` fast heap used / spilled bytes.
 
 ### The serial test tool
 

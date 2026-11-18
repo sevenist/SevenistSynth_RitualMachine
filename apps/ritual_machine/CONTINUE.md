@@ -3,7 +3,20 @@
 The app's state, todo and history. Its guide is [docs/DEVELOPING.md](docs/DEVELOPING.md), its decisions [docs/DESIGN.md](docs/DESIGN.md).
 The library's notes, the user's working style and the traps of the environment are in the root [CONTINUE.md](../../CONTINUE.md).
 
-## Session todo (updated 2026-11-18)
+## Session todo (updated 2026-11-19)
+
+**2026-11-19 (branch `gui-nodes`, uncommitted): a second reverb, Hadamard (HD).** The user asked for the Hadamard matrix reverb on the
+Ritual Machine, with its symmetry broken, N = 8, mutually prime lengths, optimized. Built: engine type `T_HADAMARD` (framework ADR-051
+has the design, the trade-offs and the numbers), rack module `MOD_HADAMARD` (page Mix, Dec, Size, Damp; cog Diff, Mod). Host tests pass
+(the library's 10 in six configurations, the app's engine and UI tests, the simulator builds); the module compiles with the xtensa g++
+and its loops were read in the S3's instructions. **Not built by PlatformIO, not flashed, not listened to.**
+- [ ] **Measure on the board** (HWV2 `hwv2_perf`: `perf_view.py --summary 5 --cmd "fx clear" --cmd "fx HD" --cmd "chord 3"`, against
+  `fx RV`): the estimate is ~6k cycles a block against the plate's 20.5k. Then put the number in `rack_fx_load_pct`'s table (6000 is the
+  estimate) and in ADR-051 / the budget table.
+- [ ] **The user listens**: HD against RV on the same patch (Dec 2.5 s, Size 0.7, Damp 0.4, Mod 0.3); a size sweep while it rings;
+  Mod 0 against 1. Their ears decide the open trades (ADR-051: the top octave, mono input, the diffusion).
+- [ ] `pads_and_synth_both_sound_after_many_section_switches` failed once in a full run under load and passed 6 of 6 alone: a timing
+  test, like the one of 2026-11-15.
 
 **2026-11-17 (branch `gui-nodes`): the node GUI rework.** Steps 1 to 4 committed (`96143c1`; the oscillator engines of the same
 days apart, `012698a`). Proposal: [docs/GUI_NODES.md](docs/GUI_NODES.md), step log at the top of [docs/UI.md](docs/UI.md), the look's

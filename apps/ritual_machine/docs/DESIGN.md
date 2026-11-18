@@ -76,7 +76,7 @@ User decisions (asked with options, all recommendations taken except the scope r
    in that lane). **One Sum per lane**: each lane is summed over the voices on its own and stays separate after its Sum; lanes meet only at the output,
    with a level and a pan each. Global FX cost once per lane that uses them.
 3. **Before a Sum (per voice, mono) only the cheap FX**: Tremolo, EQ, Ring / Shift, Phaser, Flanger, Compressor (plus the existing Saturator and Comb) get
-   per-voice versions; Delay, Reverb, Chorus, Spectral, Cab, Ensemble are global-only (the editor allows them only after a Sum).
+   per-voice versions; Delay, Reverb, Chorus, Spectral, Cab, Ensemble (and Hadamard, 2026-11-19) are global-only (the editor allows them only after a Sum).
 4. **16 slots in total**, shared by the lanes (was 10).
 5. **The FX RACK tab stays** as the master section after the lanes.
 Second round (2026-10-07): **one rack module per effect** (user's choice over one FX module with a Type: own icons, ~12 more entries in the add
@@ -110,7 +110,7 @@ The remaining phases and open questions: apps/ritual_machine/CONTINUE.md "Next: 
 2. **Rows 1 and 2 are two parallel branches**: same notes, same voices, summed at the output. **Row M** is a chain on the sum of both branches,
    always shared (once, not per voice). Oscillators side by side in a branch are summed, as today.
 3. **Para is a switch on any processor**: from that module on, the branch runs once on the sum of its voices. Heavy FX (Delay, Reverb, Chorus,
-   Spectral, Cab, Ensemble) always run shared, so a branch becomes shared at the first of them. One way only: a shared module never feeds a
+   Spectral, Cab, Ensemble, Hadamard) always run shared, so a branch becomes shared at the first of them. One way only: a shared module never feeds a
    per-voice one. Per-voice modules are drawn as a small stack, shared ones flat.
 4. **Row M replaces the master FX tab.**
 5. **One synth plus a separate Pads section** (SP-404 style); two workflows, the user works in one or the other. A pad = a sample per key with

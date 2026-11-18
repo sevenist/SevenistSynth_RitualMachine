@@ -511,6 +511,8 @@ void draw_fx_module(u8g2_t *g, gui_rect_t box, const rack_slot_t *ms) {
         case MOD_DELAY:  draw_delay_graph(g, box, (int)lroundf(v[MP_DL_MIX] * pct), (int)v[MP_DL_TIME], (int)lroundf(v[MP_DL_FB] * pct)); return;
         case MOD_REVERB: draw_reverb_graph(g, box, (int)lroundf(v[MP_RV_MIX] * pct), (int)lroundf(v[MP_RV_DEC] * pct), (int)lroundf(v[MP_RV_SIZE] * pct),
                                            (int)lroundf(v[MP_RV_DAMP] * pct)); return;
+        case MOD_HADAMARD: draw_reverb_graph(g, box, (int)lroundf(v[MP_HD_MIX] * pct), (int)lroundf(100.0f * log10f(v[MP_HD_DEC] / 0.1f) / log10f(300.0f)),
+                                             (int)lroundf(v[MP_HD_SIZE] * pct), (int)lroundf(v[MP_HD_DAMP] * pct)); return;   // Dec 0.1 .. 30 s as 0 .. 100
         case MOD_COMP:   draw_comp_graph(g, box, (int)v[MP_CP_THR], (int)v[MP_CP_RATIO], (int)v[MP_CP_GAIN]); return;
         case MOD_EQ:     draw_eq_graph(g, box, (int)v[MP_EQ_LOW], (int)v[MP_EQ_MID], (int)lroundf(69.0f + 12.0f * log2f(v[MP_EQ_MIDF] / 440.0f)),
                                        (int)v[MP_EQ_HIGH]); return;

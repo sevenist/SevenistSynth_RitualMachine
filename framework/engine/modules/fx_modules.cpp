@@ -9,7 +9,7 @@
 #include "engine/modules/synth_modules.h"
 
 #if defined(ENGINE_PROFILE) && defined(ARDUINO_ARCH_ESP32)
-uint32_t g_sec_prof[20];
+uint32_t g_sec_prof[24];
 #endif
 
 namespace sc {
@@ -636,6 +636,7 @@ void register_fx_modules(Registry &r) {
     r.add(T_VOCODER, type_of<Vocoder>());
     r.add(T_CHORUS, type_of<Chorus>());
     r.add(T_REVERB, type_of<Reverb>());
+    r.add(T_HADAMARD, hadamard_reverb_type());
 }
 
 }  // namespace sc

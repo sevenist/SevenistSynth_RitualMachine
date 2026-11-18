@@ -195,6 +195,14 @@ static const mp_t es_mp[] = {
     [MP_ES_SHIM]  = {"Shim", 0, 1, 0.35f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
     [MP_ES_MIX]   = {"Mix", 0, 1, 0.7f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
 };
+static const mp_t hd_mp[] = {
+    [MP_HD_MIX]  = {"Mix", 0, 1, 0.3f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_HD_DEC]  = {"Dec", 0.1f, 30, 2.5f, "s", PARAM_LOG, NULL, 1.12f, 1, PARAM_TEXT_FIXED},
+    [MP_HD_SIZE] = {"Size", 0, 1, 0.7f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_HD_DAMP] = {"Damp", 0, 1, 0.4f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_HD_DIFF] = {"Diff", 0, 1, 0.8f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_HD_MOD]  = {"Mod", 0, 1, 0.3f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+};
 static const mp_t vel_mp[] = {
     [MP_VL_DEPTH] = {"Dpth", 0, 2, 1, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
 };
@@ -234,6 +242,8 @@ static const type_info_t info[MOD_TYPE_COUNT] = {
     // The note's velocity as a source (0 .. 1 = velocity 0 .. 127; the keys play 100, the sequencer its steps' Vel): Tgt / Prm / Dpth
     // like an LFO or an envelope. A target after a Para point or in row M follows the newest key.
     [MOD_VEL]      = {"VL", "Velocity",    false, true, 1, {"Dpth"},        {"Depth"}, vel_mp, NMP(vel_mp)},
+    // The 8-line FDN reverb (engine Hadamard, fx_hadamard.cpp): stereo in and out, about a quarter of the plate's cost (2026-11-18)
+    [MOD_HADAMARD] = {"HD", "Hadamard",    true, false, 1, {"Mix"},         {"Mix"}, hd_mp, NMP(hd_mp)},
 };
 
 static void depth_reset(rack_t *r, int slot);
@@ -271,6 +281,7 @@ int rack_fx_load_pct(const rack_t *fx) {
         [MOD_FILTER] = 8300, [MOD_SAT] = 3700, [MOD_TREM] = 4500, [MOD_EQ] = 5900, [MOD_RING] = 5000, [MOD_PHASER] = 19500,
         [MOD_FLANGER] = 15900, [MOD_COMP] = 8700, [MOD_DELAY] = 8800, [MOD_REVERB] = 26000, [MOD_CHORUS] = 12900, [MOD_SPECTRAL] = 19300,
         [MOD_CAB] = 15600, [MOD_ENSEMBLE] = 17800,
+        [MOD_HADAMARD] = 6000,                                   // (an estimate from its instruction count: not measured on the board yet)
     };
     uint32_t sum = 45000 + 1400;
     for (int i = 0; i < fx->count; i++) sum += cost[fx->slot[i].type < MOD_TYPE_COUNT ? fx->slot[i].type : 0];
@@ -388,8 +399,8 @@ int rack_audio_next(const rack_t *r, int slot) {
 /* ---------------- rows and Para (ADR-041) ---------------- */
 
 static bool is_source(module_type_t t)        { return t == MOD_OSC || t == MOD_SAMPLER; }
-bool rack_is_fx(module_type_t t)              { return t >= MOD_TREM && t <= MOD_ENSEMBLE; }
-bool rack_type_shared_only(module_type_t t)   { return t >= MOD_DELAY && t <= MOD_ENSEMBLE; }
+bool rack_is_fx(module_type_t t)              { return (t >= MOD_TREM && t <= MOD_ENSEMBLE) || t == MOD_HADAMARD; }
+bool rack_type_shared_only(module_type_t t)   { return (t >= MOD_DELAY && t <= MOD_ENSEMBLE) || t == MOD_HADAMARD; }
 bool rack_type_voice_only(module_type_t t)    { return is_source(t) || t == MOD_COMB; }
 bool rack_is_processor(module_type_t t)       { return t < MOD_TYPE_COUNT && info[t].audio && !is_source(t); }
 

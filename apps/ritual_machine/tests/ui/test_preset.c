@@ -230,6 +230,7 @@ TEST(a_patch_keeps_its_cables) {
     CHECK(rack_mod_connect(r, 3, 0, 0));
     r->slot[1].cut = 1;
     r->slot[2].out_lvl = 0.6f;
+    r->slot[2].loose = 1;
     static char txt[STORAGE_FILE_MAX];
     CHECK(patch_to_text(r, &ui_app.params, &ui_app.ui, false, NULL, false, txt, sizeof txt) > 0);
     const rack_t before = *r;
@@ -245,5 +246,7 @@ TEST(a_patch_keeps_its_cables) {
     CHECK_EQ(r->slot[3].tgt_id, before.slot[1].id);
     CHECK_EQ(r->slot[1].cut, 1);
     CHECK_EQ((int)(r->slot[2].out_lvl * 100 + 0.5f), 60);
+    CHECK_EQ(r->slot[2].loose, 1);
+    CHECK_EQ(r->slot[0].loose, 0);
     CHECK_EQ((int)(r->slot[0].out_lvl * 100 + 0.5f), 100);
 }

@@ -19,7 +19,7 @@ void nav_build(nav_graph_t *g, const rack_t *r) {
         n->kind = NODE_MODULE;
         n->slot = (int8_t)i;
         n->row = (int8_t)r->slot[i].row;
-        if (rack_slot_is_audio(r, i)) {
+        if (rack_slot_is_audio(r, i) && !r->slot[i].loose) {                     // (a loose module stands aside, as a modulator)
             const int row = r->slot[i].row;
             row_of[i] = row;
             n->col = row == 1 ? 1 : 0;

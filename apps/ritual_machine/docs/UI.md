@@ -337,6 +337,23 @@ Paths without a prefix are inside `apps/ritual_machine/src/` (`core/...`, `app/.
 > - Tests: `test_marquee.c` (cut and still when not selected; held 1 s then sliding; forgotten when gone; a text that fits unchanged; nothing
 >   drawn outside the window; a focused row too long slides, a plain one does not). Every frame-hash test still passes.
 >
+> **2026-11-19, step 17: a module added anywhere, outside the chains** (the user: "inserting from an existing module, the connections are
+> automatic; I need a menu when no node is selected, to add one anywhere, then the user connects it himself").
+>
+> - **No node selected = the focus on the header** (up from the top node). The strip then reads "push: add a module"; a push opens the
+>   **Add** menu (`screen_def_t.header_push`, new, for any screen; the map's): **Type** (any module, its full name), **Row** (an audio
+>   module: the rows the rack takes it in at their end or start; a shared-only effect: row M), **Add**. Back closes it, the focus on the
+>   header. Every zoom level.
+> - **A loose module** (`rack_slot_t.loose`, `rack_add_loose`): an audio module outside its row's chain: no chain cable in or out, its
+>   neighbours chain past it (`rack_audio_prev` / `_next` skip it); it does not start a branch's shared part. Where it sits in its row says
+>   only whether it runs per voice or once. A modulator is added without a target. The cursor lands on it; a popup says "9 FL added: cable
+>   it". Then Audio to / Mod to, from it or into it. The map stands it aside as a modulator.
+> - The engine: a loose module takes only its cables, and the running signal goes on past it. The patch file: the `chain` line's fourth
+>   number (`chain <id> <cut> <level> <loose>`; older lines read as before).
+> - Tests: `test_map.c` (the header push, Back, the type and its row, a delay to row M only, Add: loose, its neighbours chained as before, a
+>   modulator with no row), `test_cables.cpp` (a loose filter: not built, the sound unchanged; cabled in and out, it sounds; a loose delay
+>   in row M; every rack loads), `test_preset.c` (loose round trip). 251 UI tests at 160 and 128, 126 engine tests.
+>
 > The UI has **two ways of writing a screen**, and knowing which one a screen uses is the first thing to find out:
 
 - **Declarative** (the newer one): the screen is a table of elements, and one generic piece of code draws it, moves the focus

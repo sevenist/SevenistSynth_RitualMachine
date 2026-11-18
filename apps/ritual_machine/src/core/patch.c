@@ -108,10 +108,10 @@ int patch_to_text(const rack_t *rack, const synth_params_t *params, const synth_
     }
     for (int i = 0; i < rack->count; i++) {                                     // a chain cable cut, or at its own level (a source's: its Lvl)
         const rack_slot_t *s = &rack->slot[i];
-        if (!s->cut && s->out_lvl == 1.0f) continue;
+        if (!s->cut && s->out_lvl == 1.0f && !s->loose) continue;
         add(buf, cap, &n, "chain %d %d", s->id, s->cut);
         add_f(buf, cap, &n, s->out_lvl);
-        add(buf, cap, &n, "\n");
+        add(buf, cap, &n, " %d\n", s->loose);                                    // (loose: outside the chain)
     }
     for (int k = 0; k < rack->n_cables; k++) {                                   // the cables beyond the chains and the first targets
         const rack_cable_t *c = &rack->cable[k];
@@ -303,9 +303,10 @@ bool patch_from_text(rack_t *rack, synth_params_t *params, synth_ui_t *ui, char 
             joy[w[0] == 'y'] = mp;
         } else if (word(line, "chain")) {
             float lv;
-            if (sscanf(line, "chain %d %d %f", &a, &b, &lv) != 3) continue;
+            if (sscanf(line, "chain %d %d %f %d", &a, &b, &lv, &c) < 3) continue;
             const int si = rack_find(&r, a);
             if (si == RACK_NONE) continue;
+            if (sscanf(line, "chain %*d %*d %*f %d", &c) == 1 && rack_slot_is_audio(&r, si)) r.slot[si].loose = (uint8_t)(c != 0);
             r.slot[si].cut = (uint8_t)(b != 0);
             r.slot[si].out_lvl = lv < 0 ? 0 : lv > 1 ? 1 : lv;
         } else if (word(line, "cable")) {

@@ -39,11 +39,14 @@
 #define MAP_DELETE  104
 #define MAP_CPRM    105                  // ... a cable just made: its parameter (modulation) ...
 #define MAP_CAMT    106                  // ... and its depth (modulation) or its level (audio)
+#define MAP_ATYPE   107                  // the Add menu (a push on the header): the type, the row, Add
+#define MAP_AROW    108
+#define MAP_AADD    109
 #define MAP_K0      110                  // ... the module's cables out, a row each (its chain's, its audio cables, its targets)
 #define OUT_MAX     (RACK_AUDIO_MAX + RACK_MOD_MAX)
-enum { E_INFO = NAV_NODES, E_M0, E_G0 = E_M0 + 1 + (RM_END - RM_TYPE), E_COUNT = E_G0 + 6 + OUT_MAX };
+enum { E_INFO = NAV_NODES, E_M0, E_G0 = E_M0 + 1 + (RM_END - RM_TYPE), E_A0 = E_G0 + 6 + OUT_MAX, E_COUNT = E_A0 + 3 };
 // ui->map_act: the graph's menu open; a cable choosing its target (modulation, audio); the rack's Prm / Dpth of a first target; a cable's own
-enum { MAP_ACT_NONE, MAP_ACT_MENU, MAP_ACT_PICK, MAP_ACT_PARAM, MAP_ACT_PICK_AUDIO, MAP_ACT_CABLE };
+enum { MAP_ACT_NONE, MAP_ACT_MENU, MAP_ACT_PICK, MAP_ACT_PARAM, MAP_ACT_PICK_AUDIO, MAP_ACT_CABLE, MAP_ACT_ADD };
 
 #define TILE_PAD 2                       // the margin left and right of the map (the cursor's outline is 2 px outside a tile)
 #define MENU_W   96
@@ -244,6 +247,7 @@ bool synth_ui_map_animating(const synth_ui_t *ui) {
 // The graph's items in their order on screen: Mod to, Audio to, the cable rows, Disconnect all, Delete; then a new cable's Prm and Dpth / Lvl.
 static int item_arg(int e) {
     if (e < E_G0) return e == E_M0 ? MAP_EDIT : RM_TYPE + (e - E_M0 - 1);
+    if (e >= E_A0) return MAP_ATYPE + (e - E_A0);
     const int k = e - E_G0;
     static const int tail[4] = {MAP_UNLINK, MAP_DELETE, MAP_CPRM, MAP_CAMT};
     return k == 0 ? MAP_CONNECT : k == 1 ? MAP_AUDIO : k < 2 + OUT_MAX ? MAP_K0 + (k - 2) : tail[k - 2 - OUT_MAX];
@@ -337,6 +341,10 @@ static int node_move(const ui_ctx_t *c, int cur, char dir) {
 
 static bool map_back(const ui_ctx_t *c) {
     if (picking(c->ui)) { pick_cancel(c->ui); return true; }
+    if (c->ui->map_act == MAP_ACT_ADD) {                       // the Add menu: closed, the focus back on the header
+        c->ui->rack_menu = false; c->ui->map_act = MAP_ACT_NONE; c->ui->row = 0; c->ui->latched = false;
+        return true;
+    }
     if (!c->ui->rack_menu) return false;                       // (then up: the header, then out of the menu: ui_input.c)
     scr_rack_menu_close(c);
     c->ui->map_act = MAP_ACT_NONE;
@@ -622,8 +630,11 @@ static void strip_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
         uw_text(g, r.x + 3, r.y + 2 + rh + asc, "push: pick  Back: cancel", UC_DIM);
         return;
     }
-    if (node < 0 || node >= NAV_NODES || gr->node[node].kind == NODE_NONE) {
-        uw_text(g, r.x + 3, r.y + 2 + u8g2_GetAscent(g), "push: a node's menu", UC_DIM);
+    if (ui->map_act == MAP_ACT_ADD) {                                              // the Add menu
+        uw_text(g, r.x + 3, r.y + 2 + u8g2_GetAscent(g), "Add: outside the chains,", UC_TEXT);
+        uw_text(g, r.x + 3, r.y + 2 + gui_row_h(g, st) + u8g2_GetAscent(g), "then cable it", UC_DIM);
+    } else if (node < 0 || node >= NAV_NODES || gr->node[node].kind == NODE_NONE) {
+        uw_text(g, r.x + 3, r.y + 2 + u8g2_GetAscent(g), ui->row == 0 && !rk->fx ? "push: add a module" : "push: a node's menu", UC_DIM);
     } else {
         const nav_node_t *nd = &gr->node[node];
         const ui_colour_t fam = node_family(c, node);
@@ -813,8 +824,72 @@ static void graph_item_activate(const ui_ctx_t *c) {
     }
 }
 
+/* ---------------- the Add menu (a push on the header): a module outside the chains, cabled by hand ---------------- */
+
+static const char *row_name(int row) { return row == 0 ? "Branch 1" : row == 1 ? "Branch 2" : "Row M"; }
+// A row that takes the type: the rack's rules at its end or its start (a shared-only effect: row M, where it runs once on all the voices).
+static bool add_row_ok(const ui_ctx_t *c, int row) {
+    const rack_t *r = c->rack;
+    const module_type_t t = (module_type_t)c->ui->rack_type;
+    if (row < ROW_M && (!synth_type_is_rack(r->cfg.type) || rack_type_shared_only(t))) return false;
+    int end = r->count, first = r->count;
+    for (int i = 0; i < r->count; i++) if (r->slot[i].row == row) { if (first == r->count) first = i; end = i + 1; }
+    return !rack_is_audio(t) || rack_can_insert(r, end, row, t) || rack_can_insert(r, first, row, t);
+}
+static void add_row_fix(const ui_ctx_t *c) {                   // (the type changed: a row that takes it)
+    for (int k = 0; k < RACK_ROWS && !add_row_ok(c, c->ui->rack_row); k++) c->ui->rack_row = (c->ui->rack_row + 1) % RACK_ROWS;
+}
+
+static void header_push(const ui_ctx_t *c) {
+    synth_ui_t *ui = c->ui;
+    if (c->rack->fx || ui->rack_menu) return;                  // (the Pads' FX chains: their own strip)
+    ui->rack_menu = true;
+    ui->map_menu = 0;
+    ui->map_act = MAP_ACT_ADD;
+    add_row_fix(c);
+    ui->latched = false;
+    ui->row = E_A0 + 1;                                         // (its Type)
+}
+
+static bool add_item_enabled(const ui_ctx_t *c) {
+    if (!c->ui->rack_menu || c->ui->map_act != MAP_ACT_ADD) return false;
+    return c->arg != MAP_AROW || rack_is_audio((module_type_t)c->ui->rack_type);   // (a modulator: no row, it has no chain)
+}
+static void add_value(const ui_ctx_t *c, char *out, int n) {
+    if (c->arg == MAP_ATYPE) snprintf(out, (size_t)n, "%s", rack_type_name((module_type_t)c->ui->rack_type));
+    else if (c->arg == MAP_AROW) snprintf(out, (size_t)n, "%s", row_name(c->ui->rack_row));
+    else snprintf(out, (size_t)n, ">");
+}
+static bool add_adjust(const ui_ctx_t *c, int dir) {
+    synth_ui_t *ui = c->ui;
+    if (c->arg == MAP_ATYPE) { ui->rack_type = (ui->rack_type + dir + MOD_TYPE_COUNT) % MOD_TYPE_COUNT; add_row_fix(c); }
+    else if (c->arg == MAP_AROW)
+        for (int k = 1; k <= RACK_ROWS; k++) {
+            const int row = (ui->rack_row + dir * k + 2 * RACK_ROWS) % RACK_ROWS;
+            if (add_row_ok(c, row)) { ui->rack_row = row; break; }
+        }
+    return false;
+}
+static void add_activate(const ui_ctx_t *c) {
+    synth_ui_t *ui = c->ui;
+    if (c->arg != MAP_AADD) return;
+    const module_type_t t = (module_type_t)ui->rack_type;
+    const int row = rack_is_audio(t) ? ui->rack_row : synth_type_is_rack(c->rack->cfg.type) ? 0 : ROW_M;
+    const int slot = rack_add_loose(c->rack, row, t);
+    if (slot == RACK_NONE) { snprintf(ui->rack_msg, sizeof ui->rack_msg, "No room for %s there", rack_type_code(t)); return; }
+    ui->rack_dirty = true;
+    char name[8];
+    rack_slot_name(c->rack, slot, name, sizeof name);
+    snprintf(ui->rack_msg, sizeof ui->rack_msg, "%s added: cable it", name);
+    ui->rack_menu = false;
+    ui->map_act = MAP_ACT_NONE;
+    ui->row = slot + 1;                                          // the cursor on it (its node is its slot)
+}
+
 static bool item_enabled(const ui_ctx_t *c) {
     const uint8_t act = c->ui->map_act;
+    if (c->arg >= MAP_ATYPE && c->arg <= MAP_AADD) return add_item_enabled(c);
+    if (act == MAP_ACT_ADD) return false;
     if (c->arg == MAP_CPRM || c->arg == MAP_CAMT) return cable_item_enabled(c);
     if (c->arg >= MAP_CONNECT) return c->ui->rack_menu && act == MAP_ACT_MENU && graph_item_enabled(c);
     if (act == MAP_ACT_MENU || act == MAP_ACT_CABLE) return false;
@@ -822,22 +897,33 @@ static bool item_enabled(const ui_ctx_t *c) {
     return c->arg == MAP_EDIT ? edit_enabled(c) : scr_rack_item_enabled(c);
 }
 static void item_activate(const ui_ctx_t *c) {
-    if (c->arg >= MAP_CONNECT) graph_item_activate(c);
+    if (c->arg >= MAP_ATYPE && c->arg <= MAP_AADD) add_activate(c);
+    else if (c->arg >= MAP_CONNECT) graph_item_activate(c);
     else if (c->arg == MAP_EDIT) edit_activate(c);
     else scr_rack_item_activate(c);
 }
-static void item_value(const ui_ctx_t *c, char *out, int n) { if (c->arg >= MAP_CONNECT) graph_value(c, out, n); else scr_rack_item_value(c, out, n); }
-static bool item_adjust(const ui_ctx_t *c, int dir) { return c->arg >= MAP_CONNECT ? graph_adjust(c, dir) : scr_rack_item_adjust(c, dir); }
+static void item_value(const ui_ctx_t *c, char *out, int n) {
+    if (c->arg >= MAP_ATYPE && c->arg <= MAP_AADD) add_value(c, out, n);
+    else if (c->arg >= MAP_CONNECT) graph_value(c, out, n);
+    else scr_rack_item_value(c, out, n);
+}
+static bool item_adjust(const ui_ctx_t *c, int dir) {
+    if (c->arg >= MAP_ATYPE && c->arg <= MAP_AADD) return add_adjust(c, dir);
+    return c->arg >= MAP_CONNECT ? graph_adjust(c, dir) : scr_rack_item_adjust(c, dir);
+}
 
 static void item_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t r, bool focused, bool latched) {
     static const char *const graph_label[] = {"Mod to", "Audio to", "Disconnect all", "Delete", "Prm", "Dpth"};
     char label_buf[24];
-    const char *label = c->arg == MAP_EDIT ? "Edit" : c->arg < MAP_CONNECT ? scr_rack_item_label(c->arg) : c->arg < MAP_K0 ? graph_label[c->arg - MAP_CONNECT] : label_buf;
+    static const char *const add_label[] = {"Type", "Row", "Add"};
+    const char *label = c->arg == MAP_EDIT ? "Edit" : c->arg < MAP_CONNECT ? scr_rack_item_label(c->arg)
+                      : c->arg >= MAP_ATYPE && c->arg <= MAP_AADD ? add_label[c->arg - MAP_ATYPE] : c->arg < MAP_K0 ? graph_label[c->arg - MAP_CONNECT] : label_buf;
     if (c->arg == MAP_CAMT && new_cable(c) && new_cable(c)->kind == CABLE_AUDIO) label = "Lvl";
     const int slot = scr_rack_selected_slot(c);
     out_t o;
     if (c->arg >= MAP_K0) { label_buf[0] = 0; if (slot >= 0 && out_at(c, slot, &o)) out_label(c, slot, o, label_buf, sizeof label_buf); }
-    const bool button = (c->arg >= MAP_CONNECT && c->arg <= MAP_DELETE) || c->arg == MAP_EDIT || (c->arg < MAP_CONNECT && scr_rack_item_kind(c->arg) == EL_BUTTON);
+    const bool button = (c->arg >= MAP_CONNECT && c->arg <= MAP_DELETE) || c->arg == MAP_EDIT || c->arg == MAP_AADD ||
+                        (c->arg < MAP_CONNECT && scr_rack_item_kind(c->arg) == EL_BUTTON);
     char val[24] = "";
     if (button) snprintf(val, sizeof val, ">");
     else item_value(c, val, sizeof val);
@@ -934,9 +1020,10 @@ static const el_def_t elements[E_COUNT] = {
     GRAPH_ITEM(E_G0 + 11, EL_DIRECT, MAP_K0 + 9),
     GRAPH_ITEM(E_G0 + 12, EL_BUTTON, MAP_UNLINK), GRAPH_ITEM(E_G0 + 13, EL_BUTTON, MAP_DELETE),
     GRAPH_ITEM(E_G0 + 14, EL_VALUE, MAP_CPRM),   GRAPH_ITEM(E_G0 + 15, EL_VALUE, MAP_CAMT),
+    GRAPH_ITEM(E_A0, EL_VALUE, MAP_ATYPE),       GRAPH_ITEM(E_A0 + 1, EL_VALUE, MAP_AROW),   GRAPH_ITEM(E_A0 + 2, EL_BUTTON, MAP_AADD),
 };
 _Static_assert(RACK_MAX == 16 && NAV_NODES == RACK_MAX + 6, "N4 x 4 covers the module nodes, then the MIX, the OUT and the four +");
-_Static_assert(E_G0 == E_M0 + 14 && E_COUNT == E_G0 + 16 && OUT_MAX == 10 && RM_DELETE - RM_TYPE == 12,
+_Static_assert(E_G0 == E_M0 + 14 && E_A0 == E_G0 + 16 && E_COUNT == E_A0 + 3 && OUT_MAX == 10 && RM_DELETE - RM_TYPE == 12,
                "the menu's items: Edit, then the rack's Type .. Delete, then the graph's Mod to, Audio to, 10 cables, Disconnect all, Delete, Prm, Dpth");
 
-const screen_def_t scr_map_screen = {elements, E_COUNT, false, false, layout, map_back, NULL, draw_extra, node_move};
+const screen_def_t scr_map_screen = {elements, E_COUNT, false, false, layout, map_back, NULL, draw_extra, node_move, header_push};

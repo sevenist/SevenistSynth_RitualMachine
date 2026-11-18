@@ -171,3 +171,29 @@ TEST(a_voice_module_cabled_into_row_m_sounds_through_a_send_bus) {
     CHECK(rack_audio_can(&r, 1, 3, why, sizeof why));                   // (one already fed: its bus takes more)
     CHECK(loads(r, p, rg));
 }
+
+// A loose module (the map's Add): outside its row's chain, its neighbours chain past it; fed by a cable, it sounds; the rack loads either way.
+TEST(a_loose_module_joins_no_chain_until_cabled) {
+    rack_t r; synth_params_t p;
+    make_rack(r, p);
+    const double before = rms(r, p);
+    const int fl = rack_add_loose(&r, 0, MOD_FILTER);                    // branch 1's end: after its filter, outside the chain
+    CHECK(fl != RACK_NONE);
+    if (fl == RACK_NONE) return;
+    CHECK(r.slot[fl].loose);
+    CHECK_EQ(rack_audio_next(&r, 1), RACK_OUT);
+    RackGraph rg;
+    CHECK(loads(r, p, rg));
+    CHECK_EQ(cables_into(rg, node_of_slot(r, fl), Dst::In), 0);         // nothing into it: not built
+    CHECK(std::fabs(rms(r, p) - before) < before * 0.05);               // the sound as before
+    int b2 = RACK_NONE;                                                 // (branch 2's filter: one slot further now)
+    for (int i = 0; i < r.count; i++) if (r.slot[i].row == 1 && r.slot[i].type == MOD_FILTER) b2 = i;
+    CHECK(rack_audio_connect(&r, 0, fl));                               // the oscillator into it, it into branch 2's filter
+    CHECK(rack_audio_connect(&r, fl, b2));
+    CHECK(loads(r, p, rg));
+    CHECK_EQ(cables_into(rg, node_of_slot(r, fl), Dst::In), 1);
+    CHECK(rms(r, p) > before * 1.2);                                    // a second path to the MIX
+    const int dl = rack_add_loose(&r, ROW_M, MOD_DELAY);                // row M: loose too, the MIX goes on to the output past it
+    CHECK(dl != RACK_NONE);
+    CHECK(loads(r, p, rg));
+}

@@ -372,13 +372,16 @@ bool rack_slot_is_audio(const rack_t *r, int slot) {
 }
 
 // The chain helpers stay inside the slot's row.
+// (a loose module is not in the chain: its neighbours chain past it)
+static bool chained(const rack_t *r, int i) { return rack_slot_is_audio(r, i) && !r->slot[i].loose; }
+
 int rack_audio_prev(const rack_t *r, int slot) {
-    for (int i = slot - 1; i >= 0; i--) if (rack_slot_is_audio(r, i) && r->slot[i].row == r->slot[slot].row) return i;
+    for (int i = slot - 1; i >= 0; i--) if (chained(r, i) && r->slot[i].row == r->slot[slot].row) return i;
     return RACK_NONE;
 }
 
 int rack_audio_next(const rack_t *r, int slot) {
-    for (int i = slot + 1; i < r->count; i++) if (rack_slot_is_audio(r, i) && r->slot[i].row == r->slot[slot].row) return i;
+    for (int i = slot + 1; i < r->count; i++) if (chained(r, i) && r->slot[i].row == r->slot[slot].row) return i;
     return RACK_OUT;
 }
 
@@ -393,6 +396,7 @@ bool rack_is_processor(module_type_t t)       { return t < MOD_TYPE_COUNT && inf
 // A slot that starts its branch's shared part: Para on (a processor that may carry it), or a heavy FX.
 static bool starts_shared(const rack_slot_t *s) {
     const module_type_t t = (module_type_t)s->type;
+    if (s->loose) return false;                                                 // (outside the chain: it splits nothing)
     return rack_type_shared_only(t) || (s->para && rack_is_processor(t) && !rack_type_voice_only(t));
 }
 
@@ -656,13 +660,13 @@ void rack_set_chain_level(rack_t *r, int slot, float v) {
 }
 
 int rack_chain_to(const rack_t *r, int slot) {
-    if (!rack_slot_is_audio(r, slot) || r->slot[slot].cut) return RACK_NONE;
+    if (!rack_slot_is_audio(r, slot) || r->slot[slot].cut || r->slot[slot].loose) return RACK_NONE;
     return rack_audio_next(r, slot);
 }
 
 int rack_audio_ins(const rack_t *r, int slot) {
     int n = 0;
-    const int prev = rack_audio_prev(r, slot);
+    const int prev = r->slot[slot].loose ? RACK_NONE : rack_audio_prev(r, slot);
     if (prev != RACK_NONE && !r->slot[prev].cut) n++;
     for (int k = 0; k < r->n_cables; k++) n += r->cable[k].kind == CABLE_AUDIO && r->cable[k].to == r->slot[slot].id;
     return n;
@@ -694,7 +698,7 @@ bool rack_audio_reaches(const rack_t *r, int from, int to) {
         const int next = rack_chain_to(r, at);
         if (next >= 0) stack[n++] = next;
         else if (next == RACK_OUT && r->slot[at].row < ROW_M)                    // a branch's end: the MIX, then row M's first module
-            for (int i = 0; i < r->count; i++) if (r->slot[i].row == ROW_M && rack_slot_is_audio(r, i)) { stack[n++] = i; break; }
+            for (int i = 0; i < r->count; i++) if (r->slot[i].row == ROW_M && chained(r, i)) { stack[n++] = i; break; }
         for (int k = 0; k < r->n_cables && n < RACK_MAX * 4; k++)
             if (r->cable[k].kind == CABLE_AUDIO && r->cable[k].from == r->slot[at].id) {
                 const int t = rack_find(r, r->cable[k].to);
@@ -736,6 +740,16 @@ bool rack_audio_can(const rack_t *r, int from, int to, char *why, int n) {
         if (!have && nu >= RACK_SENDS) return says(why, n, "2 shared modules take voice cables at most", name);
     }
     return true;
+}
+
+int rack_add_loose(rack_t *r, int row, module_type_t type) {
+    if (type >= MOD_TYPE_COUNT || row < 0 || row >= RACK_ROWS) return RACK_NONE;
+    int pos = r->count, first = r->count;                                       // its row's end (or its start: the rules may refuse the end)
+    for (int i = 0; i < r->count; i++) if (r->slot[i].row == row) { if (first == r->count) first = i; pos = i + 1; }
+    if (!rack_can_insert(r, pos, row, type)) pos = first;
+    if (!rack_insert_row(r, pos, row, type)) return RACK_NONE;
+    if (rack_is_audio(type)) r->slot[pos].loose = 1;
+    return pos;
 }
 
 bool rack_audio_connect(rack_t *r, int from, int to) {

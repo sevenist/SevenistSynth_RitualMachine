@@ -87,6 +87,7 @@ typedef struct {
     // The joystick's move from element `cur` (-1: the header) towards 'l', 'r', 'u' or 'd': the element it lands on, -1 for the header, `cur` when
     // there is nowhere to go. NULL: the grid of the elements' row / col fields (screens whose elements are not at fixed cells, such as the MAP)
     int (*move)(const ui_ctx_t *c, int cur, char dir);
+    void (*header_push)(const ui_ctx_t *c);                       // a push while the focus is on the header (NULL: nothing; the map: its Add menu)
 } screen_def_t;
 
 // Element 0..n-1 is focused when ui->row == index + 1; ui->row == 0 is the header (page / tab selector).

@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define MAX_ELEMENTS 56                 // the pad editor has 19, a node page (scr_node.c) 34, the map (scr_map.c) 53
+#define MAX_ELEMENTS 64                 // the pad editor has 19, a node page (scr_node.c) 34, the map (scr_map.c) 56
 
 // The context for the callbacks of element i: the same, with that element's `arg`.
 static ui_ctx_t ctx_for(const screen_def_t *s, const ui_ctx_t *c, int i) { ui_ctx_t x = *c; x.arg = s->el[i].arg; return x; }
@@ -141,7 +141,7 @@ bool screen_event(const screen_def_t *s, const ui_ctx_t *c, ui_event_t ev) {
             ui->latched = false;
             return false;
         case UI_LATCH:
-            if (cur < 0) return false;
+            if (cur < 0) { if (s->header_push) { s->header_push(c); fix_focus(s, c); } return false; }
             if (s->use_latch && s->el[cur].kind == EL_VALUE && el_enabled(s, c, cur)) ui->latched = !ui->latched;
             else if (s->el[cur].kind != EL_VALUE) activate_el(s, c, cur);          // a button, or a selector that opens what it selects
             return false;

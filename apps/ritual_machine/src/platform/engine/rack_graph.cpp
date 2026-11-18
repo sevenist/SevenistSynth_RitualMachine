@@ -500,12 +500,20 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                 global = true;
             };
 
+            int restore = -1;                                        // a loose module (outside the chain): the running signal put back after it
             for (int i = 0; i < rack.count; i++) {
+                if (restore >= 0) { n_run = restore; restore = -1; }
                 if (!rack_slot_is_audio(&rack, i)) continue;
                 const rack_slot_t &s = rack.slot[i];
                 if (s.row != br) continue;
-                if (para && !global && i >= split_at) split();
+                if (para && !global && i >= split_at && !s.loose) split();
+                if (global && s.loose) {                             // past the split, loose: on what its cables bring alone
+                    Run2 alone; alone.mono = sh.mono;
+                    if (s.type != MOD_COMB && cable_in(i)) shared(i, alone, gate_port);
+                    continue;
+                }
                 if (global) { if (s.type != MOD_COMB) shared(i, sh, gate_port); continue; }   // (the rules keep the resonator per voice)
+                if (s.loose) { restore = n_run; n_run = 0; }        // (it neither takes the running signal nor gives it on)
                 const int id = node_of(s.id), aux = id + 1;
                 if (s.type == MOD_OSC) {
                     const int wave = rack_wave_id(static_cast<int>(s.v[MP_OC_WAVE]));      // the generator's number
@@ -629,6 +637,7 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                 }
             }
 
+            if (restore >= 0) n_run = restore;
             if (para && !global) split();                            // no processor: the whole chain is per voice, only the amp is shared
 
             // the branch's amplitude (the AMP ENV page) and its output into the MIX: Para = one shared amp envelope (unless every voice has
@@ -703,7 +712,10 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
         }
     }
     for (int i = 0; i < rack.count; i++)
-        if (rack.slot[i].row == ROW_M && rack_slot_is_audio(&rack, i) && (m.n || cable_in(i))) shared(i, m, 0);   // (row M's envelopes: legato)
+        if (rack.slot[i].row == ROW_M && rack_slot_is_audio(&rack, i)) {
+            if (rack.slot[i].loose) { Run2 alone; alone.mono = m.mono; if (cable_in(i)) shared(i, alone, 0); }   // (outside the chain)
+            else if (m.n || cable_in(i)) shared(i, m, 0);            // (row M's envelopes: legato)
+        }
     take(m.L, m.n, RN_MASTER, 0);
     take(m.R, m.n, RN_MASTER, 1);
 

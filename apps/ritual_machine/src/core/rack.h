@@ -115,6 +115,8 @@ typedef struct {
     uint8_t penv;        // para_env_t: how the shared envelopes follow the keys, read on the branch's shared start (rack_shared_start)
     uint8_t cut;         // an audio module: 1 = its chain cable (to the next audio module of its row, or the MIX / the output) removed
     float   out_lvl;     // ... that cable's level, 0..1 (1 when made; a source's is its own Lvl instead: rack_chain_level)
+    uint8_t loose;       // an audio module outside its row's chain (added from the map's header, cabled by hand): no chain cable in or
+                         // out, its neighbours chain past it; where it sits in its row says only whether it runs per voice or once
     float   v[MOD_PARAM_MAX];   // the module's own parameter values (see rack_mparam_*)
 } rack_slot_t;
 
@@ -237,6 +239,9 @@ void  rack_target_remove(rack_t *r, int slot);                      // a modulat
 bool  rack_cable_adjust(rack_t *r, int k, int dir);                 // a level by 0.05, a depth by its unit's step; true if changed
 void  rack_cable_format(const rack_t *r, int k, char *out, int n);  // "0.80", "+2.00oct"
 bool  rack_audio_reaches(const rack_t *r, int from, int to);        // the audio of slot `from` gets to slot `to` (chains and cables)
+// A module outside the chains (the map's Add, its header): at the end of `row` (else its start), loose when it is an audio module; a
+// modulator without a target. Its slot, RACK_NONE when the rack refuses it there.
+int   rack_add_loose(rack_t *r, int row, module_type_t type);
 
 // Motion sequencer lanes (slot must be an MS). A lane's target is a (module, parameter) pair the engine mapper can realise.
 ms_pattern_t *rack_ms(rack_t *r, int slot);

@@ -658,6 +658,65 @@ TEST(zoomed_out_audio_to_and_the_cable_rows) {
     CHECK_EQ(ui_app.rack.n_cables, 0);
 }
 
+// The Add menu: a push on the header (no node selected) offers a module of any type (its full name), its row (an audio module), Add: it
+// joins no chain (its neighbours chain past it) and the user cables it. Back closes it, the focus on the header.
+#define ADD_ROW(k) GRAPH_ROW(16 + (k))                 // ui->row of the Add menu's item k (0 Type, 1 Row, 2 Add)
+TEST(a_push_on_the_header_adds_a_module_outside_the_chains) {
+    map_on_sample_rack();                                                          // slot 1: branch 1's filter, its last audio module
+    const ui_ctx_t c = ctx();
+    ui_app.ui.row = 0;
+    frame();
+    ev(UI_LATCH);
+    CHECK(ui_app.ui.rack_menu);
+    CHECK_EQ(ui_app.ui.map_act, 6);
+    CHECK_EQ(ui_app.ui.row, ADD_ROW(0));
+    CHECK(scr_map_screen.back(&c));                                                // Back: closed, on the header
+    CHECK(!ui_app.ui.rack_menu);
+    CHECK_EQ(ui_app.ui.row, 0);
+
+    ev(UI_LATCH);
+    ui_app.ui.rack_row = 0;
+    ui_app.ui.rack_type = MOD_DELAY - 1;
+    ev(UI_NAV_RIGHT);                                                              // a delay runs once on all the voices: row M only
+    CHECK_EQ(ui_app.ui.rack_type, MOD_DELAY);
+    CHECK_EQ(ui_app.ui.rack_row, ROW_M);
+    ui_app.ui.rack_type = MOD_FILTER - 1;
+    ev(UI_NAV_RIGHT);                                                              // the type, by left / right
+    CHECK_EQ(ui_app.ui.rack_type, MOD_FILTER);
+    ev(UI_NAV_DOWN);
+    CHECK_EQ(ui_app.ui.row, ADD_ROW(1));                                           // its row (an audio module)
+    ui_app.ui.rack_row = 0;
+    ev(UI_NAV_DOWN);
+    CHECK_EQ(ui_app.ui.row, ADD_ROW(2));
+    const int count = ui_app.rack.count;
+    CHECK_EQ(rack_audio_next(&ui_app.rack, 1), RACK_OUT);
+    ev(UI_LATCH);                                                                  // Add
+    CHECK_EQ(ui_app.rack.count, count + 1);
+    const int fl = ui_app.ui.row - 1;                                              // the cursor on it
+    CHECK(fl >= 0 && fl < ui_app.rack.count);
+    if (fl < 0 || fl >= ui_app.rack.count) return;
+    CHECK_EQ(ui_app.rack.slot[fl].type, MOD_FILTER);
+    CHECK_EQ(ui_app.rack.slot[fl].row, 0);
+    CHECK(ui_app.rack.slot[fl].loose);
+    CHECK_EQ(rack_audio_next(&ui_app.rack, 1), RACK_OUT);                          // branch 1's filter still goes to the MIX
+    CHECK_EQ(rack_chain_to(&ui_app.rack, fl), RACK_NONE);                          // nothing in, nothing out
+    CHECK_EQ(rack_audio_ins(&ui_app.rack, fl), 0);
+    CHECK(strstr(ui_app.ui.rack_msg, "added") != NULL);
+    CHECK(!ui_app.ui.rack_menu);
+    CHECK(rack_audio_connect(&ui_app.rack, 0, fl));                                // then cabled by hand
+
+    ui_app.ui.row = 0;                                                             // a modulator: no row to choose
+    frame();
+    ev(UI_LATCH);
+    ui_app.ui.rack_type = MOD_LFO;
+    frame();
+    ev(UI_NAV_DOWN);
+    CHECK_EQ(ui_app.ui.row, ADD_ROW(2));
+    ev(UI_LATCH);
+    CHECK_EQ(ui_app.rack.slot[ui_app.ui.row - 1].type, MOD_LFO);
+    CHECK_EQ(ui_app.rack.slot[ui_app.ui.row - 1].tgt_id, 0);
+}
+
 // rack_unlink: every modulation cable of a module, both ways, a motion sequencer's lanes too; false when it had none.
 TEST(disconnect_all_removes_a_modules_cables_both_ways) {
     rack_t r;

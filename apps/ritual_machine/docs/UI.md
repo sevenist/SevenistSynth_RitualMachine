@@ -354,6 +354,29 @@ Paths without a prefix are inside `apps/ritual_machine/src/` (`core/...`, `app/.
 >   modulator with no row), `test_cables.cpp` (a loose filter: not built, the sound unchanged; cabled in and out, it sounds; a loose delay
 >   in row M; every rack loads), `test_preset.c` (loose round trip). 251 UI tests at 160 and 128, 126 engine tests.
 >
+> **2026-11-18, the tall strip's cables as chips** (the user: "a little arrow instead of > or <, each cable label in a frame").
+>
+> - Each cable of the strip (128 x 160) is a chip: its label on a fill (audio: the dim grey, modulation: the amber's dim) with a drawn arrow
+>   before it (left: in, right: out), 2 px apart; one colour: a 1 px rounded frame. The modulation line is 1 px lower (the chips apart).
+>   As many as the line holds, then "...". Rendered and looked at, in colour and in one colour.
+>
+> **2026-11-18, zoom -1 / -2 without walls, the view scrolling** (the user: "why are they constrained in a box? make it windowed, scrollable,
+> and let the graph expand naturally without colliding with the screen's border").
+>
+> - `nav_force`: no walls any more (`keep_in` gone; `w, h` became `cx, cy`, the centre of the weak pull), and the cable's length at rest
+>   is always 31 px (no longer shortened for a crowded room): a big rack grows bigger than the screen.
+> - The spawn: each node where its zoom 0 tile was, unsqueezed, the centre the middle of that map; the view starts on zoom 0's scroll.
+> - The view (`follow`, `g_cam_x` / `g_cam_y`): per side, a graph that fits is centred; a bigger one is followed, moving only as far as
+>   it takes to show the cursor's node (2 px for its outline), never past the graph's ends. Nodes at the view's edges are drawn cut there.
+> - Tests: `test_map.c` (no room checks in the force test; a chain of 16 grows past the screen; on the full rack, -1 and -2, the
+>   cursor's outline on the map on every node). 252 UI tests at 160 and 128. Rendered and looked at (the full rack at -1, the cursor on
+>   the first node and on OUT; at -2 it fits, centred).
+> - **Cables off the screen** (the user: "the same bug as in the studio: lines outside the window overflow into vertical and horizontal
+>   strokes"): u8g2 takes unsigned coordinates, so an end at x -12 wrapped to 65524. `gui_clip_line` (framework/ui/gui.c, Cohen-Sutherland,
+>   the studio's clipping moved there; `wg_line` uses it) cuts the line where it crosses the border; `gui_clip_line_to` against the clip
+>   window in use, bounded by the display. `uw_wire` (its dashes still counted from the real start) and `uw_line` clip first. Test:
+>   `test_map.c` (the crossing point; solid and dashed cables in from the left and the top light only their own path, inside a window).
+>
 > The UI has **two ways of writing a screen**, and knowing which one a screen uses is the first thing to find out:
 
 - **Declarative** (the newer one): the screen is a table of elements, and one generic piece of code draws it, moves the focus

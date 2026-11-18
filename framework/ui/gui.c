@@ -124,6 +124,34 @@ void gui_draw_button(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const char 
     u8g2_SetDrawColor(g, 1);
 }
 
+static int outcode(int x, int y, int x0, int y0, int x1, int y1) {   // where a point lies against the rectangle: 0 inside
+    return (x < x0 ? 1 : 0) | (x > x1 ? 2 : 0) | (y < y0 ? 4 : 0) | (y > y1 ? 8 : 0);
+}
+
+bool gui_clip_line(int *ax, int *ay, int *bx, int *by, int x0, int y0, int x1, int y1) {
+    if (x1 < x0 || y1 < y0) return false;
+    int a = outcode(*ax, *ay, x0, y0, x1, y1), b = outcode(*bx, *by, x0, y0, x1, y1);
+    while (a | b) {
+        if (a & b) return false;                            // both ends on the same outer side: nothing to draw
+        const int out = a ? a : b;
+        const long long dx = (long long)*bx - *ax, dy = (long long)*by - *ay;
+        long long x, y;                                     // where the line crosses that border
+        if (out & 8)      { y = y1; x = *ax + dx * (y1 - *ay) / dy; }
+        else if (out & 4) { y = y0; x = *ax + dx * (y0 - *ay) / dy; }
+        else if (out & 2) { x = x1; y = *ay + dy * (x1 - *ax) / dx; }
+        else              { x = x0; y = *ay + dy * (x0 - *ax) / dx; }
+        if (out == a) { *ax = (int)x; *ay = (int)y; a = outcode(*ax, *ay, x0, y0, x1, y1); }
+        else          { *bx = (int)x; *by = (int)y; b = outcode(*bx, *by, x0, y0, x1, y1); }
+    }
+    return true;
+}
+
+bool gui_clip_line_to(const u8g2_t *g, int *ax, int *ay, int *bx, int *by) {
+    const int w = u8g2_GetDisplayWidth(g), h = u8g2_GetDisplayHeight(g);           // (the default window is 0..65535: the display bounds it)
+    const int x1 = g->clip_x1 < w ? g->clip_x1 : w, y1 = g->clip_y1 < h ? g->clip_y1 : h;
+    return gui_clip_line(ax, ay, bx, by, g->clip_x0, g->clip_y0, x1 - 1, y1 - 1);  // (u8g2's ends are exclusive)
+}
+
 void gui_draw_arrow(u8g2_t *g, int x, int y, char dir, int size) {
     for (int k = 0; k < size; k++) {                       // one line per step, from the base (widest) to the tip (1 pixel)
         const int half = size - 1 - k;

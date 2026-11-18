@@ -116,28 +116,9 @@ void wg_text_center(wg_ctx_t *c, gui_rect_t r, const char *s, uint16_t color, bo
     u8g2_DrawStr(c->g, (u8g2_uint_t)(r.x + (r.w - w) / 2), (u8g2_uint_t)(r.y + (r.h + asc) / 2), s);
 }
 
-// Where a point lies against the canvas (Cohen-Sutherland's outcode): 0 inside.
-static int outcode(const wg_ctx_t *c, int x, int y) {
-    return (x < 0 ? 1 : 0) | (x >= c->cv->w ? 2 : 0) | (y < 0 ? 4 : 0) | (y >= c->cv->h ? 8 : 0);
-}
-
-// The line clipped to the canvas first: u8g2 takes unsigned coordinates, so an end above or left of the canvas (negative) would wrap
-// to a far-away point and draw long horizontal or vertical strokes (a cable whose module is scrolled off the top or the left).
+// The line clipped to the canvas first (gui_clip_line: an end off the canvas would wrap in u8g2's unsigned coordinates).
 void wg_line(wg_ctx_t *c, int x0, int y0, int x1, int y1, uint16_t color) {
-    const int xmax = c->cv->w - 1, ymax = c->cv->h - 1;
-    int a = outcode(c, x0, y0), b = outcode(c, x1, y1);
-    while (a | b) {
-        if (a & b) return;                                  // both ends on the same outer side: nothing to draw
-        const int out = a ? a : b;
-        long long x = 0, y = 0;
-        const long long dx = (long long)x1 - x0, dy = (long long)y1 - y0;
-        if (out & 8)      { y = ymax; x = x0 + dx * (ymax - y0) / dy; }
-        else if (out & 4) { y = 0;    x = x0 + dx * (0 - y0) / dy; }
-        else if (out & 2) { x = xmax; y = y0 + dy * (xmax - x0) / dx; }
-        else              { x = 0;    y = y0 + dy * (0 - x0) / dx; }
-        if (out == a) { x0 = (int)x; y0 = (int)y; a = outcode(c, x0, y0); }
-        else          { x1 = (int)x; y1 = (int)y; b = outcode(c, x1, y1); }
-    }
+    if (!gui_clip_line(&x0, &y0, &x1, &y1, 0, 0, c->cv->w - 1, c->cv->h - 1)) return;
     ink(c, color);
     u8g2_DrawLine(c->g, (u8g2_uint_t)x0, (u8g2_uint_t)y0, (u8g2_uint_t)x1, (u8g2_uint_t)y1);
 }

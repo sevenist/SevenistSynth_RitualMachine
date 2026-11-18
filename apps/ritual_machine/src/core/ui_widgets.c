@@ -80,6 +80,7 @@ void uw_line(u8g2_t *g, int x0, int y0, int x1, int y1, uw_cable_t k) {
     int on = 1, off = 0;
     if (k == UW_CABLE_MOD) { on = col ? 3 : 1; off = col ? 2 : 1; }
     if (k == UW_CABLE_GATE) { on = 1; off = 2; }
+    if (!gui_clip_line_to(g, &x0, &y0, &x1, &y1)) return;      // (off the screen: no wrap-around in u8g2's unsigned coordinates)
     ui_ink(g, k == UW_CABLE_MOD ? UC_MOD : k == UW_CABLE_GATE ? UC_GATE : UC_TEXT);
     if (x0 > x1) { const int t = x0; x0 = x1; x1 = t; }
     if (y0 > y1) { const int t = y0; y0 = y1; y1 = t; }
@@ -191,12 +192,15 @@ void uw_tile_wide(u8g2_t *g, gui_rect_t r, const char *name, const char *kind, u
 void uw_wire(u8g2_t *g, int x0, int y0, int x1, int y1, uw_cable_t k) {
     const bool col = ui_colour(g), dashed = k != UW_CABLE_AUDIO;
     const int on = col ? 3 : 1, off = col ? 2 : 1;
+    const int sx0 = x0, sy0 = y0;
+    if (!gui_clip_line_to(g, &x0, &y0, &x1, &y1)) return;      // cut where it crosses the window's borders (no wrap-around in u8g2)
+    const int ox = x0 - sx0, oy = y0 - sy0, skipped = (ox < 0 ? -ox : ox) > (oy < 0 ? -oy : oy) ? (ox < 0 ? -ox : ox) : (oy < 0 ? -oy : oy);
     ui_ink(g, k == UW_CABLE_MOD ? UC_MOD : k == UW_CABLE_GATE ? UC_GATE : UC_DIM);
     if (!dashed) u8g2_DrawLine(g, (u8g2_uint_t)x0, (u8g2_uint_t)y0, (u8g2_uint_t)x1, (u8g2_uint_t)y1);
-    else {                                                     // Bresenham, the dashes counted along the line
+    else {                                                     // Bresenham, the dashes counted along the line from its real start
         const int dx = x1 > x0 ? x1 - x0 : x0 - x1, dy = -(y1 > y0 ? y1 - y0 : y0 - y1), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
         int err = dx + dy, x = x0, y = y0;
-        for (int i = 0;; i++) {
+        for (int i = skipped;; i++) {
             if (i % (on + off) < on) u8g2_DrawPixel(g, (u8g2_uint_t)x, (u8g2_uint_t)y);
             if (x == x1 && y == y1) break;
             const int e2 = 2 * err;

@@ -117,6 +117,12 @@ void gui_draw_field_state(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const 
 void gui_draw_button(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const char *label, gui_state_t state);
 // A small arrow (triangle) whose tip points in a direction ('l', 'r', 'u', 'd') at (x, y); size = length in pixels.
 void gui_draw_arrow(u8g2_t *g, int x, int y, char dir, int size);
+// A line clipped to the rectangle x0..x1, y0..y1 (ends included; Cohen-Sutherland): false when none of it is inside. Clip before
+// handing u8g2 a line: it takes unsigned coordinates, so an end left of or above 0 wraps to a far-away point and draws long horizontal
+// or vertical strokes (a cable whose module is scrolled off the screen).
+bool gui_clip_line(int *ax, int *ay, int *bx, int *by, int x0, int y0, int x1, int y1);
+// The same against the clip window in use (u8g2_SetClipWindow; the whole display by default).
+bool gui_clip_line_to(const u8g2_t *g, int *ax, int *ay, int *bx, int *by);
 
 /* ---------------- sprites ---------------- */
 // 1-bit sprite: rows of ceil(w/8) bytes, 8 pixels per byte, MSB = leftmost pixel,

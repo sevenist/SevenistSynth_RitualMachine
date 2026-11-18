@@ -6,6 +6,7 @@
 #include "core/nav_force.h"
 #include "core/ui_screen.h"
 #include "core/ui_theme.h"
+#include "core/ui_widgets.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -418,17 +419,17 @@ TEST(the_zoom_widens_the_map_and_keeps_the_cursor_in_view) {
     CHECK(!synth_ui_map_zoom(&ui_app.ui, 1));
 }
 
-// Zoomed out (core/nav_force.h): the force graph on its own. Nodes started on top of each other end apart, inside the room, and still,
-// within its 300 steps; the same start gives the same picture.
+// Zoomed out (core/nav_force.h): the force graph on its own. Nodes started on top of each other end apart and still, within its 300
+// steps; the same start gives the same picture. No walls: a long chain grows longer than the screen.
 static void line_graph(nav_force_t *f) {
-    nav_force_init(f, 124, 108, 8, 5.5f, 24, 150);
+    nav_force_init(f, 62, 54, 8, 5.5f, 24, 150);
     for (int i = 0; i < 9; i++) nav_force_put(f, i, 60 + (float)(i % 2), 50);
     for (int i = 0; i + 1 < 6; i++) nav_force_spring(f, i, i + 1, NAV_STRONG);
     nav_force_spring(f, 6, 2, NAV_WEAK);
     nav_force_spring(f, 7, 0, NAV_STRONG);
 }
 
-TEST(the_force_graph_pushes_the_nodes_apart_inside_the_room_and_comes_to_rest) {
+TEST(the_force_graph_pushes_the_nodes_apart_and_comes_to_rest) {
     static nav_force_t f, again;
     line_graph(&f);
     int steps = 0;
@@ -436,8 +437,6 @@ TEST(the_force_graph_pushes_the_nodes_apart_inside_the_room_and_comes_to_rest) {
     CHECK(steps <= 300);
     CHECK(!f.moving);
     for (int i = 0; i < 9; i++) {
-        CHECK(f.x[i] >= f.hw - 0.01f && f.x[i] <= f.w - f.hw + 0.01f);
-        CHECK(f.y[i] >= f.hh - 0.01f && f.y[i] <= f.h - f.hh + 0.01f);
         for (int j = i + 1; j < 9; j++) {
             const float dx = f.x[i] - f.x[j], dy = f.y[i] - f.y[j];
             CHECK((dx < 0 ? -dx : dx) >= 2 * f.hw || (dy < 0 ? -dy : dy) >= 2 * f.hh);   // no two overlap
@@ -448,6 +447,50 @@ TEST(the_force_graph_pushes_the_nodes_apart_inside_the_room_and_comes_to_rest) {
     line_graph(&again);
     while (nav_force_step(&again)) {}
     CHECK(!memcmp(f.x, again.x, sizeof f.x) && !memcmp(f.y, again.y, sizeof f.y));
+    static nav_force_t chain;                                                      // 16 nodes in a row, cables 31 px: past 128 px
+    nav_force_init(&chain, 62, 54, 12, 8, 31, 0.26f * 31 * 31);
+    for (int i = 0; i < 16; i++) nav_force_put(&chain, i, 62 + (float)(i % 4), 54 + (float)(i / 4));
+    for (int i = 0; i + 1 < 16; i++) nav_force_spring(&chain, i, i + 1, NAV_STRONG);
+    while (nav_force_step(&chain)) {}
+    float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
+    for (int i = 0; i < 16; i++) {
+        x0 = fminf(x0, chain.x[i]); x1 = fmaxf(x1, chain.x[i]); y0 = fminf(y0, chain.y[i]); y1 = fmaxf(y1, chain.y[i]);
+    }
+    CHECK(x1 - x0 > 128 || y1 - y0 > 160);
+}
+
+// Zoomed out on a full rack: the graph is bigger than the screen and the view follows the cursor: on every node, -1 and -2, its outline
+// is on the map (the cursor's colour inside the map's part).
+TEST(zoomed_out_the_view_scrolls_over_a_graph_bigger_than_the_screen) {
+    if (DISPLAY_HEIGHT < 160) return;
+    open_map();
+    full_rack(&ui_app.rack);
+    synth_ui_rebuild_pages(&ui_app.ui, &ui_app.rack);
+    ui_app.ui.in_rack = true;
+    ui_app.ui.menu_tab = tab_index_of(&ui_app.rack, TAB_RACK);
+    static uint16_t px[128 * 160];
+    static canvas_t cv;
+    CHECK(canvas_init(&cv, px, 128, 160));
+    ui_colour_attach(&cv);
+    u8g2_t *g = canvas_u8g2(&cv);
+    nav_graph_t gr;
+    nav_build(&gr, &ui_app.rack);
+    ui_app.ui.row = 1;
+    for (int zoom = 0; zoom < 2; zoom++) {
+        CHECK(synth_ui_map_zoom(&ui_app.ui, -1));
+        ui_app.ui.now_ms = 1000;
+        for (int k = 0; k < 400 && (k == 0 || synth_ui_map_animating(&ui_app.ui)); k++) {
+            ui_app.ui.now_ms += 33;
+            synth_ui_draw(&ui_app.ui, &ui_app.params, &ui_app.seq, &ui_app.rack, g);
+        }
+        for (int i = 0; i < NAV_NODES; i++) {
+            if (gr.node[i].kind != NODE_MODULE && gr.node[i].kind != NODE_MIX && gr.node[i].kind != NODE_OUT) continue;
+            ui_app.ui.row = i + 1;
+            synth_ui_draw(&ui_app.ui, &ui_app.params, &ui_app.seq, &ui_app.rack, g);
+            CHECK(cursor_on_map(&cv));
+        }
+    }
+    ui_colour_attach(NULL);
 }
 
 // On the map: zoomed out, the graph animates (the app draws frames while it moves) and stops; the cursor goes between its nodes and never
@@ -842,3 +885,39 @@ TEST(the_menu_and_the_plus_draw_on_every_node) {
     }
 }
 
+
+// A cable with an end off the screen (the map scrolled, zoomed out): cut where it crosses the border, not wrapped around in u8g2's
+// unsigned coordinates (which drew long horizontal and vertical strokes). Only pixels of its own path light, solid and dashed.
+static bool lit(u8g2_t *g, int x, int y) { return (u8g2_GetBufferPtr(g)[(y / 8) * u8g2_GetDisplayWidth(g) + x] >> (y % 8)) & 1; }
+TEST(a_cable_off_the_screen_is_cut_at_its_border) {
+    int ax = -50, ay = 10, bx = 20, by = 40;
+    CHECK(gui_clip_line(&ax, &ay, &bx, &by, 0, 0, 127, 127));
+    CHECK_EQ(ax, 0); CHECK_EQ(ay, 31);                                               // (10 + 30 x 50 / 70)
+    CHECK_EQ(bx, 20); CHECK_EQ(by, 40);
+    ax = -50; ay = -5; bx = -1; by = 60;
+    CHECK(!gui_clip_line(&ax, &ay, &bx, &by, 0, 0, 127, 127));                         // wholly to the left
+    ui_fresh();
+    u8g2_t *g = ui_app.display;
+    const int w = u8g2_GetDisplayWidth(g), h = u8g2_GetDisplayHeight(g);
+    for (int k = 0; k < 2; k++) {
+        u8g2_ClearBuffer(g);
+        u8g2_SetMaxClipWindow(g);
+        uw_wire(g, -50, 10, 20, 40, k ? UW_CABLE_MOD : UW_CABLE_AUDIO);            // in from the left
+        uw_wire(g, 100, -30, 110, 20, k ? UW_CABLE_MOD : UW_CABLE_AUDIO);          // in from the top
+        int n = 0;
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++) {
+                if (!lit(g, x, y)) continue;
+                n++;
+                CHECK((x <= 20 && y >= 30 && y <= 40) || (x >= 100 && x <= 110 && y <= 20));
+            }
+        CHECK(n > 10);
+        u8g2_ClearBuffer(g);
+        u8g2_SetClipWindow(g, 0, 20, w, 60);                                           // a window: only inside it
+        uw_wire(g, -50, 10, 20, 40, k ? UW_CABLE_MOD : UW_CABLE_AUDIO);
+        uw_line(g, -40, 30, 50, 30, k ? UW_CABLE_MOD : UW_CABLE_AUDIO);
+        for (int y = 0; y < h; y++) for (int x = 0; x < w; x++) if (lit(g, x, y)) CHECK(y >= 20 && y < 60 && x <= 50);
+        u8g2_SetMaxClipWindow(g);
+    }
+    u8g2_ClearBuffer(g);
+}

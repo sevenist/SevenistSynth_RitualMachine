@@ -21,7 +21,8 @@
 // the room for the cables), each tile its name, its type and its values as bars, the map scrolling sideways to keep the cursor in view;
 // -1 and -2 the graph zoomed out: small rounded nodes, a module's colour and number (no "+"), which spawn where zoom 0's tiles were and
 // float into a graph pulled by their cables (core/nav_force.h: audio, FM and pitch strongly, the other modulations weakly), the screen
-// drawing each step (synth_ui_map_animating); straight cables from centre to centre. There a push on a module opens the graph's own menu:
+// drawing each step (synth_ui_map_animating); straight cables from centre to centre. No walls: the graph grows as big as it needs and the
+// view scrolls over it both ways, following the cursor (a graph that fits is centred). There a push on a module opens the graph's own menu:
 // Connect (a modulator or an oscillator: then a push on the target, then its parameter and depth, the rack's Prm and Dpth; Back or a zoom
 // cancels, a popup says so), Disconnect all (its modulation cables, both ways), Delete.
 #include "core/ui_screen.h"
@@ -101,8 +102,8 @@ static const nav_graph_t *graph(const ui_ctx_t *c) {
         for (int i = 0; i < NAV_NODES; i++) {
             nav_node_t *n = &floating.node[i];
             if (!on_graph(n) || !g_force.on[i]) { n->kind = NODE_NONE; continue; }
-            const float s = g_zoom < -1 ? HALF : 1.0f, x = g_force.w / 2 + (g_force.x[i] - g_force.w / 2) * s,
-                        y = g_force.h / 2 + (g_force.y[i] - g_force.h / 2) * s;
+            const float s = g_zoom < -1 ? HALF : 1.0f, x = g_force.cx + (g_force.x[i] - g_force.cx) * s,
+                        y = g_force.cy + (g_force.y[i] - g_force.cy) * s;
             n->x = (int16_t)(x - (float)g_m.tile_w / 2 + 0.5f);
             n->y = (int16_t)(y - (float)g_m.tile_h / 2 + 0.5f);
         }
@@ -150,15 +151,10 @@ static uint32_t g_force_ms;              // the clock at its last step
 #define KEY_OUT 255
 #define STEP_MS 16                       // a step every 16 ms (about 60 a second, whatever the frame rate)
 
-// A cable's length at rest (zoom -1's units: -2 shows it at half size): 31 px, shorter when the room is crowded (the room each node has,
-// its side x 0.975); the push between nodes goes with its square.
-static float rest_of(float w, float h, const nav_graph_t *p) {
-    int n = 0;
-    for (int i = 0; i < NAV_NODES; i++) n += on_graph(&p->node[i]);
-    const float most = 31.0f, fit = n ? 0.975f * sqrtf(w * h / (float)n) : most;
-    return fit < most ? fit : most;
-}
-static float push_of(float rest) { return 0.26f * rest * rest; }
+// A cable's length at rest (zoom -1's units: -2 shows it at half size), whatever the rack: the graph takes the room it needs and the screen
+// scrolls over it; the push between nodes goes with its square.
+#define REST 31.0f
+#define PUSH (0.26f * REST * REST)
 static uint8_t key_of(const nav_graph_t *g, const rack_t *r, int i) {
     const nav_node_t *n = &g->node[i];
     return n->kind == NODE_MODULE ? r->slot[n->slot].id : n->kind == NODE_MIX ? KEY_MIX : n->kind == NODE_OUT ? KEY_OUT : 0;
@@ -179,27 +175,35 @@ static void force_springs(const nav_graph_t *g, const rack_t *r) {
     }
 }
 
-// Before each frame zoomed out: the graph set going (each node where its tile was at zoom 0: `scroll0`, that map's scroll; anew each time
-// the map zooms out from 0 or 1; -1 <-> -2 is the same graph at half size, at once), kept in step with the rack (a node keeps its place by what it is; one joining starts beside a node it is cabled to), then the
-// steps the time since the last frame asks for (no clock, as in the tests: one a frame).
-static void force_update(const ui_ctx_t *c, int room, int scroll0) {
+// Before each frame zoomed out: the graph set going (each node where its tile was at zoom 0, the camera on zoom 0's view: `scroll0`, that
+// map's scroll; anew each time the map zooms out from 0 or 1; -1 <-> -2 is the same graph at half size, at once), kept in step with the rack
+// (a node keeps its place by what it is; one joining starts beside a node it is cabled to), then the steps the time since the last frame
+// asks for (no clock, as in the tests: one a frame).
+static int g_cam_x, g_cam_y;             // zoomed out: the view's top left on the graph (kept: it moves only as far as the cursor needs)
+static void force_update(const ui_ctx_t *c, int scroll0) {
     if (g_zoom >= 0) { g_force_set = false; return; }
     const nav_graph_t *p = placed_graph(c);
     const rack_t *r = c->rack;
-    const float w = (float)g_map_w, h = (float)room;
-    if (!g_force_set || g_force.w != w || g_force.h != h) {
-        const float rest = rest_of(w, h, p), unscale = g_zoom < -1 ? 1.0f / HALF : 1.0f;   // (spawned straight into -2: where its tiles were there)
-        nav_force_init(&g_force, w, h, (float)g_m1.tile_w / 2, (float)g_m1.tile_h / 2, rest, push_of(rest));
-        const float fit = p->height > room ? (float)room / (float)p->height : 1.0f;    // (a map taller than the screen: all of it, squeezed)
+    if (!g_force_set) {
+        float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;                       // the centre: the middle of zoom 0's map
+        for (int i = 0; i < NAV_NODES; i++) {
+            if (!on_graph(&p->node[i])) continue;
+            const float x = (float)p->node[i].x + (float)g_m0.tile_w / 2, y = (float)p->node[i].y + (float)g_m0.tile_h / 2;
+            x0 = x < x0 ? x : x0; x1 = x > x1 ? x : x1; y0 = y < y0 ? y : y0; y1 = y > y1 ? y : y1;
+        }
+        const float cx = x1 >= x0 ? (x0 + x1) / 2 : (float)g_map_w / 2, cy = y1 >= y0 ? (y0 + y1) / 2 : 0;
+        const float unscale = g_zoom < -1 ? 1.0f / HALF : 1.0f;                    // (spawned straight into -2: where its tiles were there)
+        nav_force_init(&g_force, cx, cy, (float)g_m1.tile_w / 2, (float)g_m1.tile_h / 2, REST, PUSH);
         for (int i = 0; i < NAV_NODES; i++) {
             g_force_key[i] = key_of(p, r, i);
-            const float y = fit < 1 ? (float)p->node[i].y * fit : (float)(p->node[i].y - scroll0);
-            const float x = (float)p->node[i].x + (float)g_m0.tile_w / 2, yc = y + (float)g_m0.tile_h / 2 * fit;
-            if (on_graph(&p->node[i])) nav_force_put(&g_force, i, w / 2 + (x - w / 2) * unscale, h / 2 + (yc - h / 2) * unscale);
+            const float x = (float)p->node[i].x + (float)g_m0.tile_w / 2, y = (float)p->node[i].y + (float)g_m0.tile_h / 2;
+            if (on_graph(&p->node[i])) nav_force_put(&g_force, i, cx + (x - cx) * unscale, cy + (y - cy) * unscale);
         }
         force_springs(p, r);
         g_force_set = true;
         g_force_ms = c->ui->now_ms;
+        g_cam_x = 0;
+        g_cam_y = scroll0;
     }
     bool changed = false;
     for (int i = 0; i < NAV_NODES && !changed; i++) changed = key_of(p, r, i) != g_force_key[i] || on_graph(&p->node[i]) != g_force.on[i];
@@ -217,7 +221,7 @@ static void force_update(const ui_ctx_t *c, int room, int scroll0) {
         }
         for (int i = 0; i < NAV_NODES; i++) {                                     // a new node: beside one it is cabled to, else in the middle
             if (!on_graph(&p->node[i]) || kept[i]) continue;
-            float x = w / 2, y = h / 2;
+            float x = g_force.cx, y = g_force.cy;
             for (int e = 0; e < p->n_edges; e++) {
                 const int o = p->edge[e].from == i ? p->edge[e].to : p->edge[e].to == i ? p->edge[e].from : -1;
                 if (o >= 0 && kept[o]) { x = g_force.x[o] + 6; y = g_force.y[o] + 6; break; }
@@ -225,8 +229,6 @@ static void force_update(const ui_ctx_t *c, int room, int scroll0) {
             nav_force_put(&g_force, i, x, y);
         }
         force_springs(p, r);
-        g_force.rest = rest_of(w, h, p);
-        g_force.push = push_of(g_force.rest);
         nav_force_go(&g_force);
     }
     const uint32_t now = c->ui->now_ms;
@@ -387,6 +389,7 @@ static float main_value(const rack_slot_t *s) { const int i = main_index(s); ret
 
 /* ---------------- drawing ---------------- */
 
+static gui_rect_t g_view;                // the map's part of the screen (layout -> tile_draw: zoomed out, a node cut at its edges)
 static void tile_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t r, bool focused, bool latched) {
     (void)st; (void)latched;
     if (r.w <= 0 || r.h <= 0) return;                           // not in the part of the map on show
@@ -399,7 +402,9 @@ static void tile_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_r
         char label[8];
         if (n->kind == NODE_MODULE) snprintf(label, sizeof label, "%d", c->rack->slot[n->slot].id);
         else snprintf(label, sizeof label, "%s", g_zoom < -1 ? (n->kind == NODE_MIX ? "M" : "O") : name);
+        u8g2_SetClipWindow(g, g_view.x, g_view.y, g_view.x + g_view.w, g_view.y + g_view.h);   // (a node at the view's edge: cut there)
         uw_node(g, r, label, node_family(c, c->arg), selected, g_zoom < -1 || n->kind != NODE_MODULE);
+        u8g2_SetMaxClipWindow(g);
         return;
     }
     if (g_zoom > 0) {
@@ -531,20 +536,37 @@ static void ports(const ui_ctx_t *c, int node, char *in, char *out, char *mod, i
 
 // The tall strip (128 x 160; the user, 2026-11-18): only the node's cables, its audio on the first line, its modulation on the second (in the
 // modulation's colour): "<1 OC <3 OC >MIX", "<4 LF Cut >2 FL Res". As many as the line holds, then "...".
+// Each cable a chip (the user, 2026-11-18): its label on a contrasting fill (audio: the dim grey; modulation: the amber's dim), a drawn arrow
+// before it (left: in, right: out). One colour: a frame around it.
 #define CABLES_MAX 16
-typedef char cable_item_t[16];
+#define CHIP_PAD   9                     // where the text starts: the frame, 1 px, the arrow (5), 2 px; after it 1 px and the frame
+#define CHIP_GAP   2
+typedef char cable_item_t[16];           // its direction ('<' in, '>' out), then its label
+static int chip_w(u8g2_t *g, const char *item) { return CHIP_PAD + 2 + u8g2_GetStrWidth(g, item + 1); }
+
+static void cable_chip(u8g2_t *g, int x, int base, const char *item, ui_colour_t col) {
+    const int asc = u8g2_GetAscent(g), y = base - asc - 1, w = chip_w(g, item), h = asc + 3, my = base - 3;
+    if (ui_colour(g)) {
+        ui_ink(g, col == UC_MOD ? UC_MOD_DIM : UC_DIM);
+        u8g2_DrawRBox(g, x, y, w, h, 1);
+    } else u8g2_DrawRFrame(g, x, y, w, h, 1);
+    ui_ink(g, col);
+    if (item[0] == '<') { gui_draw_arrow(g, x + 2, my, 'l', 3); u8g2_DrawHLine(g, x + 4, my, 3); }    // (head 3 px, shaft to 5 px)
+    else                { gui_draw_arrow(g, x + 6, my, 'r', 3); u8g2_DrawHLine(g, x + 2, my, 3); }
+    ui_ink(g, UC_TEXT);
+    uw_text(g, x + CHIP_PAD, base, item + 1, col);
+}
+
 static void cable_line(u8g2_t *g, int x, int base, int max_w, cable_item_t *it, int n, const char *none, ui_colour_t col) {
     if (!n) { uw_text(g, x, base, none, UC_DIM); return; }
-    char line[96] = "";
-    const int dots = u8g2_GetStrWidth(g, " ...");
+    const int dots = u8g2_GetStrWidth(g, "...");
+    int at = x;
     for (int i = 0; i < n; i++) {
-        char next[sizeof line + sizeof *it + 2];
-        snprintf(next, sizeof next, "%s%s%s", line, i ? " " : "", it[i]);
-        if (u8g2_GetStrWidth(g, next) > max_w - (i == n - 1 ? 0 : dots)) { strncat(line, i ? " ..." : "...", sizeof line - strlen(line) - 1); break; }
-        memcpy(line, next, sizeof line - 1);                                       // (it fits: narrower than the line)
-        line[sizeof line - 1] = 0;
+        const int w = chip_w(g, it[i]);
+        if (at + w - x > max_w - (i == n - 1 ? 0 : CHIP_GAP + dots)) { uw_text(g, at, base, "...", col); return; }
+        cable_chip(g, at, base, it[i], col);
+        at += w + CHIP_GAP;
     }
-    uw_text(g, x, base, line, col);
 }
 
 static void add_item(cable_item_t *it, int *n, char dir, const rack_t *r, int slot, const char *other, int param_of) {
@@ -652,7 +674,7 @@ static void strip_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
             int na, nm;
             cables_of(c, node, au, &na, md, &nm);
             cable_line(g, r.x + 3, r.y + 2 + asc, r.w - 6, au, na, "no audio", UC_TEXT);
-            cable_line(g, r.x + 3, r.y + 2 + rh + asc, r.w - 6, md, nm, "no modulation", UC_MOD);
+            cable_line(g, r.x + 3, r.y + 3 + rh + asc, r.w - 6, md, nm, "no modulation", UC_MOD);   // (1 px lower: the chips apart)
             u8g2_SetMaxClipWindow(g);
             goto menu_box;
         }
@@ -932,6 +954,18 @@ static void item_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_r
 
 /* ---------------- layout ---------------- */
 
+// Zoomed out, the view along one side (the graph from lo to hi, a view `view` px long, `cam` its start): a graph that fits is centred;
+// a bigger one is followed: the view moves only as far as it takes to show the cursor's node (at `at`, `len` long, 2 px around it for
+// its outline), and never past the graph's ends.
+#define CAM_PAD 2
+static void follow(int *cam, int lo, int hi, int view, bool on, int at, int len) {
+    lo -= CAM_PAD; hi += CAM_PAD;
+    if (hi - lo <= view) { *cam = lo - (view - (hi - lo)) / 2; return; }
+    if (on && at - CAM_PAD < *cam) *cam = at - CAM_PAD;
+    if (on && at + len + CAM_PAD > *cam + view) *cam = at + len + CAM_PAD - view;
+    *cam = *cam < lo ? lo : *cam > hi - view ? hi - view : *cam;
+}
+
 static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, gui_rect_t *rect) {
     g_zoom = c->ui->map_zoom < ZOOM_MIN ? ZOOM_MIN : c->ui->map_zoom > ZOOM_MAX ? ZOOM_MAX : c->ui->map_zoom;
     g_m = metrics(area, g_zoom);
@@ -942,19 +976,20 @@ static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect
     g_map_x = area.x + TILE_PAD;
     g_map_y = area.y + 2;                                                          // (room for the cursor's outline over the top tile)
     rect[E_INFO] = gui_rect(area.x, area.y + area.h - g_m.strip_h, area.w, g_m.strip_h);
+    g_view = gui_rect(area.x, area.y, area.w, rect[E_INFO].y - area.y);
     const int room = rect[E_INFO].y - 2 - g_map_y;                                 // the map's height on show (the outline under the lowest tile)
     const nav_graph_t *gr = graph(c);
     const int focus = c->ui->rack_menu ? c->ui->map_menu - 1 : c->ui->row - 1;
     const bool on_node = focus >= 0 && focus < NAV_NODES && gr->node[focus].kind != NODE_NONE;
     g_scroll = 0;                                                                  // a map taller than the room: the part around the cursor (no state)
     if (on_node && gr->node[focus].y + g_m.tile_h > room) g_scroll = gr->node[focus].y + g_m.tile_h - room;
-    if (g_zoom < 0) {                                                              // zoomed out: the whole graph in the room, no scroll
+    g_scroll_x = 0;
+    if (g_zoom < 0) {                                                              // zoomed out: the graph as big as it grows, the view over it
         const nav_graph_t *p = placed_graph(c);
         int scroll0 = 0;                                                           // (zoom 0's scroll: where its tiles were on the screen)
         if (focus >= 0 && focus < NAV_NODES && p->node[focus].kind != NODE_NONE && p->node[focus].y + g_m0.tile_h > room)
             scroll0 = p->node[focus].y + g_m0.tile_h - room;
-        force_update(c, room, scroll0);
-        g_scroll = 0;
+        force_update(c, scroll0);
         gr = graph(c);
         if (!c->ui->rack_menu && focus >= 0 && focus < NAV_NODES && gr->node[focus].kind == NODE_NONE) {   // on a "+": the nearest node instead
             int best = -1, best_d = 0;
@@ -965,9 +1000,23 @@ static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect
             }
             if (best >= 0) c->ui->row = best + 1;
         }
+        const int f = c->ui->rack_menu ? c->ui->map_menu - 1 : c->ui->row - 1;
+        const bool on = f >= 0 && f < NAV_NODES && gr->node[f].kind != NODE_NONE;
+        int x0 = 1 << 14, x1 = -(1 << 14), y0 = 1 << 14, y1 = -(1 << 14);
+        for (int i = 0; i < NAV_NODES; i++) {
+            if (gr->node[i].kind == NODE_NONE) continue;
+            const int x = gr->node[i].x, y = gr->node[i].y;
+            x0 = x < x0 ? x : x0; y0 = y < y0 ? y : y0;
+            x1 = x + g_m.tile_w > x1 ? x + g_m.tile_w : x1; y1 = y + g_m.tile_h > y1 ? y + g_m.tile_h : y1;
+        }
+        if (x1 > x0) {
+            follow(&g_cam_x, x0, x1, g_map_w, on, on ? gr->node[f].x : 0, g_m.tile_w);
+            follow(&g_cam_y, y0, y1, room, on, on ? gr->node[f].y : 0, g_m.tile_h);
+        }
+        g_scroll_x = g_cam_x;
+        g_scroll = g_cam_y;
     }
-    g_scroll_x = 0;                                                                // wider than the screen (zoom 1): the cursor's tile in the middle
-    if (g_zoom > 0) {
+    if (g_zoom > 0) {                                                              // wider than the screen (zoom 1): the cursor's tile in the middle
         int x0 = 1 << 14, x1 = -(1 << 14);
         for (int i = 0; i < NAV_NODES; i++) {
             if (gr->node[i].kind == NODE_NONE) continue;
@@ -982,7 +1031,8 @@ static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect
     }
     for (int i = 0; i < NAV_NODES; i++) {
         const gui_rect_t t = tile_at(gr, i);
-        const bool in_view = t.y >= g_map_y && t.y + t.h <= g_map_y + room && t.x + t.w > area.x && t.x < area.x + area.w;   // (cut at the sides)
+        const bool in_view = (g_zoom < 0 ? t.y + t.h > area.y && t.y < rect[E_INFO].y : t.y >= g_map_y && t.y + t.h <= g_map_y + room) &&
+                             t.x + t.w > area.x && t.x < area.x + area.w;           // (cut at the sides; zoomed out at every edge)
         rect[i] = gr->node[i].kind != NODE_NONE && in_view ? t : gui_rect(0, 0, 0, 0);
     }
     // the menu: its items that apply, stacked in a box over the map (a list: it scrolls on a short screen)

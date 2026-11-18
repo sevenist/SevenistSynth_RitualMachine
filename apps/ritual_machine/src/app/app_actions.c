@@ -183,6 +183,7 @@ void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             else if (!in_pads(app)) app_joy_mode(app, !app->ui.joy_xy);
             break;
         case ACT_VALUE_RESET:  if (!in_pads(app) || app->ui.in_rack) value_reset(app); break;
+        case ACT_ZOOM:         if (synth_ui_map_zoom(&app->ui, n)) app->dirty = true; break;      // (the RACK map on show; elsewhere nothing)
         case ACT_VALUE_ADJUST: ui_event_n(app, n, UI_VALUE_INC, UI_VALUE_DEC); set_status(app, b, n); break;
         case ACT_VALUE_FINE:                                // the same in fine steps (core/fine_step.h)
             g_fine_step = true;

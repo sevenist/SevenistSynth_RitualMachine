@@ -17,6 +17,8 @@
 //   - the strip names the selected node and its ports, so a cable is read without opening the module.
 // Two sizes: a tall screen (an area of 120 px or more: 128 x 160) has 28 x 14 tiles 4 px apart and a three-line strip with the ports as chips;
 // a short one (128 x 128) 28 x 12 tiles 4 x 3 px apart and a two-line strip. A map taller than the room shows the part around the cursor.
+// Zoom (ACT_ZOOM, ui->map_zoom; the user's idea, 2026-11-18): 0 the tiles; 1 the same map three times as wide (84 px tiles, 12 px apart:
+// the room for the cables), each tile its name, its type and its values as bars, the map scrolling sideways to keep the cursor in view.
 #include "core/ui_screen.h"
 #include "core/ui_widgets.h"
 #include "core/nav_graph.h"
@@ -28,28 +30,57 @@ enum { E_INFO = NAV_NODES, E_M0, E_COUNT = E_M0 + 1 + (RM_END - RM_TYPE) };
 
 #define TILE_PAD 2                       // the margin left and right of the map (the cursor's outline is 2 px outside a tile)
 #define MENU_W   96
+#define ZOOM_MIN 0
+#define ZOOM_MAX 1
 typedef struct { int tile_w, tile_h, gap_x, gap_y, strip_h; bool tall; } metrics_t;
-static metrics_t metrics(gui_rect_t area) {
-    return area.h >= 120 ? (metrics_t){28, 14, 4, 4, 32, true} : (metrics_t){28, 12, 4, 3, 21, false};
+static metrics_t metrics(gui_rect_t area, int zoom) {
+    const bool tall = area.h >= 120;
+    if (zoom > 0) return tall ? (metrics_t){84, 30, 12, 10, 32, true} : (metrics_t){84, 23, 12, 8, 21, false};     // (3 x the pitch across)
+    return tall ? (metrics_t){28, 14, 4, 4, 32, true} : (metrics_t){28, 12, 4, 3, 21, false};
 }
 static gui_rect_t g_menu_box;            // the menu's box (layout -> strip_draw, which paints it before the items)
-static metrics_t g_m = {28, 14, 4, 4, 32, true};   // the sizes in use, and where the map is drawn (layout -> graph, draw_extra)
-static int g_map_w = 128 - 2 * TILE_PAD, g_map_x, g_map_y, g_scroll;
+static metrics_t g_m = {28, 14, 4, 4, 32, true}, g_m0 = {28, 14, 4, 4, 32, true};   // the sizes in use and those of zoom 0 (layout -> graph, draw_extra)
+static int g_zoom, g_map_w = 128 - 2 * TILE_PAD, g_map_x, g_map_y, g_scroll, g_scroll_x;
 
 // The graph of the rack on show, its nodes floating (nav_place). The graph is rebuilt at every use (16 modules: cheap, and nothing to keep
-// in step with the rack); its layout is only worked out again when the graph or the sizes changed.
+// in step with the rack); its layout is only worked out again when the graph or the sizes changed. Zoom 1 is zoom 0's layout spread out:
+// three times across (the pitch of 84 px tiles 12 px apart), each row at its own height.
 static const nav_graph_t *graph(const ui_ctx_t *c) {
-    static nav_graph_t built, placed;
+    static nav_graph_t built, placed, wide;
     static nav_metrics_t at;
+    static metrics_t at_wide;
     static bool have;
     nav_graph_t fresh;
     nav_build(&fresh, c->rack);
-    const nav_metrics_t m = {g_map_w, g_m.tile_w, g_m.tile_h, g_m.gap_x, g_m.gap_y};
-    if (!have || memcmp(&fresh, &built, sizeof fresh) != 0 || memcmp(&m, &at, sizeof m) != 0) {
+    const nav_metrics_t m = {g_map_w, g_m0.tile_w, g_m0.tile_h, g_m0.gap_x, g_m0.gap_y};
+    const bool moved = !have || memcmp(&fresh, &built, sizeof fresh) != 0 || memcmp(&m, &at, sizeof m) != 0;
+    if (moved) {
         built = fresh; placed = fresh; at = m; have = true;
         nav_place(&placed, &m);
     }
-    return &placed;
+    if (g_zoom <= 0) return &placed;
+    if (moved || memcmp(&g_m, &at_wide, sizeof g_m) != 0) {
+        const int across = (g_m.tile_w + g_m.gap_x) / (g_m0.tile_w + g_m0.gap_x), down0 = g_m0.tile_h + g_m0.gap_y, down = g_m.tile_h + g_m.gap_y;
+        wide = placed;
+        at_wide = g_m;
+        wide.height = 0;
+        for (int i = 0; i < NAV_NODES; i++) {
+            if (wide.node[i].kind == NODE_NONE) continue;
+            wide.node[i].x = (int16_t)(placed.node[i].x * across);
+            wide.node[i].y = (int16_t)((placed.node[i].y + down0 / 2) / down0 * down);
+            if (wide.node[i].y + g_m.tile_h > wide.height) wide.height = wide.node[i].y + g_m.tile_h;
+        }
+    }
+    return &wide;
+}
+
+bool synth_ui_map_zoom(synth_ui_t *ui, int steps) {
+    if (!ui->in_rack || (ui->menu_tab != TAB_RACK && ui->menu_tab != TAB_MAP) || ui->map_at || ui->rack_menu) return false;   // (the map on show)
+    int z = ui->map_zoom + steps;
+    z = z < ZOOM_MIN ? ZOOM_MIN : z > ZOOM_MAX ? ZOOM_MAX : z;
+    if (z == ui->map_zoom) return false;
+    ui->map_zoom = (int8_t)z;
+    return true;
 }
 
 static int item_arg(int e) { return e == E_M0 ? MAP_EDIT : RM_TYPE + (e - E_M0 - 1); }
@@ -129,8 +160,9 @@ static ui_colour_t node_family(const ui_ctx_t *c, int node) {
     return ui_family((module_type_t)c->rack->slot[nd->slot].type);
 }
 
-// The value a tile shows as its bar: the level of an oscillator, the cutoff of a filter ..., else the module's first continuous one.
-static float main_value(const rack_slot_t *s) {
+// The value a tile shows as its bar: the level of an oscillator, the cutoff of a filter ..., else the module's first continuous one
+// (main_index: its index, -1 for none).
+static int main_index(const rack_slot_t *s) {
     int i = -1;
     switch (s->type) {
         case MOD_OSC: i = MP_OC_LEVEL; break;
@@ -141,8 +173,9 @@ static float main_value(const rack_slot_t *s) {
             for (int k = 0; k < rack_mparam_count((module_type_t)s->type); k++) if (rack_mparam_is_continuous((module_type_t)s->type, k)) { i = k; break; }
             break;
     }
-    return i >= 0 && rack_mparam_is_continuous((module_type_t)s->type, i) ? rack_mparam_norm(s, i) : -1.0f;
+    return i >= 0 && rack_mparam_is_continuous((module_type_t)s->type, i) ? i : -1;
 }
+static float main_value(const rack_slot_t *s) { const int i = main_index(s); return i >= 0 ? rack_mparam_norm(s, i) : -1.0f; }
 
 /* ---------------- drawing ---------------- */
 
@@ -152,14 +185,47 @@ static void tile_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_r
     const nav_node_t *n = &graph(c)->node[c->arg];
     char name[8];
     node_label(c, c->arg, name, sizeof name);
-    const float bar = n->kind == NODE_MODULE ? main_value(&c->rack->slot[n->slot]) : -1.0f;
     const bool selected = focused || (c->ui->rack_menu && c->ui->map_menu == c->arg + 1);     // (the node the menu is open on)
-    uw_tile(g, r, name, node_family(c, c->arg), bar, selected, n->kind == NODE_MODULE && n->col >= 2);
+    const bool modulator = n->kind == NODE_MODULE && n->col >= 2;
+    if (g_zoom > 0) {
+        uw_bar_t bar[4];
+        char lbl[4][8];
+        int k = 0;
+        const char *kind = "";
+        if (n->kind == NODE_MODULE) {                          // its values: the main one first, then the other continuous ones in order
+            const rack_slot_t *s = &c->rack->slot[n->slot];
+            const module_type_t t = (module_type_t)s->type;
+            kind = rack_type_name(t);
+            const int first = main_index(s);
+            for (int i = -1; i < rack_mparam_count(t) && k < 4; i++) {
+                const int p = i < 0 ? first : i;
+                if (p < 0 || (i >= 0 && p == first) || !rack_mparam_is_continuous(t, p)) continue;
+                snprintf(lbl[k], sizeof lbl[k], "%s", rack_mparam_label(t, p));
+                bar[k] = (uw_bar_t){lbl[k], rack_mparam_norm(s, p)};
+                k++;
+            }
+        } else if (n->kind == NODE_MIX) {                      // the branches' levels
+            kind = "1 + 2";
+            for (int b = 0; b < RACK_BRANCHES && k < 4; b++) {
+                snprintf(lbl[k], sizeof lbl[k], "Lvl%d", b + 1);
+                bar[k] = (uw_bar_t){lbl[k], c->rack->br_lvl[b]};
+                k++;
+            }
+        } else if (n->kind == NODE_OUT) kind = "the output";
+        else if (n->kind == NODE_PLUS) kind = "add a module";
+        uw_tile_wide(g, r, name, kind, node_family(c, c->arg), bar, k, selected, modulator);
+        return;
+    }
+    const float bar = n->kind == NODE_MODULE ? main_value(&c->rack->slot[n->slot]) : -1.0f;
+    uw_tile(g, r, name, node_family(c, c->arg), bar, selected, modulator);
 }
 
-// A node's tile on the screen, whether or not it is in view (the cables are drawn from it; the clip window keeps them on the map).
+// A node's tile on the screen, whether or not it is in view (the cables are drawn from it; the clip window keeps them on the map). Zoom 1:
+// a "+" and the OUT, which have no values, are one line high.
+#define WIDE_LINE_H 12
 static gui_rect_t tile_at(const nav_graph_t *gr, int i) {
-    return gui_rect(g_map_x + gr->node[i].x, g_map_y + gr->node[i].y - g_scroll, g_m.tile_w, g_m.tile_h);
+    const bool line = g_zoom > 0 && (gr->node[i].kind == NODE_PLUS || gr->node[i].kind == NODE_OUT);
+    return gui_rect(g_map_x + gr->node[i].x - g_scroll_x, g_map_y + gr->node[i].y - g_scroll, g_m.tile_w, line ? WIDE_LINE_H : g_m.tile_h);
 }
 
 // The cables, under the tiles, as straight runs with elbows. Audio: out of the bottom of a tile, down its own column, then across just above
@@ -173,7 +239,7 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
     for (int e = 0; e < gr->n_edges; e++) {
         if (gr->edge[e].kind != EDGE_AUDIO) continue;
         const gui_rect_t a = tile_at(gr, gr->edge[e].from), b = tile_at(gr, gr->edge[e].to);
-        const int ax = a.x + tw / 2, ay = a.y + th, bx = b.x + tw / 2, by = b.y - 1;
+        const int ax = a.x + tw / 2, ay = a.y + a.h, bx = b.x + tw / 2, by = b.y - 1;
         if (ax == bx) { uw_line(g, ax, ay, ax, by, UW_CABLE_AUDIO); continue; }
         const int my = by - g_m.gap_y / 2;
         uw_line(g, ax, ay, ax, my, UW_CABLE_AUDIO);
@@ -340,7 +406,9 @@ static void item_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_r
 /* ---------------- layout ---------------- */
 
 static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect_t area, gui_rect_t *rect) {
-    g_m = metrics(area);
+    g_zoom = c->ui->map_zoom < ZOOM_MIN ? ZOOM_MIN : c->ui->map_zoom > ZOOM_MAX ? ZOOM_MAX : c->ui->map_zoom;
+    g_m = metrics(area, g_zoom);
+    g_m0 = metrics(area, 0);
     g_map_w = area.w - 2 * TILE_PAD;
     g_map_x = area.x + TILE_PAD;
     g_map_y = area.y + 2;                                                          // (room for the cursor's outline over the top tile)
@@ -348,12 +416,26 @@ static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect
     const int room = rect[E_INFO].y - 2 - g_map_y;                                 // the map's height on show (the outline under the lowest tile)
     const nav_graph_t *gr = graph(c);
     const int focus = c->ui->rack_menu ? c->ui->map_menu - 1 : c->ui->row - 1;
+    const bool on_node = focus >= 0 && focus < NAV_NODES && gr->node[focus].kind != NODE_NONE;
     g_scroll = 0;                                                                  // a map taller than the room: the part around the cursor (no state)
-    if (focus >= 0 && focus < NAV_NODES && gr->node[focus].kind != NODE_NONE && gr->node[focus].y + g_m.tile_h > room)
-        g_scroll = gr->node[focus].y + g_m.tile_h - room;
+    if (on_node && gr->node[focus].y + g_m.tile_h > room) g_scroll = gr->node[focus].y + g_m.tile_h - room;
+    g_scroll_x = 0;                                                                // wider than the screen (zoom 1): the cursor's tile in the middle
+    if (g_zoom > 0) {
+        int x0 = 1 << 14, x1 = -(1 << 14);
+        for (int i = 0; i < NAV_NODES; i++) {
+            if (gr->node[i].kind == NODE_NONE) continue;
+            if (gr->node[i].x < x0) x0 = gr->node[i].x;
+            if (gr->node[i].x + g_m.tile_w > x1) x1 = gr->node[i].x + g_m.tile_w;
+        }
+        if (x1 - x0 <= g_map_w) g_scroll_x = x0 - (g_map_w - (x1 - x0)) / 2;     // it fits: centred
+        else {
+            const int want = on_node ? gr->node[focus].x + g_m.tile_w / 2 - g_map_w / 2 : x0;
+            g_scroll_x = want < x0 ? x0 : want > x1 - g_map_w ? x1 - g_map_w : want;
+        }
+    }
     for (int i = 0; i < NAV_NODES; i++) {
         const gui_rect_t t = tile_at(gr, i);
-        const bool in_view = t.y >= g_map_y && t.y + t.h <= g_map_y + room;
+        const bool in_view = t.y >= g_map_y && t.y + t.h <= g_map_y + room && t.x + t.w > area.x && t.x < area.x + area.w;   // (cut at the sides)
         rect[i] = gr->node[i].kind != NODE_NONE && in_view ? t : gui_rect(0, 0, 0, 0);
     }
     // the menu: its items that apply, stacked in a box over the map (a list: it scrolls on a short screen)

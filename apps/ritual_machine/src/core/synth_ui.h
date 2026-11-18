@@ -125,6 +125,7 @@ typedef struct {
     bool    map_pick;   // ... the PICK list over it (a modulation source for one of its parameters)
     uint8_t pick_param; // ... PICK: the parameter the cable goes to (rack_param_name's index)
     uint8_t map_menu;   // ... the rack's cell menu opened on the map: the map's focus to come back to (node + 1); 0: not from the map
+    int8_t  map_zoom;   // ... the map's zoom (scr_map.c): 0 tiles, 1 wide tiles with more values (synth_ui_map_zoom)
     int  fm_op;            // FM editor: selected operator 0..5
     int  fm_pt;            // FM editor: selected envelope point 0..3
     int  cog_page;         // the page whose cog is open (its module's hidden settings shown in place of its rows), -1 = none
@@ -259,6 +260,10 @@ void synth_ui_rebuild_pages(synth_ui_t *ui, const rack_t *rack);
 
 // Applies a UI event. Returns true if a synth parameter changed.
 bool synth_ui_handle(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, ui_event_t e);
+
+// The RACK map's zoom (ACT_ZOOM, scr_map.c): `steps` levels in (> 0) or out, while the map is on show and no menu is open on it. Returns
+// true when the zoom changed.
+bool synth_ui_map_zoom(synth_ui_t *ui, int steps);
 
 // Knobs (value 0..INPUT_VALUE_MAX = the whole range of the parameter). All return true when a sound value changed.
 bool synth_ui_knob_row(synth_ui_t *ui, synth_params_t *params, seq_t *seq, rack_t *rack, int row, int value);   // row 1..4 of the current page

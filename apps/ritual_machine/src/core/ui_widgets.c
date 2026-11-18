@@ -70,6 +70,54 @@ void uw_tile(u8g2_t *g, gui_rect_t r, const char *name, ui_colour_t family, floa
     u8g2_SetDrawColor(g, 1);
 }
 
+#define WIDE_TOP 11                         // a wide tile: its first value row, under the name
+#define WIDE_ROW 6                          // ... and the rows' pitch (the small font)
+
+int uw_tile_wide_rows(int h) { return h > WIDE_TOP ? (h - WIDE_TOP) / WIDE_ROW : 0; }
+
+void uw_tile_wide(u8g2_t *g, gui_rect_t r, const char *name, const char *kind, ui_colour_t family, const uw_bar_t *bar, int n, bool focused,
+                  bool modulator) {
+    if (r.w <= 0 || r.h <= 0) return;
+    const bool col = ui_colour(g);
+    const int rows = uw_tile_wide_rows(r.h) < n ? uw_tile_wide_rows(r.h) : n;
+    if (col) {
+        ui_fill(g, r.x, r.y, r.w, r.h, UC_TILE);
+        ui_fill(g, r.x, r.y, 2, r.h, family);
+    } else if (modulator) {                                    // (one colour: the corners cut, as uw_tile does)
+        u8g2_DrawFrame(g, r.x, r.y, r.w, r.h);
+        u8g2_SetDrawColor(g, 0);
+        u8g2_DrawPixel(g, r.x, r.y); u8g2_DrawPixel(g, r.x + r.w - 1, r.y);
+        u8g2_DrawPixel(g, r.x, r.y + r.h - 1); u8g2_DrawPixel(g, r.x + r.w - 1, r.y + r.h - 1);
+        u8g2_SetDrawColor(g, 1);
+    } else u8g2_DrawFrame(g, r.x, r.y, r.w, r.h);
+    uw_text(g, r.x + 5, r.y + 8, name, UC_TEXT);
+    if (kind && kind[0]) uw_text(g, r.x + 9 + u8g2_GetStrWidth(g, name), r.y + 8, kind, UC_DIM);
+    const uint8_t *font = g->font;
+    u8g2_SetFont(g, SMALL);
+    const int bx = r.x + 22, bw = r.w - 22 - 4;
+    for (int i = 0; i < rows; i++) {
+        const int y = r.y + WIDE_TOP + i * WIDE_ROW;
+        uw_text(g, r.x + 5, y + 5, bar[i].label, UC_TEXT);
+        if (bar[i].frac < 0) continue;
+        const float f = bar[i].frac > 1 ? 1 : bar[i].frac;
+        const int w = (int)(f * (float)bw + 0.5f);
+        if (col) {
+            ui_fill(g, bx, y + 2, bw, 2, ui_dim(family));
+            ui_fill(g, bx, y + 2, w > 0 ? w : 1, 2, family);
+        } else {
+            u8g2_DrawHLine(g, bx, y + 3, bw);
+            if (w > 0) u8g2_DrawBox(g, bx, y + 2, w, 2);
+        }
+    }
+    u8g2_SetFont(g, font);
+    if (focused) {
+        if (col) {
+            ui_fill(g, r.x - 2, r.y - 2, r.w + 4, 2, UC_CURSOR); ui_fill(g, r.x - 2, r.y + r.h, r.w + 4, 2, UC_CURSOR);
+            ui_fill(g, r.x - 2, r.y, 2, r.h, UC_CURSOR);         ui_fill(g, r.x + r.w, r.y, 2, r.h, UC_CURSOR);
+        } else u8g2_DrawFrame(g, r.x - 2, r.y - 2, r.w + 4, r.h + 4);
+    }
+}
+
 int uw_chip_w(u8g2_t *g, const gui_style_t *st, const char *text) {
     u8g2_SetFont(g, SMALL);
     const int w = u8g2_GetStrWidth(g, text) + 5;

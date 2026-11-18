@@ -377,6 +377,44 @@ TEST(the_map_draws_on_every_rack_and_the_cursor_can_reach_every_node) {
     app_draw_frame(&ui_app);
 }
 
+// The zoom (ACT_ZOOM: on no control by default, the KEYS / MODIFIERS tabs give it one): only on the map, one level at a time, within its
+// range; zoomed in, the map is wider than the screen and scrolls so that the cursor's tile is always drawn (its outline in the map's part).
+static bool cursor_on_map(canvas_t *cv) {
+    for (int y = 22; y < 128; y++) for (int x = 0; x < 128; x++) if (canvas_get(cv, x, y) == ui_rgb(UC_CURSOR)) return true;
+    return false;
+}
+
+TEST(the_zoom_widens_the_map_and_keeps_the_cursor_in_view) {
+    map_on_sample_rack();
+    ui_app.ui.rack_menu = true;                                                    // a menu open: no zoom
+    CHECK(!synth_ui_map_zoom(&ui_app.ui, 1));
+    ui_app.ui.rack_menu = false;
+    const binding_t zoom_in = {CTL_ENC_A, IN_DELTA, MODS_ANY, ACT_ZOOM, 1};        // (as the MODIFIERS tab would give it to encoder A)
+    ui_app.dirty = false;
+    app_run_action(&ui_app, &zoom_in, (input_event_t){IN_DELTA, CTL_ENC_A, 1});
+    CHECK_EQ(ui_app.ui.map_zoom, 1);
+    CHECK(ui_app.dirty);
+    CHECK(!synth_ui_map_zoom(&ui_app.ui, 1));                                      // the most it zooms in
+    static uint16_t px[128 * 160];
+    static canvas_t cv;
+    CHECK(canvas_init(&cv, px, 128, 160));
+    ui_colour_attach(&cv);
+    nav_graph_t g;
+    nav_build(&g, &ui_app.rack);
+    if (DISPLAY_HEIGHT >= 160)
+        for (int i = 0; i < NAV_NODES; i++) {
+            if (g.node[i].kind == NODE_NONE) continue;
+            ui_app.ui.row = i + 1;
+            synth_ui_draw(&ui_app.ui, &ui_app.params, &ui_app.seq, &ui_app.rack, canvas_u8g2(&cv));
+            CHECK(cursor_on_map(&cv));
+        }
+    ui_colour_attach(NULL);
+    CHECK(synth_ui_map_zoom(&ui_app.ui, -5));                                      // back out, stopped at the tiles
+    CHECK_EQ(ui_app.ui.map_zoom, 0);
+    ui_app.ui.map_at = 1;                                                          // a node's page: no zoom
+    CHECK(!synth_ui_map_zoom(&ui_app.ui, 1));
+}
+
 /* ---------------- editing on the map: the rack's menu on its nodes ---------------- */
 
 static int find_slot(module_type_t t, int from) { for (int i = from; i < ui_app.rack.count; i++) if (ui_app.rack.slot[i].type == t) return i; return -1; }

@@ -62,6 +62,8 @@ static const fn_def_t fns[] = {
     {ACT_METRONOME,    0,         "Click",  "click"},
     {ACT_PAD_REC,      0,         "Rec",    "padrec"},
     {ACT_VALUE_RESET,  0,         "Reset",  "reset"},         // (appended: the F_* indexes below stay)
+    {ACT_ZOOM,         -1,        "Zoom -", "zoom-"},         // the RACK map (synth_ui_map_zoom)
+    {ACT_ZOOM,         +1,        "Zoom +", "zoom+"},
 };
 #define N_FNS ((int)(sizeof fns / sizeof fns[0]))
 

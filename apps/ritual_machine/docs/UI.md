@@ -173,6 +173,21 @@ Paths without a prefix are inside `apps/ritual_machine/src/` (`core/...`, `app/.
 > - The Studio writes the number first too ("7 Filter", "7 Filter.Out", the hints, the inspector, the Modular synth's sections).
 > - Tests: three titles. 241 UI tests at 160 and 128, the engine's 120, the Studio's self-test.
 >
+> **2026-11-18, step 7: the map's zoom, and zoom 1** (the user's idea: zoom 0 the tiles, zoom 1 the boxes three times as wide with more of
+> their values and room around for the cables, zoom -1 / -2 a floating graph of small nodes: step 8).
+>
+> - **`ACT_ZOOM`** (`core/bindings.h`): the map's zoom, on **no control by default** (the user: "editable by the assignments menus"). The
+>   KEYS tab and a layer entry of a button offer *Zoom -* / *Zoom +* (`keymap.c`, tokens `zoom-` / `zoom+`), a knob's or an encoder's
+>   entry *Zoom* (a level per detent, right = in; `modifiers.c`, token `zoom`). `synth_ui_map_zoom()` (`scr_map.c`) changes
+>   `synth_ui_t.map_zoom` while the map is on show with no menu open on it; elsewhere the action does nothing.
+> - **Zoom 1** (`scr_map.c`): the layout of zoom 0 spread out (three times across, 84 x 30 tiles 12 x 10 px apart at 160; 84 x 23,
+>   12 x 8 at 128), wider than the screen: it scrolls sideways to keep the cursor's tile in the middle, a tile cut at the screen's side is
+>   drawn cut. A tile (`uw_tile_wide`, `ui_widgets.c`) shows its name, its type, then its values as labelled bars: the main one first (the
+>   bar of zoom 0), then the other continuous ones, as many as its height holds (3 at 160, 2 at 128); the MIX its two branch levels; a
+>   "+" and the OUT are one line high.
+> - Tests: `test_map.c` (only on the map, the range, the action through a binding, the cursor's tile drawn for every node at zoom 1).
+>   243 UI tests at 160 and 128. Rendered and looked at (the sample rack: an oscillator, the filter, the MIX).
+>
 > The UI has **two ways of writing a screen**, and knowing which one a screen uses is the first thing to find out:
 
 - **Declarative** (the newer one): the screen is a table of elements, and one generic piece of code draws it, moves the focus

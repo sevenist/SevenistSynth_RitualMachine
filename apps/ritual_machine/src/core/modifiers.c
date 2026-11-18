@@ -107,6 +107,7 @@ static const struct { uint8_t act; int8_t arg; const char *name; const char *tok
     {ACT_MACRO_LEARN,   5, "Learn M6", "learnm6"},
     {ACT_MACRO_LEARN,   6, "Learn M7", "learnm7"},
     {ACT_MACRO_LEARN,   7, "Learn M8", "learnm8"},
+    {ACT_ZOOM,          1, "Zoom",     "zoom"},                 // the RACK map's zoom, a step per detent (right: in)
 };
 #define N_KNOB_FNS ((int)(sizeof knob_fns / sizeof knob_fns[0]))
 

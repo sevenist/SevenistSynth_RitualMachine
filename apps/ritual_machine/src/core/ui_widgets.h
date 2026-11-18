@@ -30,6 +30,11 @@ typedef enum { UW_CABLE_AUDIO, UW_CABLE_MOD, UW_CABLE_GATE } uw_cable_t;
 
 void uw_line(u8g2_t *g, int x0, int y0, int x1, int y1, uw_cable_t k);         // a horizontal or vertical cable segment, ends included
 void uw_tile(u8g2_t *g, gui_rect_t r, const char *name, ui_colour_t family, float bar, bool focused, bool modulator);   // bar < 0: none
+// A wide tile (the map zoomed in): the band, the name then its type (dim), then a row per value, its label and a bar (frac < 0: no bar).
+typedef struct { const char *label; float frac; } uw_bar_t;
+void uw_tile_wide(u8g2_t *g, gui_rect_t r, const char *name, const char *kind, ui_colour_t family, const uw_bar_t *bar, int n, bool focused,
+                  bool modulator);
+int  uw_tile_wide_rows(int h);                                                   // the value rows a wide tile of that height holds
 void uw_chip(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const char *text, ui_colour_t c);
 int  uw_chip_w(u8g2_t *g, const gui_style_t *st, const char *text);             // the width a chip needs for its text
 void uw_title(u8g2_t *g, gui_rect_t r, const char *left, const char *right, ui_colour_t family);

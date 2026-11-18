@@ -156,8 +156,11 @@ Paths without a prefix are inside `apps/ritual_machine/src/` (`core/...`, `app/.
 >   same picture twice, FM's straight chain; every move goes that way on the screen, every node reachable (the sample rack and a full one);
 >   the colour test reads the bands where the tiles float. 241 UI tests pass at 128 x 160 and 128 x 128. The screens were rendered and
 >   looked at (the sample rack, two modulators and an envelope, a full rack scrolled).
-> - Not done: flashed; a modulator's cable to a target two tiles away crosses the tile between (the fixed order keeps a modulator next to its
->   target, so it does not happen in the racks tried).
+> - Then (same day, its own commit): two modulators of one target stand side by side, and the far one's cable ran straight under the near
+>   one's tile, as if it modulated that one. A modulation cable with a tile in its way now goes around, through the gap under the row, up
+>   into the target's bottom (rendered and looked at: two LFOs on the filter, two on the delay).
+> - Not done: flashed. Seen in that render: with two modulators on a row M module, the MIX and row M column moves aside to make room and the
+>   branches' cables into the MIX get longer (still clear; a modulator of row M could take the side with more room).
 >
 > The UI has **two ways of writing a screen**, and knowing which one a screen uses is the first thing to find out:
 

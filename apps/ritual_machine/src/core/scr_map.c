@@ -185,7 +185,18 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
         const gui_rect_t m = tile_at(gr, gr->edge[e].from), t = tile_at(gr, gr->edge[e].to);
         const bool left = t.x < m.x;                                               // the target is on the modulator's left
         const int mx = left ? m.x - 1 : m.x + tw, my = m.y + th / 2;
-        if (my >= t.y && my < t.y + th) {                                          // side by side: straight across
+        bool blocked = false;                                                      // another tile between them on that row (a second modulator of one target)
+        for (int i = 0; i < NAV_NODES && my >= t.y && my < t.y + th; i++) {
+            if (gr->node[i].kind == NODE_NONE || i == gr->edge[e].from || i == gr->edge[e].to || gr->node[i].y != gr->node[gr->edge[e].from].y) continue;
+            const int x = gr->node[i].x;
+            if (left ? (x < gr->node[gr->edge[e].from].x && x > gr->node[gr->edge[e].to].x) : (x > gr->node[gr->edge[e].from].x && x < gr->node[gr->edge[e].to].x)) blocked = true;
+        }
+        if (blocked) {                                                             // around, through the gap under the row
+            const int bx = m.x + tw / 2, gy = m.y + th + g_m.gap_y / 2 - 1, tx = t.x + tw / 2 + (left ? 4 : -4);
+            uw_line(g, bx, m.y + th, bx, gy, UW_CABLE_MOD);
+            uw_line(g, bx, gy, tx, gy, UW_CABLE_MOD);
+            uw_line(g, tx, gy, tx, t.y + th, UW_CABLE_MOD);
+        } else if (my >= t.y && my < t.y + th) {                                   // side by side: straight across
             uw_line(g, mx, my, left ? t.x + tw : t.x - 1, my, UW_CABLE_MOD);
         } else {
             const int tx = t.x + tw / 2 + (left ? 4 : -4);                         // (beside the audio cable through its middle)

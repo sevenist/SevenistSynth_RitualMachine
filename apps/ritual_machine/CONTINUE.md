@@ -3,7 +3,7 @@
 The app's state, todo and history. Its guide is [docs/DEVELOPING.md](docs/DEVELOPING.md), its decisions [docs/DESIGN.md](docs/DESIGN.md).
 The library's notes, the user's working style and the traps of the environment are in the root [CONTINUE.md](../../CONTINUE.md).
 
-## Session todo (updated 2026-11-17)
+## Session todo (updated 2026-11-18)
 
 **2026-11-17 (branch `gui-nodes`): the node GUI rework.** Steps 1 to 4 committed (`96143c1`; the oscillator engines of the same
 days apart, `012698a`). Proposal: [docs/GUI_NODES.md](docs/GUI_NODES.md), step log at the top of [docs/UI.md](docs/UI.md), the look's
@@ -20,6 +20,14 @@ UI's background is pure black (as the boot animation's). The user's answers on w
   `225081b`; UI.md's log). Heights from the signal, floating across, chains straight, the cursor by the screen. **To try on the board.**
   Free in both directions was tried and dropped (long chains zigzagged on 128 px). Open: with two modulators on a row M module the MIX
   column moves aside (a row M modulator could take the side with more room).
+- [x] **The map's zoom levels and the graph's actions** (the user's idea, 2026-11-18): built the same day, one commit per step (UI.md's
+  log, steps 6 to 9). **To try in the simulator and on the board.** Step 6 `a7867ba`: a module's name is its number then its type ("7 FL",
+  pages "7 FILTER"), numbered as in the Studio (the lowest free number; the Studio writes the number first too). Step 7 `437f8b1`:
+  `ACT_ZOOM`, **on no control by default** (the user: the KEYS / MODIFIERS tabs assign it: *Zoom - / Zoom +* on a key or a button,
+  *Zoom* on a knob or an encoder); zoom 1 = wide tiles with their values as bars. Step 8 `fa0d06f`: zoom -1 / -2, the force graph
+  (`core/nav_force.[ch]`), spawned from zoom 0's places, animated. Step 9 `f7c0f08`: the graph's menu (Connect, Disconnect all, Delete;
+  a zoom or Back cancels a Connect with a popup). Open: the user picks a default control for the zoom, if any; the force graph's feel
+  (its strengths, the rest length, 5 s at most) once seen moving.
 - [ ] Moving a module up / down its chain in place; colour for the other screens.
 - [ ] **The map for the Pads section's FX chains**: the user decides how the routing shows (FXA / FXB / FXC in series or in parallel,
   `fx_route`); `nav_build` shows row M only for an FX rack today, and the map's Edit opens the synth's node page, not `fxmod_screen`.

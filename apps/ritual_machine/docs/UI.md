@@ -297,6 +297,17 @@ Paths without a prefix are inside `apps/ritual_machine/src/` (`core/...`, `app/.
 >   its Prm, the first removed and the cable promoted). 248 UI tests at 160 and 128. Rendered and looked at (an oscillator's and an LFO's
 >   menus with their cables).
 >
+> **2026-11-18, step 14: the strip at 160 shows the cables only** (the user: "line 1 for audio, line 2 for modulation, still in its colour,
+> '...' when there is no room left but more cables").
+>
+> - The tall strip (128 x 160) is two lines now (22 px: the map gets 10 px more): the node's audio cables in white ("<1 OC <3 OC >MIX":
+>   `<` in, `>` out; its chain's and the others), its modulation in amber ("<4 LF Cut >2 FL Res": first targets, cables, a sequencer's
+>   lanes), as many as the line holds, then "..."; "no audio" / "no modulation" dim. The MIX and the OUT show their audio edges. The short
+>   strip (128 x 128) is as it was; a "+" and a cable being chosen keep their text.
+> - Zoom 0: a name wider than its tile ("13 EN") is drawn in the small font.
+> - Seen in the full rack's render, older: three modulators of one target do not fit beside its column and their tiles overlap (the layout
+>   gives a row 4 tiles but does not move the column aside).
+>
 > The UI has **two ways of writing a screen**, and knowing which one a screen uses is the first thing to find out:
 
 - **Declarative** (the newer one): the screen is a table of elements, and one generic piece of code draws it, moves the focus

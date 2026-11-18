@@ -52,10 +52,10 @@ enum { MAP_ACT_NONE, MAP_ACT_MENU, MAP_ACT_PICK, MAP_ACT_PARAM, MAP_ACT_PICK_AUD
 typedef struct { int tile_w, tile_h, gap_x, gap_y, strip_h; bool tall; } metrics_t;
 static metrics_t metrics(gui_rect_t area, int zoom) {
     const bool tall = area.h >= 120;
-    if (zoom > 0) return tall ? (metrics_t){84, 30, 12, 10, 32, true} : (metrics_t){84, 23, 12, 8, 21, false};     // (3 x the pitch across)
-    if (zoom == -1) return (metrics_t){24, 16, 0, 0, tall ? 32 : 21, tall};                                         // (a node; no grid)
-    if (zoom < -1) return (metrics_t){12, 8, 0, 0, tall ? 32 : 21, tall};                                           // (half of -1's)
-    return tall ? (metrics_t){28, 14, 4, 4, 32, true} : (metrics_t){28, 12, 4, 3, 21, false};
+    if (zoom > 0) return tall ? (metrics_t){84, 30, 12, 10, 22, true} : (metrics_t){84, 23, 12, 8, 21, false};     // (3 x the pitch across)
+    if (zoom == -1) return (metrics_t){24, 16, 0, 0, tall ? 22 : 21, tall};                                         // (a node; no grid)
+    if (zoom < -1) return (metrics_t){12, 8, 0, 0, tall ? 22 : 21, tall};                                           // (half of -1's)
+    return tall ? (metrics_t){28, 14, 4, 4, 22, true} : (metrics_t){28, 12, 4, 3, 21, false};
 }
 static gui_rect_t g_menu_box;            // the menu's box (layout -> strip_draw, which paints it before the items)
 static metrics_t g_m = {28, 14, 4, 4, 32, true}, g_m0 = {28, 14, 4, 4, 32, true};   // the sizes in use and those of zoom 0 (layout -> graph, draw_extra)
@@ -521,6 +521,84 @@ static void ports(const ui_ctx_t *c, int node, char *in, char *out, char *mod, i
     }
 }
 
+// The tall strip (128 x 160; the user, 2026-11-18): only the node's cables, its audio on the first line, its modulation on the second (in the
+// modulation's colour): "<1 OC <3 OC >MIX", "<4 LF Cut >2 FL Res". As many as the line holds, then "...".
+#define CABLES_MAX 16
+typedef char cable_item_t[16];
+static void cable_line(u8g2_t *g, int x, int base, int max_w, cable_item_t *it, int n, const char *none, ui_colour_t col) {
+    if (!n) { uw_text(g, x, base, none, UC_DIM); return; }
+    char line[96] = "";
+    const int dots = u8g2_GetStrWidth(g, " ...");
+    for (int i = 0; i < n; i++) {
+        char next[sizeof line + sizeof *it + 2];
+        snprintf(next, sizeof next, "%s%s%s", line, i ? " " : "", it[i]);
+        if (u8g2_GetStrWidth(g, next) > max_w - (i == n - 1 ? 0 : dots)) { strncat(line, i ? " ..." : "...", sizeof line - strlen(line) - 1); break; }
+        memcpy(line, next, sizeof line - 1);                                       // (it fits: narrower than the line)
+        line[sizeof line - 1] = 0;
+    }
+    uw_text(g, x, base, line, col);
+}
+
+static void add_item(cable_item_t *it, int *n, char dir, const rack_t *r, int slot, const char *other, int param_of) {
+    if (*n >= CABLES_MAX) return;
+    char name[8];
+    if (other) snprintf(name, sizeof name, "%s", other); else rack_slot_name(r, slot, name, sizeof name);
+    if (param_of >= 0) snprintf(it[*n], sizeof it[*n], "%c%s %s", dir, name, rack_param_name((module_type_t)r->slot[param_of >> 8].type, param_of & 255));
+    else snprintf(it[*n], sizeof it[*n], "%c%s", dir, name);
+    (*n)++;
+}
+#define PARAM_OF(target_slot, p) (((target_slot) << 8) | (p))
+
+static void cables_of(const ui_ctx_t *c, int node, cable_item_t *au, int *na, cable_item_t *md, int *nm) {
+    const nav_graph_t *gr = graph(c);
+    const rack_t *r = c->rack;
+    *na = *nm = 0;
+    const nav_node_t *nd = &gr->node[node];
+    if (nd->kind != NODE_MODULE) {                                                 // the MIX, the OUT: their audio edges
+        for (int e = 0; e < gr->n_edges; e++) {
+            const nav_edge_t *ed = &gr->edge[e];
+            if (ed->kind != EDGE_AUDIO || (ed->to != node && ed->from != node)) continue;
+            const int o = ed->to == node ? ed->from : ed->to;
+            const char *other = o == NAV_MIX ? "MIX" : o == NAV_OUT ? "OUT" : NULL;
+            add_item(au, na, ed->to == node ? '<' : '>', r, o < RACK_MAX ? o : 0, other, -1);
+        }
+        return;
+    }
+    const int slot = nd->slot;
+    const uint8_t id = r->slot[slot].id;
+    if (rack_slot_is_audio(r, slot)) {                                             // audio in: its chain's, the cables; out: its chain's, the cables
+        const int prev = rack_audio_prev(r, slot);
+        if (prev != RACK_NONE && !r->slot[prev].cut) add_item(au, na, '<', r, prev, NULL, -1);
+        else if (prev == RACK_NONE && r->slot[slot].row == ROW_M && gr->node[NAV_MIX].kind == NODE_MIX) add_item(au, na, '<', r, 0, "MIX", -1);
+        for (int k = 0; k < r->n_cables; k++)
+            if (r->cable[k].kind == CABLE_AUDIO && r->cable[k].to == id && rack_find(r, r->cable[k].from) != RACK_NONE)
+                add_item(au, na, '<', r, rack_find(r, r->cable[k].from), NULL, -1);
+        const int next = rack_chain_to(r, slot);
+        if (next >= 0) add_item(au, na, '>', r, next, NULL, -1);
+        else if (next == RACK_OUT) add_item(au, na, '>', r, 0, r->slot[slot].row < ROW_M && gr->node[NAV_MIX].kind == NODE_MIX ? "MIX" : "OUT", -1);
+        for (int k = 0; k < r->n_cables; k++)
+            if (r->cable[k].kind == CABLE_AUDIO && r->cable[k].from == id && rack_find(r, r->cable[k].to) != RACK_NONE)
+                add_item(au, na, '>', r, rack_find(r, r->cable[k].to), NULL, -1);
+    }
+    for (int j = 0; j < r->count; j++) {                                           // modulation in: first targets, the cables, a sequencer's lanes
+        const rack_slot_t *m = &r->slot[j];
+        if (j != slot && rack_can_target((module_type_t)m->type) && m->tgt_id == id) add_item(md, nm, '<', r, j, NULL, PARAM_OF(slot, m->tgt_param));
+        if (m->type == MOD_MSEQ) {
+            const ms_pattern_t *p = rack_ms_const(r, j);
+            for (int l = 0; p && l < MS_LANES; l++) if (p->lane[l].tgt_id == id) add_item(md, nm, '<', r, j, NULL, PARAM_OF(slot, p->lane[l].tgt_param));
+        }
+    }
+    for (int k = 0; k < r->n_cables; k++)
+        if (r->cable[k].kind == CABLE_MOD && r->cable[k].to == id && rack_find(r, r->cable[k].from) != RACK_NONE)
+            add_item(md, nm, '<', r, rack_find(r, r->cable[k].from), NULL, PARAM_OF(slot, r->cable[k].param));
+    const int ti = r->slot[slot].tgt_id ? rack_find(r, r->slot[slot].tgt_id) : RACK_NONE;    // out: its first target, its cables
+    if (rack_can_target((module_type_t)r->slot[slot].type) && ti != RACK_NONE) add_item(md, nm, '>', r, ti, NULL, PARAM_OF(ti, r->slot[slot].tgt_param));
+    for (int k = 0; k < r->n_cables; k++) {
+        const int t = r->cable[k].kind == CABLE_MOD && r->cable[k].from == id ? rack_find(r, r->cable[k].to) : RACK_NONE;
+        if (t != RACK_NONE) add_item(md, nm, '>', r, t, NULL, PARAM_OF(t, r->cable[k].param));
+    }
+}
+
 static void plus_text(int node, char *l1, char *l2, int n) {
     snprintf(l1, (size_t)n, "+ %s", node == NAV_PLUS1 ? "end of branch 1" : node == NAV_PLUS2 ? "end of branch 2" : node == NAV_PLUSM ? "end of row M" : "a modulator");
     snprintf(l2, (size_t)n, "push: Type, Insert");
@@ -557,53 +635,29 @@ static void strip_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
         else rack_describe(rk, nd->slot, l1, sizeof l1);
         ports(c, node, in, out, mod, sizeof in);
         u8g2_SetClipWindow(g, r.x, r.y + 1, r.x + r.w, r.y + r.h);
-        const bool tall = r.h >= 30;                                                // (the tall strip: metrics())
+        const bool tall = g_m.tall;                                                 // (the tall strip: its cables only)
+        if (tall && nd->kind != NODE_PLUS) {
+            cable_item_t au[CABLES_MAX], md[CABLES_MAX];
+            int na, nm;
+            cables_of(c, node, au, &na, md, &nm);
+            cable_line(g, r.x + 3, r.y + 2 + asc, r.w - 6, au, na, "no audio", UC_TEXT);
+            cable_line(g, r.x + 3, r.y + 2 + rh + asc, r.w - 6, md, nm, "no modulation", UC_MOD);
+            u8g2_SetMaxClipWindow(g);
+            goto menu_box;
+        }
         if (ui_colour(g)) ui_fill(g, r.x + 3, r.y + 3, 5, 5, fam);
         else u8g2_DrawBox(g, r.x + 3, r.y + 3, 5, 5);
         uw_text(g, r.x + 11, r.y + 2 + asc, l1, UC_TEXT);
         if (nd->kind == NODE_PLUS) {
             uw_text(g, r.x + 3, r.y + 2 + rh + asc, l2, UC_DIM);
-        } else if (!tall) {
+        } else {
             if (nd->kind == NODE_MODULE && nd->col < 2) snprintf(l2, sizeof l2, "in %s  out %s", in, out);
             else if (nd->kind == NODE_MIX) snprintf(l2, sizeof l2, "-> row M");
             uw_text(g, r.x + 3, r.y + 2 + rh + asc, l2, UC_TEXT);
-        } else {
-            if (nd->kind == NODE_MODULE) {                                         // two of its values ("Cut 2.4k  Res 0.35")
-                const rack_slot_t *s = &rk->slot[nd->slot];
-                int shown = 0;
-                for (int i = 0; i < rack_mparam_count((module_type_t)s->type) && shown < 2; i++) {
-                    if (!rack_mparam_is_continuous((module_type_t)s->type, i)) continue;
-                    char v[12];
-                    rack_mparam_format(s, i, v, sizeof v);
-                    const size_t len = strlen(l2);
-                    snprintf(l2 + len, sizeof l2 - len, "%s%s %s", shown ? "  " : "", rack_mparam_label((module_type_t)s->type, i), v);
-                    shown++;
-                }
-            } else if (nd->kind == NODE_MIX) snprintf(l2, sizeof l2, "-> row M");
-            else snprintf(l2, sizeof l2, "the output");
-            uw_text(g, r.x + 3, r.y + 2 + rh + asc, l2, UC_TEXT);
-            if (nd->kind == NODE_MODULE) {                                         // the ports as chips
-                char t[3][24];
-                int k = 0;
-                if (nd->col < 2) { snprintf(t[k++], 24, "in<-%s", in); snprintf(t[k++], 24, "out->%s", out); }
-                else if (rk->slot[nd->slot].tgt_id) {
-                    const int ti = rack_find(rk, rk->slot[nd->slot].tgt_id);
-                    char tn[8] = "--";
-                    if (ti != RACK_NONE) rack_slot_name(rk, ti, tn, sizeof tn);
-                    snprintf(t[k++], 24, "out->%s", tn);
-                }
-                if (mod[0]) snprintf(t[k++], 24, "%s", mod);
-                int x = r.x + 3;
-                for (int i = 0; i < k; i++) {
-                    const int w = uw_chip_w(g, st, t[i]);
-                    if (x + w > r.x + r.w) break;
-                    uw_chip(g, st, gui_rect(x, r.y + 2 * rh + 3, w, 8), t[i], i == k - 1 && mod[0] ? UC_MOD : UC_TEXT);
-                    x += w + 3;
-                }
-            }
         }
         u8g2_SetMaxClipWindow(g);
     }
+menu_box:
     if (ui->rack_menu && g_menu_box.w > 0) {                                       // the menu's box, under its items (drawn next)
         const gui_rect_t b = g_menu_box;
         if (ui_colour(g)) ui_fill(g, b.x, b.y, b.w, b.h, UC_PANEL);

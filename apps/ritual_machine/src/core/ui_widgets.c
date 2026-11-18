@@ -34,8 +34,16 @@ void uw_line(u8g2_t *g, int x0, int y0, int x1, int y1, uw_cable_t k) {
     ui_ink(g, UC_TEXT);
 }
 
+static void uw_tile_body(u8g2_t *g, gui_rect_t r, const char *name, ui_colour_t family, float bar, bool focused, bool modulator);
 void uw_tile(u8g2_t *g, gui_rect_t r, const char *name, ui_colour_t family, float bar, bool focused, bool modulator) {
     if (r.w <= 0 || r.h <= 0) return;
+    const uint8_t *font = g->font;                             // a name wider than the tile ("13 EN"): the small font (put back below)
+    if (u8g2_GetStrWidth(g, name) > r.w - 6) u8g2_SetFont(g, SMALL);
+    uw_tile_body(g, r, name, family, bar, focused, modulator);
+    u8g2_SetFont(g, font);
+}
+
+static void uw_tile_body(u8g2_t *g, gui_rect_t r, const char *name, ui_colour_t family, float bar, bool focused, bool modulator) {
     const int base = r.h >= 14 ? r.y + 9 : baseline_mid(g, r);
     const int bw = bar >= 0 ? (int)((bar > 1 ? 1 : bar) * (float)(r.w - 10) + 0.5f) : -1;
     if (ui_colour(g)) {

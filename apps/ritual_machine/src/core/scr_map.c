@@ -647,7 +647,7 @@ static void strip_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
         }
         if (ui_colour(g)) ui_fill(g, r.x + 3, r.y + 3, 5, 5, fam);
         else u8g2_DrawBox(g, r.x + 3, r.y + 3, 5, 5);
-        uw_text(g, r.x + 11, r.y + 2 + asc, l1, UC_TEXT);
+        uw_marquee(g, r.x + 11, r.y + 2 + asc, r.w - 14, l1, UC_TEXT, true);         // (the selected node: a long one slides)
         if (nd->kind == NODE_PLUS) {
             uw_text(g, r.x + 3, r.y + 2 + rh + asc, l2, UC_DIM);
         } else {

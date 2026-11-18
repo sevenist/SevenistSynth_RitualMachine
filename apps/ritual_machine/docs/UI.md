@@ -321,6 +321,22 @@ Paths without a prefix are inside `apps/ritual_machine/src/` (`core/...`, `app/.
 >   takes the other bus, a third is refused; every rack loads). 125 engine tests, 249 UI tests at 160 and 128, the Studio's self-test (6777),
 >   the HWV2 simulator builds.
 >
+> **2026-11-19, step 16: sliding text, full type names** (the user: "show the full name, and wrap it around with an animation so it can be
+> read entirely when it overflows: sliding text in a set window, its start position held 1 second; only when it or its container is
+> selected; on more views where it helps").
+>
+> - **`uw_marquee`** (`ui_widgets.c`): text in a window; it fits: drawn as it is; wider: cut at the window's edges (inside the clip in use),
+>   and while `moving` it holds its start 1 s, then slides at 25 px a second and wraps around (the text again 16 px after its end). Its clock
+>   is the frame's (`uw_frame_begin(ui->now_ms)` in `synth_ui_draw`); a text keeps its own start while it stays on screen (up to 4 at once).
+>   `uw_marquee_moving()`: the app draws a frame every 40 ms while one slides (with the map's animation).
+> - **Where**: `uw_field` (every menu tab's rows and buttons, the pages' rows, the map's menu) and `uw_value_row` (the node page): a label and
+>   a value that do not fit side by side get a window each (the value at most half), sliding while the row is focused or latched, cut when
+>   not (one colour too: the same frame or fill, the texts slide). The PICK list's names; a zoom 1 tile's type while it is the cursor's; the
+>   128 px strip's line on the selected node ("4 LF > 2 FL Cutoff"). The tall strip's cable lines keep their "..." (the user's ask).
+> - **The type's full name**: the rack's Type item (inserting a module) shows "Oscillator", not "OC".
+> - Tests: `test_marquee.c` (cut and still when not selected; held 1 s then sliding; forgotten when gone; a text that fits unchanged; nothing
+>   drawn outside the window; a focused row too long slides, a plain one does not). Every frame-hash test still passes.
+>
 > The UI has **two ways of writing a screen**, and knowing which one a screen uses is the first thing to find out:
 
 - **Declarative** (the newer one): the screen is a table of elements, and one generic piece of code draws it, moves the focus

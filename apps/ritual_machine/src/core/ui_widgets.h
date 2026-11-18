@@ -58,6 +58,14 @@ void uw_panel(u8g2_t *g, gui_rect_t r);
 void uw_box(u8g2_t *g, gui_rect_t r);                                            // a picture's frame: dim in colour, plain in one colour
 void uw_text(u8g2_t *g, int x, int baseline, const char *s, ui_colour_t c);      // text in a colour (one colour: plain), transparent over fills
 
+// Text in a window `w` px wide from x (the user, 2026-11-19): as it is when it fits; wider, cut at the window's edges, and while `moving` (it
+// or what holds it is selected) it slides through the window and wraps around: its start held 1 s, then 25 px a second, the text again 16 px
+// after its end. The clock is the frame's (uw_frame_begin, from synth_ui_draw); uw_marquee_moving() says a text is sliding (the app keeps
+// drawing frames). Inside the clip window in use (kept).
+void uw_marquee(u8g2_t *g, int x, int baseline, int w, const char *s, ui_colour_t c, bool moving);
+void uw_frame_begin(uint32_t now_ms);
+bool uw_marquee_moving(void);
+
 #ifdef __cplusplus
 }
 #endif

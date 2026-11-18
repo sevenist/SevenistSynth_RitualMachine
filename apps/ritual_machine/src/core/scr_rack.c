@@ -186,7 +186,7 @@ static bool menu_open(const ui_ctx_t *c) { return c->ui->rack_menu; }
 static bool on_module_or_plus(const ui_ctx_t *c) { const cell_kind_t k = sel_cell(c).kind; return k == CELL_MODULE || k == CELL_PLUS; }
 
 static bool type_enabled(const ui_ctx_t *c) { return menu_open(c) && on_module_or_plus(c); }
-static void type_value(const ui_ctx_t *c, char *out, int n) { snprintf(out, (size_t)n, "%s", rack_type_code((module_type_t)c->ui->rack_type)); }
+static void type_value(const ui_ctx_t *c, char *out, int n) { snprintf(out, (size_t)n, "%s", rack_type_name((module_type_t)c->ui->rack_type)); }   // (its full name: it slides when too long)
 static bool type_adjust(const ui_ctx_t *c, int dir) {
     do c->ui->rack_type = (c->ui->rack_type + dir + MOD_TYPE_COUNT) % MOD_TYPE_COUNT;
     while (c->rack->fx && !fx_type_ok(c->ui->rack_type));               // the pads' chains: the effects only

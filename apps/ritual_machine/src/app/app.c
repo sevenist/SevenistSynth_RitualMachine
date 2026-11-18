@@ -1,6 +1,7 @@
 // The application: its start, one frame, and the step that the platform's main loop calls (app.h). The rest is in the other files of
 // this folder (app_internal.h lists them).
 #include "core/ui_theme.h"
+#include "core/ui_widgets.h"
 #include "app/app_internal.h"
 #include "app/key_leds.h"
 #include "ui/gui.h"
@@ -285,8 +286,8 @@ bool app_step(app_t *app, input_event_t e) {
 
     // Redraw only when something visible changed. Notes and the modifier do not change the screen. While more input is queued the redraw
     // is owed, not done: every pending note and knob turn is handled first and the screen is drawn once after them.
-    static uint32_t map_frame_ms;       // the map zoomed out settling: a frame every 33 ms until it stops
-    const bool map_moves = synth_ui_map_animating(&app->ui) && now - map_frame_ms >= 33;
+    static uint32_t map_frame_ms;       // the map zoomed out settling, a text sliding (ui_widgets.h): a frame every 40 ms while they move
+    const bool map_moves = (synth_ui_map_animating(&app->ui) || uw_marquee_moving()) && now - map_frame_ms >= 40;
     const bool want = app->dirty || app->redraw_owed || ((stepped || animated) && synth_ui_shows_playhead(&app->ui, &app->rack)) ||
                       (animated && app->boot_anim != GUI_ANIM_INVALID) || map_moves;
     if (map_moves) map_frame_ms = now;

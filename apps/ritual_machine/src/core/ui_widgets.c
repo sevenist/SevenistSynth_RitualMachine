@@ -14,6 +14,65 @@ void uw_text(u8g2_t *g, int x, int baseline, const char *s, ui_colour_t c) {
     u8g2_SetFontMode(g, was);
 }
 
+/* ---------------- sliding text ---------------- */
+
+#define SLIDE_HOLD_MS 1000
+#define SLIDE_PX_S    25
+#define SLIDE_GAP     16
+#define SLIDES        4                     // texts sliding at once (a row's label and value, the strip ...)
+static uint32_t g_now;
+static struct { uint32_t key, since; bool seen; } g_slide[SLIDES];
+static bool g_moving, g_moving_last;
+
+void uw_frame_begin(uint32_t now_ms) {
+    g_now = now_ms;
+    g_moving_last = g_moving;
+    g_moving = false;
+    for (int i = 0; i < SLIDES; i++) { if (!g_slide[i].seen) g_slide[i].key = 0; g_slide[i].seen = false; }   // (gone from the screen: forgotten)
+}
+
+bool uw_marquee_moving(void) { return g_moving || g_moving_last; }
+
+static uint32_t slide_key(int x, int base, const char *s) {
+    uint32_t h = 2166136261u ^ (uint32_t)(x * 31 + base * 7919);
+    for (; *s; s++) h = (h ^ (uint8_t)*s) * 16777619u;
+    return h ? h : 1;
+}
+
+static uint32_t slide_since(uint32_t key) {                 // when this text started sliding (now: new)
+    int free_i = -1;
+    for (int i = 0; i < SLIDES; i++) {
+        if (g_slide[i].key == key) { g_slide[i].seen = true; return g_slide[i].since; }
+        if (!g_slide[i].key && free_i < 0) free_i = i;
+    }
+    if (free_i < 0) free_i = 0;
+    g_slide[free_i].key = key; g_slide[free_i].since = g_now; g_slide[free_i].seen = true;
+    return g_now;
+}
+
+void uw_marquee(u8g2_t *g, int x, int base, int w, const char *s, ui_colour_t c, bool moving) {
+    const int tw = u8g2_GetStrWidth(g, s);
+    if (tw <= w || w <= 0) { uw_text(g, x, base, s, c); return; }
+    int off = 0;
+    if (moving) {
+        g_moving = true;
+        const uint32_t t = g_now - slide_since(slide_key(x, base, s));
+        const uint32_t run = (uint32_t)(tw + SLIDE_GAP) * 1000u / SLIDE_PX_S, phase = t % (SLIDE_HOLD_MS + run);
+        if (phase > SLIDE_HOLD_MS) off = (int)((phase - SLIDE_HOLD_MS) * SLIDE_PX_S / 1000u);
+    }
+    const int asc = u8g2_GetAscent(g), desc = u8g2_GetDescent(g);
+    const u8g2_uint_t cx0 = g->clip_x0, cy0 = g->clip_y0, cx1 = g->clip_x1, cy1 = g->clip_y1;     // (the window inside the clip in use)
+    const int x0 = x > cx0 ? x : cx0, x1 = x + w < cx1 ? x + w : cx1, y0 = base - asc > cy0 ? base - asc : cy0, y1 = base - desc + 1 < cy1 ? base - desc + 1 : cy1;
+    if (x1 <= x0 || y1 <= y0) return;
+    u8g2_SetClipWindow(g, (u8g2_uint_t)x0, (u8g2_uint_t)y0, (u8g2_uint_t)x1, (u8g2_uint_t)y1);
+    uw_text(g, x - off, base, s, c);
+    if (moving) uw_text(g, x - off + tw + SLIDE_GAP, base, s, c);
+    u8g2_SetClipWindow(g, cx0, cy0, cx1, cy1);
+}
+
+static void pair_overflow(u8g2_t *g, gui_rect_t r, int base, const char *label, const char *val, ui_colour_t lc, ui_colour_t vc, bool moving);
+static bool pair_fits(u8g2_t *g, gui_rect_t r, const char *label, const char *val);
+
 static int baseline_mid(u8g2_t *g, gui_rect_t r) { return r.y + (r.h - (u8g2_GetAscent(g) - u8g2_GetDescent(g))) / 2 + u8g2_GetAscent(g); }
 
 void uw_line(u8g2_t *g, int x0, int y0, int x1, int y1, uw_cable_t k) {
@@ -99,7 +158,10 @@ void uw_tile_wide(u8g2_t *g, gui_rect_t r, const char *name, const char *kind, u
         u8g2_SetDrawColor(g, 1);
     } else u8g2_DrawFrame(g, r.x, r.y, r.w, r.h);
     uw_text(g, r.x + 5, r.y + 8, name, UC_TEXT);
-    if (kind && kind[0]) uw_text(g, r.x + 9 + u8g2_GetStrWidth(g, name), r.y + 8, kind, UC_DIM);
+    if (kind && kind[0]) {
+        const int kx = r.x + 9 + u8g2_GetStrWidth(g, name);
+        uw_marquee(g, kx, r.y + 8, r.x + r.w - 3 - kx, kind, UC_DIM, focused);
+    }
     const uint8_t *font = g->font;
     u8g2_SetFont(g, SMALL);
     const int bx = r.x + 22, bw = r.w - 22 - 4;
@@ -240,17 +302,52 @@ void uw_value_row(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const char *la
     ui_fill(g, r.x, r.y, r.w, r.h, UC_TILE);
     if (frac > 0) ui_fill(g, r.x, r.y, (int)(frac * (float)r.w + 0.5f), r.h, ui_dim(family));
     if (modulated) ui_fill(g, r.x, r.y + r.h - 2, r.w, 2, UC_MOD);
-    uw_text(g, r.x + 3, base, lab, UC_TEXT);
     char val[28];
     snprintf(val, sizeof val, state == GUI_LATCHED ? "<%s>" : "%s", value);
-    uw_text(g, r.x + r.w - 2 - u8g2_GetStrWidth(g, val), base, val, state == GUI_LATCHED ? family : UC_TEXT);
+    if (!pair_fits(g, r, lab, val)) pair_overflow(g, r, base, lab, val, UC_TEXT, state == GUI_LATCHED ? family : UC_TEXT, state != GUI_PLAIN);
+    else {
+        uw_text(g, r.x + 3, base, lab, UC_TEXT);
+        uw_text(g, r.x + r.w - 2 - u8g2_GetStrWidth(g, val), base, val, state == GUI_LATCHED ? family : UC_TEXT);
+    }
     if (state != GUI_PLAIN) { ui_ink(g, state == GUI_LATCHED ? family : UC_CURSOR); u8g2_DrawFrame(g, r.x, r.y, r.w, r.h); ui_ink(g, UC_TEXT); }
+}
+
+// A label and a value that do not fit side by side: each its window (the value at most half, the label the rest), sliding while focused.
+static void pair_overflow(u8g2_t *g, gui_rect_t r, int base, const char *label, const char *val, ui_colour_t lc, ui_colour_t vc, bool moving) {
+    const int avail = r.w - 5, lw = u8g2_GetStrWidth(g, label), vw = u8g2_GetStrWidth(g, val);
+    int vwin = vw < avail / 2 ? vw : avail / 2;
+    if (lw + 4 + vw <= avail) vwin = vw;
+    else if (lw + 4 < avail - vwin) vwin = avail - lw - 4;             // (a short label: the value has the rest)
+    const int lwin = val[0] ? avail - vwin - 4 : avail;
+    uw_marquee(g, r.x + 3, base, lwin, label, lc, moving);
+    if (val[0]) uw_marquee(g, r.x + r.w - 2 - vwin, base, vwin, val, vc, moving);
+}
+
+static bool pair_fits(u8g2_t *g, gui_rect_t r, const char *label, const char *val) {
+    return u8g2_GetStrWidth(g, label) + 4 + (val ? u8g2_GetStrWidth(g, val) : 0) <= r.w - 5;
 }
 
 void uw_field(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const char *label, const char *value, ui_colour_t accent, gui_state_t state,
               bool dim) {
-    if (!ui_colour(g)) { gui_draw_field_state(g, st, r, label, value, state); return; }
+    char shown[40];
+    snprintf(shown, sizeof shown, state == GUI_LATCHED && value && value[0] ? "<%s>" : "%s", value ? value : "");
+    if (!ui_colour(g)) {
+        if (pair_fits(g, r, label, shown) || state == GUI_PLAIN) { gui_draw_field_state(g, st, r, label, value, state); return; }
+        const bool filled = state == GUI_LATCHED;                     // one colour, too long and focused: the same frame / fill, the texts slide
+        if (filled) { u8g2_DrawBox(g, r.x, r.y, r.w, r.h); u8g2_SetDrawColor(g, 0); }
+        else u8g2_DrawFrame(g, r.x, r.y, r.w, r.h);
+        pair_overflow(g, r, baseline_mid(g, r), label, shown, UC_TEXT, UC_TEXT, true);
+        u8g2_SetDrawColor(g, 1);
+        return;
+    }
     const int base = baseline_mid(g, r);
+    if (!pair_fits(g, r, label, shown)) {
+        ui_fill(g, r.x, r.y, r.w, r.h, state == GUI_LATCHED ? UC_HILITE : UC_TILE);
+        pair_overflow(g, r, base, label, shown, state == GUI_PLAIN ? UC_TEXT : UC_CURSOR, dim ? UC_DIM : state == GUI_LATCHED ? accent : UC_TEXT,
+                      state != GUI_PLAIN);
+        if (state != GUI_PLAIN) { ui_ink(g, state == GUI_LATCHED ? accent : UC_CURSOR); u8g2_DrawFrame(g, r.x, r.y, r.w, r.h); ui_ink(g, UC_TEXT); }
+        return;
+    }
     ui_fill(g, r.x, r.y, r.w, r.h, state == GUI_LATCHED ? UC_HILITE : UC_TILE);
     uw_text(g, r.x + 3, base, label, state == GUI_PLAIN ? UC_TEXT : UC_CURSOR);
     if (value && value[0]) {
@@ -296,10 +393,11 @@ void uw_list_row(u8g2_t *g, const gui_style_t *st, gui_rect_t r, const char *nam
     if (ui_colour(g)) {
         ui_fill(g, r.x, r.y, r.w, r.h, focused ? UC_HILITE : UC_TILE);
         ui_fill(g, r.x, r.y, 3, r.h, family);
-        uw_text(g, r.x + 7, base, name, UC_TEXT);
         u8g2_SetFont(g, SMALL);
-        uw_text(g, r.x + r.w - 2 - u8g2_GetStrWidth(g, info), base, info, UC_DIM);
+        const int iw = u8g2_GetStrWidth(g, info);
+        uw_text(g, r.x + r.w - 2 - iw, base, info, UC_DIM);
         u8g2_SetFont(g, st->font);
+        uw_marquee(g, r.x + 7, base, r.w - 13 - iw, name, UC_TEXT, focused);
         if (focused) { ui_ink(g, family); u8g2_DrawFrame(g, r.x, r.y, r.w, r.h); ui_ink(g, UC_TEXT); }
         return;
     }

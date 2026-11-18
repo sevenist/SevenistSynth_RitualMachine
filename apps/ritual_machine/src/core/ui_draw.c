@@ -551,6 +551,7 @@ void synth_ui_draw(const synth_ui_t *ui, const synth_params_t *p, const seq_t *s
 
     ui_clear(g);
     gui_begin(g, st);
+    uw_frame_begin(ui->now_ms);                                       // (the sliding texts' clock)
 
     gui_rect_t screen = gui_inset(gui_rect(0, 0, u8g2_GetDisplayWidth(g), content_h), st->margin);
     int row_h = gui_row_h(g, st);

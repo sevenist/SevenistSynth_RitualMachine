@@ -35,6 +35,9 @@ UI's background is pure black (as the boot animation's). The user's answers on w
   audio cables with levels, 6 targets per modulator, the chain cable cut / levelled; the patch file; the engine). 13 `73ec736`: the graph's
   menu (Mod to, Audio to, a row per cable). 14 `ea47538`: the strip at 160 shows the cables only. 15: a voice module into a shared one
   (two send buses in the engine). Open: three modulators of one target overlap at zoom 0 (the layout); a full rack is crowded at -1.
+- [x] **Sliding text and Add from the header** (2026-11-19; UI.md steps 16, 17). **To try.** 16 `b9e63c9`: text that overflows slides
+  (held 1 s, wraps around) while it or its row is selected; the Type item shows full names. 17 `e735b36`: no node selected (the focus on
+  the header) + push = Add (type, row, Add): a loose module outside the chains, cabled by hand.
 - [ ] Moving a module up / down its chain in place.
 - [ ] **The map for the Pads section's FX chains**: the user decides how the routing shows (FXA / FXB / FXC in series or in parallel,
   `fx_route`); `nav_build` shows row M only for an FX rack today, and the map's Edit opens the synth's node page, not `fxmod_screen`.

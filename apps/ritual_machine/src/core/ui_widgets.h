@@ -29,6 +29,10 @@ extern "C" {
 typedef enum { UW_CABLE_AUDIO, UW_CABLE_MOD, UW_CABLE_GATE } uw_cable_t;
 
 void uw_line(u8g2_t *g, int x0, int y0, int x1, int y1, uw_cable_t k);         // a horizontal or vertical cable segment, ends included
+void uw_wire(u8g2_t *g, int x0, int y0, int x1, int y1, uw_cable_t k);         // a cable at any angle (the map zoomed out): audio grey, modulation dashed
+// A small rounded node (the map zoomed out): filled with its family's colour, its label on it (small: in the small font), the cursor's outline
+// around it. One colour: an outline, filled when focused.
+void uw_node(u8g2_t *g, gui_rect_t r, const char *label, ui_colour_t family, bool focused, bool small);
 void uw_tile(u8g2_t *g, gui_rect_t r, const char *name, ui_colour_t family, float bar, bool focused, bool modulator);   // bar < 0: none
 // A wide tile (the map zoomed in): the band, the name then its type (dim), then a row per value, its label and a bar (frac < 0: no bar).
 typedef struct { const char *label; float frac; } uw_bar_t;

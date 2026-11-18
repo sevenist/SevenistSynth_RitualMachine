@@ -118,6 +118,58 @@ void uw_tile_wide(u8g2_t *g, gui_rect_t r, const char *name, const char *kind, u
     }
 }
 
+void uw_wire(u8g2_t *g, int x0, int y0, int x1, int y1, uw_cable_t k) {
+    const bool col = ui_colour(g), dashed = k != UW_CABLE_AUDIO;
+    const int on = col ? 3 : 1, off = col ? 2 : 1;
+    ui_ink(g, k == UW_CABLE_MOD ? UC_MOD : k == UW_CABLE_GATE ? UC_GATE : UC_DIM);
+    if (!dashed) u8g2_DrawLine(g, (u8g2_uint_t)x0, (u8g2_uint_t)y0, (u8g2_uint_t)x1, (u8g2_uint_t)y1);
+    else {                                                     // Bresenham, the dashes counted along the line
+        const int dx = x1 > x0 ? x1 - x0 : x0 - x1, dy = -(y1 > y0 ? y1 - y0 : y0 - y1), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+        int err = dx + dy, x = x0, y = y0;
+        for (int i = 0;; i++) {
+            if (i % (on + off) < on) u8g2_DrawPixel(g, (u8g2_uint_t)x, (u8g2_uint_t)y);
+            if (x == x1 && y == y1) break;
+            const int e2 = 2 * err;
+            if (e2 >= dy) { err += dy; x += sx; }
+            if (e2 <= dx) { err += dx; y += sy; }
+        }
+    }
+    ui_ink(g, UC_TEXT);
+}
+
+void uw_node(u8g2_t *g, gui_rect_t r, const char *label, ui_colour_t family, bool focused, bool small) {
+    if (r.w <= 0 || r.h <= 0) return;
+    const bool col = ui_colour(g);
+    const int rad = r.h >= 9 ? 3 : 2;
+    const uint8_t *font = g->font;
+    if (small) u8g2_SetFont(g, SMALL);
+    const int tw = u8g2_GetStrWidth(g, label), asc = u8g2_GetAscent(g);
+    const int tx = r.x + (r.w - tw + 1) / 2, base = r.y + (r.h - asc) / 2 + asc;
+    const uint8_t was = g->font_decode.is_transparent;
+    u8g2_SetFontMode(g, 1);
+    if (col) {
+        if (focused) { ui_ink(g, UC_CURSOR); u8g2_DrawRBox(g, r.x - 2, r.y - 2, r.w + 4, r.h + 4, rad + 1); }
+        ui_ink(g, family);
+        u8g2_DrawRBox(g, r.x, r.y, r.w, r.h, rad);
+        ui_ink(g, UC_BG);
+        u8g2_DrawStr(g, tx, base, label);
+        ui_ink(g, UC_TEXT);
+    } else if (focused) {
+        u8g2_DrawRBox(g, r.x, r.y, r.w, r.h, rad);
+        u8g2_SetDrawColor(g, 0);
+        u8g2_DrawStr(g, tx, base, label);
+        u8g2_SetDrawColor(g, 1);
+    } else {
+        u8g2_SetDrawColor(g, 0);                               // (a cable under it: cleared)
+        u8g2_DrawRBox(g, r.x, r.y, r.w, r.h, rad);
+        u8g2_SetDrawColor(g, 1);
+        u8g2_DrawRFrame(g, r.x, r.y, r.w, r.h, rad);
+        u8g2_DrawStr(g, tx, base, label);
+    }
+    u8g2_SetFontMode(g, was);
+    u8g2_SetFont(g, font);
+}
+
 int uw_chip_w(u8g2_t *g, const gui_style_t *st, const char *text) {
     u8g2_SetFont(g, SMALL);
     const int w = u8g2_GetStrWidth(g, text) + 5;

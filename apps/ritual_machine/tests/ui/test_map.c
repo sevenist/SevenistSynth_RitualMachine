@@ -3,8 +3,10 @@
 #include "ui_test.h"
 #include "app/app_internal.h"
 #include "core/nav_graph.h"
+#include "core/nav_force.h"
 #include "core/ui_screen.h"
 #include "core/ui_theme.h"
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -409,10 +411,89 @@ TEST(the_zoom_widens_the_map_and_keeps_the_cursor_in_view) {
             CHECK(cursor_on_map(&cv));
         }
     ui_colour_attach(NULL);
-    CHECK(synth_ui_map_zoom(&ui_app.ui, -5));                                      // back out, stopped at the tiles
-    CHECK_EQ(ui_app.ui.map_zoom, 0);
+    CHECK(synth_ui_map_zoom(&ui_app.ui, -5));                                      // out, stopped at the smallest graph
+    CHECK_EQ(ui_app.ui.map_zoom, -2);
+    CHECK(synth_ui_map_zoom(&ui_app.ui, 2));
     ui_app.ui.map_at = 1;                                                          // a node's page: no zoom
     CHECK(!synth_ui_map_zoom(&ui_app.ui, 1));
+}
+
+// Zoomed out (core/nav_force.h): the force graph on its own. Nodes started on top of each other end apart, inside the room, and still,
+// within its 300 steps; the same start gives the same picture.
+static void line_graph(nav_force_t *f) {
+    nav_force_init(f, 124, 108, 8, 5.5f, 24, 150);
+    for (int i = 0; i < 9; i++) nav_force_put(f, i, 60 + (float)(i % 2), 50);
+    for (int i = 0; i + 1 < 6; i++) nav_force_spring(f, i, i + 1, NAV_STRONG);
+    nav_force_spring(f, 6, 2, NAV_WEAK);
+    nav_force_spring(f, 7, 0, NAV_STRONG);
+}
+
+TEST(the_force_graph_pushes_the_nodes_apart_inside_the_room_and_comes_to_rest) {
+    static nav_force_t f, again;
+    line_graph(&f);
+    int steps = 0;
+    while (nav_force_step(&f)) steps++;
+    CHECK(steps <= 300);
+    CHECK(!f.moving);
+    for (int i = 0; i < 9; i++) {
+        CHECK(f.x[i] >= f.hw - 0.01f && f.x[i] <= f.w - f.hw + 0.01f);
+        CHECK(f.y[i] >= f.hh - 0.01f && f.y[i] <= f.h - f.hh + 0.01f);
+        for (int j = i + 1; j < 9; j++) {
+            const float dx = f.x[i] - f.x[j], dy = f.y[i] - f.y[j];
+            CHECK((dx < 0 ? -dx : dx) >= 2 * f.hw || (dy < 0 ? -dy : dy) >= 2 * f.hh);   // no two overlap
+        }
+    }
+    const float strong = fabsf(f.x[7] - f.x[0]) + fabsf(f.y[7] - f.y[0]), weak = fabsf(f.x[6] - f.x[2]) + fabsf(f.y[6] - f.y[2]);
+    CHECK(strong < weak);                                                          // a strong cable holds its ends closer than a weak one
+    line_graph(&again);
+    while (nav_force_step(&again)) {}
+    CHECK(!memcmp(f.x, again.x, sizeof f.x) && !memcmp(f.y, again.y, sizeof f.y));
+}
+
+// On the map: zoomed out, the graph animates (the app draws frames while it moves) and stops; the cursor goes between its nodes and never
+// onto a "+" (not on the graph: a cursor left on one moves to the nearest node); a module deleted meanwhile leaves the graph.
+static int map_move(int cur, char dir) { const ui_ctx_t c = ctx(); return scr_map_screen.move(&c, cur, dir); }
+
+TEST(zoomed_out_the_graph_settles_and_the_cursor_walks_its_nodes) {
+    map_on_sample_rack();
+    nav_graph_t g;
+    nav_build(&g, &ui_app.rack);
+    ui_app.ui.row = NAV_PLUS1 + 1;                                                 // on branch 1's "+"
+    CHECK(synth_ui_map_zoom(&ui_app.ui, -1));
+    ui_app.ui.now_ms = 1000;
+    synth_ui_draw(&ui_app.ui, &ui_app.params, &ui_app.seq, &ui_app.rack, ui_app.display);
+    CHECK(synth_ui_map_animating(&ui_app.ui));
+    CHECK(ui_app.ui.row >= 1 && ui_app.ui.row <= NAV_NODES && g.node[ui_app.ui.row - 1].kind != NODE_PLUS);   // off the "+"
+    int frames = 0;
+    while (synth_ui_map_animating(&ui_app.ui) && frames < 400) {
+        ui_app.ui.now_ms += 33;                                                    // (the app's pace: a frame every 33 ms, two steps)
+        synth_ui_draw(&ui_app.ui, &ui_app.params, &ui_app.seq, &ui_app.rack, ui_app.display);
+        frames++;
+    }
+    CHECK(frames < 200);                                                           // (300 steps at most)
+    bool seen[NAV_NODES] = {false};                                                // every node on the graph reached, never a "+"
+    int stack[NAV_NODES * 4], n = 0;
+    stack[n++] = ui_app.ui.row - 1;
+    seen[ui_app.ui.row - 1] = true;
+    while (n) {
+        const int at = stack[--n];
+        for (int d = 0; d < 4; d++) {
+            const int to = map_move(at, "udlr"[d]);
+            if (to < 0 || seen[to]) continue;
+            CHECK(g.node[to].kind == NODE_MODULE || g.node[to].kind == NODE_MIX || g.node[to].kind == NODE_OUT);
+            seen[to] = true;
+            stack[n++] = to;
+        }
+    }
+    for (int i = 0; i < NAV_NODES; i++)
+        if (g.node[i].kind == NODE_MODULE || g.node[i].kind == NODE_MIX || g.node[i].kind == NODE_OUT) CHECK(seen[i]);
+    CHECK(rack_delete(&ui_app.rack, 3));                                           // the LFO goes: the graph moves again, one node fewer
+    ui_app.ui.row = 1;
+    ui_app.ui.now_ms += 33;
+    synth_ui_draw(&ui_app.ui, &ui_app.params, &ui_app.seq, &ui_app.rack, ui_app.display);
+    CHECK(synth_ui_map_animating(&ui_app.ui));
+    CHECK(synth_ui_map_zoom(&ui_app.ui, 1));                                       // back to the tiles: nothing moves
+    CHECK(!synth_ui_map_animating(&ui_app.ui));
 }
 
 /* ---------------- editing on the map: the rack's menu on its nodes ---------------- */

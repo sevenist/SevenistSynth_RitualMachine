@@ -192,6 +192,7 @@ void app_draw_frame(app_t *app) {
         app_boot_draw_text(g);
     } else {
         app->ui.layer_held = (int8_t)app_active_layer(app);             // (the layers act in both sections)
+        app->ui.now_ms = audio_millis();                                  // (the map's animation)
         app->ui.rec_mark = (uint8_t)rec_mark(app);
         if (app->ui.br_open) browse_ui_draw(&app->ui, g);
         else {
@@ -284,8 +285,11 @@ bool app_step(app_t *app, input_event_t e) {
 
     // Redraw only when something visible changed. Notes and the modifier do not change the screen. While more input is queued the redraw
     // is owed, not done: every pending note and knob turn is handled first and the screen is drawn once after them.
+    static uint32_t map_frame_ms;       // the map zoomed out settling: a frame every 33 ms until it stops
+    const bool map_moves = synth_ui_map_animating(&app->ui) && now - map_frame_ms >= 33;
     const bool want = app->dirty || app->redraw_owed || ((stepped || animated) && synth_ui_shows_playhead(&app->ui, &app->rack)) ||
-                      (animated && app->boot_anim != GUI_ANIM_INVALID);
+                      (animated && app->boot_anim != GUI_ANIM_INVALID) || map_moves;
+    if (map_moves) map_frame_ms = now;
     if (want && input_pending()) {
         app->redraw_owed = true;
     } else if (want) {

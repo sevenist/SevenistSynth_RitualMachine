@@ -18,10 +18,15 @@
 // Two sizes: a tall screen (an area of 120 px or more: 128 x 160) has 28 x 14 tiles 4 px apart and a three-line strip with the ports as chips;
 // a short one (128 x 128) 28 x 12 tiles 4 x 3 px apart and a two-line strip. A map taller than the room shows the part around the cursor.
 // Zoom (ACT_ZOOM, ui->map_zoom; the user's idea, 2026-11-18): 0 the tiles; 1 the same map three times as wide (84 px tiles, 12 px apart:
-// the room for the cables), each tile its name, its type and its values as bars, the map scrolling sideways to keep the cursor in view.
+// the room for the cables), each tile its name, its type and its values as bars, the map scrolling sideways to keep the cursor in view;
+// -1 and -2 the graph zoomed out: small rounded nodes, a module's colour and number (no "+"), which spawn where zoom 0's tiles were and
+// float into a graph pulled by their cables (core/nav_force.h: audio, FM and pitch strongly, the other modulations weakly), the screen
+// drawing each step (synth_ui_map_animating); straight cables from centre to centre.
 #include "core/ui_screen.h"
 #include "core/ui_widgets.h"
 #include "core/nav_graph.h"
+#include "core/nav_force.h"
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -30,44 +35,69 @@ enum { E_INFO = NAV_NODES, E_M0, E_COUNT = E_M0 + 1 + (RM_END - RM_TYPE) };
 
 #define TILE_PAD 2                       // the margin left and right of the map (the cursor's outline is 2 px outside a tile)
 #define MENU_W   96
-#define ZOOM_MIN 0
+#define ZOOM_MIN (-2)
 #define ZOOM_MAX 1
 typedef struct { int tile_w, tile_h, gap_x, gap_y, strip_h; bool tall; } metrics_t;
 static metrics_t metrics(gui_rect_t area, int zoom) {
     const bool tall = area.h >= 120;
     if (zoom > 0) return tall ? (metrics_t){84, 30, 12, 10, 32, true} : (metrics_t){84, 23, 12, 8, 21, false};     // (3 x the pitch across)
+    if (zoom == -1) return (metrics_t){16, 11, 0, 0, tall ? 32 : 21, tall};                                         // (a node; no grid)
+    if (zoom < -1) return (metrics_t){12, 7, 0, 0, tall ? 32 : 21, tall};
     return tall ? (metrics_t){28, 14, 4, 4, 32, true} : (metrics_t){28, 12, 4, 3, 21, false};
 }
 static gui_rect_t g_menu_box;            // the menu's box (layout -> strip_draw, which paints it before the items)
 static metrics_t g_m = {28, 14, 4, 4, 32, true}, g_m0 = {28, 14, 4, 4, 32, true};   // the sizes in use and those of zoom 0 (layout -> graph, draw_extra)
 static int g_zoom, g_map_w = 128 - 2 * TILE_PAD, g_map_x, g_map_y, g_scroll, g_scroll_x;
+static nav_force_t g_force;              // zoomed out: where the nodes float (layout -> graph)
+
+static bool on_graph(const nav_node_t *n) { return n->kind == NODE_MODULE || n->kind == NODE_MIX || n->kind == NODE_OUT; }   // (zoomed out)
 
 // The graph of the rack on show, its nodes floating (nav_place). The graph is rebuilt at every use (16 modules: cheap, and nothing to keep
 // in step with the rack); its layout is only worked out again when the graph or the sizes changed. Zoom 1 is zoom 0's layout spread out:
-// three times across (the pitch of 84 px tiles 12 px apart), each row at its own height.
-static const nav_graph_t *graph(const ui_ctx_t *c) {
-    static nav_graph_t built, placed, wide;
+// three times across (the pitch of 84 px tiles 12 px apart), each row at its own height. Zoomed out: the nodes where the force graph has
+// them (a node's top left from its centre), the "+" off the map.
+static bool g_moved;                     // (the last placed() worked the layout out again)
+static const nav_graph_t *placed_graph(const ui_ctx_t *c) {
+    static nav_graph_t built, placed;
     static nav_metrics_t at;
-    static metrics_t at_wide;
     static bool have;
     nav_graph_t fresh;
     nav_build(&fresh, c->rack);
     const nav_metrics_t m = {g_map_w, g_m0.tile_w, g_m0.tile_h, g_m0.gap_x, g_m0.gap_y};
-    const bool moved = !have || memcmp(&fresh, &built, sizeof fresh) != 0 || memcmp(&m, &at, sizeof m) != 0;
-    if (moved) {
+    g_moved = !have || memcmp(&fresh, &built, sizeof fresh) != 0 || memcmp(&m, &at, sizeof m) != 0;
+    if (g_moved) {
         built = fresh; placed = fresh; at = m; have = true;
         nav_place(&placed, &m);
     }
-    if (g_zoom <= 0) return &placed;
+    return &placed;
+}
+
+static const nav_graph_t *graph(const ui_ctx_t *c) {
+    static nav_graph_t wide, floating;
+    static metrics_t at_wide;
+    const nav_graph_t *p = placed_graph(c);
+    const bool moved = g_moved;
+    if (g_zoom == 0) return p;
+    if (g_zoom < 0) {
+        floating = *p;
+        floating.height = 0;
+        for (int i = 0; i < NAV_NODES; i++) {
+            nav_node_t *n = &floating.node[i];
+            if (!on_graph(n) || !g_force.on[i]) { n->kind = NODE_NONE; continue; }
+            n->x = (int16_t)(g_force.x[i] - g_force.hw + 0.5f);
+            n->y = (int16_t)(g_force.y[i] - g_force.hh + 0.5f);
+        }
+        return &floating;
+    }
     if (moved || memcmp(&g_m, &at_wide, sizeof g_m) != 0) {
         const int across = (g_m.tile_w + g_m.gap_x) / (g_m0.tile_w + g_m0.gap_x), down0 = g_m0.tile_h + g_m0.gap_y, down = g_m.tile_h + g_m.gap_y;
-        wide = placed;
+        wide = *p;
         at_wide = g_m;
         wide.height = 0;
         for (int i = 0; i < NAV_NODES; i++) {
             if (wide.node[i].kind == NODE_NONE) continue;
-            wide.node[i].x = (int16_t)(placed.node[i].x * across);
-            wide.node[i].y = (int16_t)((placed.node[i].y + down0 / 2) / down0 * down);
+            wide.node[i].x = (int16_t)(p->node[i].x * across);
+            wide.node[i].y = (int16_t)((p->node[i].y + down0 / 2) / down0 * down);
             if (wide.node[i].y + g_m.tile_h > wide.height) wide.height = wide.node[i].y + g_m.tile_h;
         }
     }
@@ -81,6 +111,115 @@ bool synth_ui_map_zoom(synth_ui_t *ui, int steps) {
     if (z == ui->map_zoom) return false;
     ui->map_zoom = (int8_t)z;
     return true;
+}
+
+/* ---------------- zoomed out: the force graph (core/nav_force.h) ---------------- */
+
+static int g_force_zoom;                 // the zoom the graph was set going for; 0: none (the next zoom out spawns it again)
+static uint8_t g_force_key[NAV_NODES];   // what each of its nodes is: a module's number, KEY_MIX, KEY_OUT (a slot's index moves on a delete)
+static uint32_t g_force_ms;              // the clock at its last step
+#define KEY_MIX 254
+#define KEY_OUT 255
+#define STEP_MS 16                       // a step every 16 ms (about 60 a second, whatever the frame rate)
+
+// A cable's length at rest: 24 px at -1, 14 at -2, shorter when the room is crowded (the room each node has, three quarters of its side);
+// the push between nodes goes with its square.
+static float rest_of(int zoom, float w, float h, const nav_graph_t *p) {
+    int n = 0;
+    for (int i = 0; i < NAV_NODES; i++) n += on_graph(&p->node[i]);
+    const float most = zoom < -1 ? 14.0f : 24.0f, fit = n ? 0.75f * sqrtf(w * h / (float)n) : most;
+    return fit < most ? fit : most;
+}
+static float push_of(float rest) { return 0.26f * rest * rest; }
+static uint8_t key_of(const nav_graph_t *g, const rack_t *r, int i) {
+    const nav_node_t *n = &g->node[i];
+    return n->kind == NODE_MODULE ? r->slot[n->slot].id : n->kind == NODE_MIX ? KEY_MIX : n->kind == NODE_OUT ? KEY_OUT : 0;
+}
+
+// The cables as springs: audio, FM (an oscillator modulating) and a pitch modulation pull strongly, any other modulation weakly.
+static void force_springs(const nav_graph_t *g, const rack_t *r) {
+    g_force.n_springs = 0;
+    for (int e = 0; e < g->n_edges; e++) {
+        const nav_edge_t *ed = &g->edge[e];
+        float k = NAV_STRONG;
+        if (ed->kind == EDGE_MOD && ed->from < RACK_MAX && ed->to < RACK_MAX) {
+            const rack_slot_t *s = &r->slot[ed->from];
+            const depth_unit_t *u = s->type == MOD_MSEQ ? NULL : rack_depth_unit((module_type_t)r->slot[ed->to].type, s->tgt_param);
+            k = s->type == MOD_OSC || (u && !strcmp(u->unit, "st")) ? NAV_STRONG : NAV_WEAK;
+        }
+        nav_force_spring(&g_force, ed->from, ed->to, k);
+    }
+}
+
+// Before each frame zoomed out: the graph set going (each node where its tile was at zoom 0: `scroll0`, that map's scroll), scaled between
+// -1 and -2, kept in step with the rack (a node keeps its place by what it is; one joining starts beside a node it is cabled to), then the
+// steps the time since the last frame asks for (no clock, as in the tests: one a frame).
+static void force_update(const ui_ctx_t *c, int room, int scroll0) {
+    if (g_zoom >= 0) { g_force_zoom = 0; return; }
+    const nav_graph_t *p = placed_graph(c);
+    const rack_t *r = c->rack;
+    const float w = (float)g_map_w, h = (float)room;
+    if (!g_force_zoom || g_force.w != w || g_force.h != h) {
+        const float rest = rest_of(g_zoom, w, h, p);
+        nav_force_init(&g_force, w, h, (float)g_m.tile_w / 2, (float)g_m.tile_h / 2, rest, push_of(rest));
+        const float fit = p->height > room ? (float)room / (float)p->height : 1.0f;    // (a map taller than the screen: all of it, squeezed)
+        for (int i = 0; i < NAV_NODES; i++) {
+            g_force_key[i] = key_of(p, r, i);
+            const float y = fit < 1 ? (float)p->node[i].y * fit : (float)(p->node[i].y - scroll0);
+            if (on_graph(&p->node[i])) nav_force_put(&g_force, i, (float)p->node[i].x + (float)g_m0.tile_w / 2, y + (float)g_m0.tile_h / 2 * fit);
+        }
+        force_springs(p, r);
+        g_force_zoom = g_zoom;
+        g_force_ms = c->ui->now_ms;
+    } else if (g_force_zoom != g_zoom) {                                           // -1 <-> -2: the graph scaled about the middle
+        const float rest = rest_of(g_zoom, w, h, p), s = rest / g_force.rest;
+        g_force.rest = rest; g_force.push = push_of(rest);
+        g_force.hw = (float)g_m.tile_w / 2; g_force.hh = (float)g_m.tile_h / 2;
+        for (int i = 0; i < NAV_NODES; i++)
+            if (g_force.on[i]) nav_force_put(&g_force, i, w / 2 + (g_force.x[i] - w / 2) * s, h / 2 + (g_force.y[i] - h / 2) * s);
+        g_force_zoom = g_zoom;
+    }
+    bool changed = false;
+    for (int i = 0; i < NAV_NODES && !changed; i++) changed = key_of(p, r, i) != g_force_key[i] || on_graph(&p->node[i]) != g_force.on[i];
+    if (changed) {                                                                 // the rack changed under it
+        const nav_force_t old = g_force;
+        uint8_t old_key[NAV_NODES];
+        memcpy(old_key, g_force_key, sizeof old_key);
+        bool kept[NAV_NODES] = {false};
+        for (int i = 0; i < NAV_NODES; i++) {
+            g_force_key[i] = key_of(p, r, i);
+            g_force.on[i] = false;
+            if (!on_graph(&p->node[i])) continue;
+            for (int j = 0; j < NAV_NODES; j++)
+                if (old.on[j] && old_key[j] == g_force_key[i]) { nav_force_put(&g_force, i, old.x[j], old.y[j]); kept[i] = true; break; }
+        }
+        for (int i = 0; i < NAV_NODES; i++) {                                     // a new node: beside one it is cabled to, else in the middle
+            if (!on_graph(&p->node[i]) || kept[i]) continue;
+            float x = w / 2, y = h / 2;
+            for (int e = 0; e < p->n_edges; e++) {
+                const int o = p->edge[e].from == i ? p->edge[e].to : p->edge[e].to == i ? p->edge[e].from : -1;
+                if (o >= 0 && kept[o]) { x = g_force.x[o] + 6; y = g_force.y[o] + 6; break; }
+            }
+            nav_force_put(&g_force, i, x, y);
+        }
+        force_springs(p, r);
+        g_force.rest = rest_of(g_zoom, w, h, p);
+        g_force.push = push_of(g_force.rest);
+        nav_force_go(&g_force);
+    }
+    const uint32_t now = c->ui->now_ms;
+    int steps = 1;
+    if (now) {
+        if (now - g_force_ms > 500) g_force_ms = now - STEP_MS;                   // (back after a while: no catching up)
+        steps = (int)((now - g_force_ms) / STEP_MS);
+        g_force_ms += (uint32_t)(steps * STEP_MS);
+    }
+    for (int k = 0; k < steps; k++) nav_force_step(&g_force);
+}
+
+bool synth_ui_map_animating(const synth_ui_t *ui) {
+    return ui->in_rack && (ui->menu_tab == TAB_RACK || ui->menu_tab == TAB_MAP) && !ui->map_at && ui->map_zoom < 0 && g_force_zoom < 0 &&
+           g_force.moving;
 }
 
 static int item_arg(int e) { return e == E_M0 ? MAP_EDIT : RM_TYPE + (e - E_M0 - 1); }
@@ -187,6 +326,13 @@ static void tile_draw(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_r
     node_label(c, c->arg, name, sizeof name);
     const bool selected = focused || (c->ui->rack_menu && c->ui->map_menu == c->arg + 1);     // (the node the menu is open on)
     const bool modulator = n->kind == NODE_MODULE && n->col >= 2;
+    if (g_zoom < 0) {                                          // a small node: its colour and its number
+        char label[8];
+        if (n->kind == NODE_MODULE) snprintf(label, sizeof label, "%d", c->rack->slot[n->slot].id);
+        else snprintf(label, sizeof label, "%s", g_zoom < -1 ? (n->kind == NODE_MIX ? "M" : "O") : name);
+        uw_node(g, r, label, node_family(c, c->arg), selected, g_zoom < -1 || n->kind != NODE_MODULE);
+        return;
+    }
     if (g_zoom > 0) {
         uw_bar_t bar[4];
         char lbl[4][8];
@@ -236,6 +382,17 @@ static void draw_extra(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_
     const nav_graph_t *gr = graph(c);
     const int tw = g_m.tile_w, th = g_m.tile_h;
     u8g2_SetClipWindow(g, area.x, area.y, area.x + area.w, rect[E_INFO].y);      // not over the strip
+    if (g_zoom < 0) {                                                              // zoomed out: straight, centre to centre (under the nodes)
+        for (int pass = 0; pass < 2; pass++)                                       // (the modulation over the audio)
+            for (int e = 0; e < gr->n_edges; e++) {
+                const nav_edge_t *ed = &gr->edge[e];
+                if ((ed->kind == EDGE_MOD) != (pass == 1) || gr->node[ed->from].kind == NODE_NONE || gr->node[ed->to].kind == NODE_NONE) continue;
+                const gui_rect_t a = tile_at(gr, ed->from), b = tile_at(gr, ed->to);
+                uw_wire(g, a.x + a.w / 2, a.y + a.h / 2, b.x + b.w / 2, b.y + b.h / 2, ed->kind == EDGE_MOD ? UW_CABLE_MOD : UW_CABLE_AUDIO);
+            }
+        u8g2_SetClipWindow(g, area.x, area.y, area.x + area.w, area.y + area.h);
+        return;
+    }
     for (int e = 0; e < gr->n_edges; e++) {
         if (gr->edge[e].kind != EDGE_AUDIO) continue;
         const gui_rect_t a = tile_at(gr, gr->edge[e].from), b = tile_at(gr, gr->edge[e].to);
@@ -419,6 +576,24 @@ static void layout(u8g2_t *g, const gui_style_t *st, const ui_ctx_t *c, gui_rect
     const bool on_node = focus >= 0 && focus < NAV_NODES && gr->node[focus].kind != NODE_NONE;
     g_scroll = 0;                                                                  // a map taller than the room: the part around the cursor (no state)
     if (on_node && gr->node[focus].y + g_m.tile_h > room) g_scroll = gr->node[focus].y + g_m.tile_h - room;
+    if (g_zoom < 0) {                                                              // zoomed out: the whole graph in the room, no scroll
+        const nav_graph_t *p = placed_graph(c);
+        int scroll0 = 0;                                                           // (zoom 0's scroll: where its tiles were on the screen)
+        if (focus >= 0 && focus < NAV_NODES && p->node[focus].kind != NODE_NONE && p->node[focus].y + g_m0.tile_h > room)
+            scroll0 = p->node[focus].y + g_m0.tile_h - room;
+        force_update(c, room, scroll0);
+        g_scroll = 0;
+        gr = graph(c);
+        if (!c->ui->rack_menu && focus >= 0 && focus < NAV_NODES && gr->node[focus].kind == NODE_NONE) {   // on a "+": the nearest node instead
+            int best = -1, best_d = 0;
+            for (int i = 0; i < NAV_NODES; i++) {
+                if (gr->node[i].kind == NODE_NONE) continue;
+                const int dx = p->node[i].x - p->node[focus].x, dy = p->node[i].y - p->node[focus].y, d = dx * dx + dy * dy;
+                if (best < 0 || d < best_d) { best = i; best_d = d; }
+            }
+            if (best >= 0) c->ui->row = best + 1;
+        }
+    }
     g_scroll_x = 0;                                                                // wider than the screen (zoom 1): the cursor's tile in the middle
     if (g_zoom > 0) {
         int x0 = 1 << 14, x1 = -(1 << 14);

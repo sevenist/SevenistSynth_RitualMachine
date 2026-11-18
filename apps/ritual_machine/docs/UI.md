@@ -188,6 +188,29 @@ Paths without a prefix are inside `apps/ritual_machine/src/` (`core/...`, `app/.
 > - Tests: `test_map.c` (only on the map, the range, the action through a binding, the cursor's tile drawn for every node at zoom 1).
 >   243 UI tests at 160 and 128. Rendered and looked at (the sample rack: an oscillator, the filter, the MIX).
 >
+> **2026-11-18, step 8: zoom -1 and -2, the floating graph** (the user: "the nodes spawn in place of zoom 0's modules, the insert boxes
+> not drawn, then rearrange themselves into a graph like Obsidian's, the links attracting, audio in / out, FM and pitch strongly, the others
+> weakly; -2 the same, smaller").
+>
+> - **`core/nav_force.[ch]`**, a small force simulation, pure (no drawing, no clock): every node pushes the others away (`push / d²`), each
+>   cable is a spring toward its length at rest (`NAV_STRONG` 0.06, `NAV_WEAK` 0.015), a weak pull toward the middle, walls; damped, and
+>   it cools down (the speed's cap falls to nothing over 300 steps), so it always comes to rest: still for 8 steps, or after 300 (5 s).
+>   Nodes never overlap (4 px apart at least). Deterministic.
+> - **The map zoomed out** (`scr_map.c`): the modules, the MIX and the OUT as small rounded nodes (16 x 11 at -1, 12 x 7 at -2;
+>   `uw_node`), filled with the family's colour, the module's number on it (the MIX "MIX" / "M", the OUT "OUT" / "O"); no "+" (a cursor
+>   on one moves to the nearest node). Cables straight from centre to centre (`uw_wire`): audio grey, modulation dashed amber. Springs:
+>   audio, an oscillator's FM and a pitch modulation (a target whose depth is in semitones) strong, any other modulation weak.
+> - **The animation**: going out from 0 or 1, each node starts at its tile's centre on the screen (a map taller than the screen: all of it,
+>   squeezed into the room), then the steps; between -1 and -2 the graph is scaled about the middle and settles again; a change of the rack
+>   meanwhile (a delete, a new module) keeps each node's place by what it is (its module's number), a new one starts beside a node it is
+>   cabled to. A cable's rest length is 24 px at -1 and 14 at -2, shorter when the room is crowded. `synth_ui_t.now_ms` (set by the app
+>   for each frame) paces it, a step per 16 ms; the app draws a frame every 33 ms while `synth_ui_map_animating()`.
+> - Push on a node still opens the rack's menu (step 9 gives the graph its own: Connect, Disconnect all, Delete).
+> - Tests: `test_map.c` (the force graph alone: apart, inside, at rest within 300 steps, a strong cable shorter than a weak one, the same
+>   twice; on the map: it animates then stops, the cursor off a "+" and over every node of the graph, a delete sets it moving again, back to
+>   the tiles nothing moves). 245 UI tests at 160 and 128; the HWV2 simulator builds. Rendered and looked at: the sample rack (the spawn,
+>   12 and 72 steps, settled; -2) and a full rack (16 modules, 7 of them modulators), -1 and -2.
+>
 > The UI has **two ways of writing a screen**, and knowing which one a screen uses is the first thing to find out:
 
 - **Declarative** (the newer one): the screen is a table of elements, and one generic piece of code draws it, moves the focus

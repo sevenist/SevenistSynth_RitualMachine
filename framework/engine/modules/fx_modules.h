@@ -50,8 +50,11 @@ enum { CHRM_OFF, CHRM_I, CHRM_II, CHRM_I_II };
 // Reverb (Dattorro plate, stereo): ins L, R (summed); outs L, R. Pre-delay (ms) lives in the bulk heap, the tank in
 // the fast heap. size: q15 -> tank length x0.5 .. x1.25 (changes glide); decay q15; damp / bandwidth are cutoffs in
 // pitch units (MIDI * 256); mod q15 scales the 16-sample excursion of the two modulated all-passes; mix crossfades
-// dry / wet.
-enum { RVB_PREDELAY, RVB_DECAY, RVB_DAMP, RVB_BANDWIDTH, RVB_SIZE, RVB_MOD, RVB_MIX, RVB_N };
+// dry / wet. quality: 0 = the tank at the build's rate (kSampleRate, or half with ENGINE_REVERB_HALF), 1 = at half of that (a second
+// half-band stage each way: about half the cost, the reverb's top octave lost; the delays are in seconds, so decay and size do not move).
+// stereo: 1 = both outputs' taps, 0 = the left taps to both outputs (about a third cheaper, no width); its default is the build's
+// ENGINE_FX_MONO. A change of either clears the tank.
+enum { RVB_PREDELAY, RVB_DECAY, RVB_DAMP, RVB_BANDWIDTH, RVB_SIZE, RVB_MOD, RVB_MIX, RVB_QUALITY, RVB_STEREO, RVB_N };
 
 // Hadamard (stereo FDN reverb, fx_hadamard.cpp): ins L, R; outs L, R. Eight int16 delay lines of prime lengths fed back through an 8 x 8
 // Hadamard matrix with a permutation and sign flips around it (orthogonal, neither symmetric nor its own inverse), a decay gain and a

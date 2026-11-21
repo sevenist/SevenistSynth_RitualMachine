@@ -19,9 +19,15 @@ void audio_shutdown(void);
 // (Re)builds the synth structure from the rack (module chain, LFO/ENV routes) and applies params.
 // Call at startup and when the user finishes editing the rack.
 void audio_build(const rack_t *rack, const synth_params_t *params);
+// A sound loaded whole (a preset, the card's sound at the start): the engine builds it in its fast memory, the old one freed first (a
+// moment of silence instead of the old sound playing on; engine_synth_build_patch).
+void audio_build_patch(const rack_t *rack, const synth_params_t *params);
 
 // Applies the full sound definition (oscillator, envelopes, filter) to the synth.
 void audio_set_params(const rack_t *rack, const synth_params_t *params);
+// Only rack->cfg's master volume changed (the volume knob): the master output's values alone, the rack's graph not built again
+// (measured on HWV2, 2026-11-19: a volume step through audio_set_params cost the audio core +5.3k cycles a block, this one +0.7k).
+void audio_set_master(const rack_t *rack);
 
 // The synth's step sequencer (core/seq.h) plays in the engine, on the machine clock (apps/ritual_machine/docs/DESIGN.md ADR-042): its timing does not
 // depend on the UI. audio_seq_set: the pattern and its settings as they are now (cheap: call it at every step, only what changed is

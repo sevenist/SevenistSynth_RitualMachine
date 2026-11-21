@@ -921,3 +921,27 @@ TEST(a_cable_off_the_screen_is_cut_at_its_border) {
     }
     u8g2_ClearBuffer(g);
 }
+
+// The crash of 2026-11-19 (the board, editing the rack): an LFO whose first target is an oscillator's Mrph (its 4th parameter) and a
+// modulation cable from it into a filter (2 parameters). The map's strip on the filter named the cable by the LFO's first-target parameter:
+// past the filter's names, a NULL that the board's snprintf("%s") read. The cable's own parameter now, and a stale index reads "?".
+TEST(the_strip_names_a_cables_own_parameter_and_a_stale_one_never_crashes) {
+    CHECK_STR(rack_param_name(MOD_FILTER, 3), "?");
+    CHECK_STR(rack_param_long(MOD_FILTER, 3), "?");
+    CHECK_STR(rack_param_name(MOD_FILTER, -1), "?");
+    CHECK_STR(rack_param_name(MOD_FILTER, 0), "Cut");
+    map_on_sample_rack();                                                          // slot 0 OSC, 1 FILTER, 2 OSC (branch 2), 3 LFO
+    rack_t *r = &ui_app.rack;
+    r->slot[3].tgt_id = r->slot[0].id;
+    r->slot[3].tgt_param = 3;                                                      // the oscillator's Mrph
+    r->cable[r->n_cables++] = (rack_cable_t){CABLE_MOD, r->slot[3].id, r->slot[1].id, 0, 0.5f};
+    synth_ui_rebuild_pages(&ui_app.ui, &ui_app.rack);
+    for (int z = 0; z < 3; z++) {
+        while (synth_ui_map_zoom(&ui_app.ui, -1)) {}                               // (every level from the closest: each strip drawn on the filter)
+        for (int k = 0; k < z; k++) synth_ui_map_zoom(&ui_app.ui, +1);
+        ui_app.ui.row = 1 + 1;                                                     // the filter's node
+        app_draw_frame(&ui_app);
+    }
+    ui_app.ui.row = 0;
+    app_draw_frame(&ui_app);
+}

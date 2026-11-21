@@ -84,7 +84,7 @@ public:
         state_ = heap_->alloc(d.size);
         if (!state_) return false;
         d.construct(state_);
-        for (int j = 0; j < d.n_param; j++) v_[j] = d.param[j].def;
+        for (int j = 0; j < d.n_param; j++) { v_[j] = d.param[j].def; norm_[j] = to_norm(d.param[j], v_[j]); }
         for (int k = 0; k < d.n_in; k++) if (!std::strcmp(d.in_name[k], "Pitch")) pitch_in_ |= static_cast<uint8_t>(1u << k);   // (once, not a block)
         return true;
     }
@@ -97,7 +97,7 @@ public:
     // from where it is, a stolen voice does not click to zero.)
     void set_param(int idx, int32_t raw) override {
         const ModuleDef &d = *g_w[k_].def;
-        if (idx >= 0 && idx < d.n_param) v_[idx] = modular_value(d.param[idx], raw);
+        if (idx >= 0 && idx < d.n_param) { v_[idx] = modular_value(d.param[idx], raw); norm_[idx] = to_norm(d.param[idx], v_[idx]); }
     }
     SC_HOT void process(const sc::ProcessCtx &ctx, const sc::Ports &p) override;
 
@@ -107,6 +107,7 @@ private:
     sc::Heap *heap_ = nullptr;
     void *state_ = nullptr;
     float v_[kMaxParams] = {};
+    float norm_[kMaxParams] = {};                       // each value's place along its range (to_norm: two logf for an Exp one), set with it
     uint8_t pitch_in_ = 0;                              // the inputs named Pitch (a CV: scaled to octaves)
 };
 
@@ -139,8 +140,9 @@ SC_HOT void Host::process(const sc::ProcessCtx &ctx, const sc::Ports &p) {
             if (const float *m = p.fmod[j]) {
                 float s = 0.f;
                 for (int i = 0; i < n; i++) s += m[off + i];
-                const float amount = s / static_cast<float>(n);
-                if (amount != 0.f) pv[j] = from_norm(d.param[j], to_norm(d.param[j], pv[j]) + amount);
+                // (n a power of two, the usual 32: times 1 / n is exactly the division)
+                const float amount = (n & (n - 1)) == 0 ? s * (1.f / static_cast<float>(n)) : s / static_cast<float>(n);
+                if (amount != 0.f) pv[j] = from_norm(d.param[j], norm_[j] + amount);
             }
         }
         // the inputs: the engine's block itself, scaled (pitch), or what the catalog's module reads with nothing plugged in

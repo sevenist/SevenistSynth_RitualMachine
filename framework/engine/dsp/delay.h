@@ -8,6 +8,7 @@
 // released in the destructor.
 #include <cstdint>
 #include "engine/core/heap.h"
+#include "engine/dsp/config.h"
 #include "engine/dsp/interp.h"
 #include "engine/dsp/q.h"
 
@@ -57,7 +58,7 @@ public:
         if (s >= 1) return lerp15(buf_[s], buf_[s - 1], d_q16 & 0xFFFFu);
         return lerp15(read(i), read(i + 1), d_q16 & 0xFFFFu);
     }
-    q15 read_hermite(uint32_t d_q16) const {
+    SC_INLINE q15 read_hermite(uint32_t d_q16) const {
         const int i = static_cast<int>(d_q16 >> 16);
         const int s = static_cast<int>(w_) - (i + 2);                    // buf_[s] = read(i + 2) ... buf_[s + 3] = read(i - 1)
         if (s >= 0) return hermite15(buf_[s + 3], buf_[s + 2], buf_[s + 1], buf_[s], d_q16 & 0xFFFFu);
@@ -95,6 +96,7 @@ private:
 class Allpass {
 public:
     bool init(Heap &h, int delay) { delay_ = delay; return line_.init(h, delay); }
+    void set_delay(int d) { delay_ = d < 1 ? 1 : (d > line_.max_delay() ? line_.max_delay() : d); }    // within init()'s room
     void set_gain(q15 g) { g_ = g; }
     void clear() { line_.clear(); }
     q15 process(q15 x) {

@@ -123,6 +123,7 @@ void display_send_indexed(const uint8_t *frame, const uint16_t *palette) {
     for (int i = 0; i < DISPLAY_WIDTH * DISPLAY_HEIGHT; i++) rgb[i] = palette[frame[i]];
     display_send_rgb565(rgb);
 }
+uint8_t *display_swap_indexed(uint8_t *frame, const uint16_t *palette) { display_send_indexed(frame, palette); return frame; }   // (copied)
 void display_boot_config(const display_boot_t *boot) { (void)boot; }   // (no animation of the board's own here)
 void display_boot_end(void) {}              // (the simulator's boot animation is the application's: app_boot_animation)
 void display_boot_progress(int percent) { (void)percent; }

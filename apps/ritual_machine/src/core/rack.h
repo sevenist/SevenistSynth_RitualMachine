@@ -64,7 +64,8 @@ enum { MP_OC_WAVE, MP_OC_PW, MP_OC_LEVEL, MP_OC_COARSE, MP_OC_FINE, MP_OC_MUTE, 
 #define OC_WAVE_COUNT 72       // 6 classic waves + 19 engines + 47 models; MP_OC_HARM: the models' third control (Plaits' harmonics)
 #define OC_FIRST_ENGINE 6      // generator numbers 0..5 are the classic waves, 6.. the engines (Karp Modal FM2 Fold SSaw Vowel Add Dust Strng Gendy Rossl CA Pulsar Tonew FOF Terra Scan Wind Foley); PW becomes Timbre, Mrph = morph
                                // MP_OC_QUAL: Blep / Mip / Naive for Saw, Pulse, Tri and the Strng engine (Blep = Mip there)
-enum { MP_FL_TYPE, MP_FL_CUT, MP_FL_RES, MP_FL_ENVAMT, MP_FL_A, MP_FL_D, MP_FL_S, MP_FL_R, MP_FL_ACV, MP_FL_DCV, MP_FL_RCV };
+enum { MP_FL_TYPE, MP_FL_CUT, MP_FL_RES, MP_FL_ENVAMT, MP_FL_A, MP_FL_D, MP_FL_S, MP_FL_R, MP_FL_ACV, MP_FL_DCV, MP_FL_RCV, MP_FL_FMQ };
+                               // MP_FL_FMQ (its cog): Hi / Mid / Lo, the coefficients under audio-rate cutoff FM every 1 / 2 / 4 samples (engine FLT_FM_Q)
 enum { MP_SA_MODE, MP_SA_DRIVE, MP_SA_MIX };
 enum { MP_LF_SHAPE, MP_LF_RATE, MP_LF_DEPTH };
 enum { MP_VL_DEPTH };
@@ -80,7 +81,7 @@ enum { MP_RG_MODE, MP_RG_FREQ, MP_RG_MIX };
 enum { MP_PH_RATE, MP_PH_DEPTH, MP_PH_FB, MP_PH_MIX };                     // also the flanger (MP_PH_* = MP_FG_*)
 enum { MP_CP_THR, MP_CP_RATIO, MP_CP_REL, MP_CP_GAIN };
 enum { MP_DL_TIME, MP_DL_FB, MP_DL_MIX, MP_DL_PONG };
-enum { MP_RV_MIX, MP_RV_DEC, MP_RV_SIZE, MP_RV_DAMP };
+enum { MP_RV_MIX, MP_RV_DEC, MP_RV_SIZE, MP_RV_DAMP, MP_RV_QUAL, MP_RV_OUT };   // its cog: Qual Hi / Lo (the tank at 24 / 12 kHz), Out Mono / Stereo
 enum { MP_CH_MODE, MP_CH_MIX };
 enum { MP_SP_MODE, MP_SP_SHIFT, MP_SP_AMT, MP_SP_MIX, MP_SP_HOLD, MP_SP_LO, MP_SP_HI };
 enum { MP_CB_IR, MP_CB_LEN, MP_CB_MIX, MP_CB_LEVEL };

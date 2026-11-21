@@ -148,7 +148,8 @@ typedef struct {
     synth_ui_t     ui;
     input_state_t  in;
     bool           dirty;       // the screen needs a redraw after this step
-    bool           redraw_owed; // a redraw was put off because more input was queued (app_step draws it when the queue is empty)
+    bool           redraw_owed; // a redraw was put off because more input was queued, or the last frame is too recent (app_step draws it later)
+    uint32_t       frame_ms;    // when the last frame was drawn (at most one every APP_FRAME_MIN_MS)
     uint32_t       sd_gen;      // the TF card generation the app has seen (core/audio.h)
     bool           keys_notice; // the "keys reset" screen is up until a key is pressed or released, or a few seconds passed
     uint32_t       keys_notice_ms;
@@ -195,6 +196,7 @@ void app_init(app_t *app, u8g2_t *display);
 // (50 ms = 20 frames a second: the user's choice). That task loops back and forth until the application's start is over, which
 // app_step reports once (display_boot_end): the card was read and the pads' files are in the catalog, or no card showed up within
 // START_CARD_WAIT_MS of app_init; after START_MAX_MS whatever is still going on.
+#define APP_FRAME_MIN_MS 40             // the shortest time between two frames (25 a second while something keeps changing)
 #define BOOT_FRAME_MS 50
 #define START_CARD_WAIT_MS 1500
 #define START_MAX_MS 8000

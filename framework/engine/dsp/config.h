@@ -56,6 +56,14 @@ static_assert(ENGINE_PADSEQ_HITS > 0 && ENGINE_PADSEQ_HITS <= 255, "ENGINE_PADSE
 #else
 #define SC_HOT
 #endif
+// SC_INLINE: a small helper defined in a header and called from SC_HOT code, forced inline: left out of line, the compiler put its one
+// copy in flash (an `inline` function is not SC_HOT) and the audio path called into flash for it (HWV2, 2026-11-19: DelayLine::
+// read_hermite, once a sample in the Delay, the Chorus, the Flanger; svf_coef_batch, the Filter's coefficients).
+#if defined(__GNUC__)
+#define SC_INLINE inline __attribute__((always_inline))
+#else
+#define SC_INLINE inline
+#endif
 
 static_assert((ENGINE_BLOCK & (ENGINE_BLOCK - 1)) == 0 && ENGINE_BLOCK >= 8 && ENGINE_BLOCK <= 256,
               "ENGINE_BLOCK must be a power of two in 8..256");

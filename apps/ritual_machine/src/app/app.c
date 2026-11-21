@@ -23,6 +23,7 @@ void app_init(app_t *app, u8g2_t *display) {
     app->in.axis_x = app->in.axis_y = INPUT_AXIS_CENTER;
     app->dirty = false;
     app->redraw_owed = false;
+    app->frame_ms = audio_millis() - APP_FRAME_MIN_MS;             // (the first frame at once)
     app->sd_gen = audio_sd_generation();
     app->keys_notice = false;
     app->menu_open = false;
@@ -184,8 +185,23 @@ static int rec_mark(const app_t *app) {
 }
 
 // One frame: the full-screen notice or the UI, the popup on top, then the buffer goes to the display.
+#ifdef DEV_PERF_STREAM
+// dev only (the profiling build): the CPU cycles of each part of the last frames, summed (serial `volsweep` prints and clears them):
+// 0 the screen, 1 the knob legend, 2 the popups, 3 the frame handed to the display. dev_cycles(): the platform's cycle counter.
+uint32_t dev_cycles(void);
+uint64_t g_draw_cycles[4];
+uint32_t g_draw_frames;
+#define DRAW_MARK(k) do { const uint32_t t_ = dev_cycles(); g_draw_cycles[k] += t_ - draw_t; draw_t = t_; } while (0)
+#else
+#define DRAW_MARK(k) do { } while (0)
+#endif
+
 void app_draw_frame(app_t *app) {
     u8g2_t *g = app->display;
+#ifdef DEV_PERF_STREAM
+    uint32_t draw_t = dev_cycles();
+    g_draw_frames++;
+#endif
     if (app->keys_notice) draw_keys_notice(app);   // the full-screen notice hides the popups until it goes (they wait in their queue)
     else if (app->boot_anim != GUI_ANIM_INVALID) {  // the boot animation, alone on the screen (popups wait too)
         ui_clear(g);
@@ -200,6 +216,7 @@ void app_draw_frame(app_t *app) {
             const bool pads_screen = in_pads(app) && !app->ui.in_rack;   // (a synth tab over the pads: the synth's screen)
             if (pads_screen) pads_ui_draw(&app->ui, &app->rack, g, app->pads_shown, app->seq.bpm);
             else synth_ui_draw(&app->ui, &app->params, &app->seq, &app->rack, g);
+            DRAW_MARK(0);
             if (ui_legend_shown(&app->ui, &app->rack, pads_screen)) {      // the knob legend (ADR-046): what the column knobs drive now
                 knob_drive_t pot[APP_POTS];
                 legend_cell_t cell[SYNTH_UI_COL_KNOBS];
@@ -207,12 +224,15 @@ void app_draw_frame(app_t *app) {
                 for (int k = 0; k < SYNTH_UI_COL_KNOBS; k++) cell[k] = pot[k].cell;
                 ui_legend_draw(g, cell);
             }
+            DRAW_MARK(1);
         }
         gui_style_t st;
         gui_style_init(&st, u8g2_GetDisplayWidth(g), u8g2_GetDisplayHeight(g));
         popup_draw(&app->popup, g, &st);
+        DRAW_MARK(2);
     }
     ui_frame_send(g);                               // (the colour canvas on a colour board: core/ui_theme.h)
+    DRAW_MARK(3);
 }
 
 /* ---------------- the step ---------------- */
@@ -291,10 +311,14 @@ bool app_step(app_t *app, input_event_t e) {
     const bool want = app->dirty || app->redraw_owed || ((stepped || animated) && synth_ui_shows_playhead(&app->ui, &app->rack)) ||
                       (animated && app->boot_anim != GUI_ANIM_INVALID) || map_moves;
     if (map_moves) map_frame_ms = now;
-    if (want && input_pending()) {
+    // At most a frame every APP_FRAME_MIN_MS: a control turned fast (the volume knob, a detent every few ms) asked for a redraw at every
+    // step, and on HWV2 a redraw is 25 ms of core 0 whose PSRAM traffic slows the audio core (+20k cycles a block, measured 2026-11-19).
+    // The first frame after a pause is drawn at once; what changes meanwhile is drawn by the next frame.
+    if (want && (input_pending() || now - app->frame_ms < APP_FRAME_MIN_MS)) {
         app->redraw_owed = true;
     } else if (want) {
         app->redraw_owed = false;
+        app->frame_ms = now;
         app_draw_frame(app);
     }
     key_leds_update(app, e.kind != IN_NONE, now);

@@ -73,12 +73,12 @@ TEST(cog_reset_asks_then_puts_every_value_of_the_module_back) {
     ui->page = ui_find_page(fl, 0);
     page_t pg;
     get_page(ui, &ui_app.rack, ui->page, &pg);
-    CHECK(page_has_cog(&ui_app.rack, &pg));                    // a filter has a cog now: Reset only behind it
+    CHECK(page_has_cog(&ui_app.rack, &pg));                    // a filter's cog: FMq (its cost under audio-rate FM), then Reset
     ui->row = pg.count + 1;
     ev_tap(CTL_JOY_SW);
     get_page(ui, &ui_app.rack, ui->page, &pg);
-    CHECK(pg.count == 1 && pg.params[0] == PRM_RESET);
-    ui->row = 1;
+    CHECK(pg.count == 2 && pg.params[0] == MP_FL_FMQ && pg.params[1] == PRM_RESET);
+    ui->row = 2;
     ev_tap(CTL_JOY_SW);                                        // Reset: asked, No focused
     CHECK(popup_modal(&ui_app.popup));
     ev_tap(CTL_JOY_SW);

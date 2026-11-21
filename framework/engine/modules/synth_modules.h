@@ -41,9 +41,13 @@ enum { LFOS_SINE, LFOS_TRI, LFOS_SAW_DOWN, LFOS_SAW_UP, LFOS_SQUARE, LFOS_SH };
 //   LADDER  4 one-poles + resonance feedback + soft clip     24 dB/oct, Moog-like (not zero-delay: tuning approximate up high)
 //   CHAM    Chamberlin state-variable LP, 12 dB/oct          the cutoff stops at about fs / 6 (stability)
 // The light ones compute their coefficient at both ends of the block and interpolate (no exact per-sample path for audio-rate cutoff FM).
-enum { FLT_MODE, FLT_SECTIONS, FLT_CUTOFF, FLT_RES, FLT_CUT_MOD, FLT_ALGO, FLT_N };
+// fm_q: the SVF under fast cutoff modulation (audio-rate FM: an oscillator aimed at the cutoff). EXACT computes the coefficients every
+// sample (about 300 cycles a sample on the S3); EVERY2 / EVERY4 at every 2nd / 4th sample, exact there and interpolated linearly in between
+// (stable: an interpolated set is a contraction too), which smooths the cutoff's movement above about fs / 8 / fs / 16. A quality trade.
+enum { FLT_MODE, FLT_SECTIONS, FLT_CUTOFF, FLT_RES, FLT_CUT_MOD, FLT_ALGO, FLT_FM_Q, FLT_N };
 enum { FLTM_LP, FLTM_BP, FLTM_HP, FLTM_NOTCH, FLTM_AP };      // AP: all-pass, x - 2k bp (flat level, phase 0..-360 degrees per section)
 enum { FLTA_SVF, FLTA_LP6, FLTA_LADDER, FLTA_CHAM };
+enum { FLTQ_EXACT, FLTQ_EVERY2, FLTQ_EVERY4 };
 
 // Shaper (naive, no anti-aliasing: ADR-013): in 0, out 0.   drive in 1/256 octave of gain.   mod: drive
 enum { SHP_MODE, SHP_DRIVE, SHP_MIX, SHP_BITS, SHP_DRIVE_MOD, SHP_N };   // drive_mod: octaves of gain at full-scale modulation

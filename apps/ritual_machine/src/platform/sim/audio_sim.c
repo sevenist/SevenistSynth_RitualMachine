@@ -44,7 +44,9 @@ void audio_shutdown(void) {
 }
 
 void audio_set_params(const rack_t *r, const synth_params_t *p) { engine_synth_set_params(r, p); }
+void audio_set_master(const rack_t *r)                           { engine_synth_set_master(r); }
 void audio_build(const rack_t *r, const synth_params_t *p)      { engine_synth_build(r, p); }
+void audio_build_patch(const rack_t *r, const synth_params_t *p) { engine_synth_build_patch(r, p); }
 int audio_sample_count(void)                                     { return engine_synth_sample_count(); }
 bool audio_sample_info(int i, audio_sample_info_t *out)         { return engine_synth_sample_info(i, out); }
 int audio_osc_preview(int m, float t, float mo, float h, int period, int16_t *out, int n) { return engine_synth_osc_preview(m, t, mo, h, period, out, n); }

@@ -11,8 +11,10 @@
 #include <esp_cpu.h>
 #include <esp_heap_caps.h>
 #include "core/ui_settings.h"
+#include "core/patch.h"
 #include "core/pads.h"
 #include "platform/esp32/serial_cmd_esp32.h"
+#include "platform/esp32/perf_stream_esp32.h"
 #include "boards/esp32/sd_card.h"
 #include "boards/esp32/board_esp32.h"
 #include "boards/esp32/card_task.h"
@@ -23,6 +25,10 @@
 #endif
 
 extern "C" void audio_dev_dump(int n);
+#ifdef DEV_PERF_STREAM
+extern "C" uint64_t g_draw_cycles[4];                              // app.c: the parts of the frames drawn since the last report
+extern "C" uint32_t g_draw_frames;
+#endif
 
 namespace {
 constexpr int kMaxTest = 8;
@@ -42,8 +48,83 @@ void use_rack() {
     release_all();
     synth_ui_init(&g_app->ui, &g_app->rack);
     ui_settings_load(&g_app->ui, &g_app->rack);         // the jump slots and Shift targets stay (the autosave would write the reset ones)
-    audio_build(&g_app->rack, &g_app->params);
+    audio_build_patch(&g_app->rack, &g_app->params);
     g_app->dirty = true;
+}
+
+// volsweep: the master volume walked 0 -> 2 -> 0 in its 5 % steps, one step every `period` ms, for the perf stream to see what a volume
+// knob costs the audio core. The modes split the UI's work: ui = a knob event through app_step (the whole path: the parameter push and the
+// redraw), params = the parameter push alone (audio_set_params: the rack's graph built again, then the changed values sent), draw = the
+// redraw alone (the volume does not change), direct = engine_synth_set_master (MasterOut's values, no graph built). Timed on this core:
+// the slowest and the mean step.
+struct VolSweep {
+    int mode = 0;                                                  // 0 off, 1 ui, 2 params, 3 draw, 4 direct, 5 screen
+    uint32_t until = 0, next = 0, period = 20;
+    int dir = 1;
+    unsigned steps = 0;
+    uint32_t max_us = 0;
+    uint64_t sum_us = 0;
+    float start_volume = 1.0f;                                     // put back at the end (the walk goes up to 2.0)
+} g_vs;
+const char *const kVolModes[] = {"off", "ui", "params", "draw", "direct", "screen"};
+
+void vol_sweep_report() {
+    Serial.printf("[CMD] volsweep %s: %u steps, step on core 0 mean %u us, slowest %u us, graph builds %u\n", kVolModes[g_vs.mode], g_vs.steps,
+                  g_vs.steps ? (unsigned)(g_vs.sum_us / g_vs.steps) : 0u, (unsigned)g_vs.max_us, engine_synth_build_count());
+#ifdef DEV_PERF_STREAM
+    const uint32_t f = g_draw_frames ? g_draw_frames : 1;
+    const uint32_t mhz = ESP.getCpuFreqMHz();
+    Serial.printf("[CMD] frames %u, us a frame: screen %u, legend %u, popups %u, send %u (in_rack %d, page %d, menu_tab %d, map_zoom %d)\n",
+                  (unsigned)g_draw_frames, (unsigned)(g_draw_cycles[0] / f / mhz), (unsigned)(g_draw_cycles[1] / f / mhz),
+                  (unsigned)(g_draw_cycles[2] / f / mhz), (unsigned)(g_draw_cycles[3] / f / mhz), g_app->ui.in_rack ? 1 : 0,
+                  g_app->ui.page, g_app->ui.menu_tab, (int)g_app->ui.map_zoom);
+    for (auto &c : g_draw_cycles) c = 0;
+    g_draw_frames = 0;
+#endif
+}
+
+void vol_sweep_tick() {
+    if (!g_vs.mode || !g_app) return;
+    const uint32_t now = millis();
+    if ((int32_t)(now - g_vs.until) >= 0) {
+        vol_sweep_report();
+        g_vs.mode = 0;
+        g_app->rack.cfg.volume = g_vs.start_volume;                // the volume as it was
+        audio_set_params(&g_app->rack, &g_app->params);
+        g_app->dirty = true;
+        return;
+    }
+    if ((int32_t)(now - g_vs.next) < 0) return;
+    g_vs.next = now + g_vs.period;
+    const float vol = g_app->rack.cfg.volume;
+    if (vol >= 1.99f) g_vs.dir = -1;
+    else if (vol <= 0.01f) g_vs.dir = 1;
+    const uint32_t t0 = micros();
+    if (g_vs.mode == 1) {
+        input_event_t e = {};
+        e.ctl = CTL_VOLUME; e.kind = IN_DELTA; e.value = g_vs.dir;
+        app_step(g_app, e);
+    } else if (g_vs.mode == 2) {
+        synth_config_adjust(&g_app->rack.cfg, CFGP_VOLUME, g_vs.dir);
+        audio_set_params(&g_app->rack, &g_app->params);
+    } else if (g_vs.mode == 4) {
+        synth_config_adjust(&g_app->rack.cfg, CFGP_VOLUME, g_vs.dir);
+        engine_synth_set_master(&g_app->rack);
+    } else if (g_vs.mode == 5) {                                   // the screen changes (the status text), the sound does not
+        snprintf(g_app->status, sizeof g_app->status, "Sweep %u", g_vs.steps);
+        g_app->redraw_owed = true;                                 // (app_step clears `dirty` on entry: an owed redraw survives it)
+        input_event_t e = {};
+        e.ctl = INPUT_NO_CONTROL; e.kind = IN_NONE;
+        app_step(g_app, e);
+    } else {
+        g_app->redraw_owed = true;
+        input_event_t e = {};
+        e.ctl = INPUT_NO_CONTROL; e.kind = IN_NONE;
+        app_step(g_app, e);
+    }
+    const uint32_t dt = micros() - t0;
+    g_vs.steps++; g_vs.sum_us += dt;
+    if (dt > g_vs.max_us) g_vs.max_us = dt;
 }
 
 void clear_row_m() {                                                // every module of row M goes (the effects of every synth type, ADR-041)
@@ -209,6 +290,25 @@ void run(char *line) {
         char name[16] = {};
         int a = 0, b = 0;
         sscanf(arg ? arg : "", "%15s %d %d", name, &a, &b);
+        if (!strcmp(name, "print")) {                     // patch print: the working sound as its patch text (changes nothing)
+            // (the text's buffer from PSRAM while the command runs: a static one took 12 KB of internal RAM from the fast heap)
+            constexpr int kCap = 12288;
+            char *text = static_cast<char *>(heap_caps_malloc(kCap, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT));
+            if (!text) { Serial.println("[CMD] patch print: no memory"); return; }
+            const int n = patch_to_text(&g_app->rack, &g_app->params, &g_app->ui, false, nullptr, false, text, kCap);
+            if (n < 0) { heap_caps_free(text); Serial.println("[CMD] patch print: does not fit"); return; }
+            Serial.println("[CMD] patch print begin");
+            for (char *s = text; *s;) {                   // line by line (the USB console drops long writes)
+                char *e = strchr(s, '\n');
+                if (e) *e = 0;
+                Serial.printf("[PATCH] %s\n", s);
+                if (!e) break;
+                s = e + 1;
+            }
+            Serial.println("[CMD] patch print end");
+            heap_caps_free(text);
+            return;
+        }
         if (!strcmp(name, "startup")) rack_init_startup(&g_app->rack);
         else if (!strcmp(name, "sampler")) rack_init_sampler(&g_app->rack, a, b);
         else if (!strcmp(name, "strings")) g_app->rack.cfg.type = SYNTH_STRINGS;          // the Strings type, current pages and effects (ADR-037)
@@ -501,17 +601,47 @@ void run(char *line) {
         return;
     }
 #endif
+    if (!strcmp(line, "volsweep") && g_app) {             // volsweep ui|params|draw|direct [SECONDS [PERIOD_MS]] | volsweep off: see VolSweep
+        char *w = arg ? strtok(arg, " ") : nullptr;
+        char *s1 = w ? strtok(nullptr, " ") : nullptr, *s2 = s1 ? strtok(nullptr, " ") : nullptr;
+        int mode = 0;
+        for (int k = 1; k < 6; k++) if (w && !strcmp(w, kVolModes[k])) mode = k;
+        if (g_vs.mode) {                                  // one running: its report, the volume put back
+            vol_sweep_report();
+            g_app->rack.cfg.volume = g_vs.start_volume;
+            audio_set_params(&g_app->rack, &g_app->params);
+            g_app->dirty = true;
+        }
+        g_vs = VolSweep{};
+        if (mode) {
+            const int secs = s1 ? atoi(s1) : 5, per = s2 ? atoi(s2) : 20;
+            g_vs.mode = mode;
+            g_vs.start_volume = g_app->rack.cfg.volume;
+            g_vs.period = (uint32_t)(per < 1 ? 1 : per);
+            g_vs.next = millis();
+            g_vs.until = g_vs.next + (uint32_t)(secs < 1 ? 1 : secs) * 1000u;
+            Serial.printf("[CMD] volsweep %s for %d s, a step every %u ms\n", kVolModes[mode], secs < 1 ? 1 : secs, (unsigned)g_vs.period);
+        }
+        return;
+    }
     if (!strcmp(line, "dump")) { audio_dev_dump(v); return; }       // dump N: the next N output samples as "[DUMP]" lines (audio_esp32.cpp)
+#ifdef DEV_PERF_STREAM
+    if (!strcmp(line, "perf")) { perf_stream_cmd(arg); return; }   // perf [on | off | rate N | pmu off|stalls|cache|insn]: the live stream of tools/perf_view
+#endif
     if (!strcmp(line, "status")) { Serial.printf("[CMD] status chord %d, uptime %lu ms, free heap %u\n", chord_held, (unsigned long)millis(), (unsigned)ESP.getFreeHeap()); return; }
     Serial.printf("[CMD] unknown '%s'\n", line);
 }
 }  // namespace
 
 extern "C" void serial_cmd_attach(app_t *app) { g_app = app; }
+#ifdef DEV_PERF_STREAM
+extern "C" uint32_t dev_cycles(void) { return esp_cpu_get_cycle_count(); }   // (app.c's frame parts)
+#endif
 
 extern "C" void serial_cmd_poll(void) {
     static char buf[112];
     static int n = 0;
+    vol_sweep_tick();
     while (Serial.available() > 0) {
         const int ch = Serial.read();
         if (ch == '\n' || ch == '\r') {

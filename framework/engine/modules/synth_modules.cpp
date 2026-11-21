@@ -86,6 +86,21 @@ private:
             ph_ = ph;
             return;
         }
+        // No per-sample pitch, PW or level (the usual case): one loop per wave, without the wave switch and the tests of each sample (the
+        // same arithmetic as the general loop below: bit for bit)
+        if (!varying && !mw && !ml) {
+            const q15 pw = pw0 < 1024 ? q15(1024) : pw0;
+            switch (wave) {
+                case WAVE_SINE_: plain<WAVE_SINE_, Ramp>(n, out, ph, inc, dinc, pw, lv0); break;
+                case WAVE_SAW_: plain<WAVE_SAW_, Ramp>(n, out, ph, inc, dinc, pw, lv0); break;
+                case WAVE_PULSE_: plain<WAVE_PULSE_, Ramp>(n, out, ph, inc, dinc, pw, lv0); break;
+                case WAVE_TRI_: plain<WAVE_TRI_, Ramp>(n, out, ph, inc, dinc, pw, lv0); break;
+                case WAVE_SAW_DOWN_: plain<WAVE_SAW_DOWN_, Ramp>(n, out, ph, inc, dinc, pw, lv0); break;
+                default: plain<-1, Ramp>(n, out, ph, inc, dinc, pw, lv0); break;
+            }
+            ph_ = ph;
+            return;
+        }
         for (int i = 0; i < n; i++) {
             if (varying) inc = pitch_to_inc(pitch_ + scaled(cv[i], kPitchCvSpan) + (mp ? scaled(mp[i], pmod_) : 0), a4_);
             q15 pw = mw ? sat16(pw0 + mw[i]) : pw0;
@@ -105,6 +120,24 @@ private:
             if (Ramp) inc += dinc;
         }
         ph_ = ph;
+    }
+    template <int W, bool Ramp>
+    SC_INLINE void plain(int n, q15 *out, uint32_t &ph_io, uint32_t inc, uint32_t dinc, q15 pw, q15 lv) {
+        uint32_t ph = ph_io;
+        const uint32_t pw17 = static_cast<uint32_t>(pw) << 17;
+        for (int i = 0; i < n; i++) {
+            q15 s;
+            if (W == WAVE_SINE_) s = sine(ph);
+            else if (W == WAVE_SAW_) s = osc_saw(ph, inc);
+            else if (W == WAVE_PULSE_) s = osc_pulse(ph, inc, pw17);
+            else if (W == WAVE_TRI_) s = osc_tri(ph, inc);
+            else if (W == WAVE_SAW_DOWN_) s = neg15(osc_saw(ph, inc));
+            else s = noise_.next();
+            out[i] = mul15(s, lv);
+            ph += inc;
+            if (Ramp) inc += dinc;
+        }
+        ph_io = ph;
     }
     int32_t wave_ = WAVE_SAW_, pitch_ = 60 * kSemi, pmod_ = 12 * kSemi, qual_ = 0;
     q15 pw_ = 16384, level_ = kUnity;
@@ -167,6 +200,27 @@ public:
         }
     }
     SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
+        // A held note in Sustain, or a voice at rest, with the gate the same all block (the usual case): no stage can change, so a
+        // loop without the gate tests and the stage switch (the same arithmetic: bit for bit the general loop's)
+        if (stage_ == Sustain || stage_ == Idle) {
+            const q15 *gin = p.in[0];
+            bool steady = true;
+            for (int i = 0; i < ctx.frames; i++) steady &= (gin[i] > 16384) == gate_;
+            if (steady) {
+                q15 *out = p.out[0];
+                if (stage_ == Idle) {
+                    block_fill(out, static_cast<q15>(y_ >> 16), ctx.frames);
+                    return;
+                }
+                int32_t y = y_;
+                const int32_t s = sus_;
+                // (arrived: 0 <= s - y < 256 makes (s - y) >> 8 zero, y stays where it is all block)
+                if (static_cast<uint32_t>(s - y) < 256u) { block_fill(out, static_cast<q15>(y >> 16), ctx.frames); return; }
+                for (int i = 0; i < ctx.frames; i++) { y += (s - y) >> 8; out[i] = static_cast<q15>(y >> 16); }
+                y_ = y;
+                return;
+            }
+        }
         for (int i = 0; i < ctx.frames; i++) {
             const bool g = p.in[0][i] > 16384;
             if (g && !gate_) { if (y_ < start_) y_ = start_; seg_.begin(y_, kMax, fa_, &lut_[0]); stage_ = Attack; }
@@ -342,13 +396,107 @@ private:
 
 /* ------------------------------------------------------------------ Filter */
 
+// One SVF section over the block in place (x: the block as floats), one copy per mode and for coefficients gliding or not: the state
+// and coefficients stay in registers, no mode test per sample. The same operations in the same order as one section of the per-sample
+// loop, so the output is bit for bit that loop's (tests/test_exact.cpp). Outside the class template: one copy for both scopes.
+template <bool G, int M>
+SC_HOT void svf_section(SvfCoefF c, const SvfCoefF d, SvfStateF &state, float *x, int n) {
+    SvfStateF st = state;
+    for (int i = 0; i < n; i++) {
+        float lp, bp, hp;
+        svf_tick_f(c, st, x[i], lp, bp, hp);
+        if (M == FLTM_LP) x[i] = lp;
+        else if (M == FLTM_BP) x[i] = c.k * bp;                         // normalised: 0 dB at the centre
+        else if (M == FLTM_HP) x[i] = hp;
+        else if (M == FLTM_AP) x[i] -= 2.0f * c.k * bp;                 // lp - k bp + hp: one multiply-add over the SVF
+        else x[i] = lp + hp;
+        if (G) { c.a1 += d.a1; c.a2 += d.a2; c.a3 += d.a3; }
+    }
+    state = st;
+}
+
+// The same with a coefficient set per sample (the Filter's fast modulation): a1 / a2 / a3 from arrays, k fixed for the section.
+template <int M>
+SC_HOT void svf_section_arr(float k, const float *a1, const float *a2, const float *a3, SvfStateF &state, float *x, int n) {
+    SvfStateF st = state;
+    SvfCoefF c;
+    c.k = k;
+    for (int i = 0; i < n; i++) {
+        float lp, bp, hp;
+        c.a1 = a1[i]; c.a2 = a2[i]; c.a3 = a3[i];
+        svf_tick_f(c, st, x[i], lp, bp, hp);
+        if (M == FLTM_LP) x[i] = lp;
+        else if (M == FLTM_BP) x[i] = c.k * bp;
+        else if (M == FLTM_HP) x[i] = hp;
+        else if (M == FLTM_AP) x[i] -= 2.0f * c.k * bp;
+        else x[i] = lp + hp;
+    }
+    state = st;
+}
+SC_HOT void svf_section_per_sample(int mode, float k, const float *a1, const float *a2, const float *a3, SvfStateF &st, float *x, int n) {
+    switch (mode) {
+        case FLTM_LP: svf_section_arr<FLTM_LP>(k, a1, a2, a3, st, x, n); break;
+        case FLTM_BP: svf_section_arr<FLTM_BP>(k, a1, a2, a3, st, x, n); break;
+        case FLTM_HP: svf_section_arr<FLTM_HP>(k, a1, a2, a3, st, x, n); break;
+        case FLTM_AP: svf_section_arr<FLTM_AP>(k, a1, a2, a3, st, x, n); break;
+        default: svf_section_arr<FLTM_NOTCH>(k, a1, a2, a3, st, x, n); break;
+    }
+}
+
+// (SC_HOT too: the compiler inlines the sections into this one, which must then sit in internal RAM. Without it the Filter ran from flash
+// on HWV2: 29 % of its cycles waiting on code, 2026-11-19)
+template <bool G>
+SC_HOT void svf_section_mode(int mode, const SvfCoefF &c, const SvfCoefF &d, SvfStateF &st, float *x, int n) {
+    switch (mode) {
+        case FLTM_LP: svf_section<G, FLTM_LP>(c, d, st, x, n); break;
+        case FLTM_BP: svf_section<G, FLTM_BP>(c, d, st, x, n); break;
+        case FLTM_HP: svf_section<G, FLTM_HP>(c, d, st, x, n); break;
+        case FLTM_AP: svf_section<G, FLTM_AP>(c, d, st, x, n); break;
+        default: svf_section<G, FLTM_NOTCH>(c, d, st, x, n); break;
+    }
+}
+
+// The Filter's fast modulation, four coefficient sets per divide (svf_a1_batch4): `groups` times four, at the samples i0, i0 + step, ...
+// of the modulation, written to dst[(s * 3 + q) * w + column] (q: a1 a2 a3). N, the section count, a template parameter so the values
+// stay in registers; out of line and outside the class, one copy per N for both scopes and every caller (inlined, the 24 copies
+// overflowed the internal RAM, 2026-11-20).
+struct SvfFmSets {
+    const q15 *mc;
+    int i0, step, groups;
+    int32_t base, cmod;
+    uint32_t a4;
+    const float *kf;
+    float *dst;
+    int w;
+};
+template <int N>
+SC_HOT __attribute__((noinline)) void svf_fm_sets4(const SvfFmSets &f) {
+    float k[N];
+    for (int s = 0; s < N; s++) k[s] = f.kf[s];
+    const q15 *mc = f.mc + f.i0;
+    float *dst = f.dst;
+    const int w = f.w;
+    for (int q = 0; q < f.groups; q++, mc += 4 * f.step, dst += 4) {
+        float g[4], a1[4][N];
+        for (int j = 0; j < 4; j++)
+            g[j] = static_cast<float>(static_cast<int32_t>(svf_g(pitch_to_inc(f.base + scaled(mc[j * f.step], f.cmod), f.a4)))) * (1.0f / 268435456.0f);
+        svf_a1_batch4<N>(g, k, a1);
+        for (int j = 0; j < 4; j++)
+            for (int s = 0; s < N; s++) {
+                const float a2 = g[j] * a1[j][s];
+                dst[(s * 3) * w + j] = a1[j][s]; dst[(s * 3 + 1) * w + j] = a2; dst[(s * 3 + 2) * w + j] = g[j] * a2;
+            }
+    }
+}
+
 template <Scope S>
 class Filter : public Module {
 public:
     const ModuleInfo &info() const override {
         static const ModuleInfo i = {"Filter", S, 1, 1, FLT_N, false, {"in"}, {"out"},
             {{"mode", FLTM_LP, 0, FLTM_AP}, {"sections", 2, 1, 4}, {"cutoff", 96 * kSemi, 0, 135 * kSemi}, {"res", 0, 0, kUnity},
-             {"cut_mod", 60 * kSemi, 0, 120 * kSemi}, {"algo", FLTA_SVF, FLTA_SVF, FLTA_CHAM}}, Rate::Follow};
+             {"cut_mod", 60 * kSemi, 0, 120 * kSemi}, {"algo", FLTA_SVF, FLTA_SVF, FLTA_CHAM}, {"fm_q", FLTQ_EXACT, FLTQ_EXACT, FLTQ_EVERY4}},
+            Rate::Follow};
         return i;
     }
     bool init(Memory &) override { a4_ = inc_a4(); update_k(); return true; }
@@ -357,6 +505,7 @@ public:
         for (auto &s : lad_) s = 0.0f;
         lp6_ = ch_lp_ = ch_bp_ = 0.0f;
         cut_s_ = cutoff_; cut_q_ = cutoff_ << 8;
+        last_ok_ = false;
     }
     void set_param(int idx, int32_t v) override {
         switch (idx) {
@@ -366,6 +515,7 @@ public:
             case FLT_RES: res_ = v; update_k(); break;
             case FLT_CUT_MOD: cmod_ = v; break;
             case FLT_ALGO: algo_ = clamp_i32(v, FLTA_SVF, FLTA_CHAM); break;
+            case FLT_FM_Q: fmq_ = clamp_i32(v, FLTQ_EXACT, FLTQ_EVERY4); break;
         }
     }
     SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
@@ -411,23 +561,37 @@ public:
             }
 #endif
         }
-        for (int i = 0; i < frames; i++) {
-            if (moving && !glide) coefs(c, pitch_to_inc(cut_s_ + (mc ? scaled(mc[i], cmod_) : 0), a4_));
-            float x = static_cast<float>(p.in[0][i]) * (1.0f / 32768.0f);
+        if (!moving || glide) {                                         // the usual case: section by section over the block
+            last_ok_ = false;
+            float x[kBlock];
+            const q15 *in = p.in[0];
+            for (int i = 0; i < frames; i++) x[i] = static_cast<float>(in[i]) * (1.0f / 32768.0f);
             for (int s = 0; s < n_; s++) {
-                float lp, bp, hp;
-                svf_tick_f(c[s], st_[s], x, lp, bp, hp);
-                switch (mode_) {
-                    case FLTM_LP: x = lp; break;
-                    case FLTM_BP: x = c[s].k * bp; break;                 // normalised: 0 dB at the centre
-                    case FLTM_HP: x = hp; break;
-                    case FLTM_AP: x -= 2.0f * c[s].k * bp; break;         // lp - k bp + hp: one multiply-add over the SVF
-                    default: x = lp + hp; break;
-                }
-                if (glide) { c[s].a1 += dc[s].a1; c[s].a2 += dc[s].a2; c[s].a3 += dc[s].a3; }
+                if (glide) svf_section_mode<true>(mode_, c[s], dc[s], st_[s], x, frames);
+                else svf_section_mode<false>(mode_, c[s], dc[s], st_[s], x, frames);
             }
-            p.out[0][i] = svf_out_f(x);
+            q15 *out = p.out[0];
+            for (int i = 0; i < frames; i++) out[i] = svf_out_f(x[i]);
+            return;
         }
+        // Fast modulation (audio-rate FM of the cutoff: an oscillator aimed at it): the coefficients per sample. All of the block's first
+        // (they do not depend on the filter's state: a loop that pipelines), then section by section over the block with one loop per mode,
+        // as above. The same operations in the same order as one sample through every section: bit for bit (tests/test_exact.cpp).
+        // fm_q EVERY2 / EVERY4: a set at every 2nd / 4th sample, interpolated (the quality trade, FLT_FM_Q).
+        float a[4][3][kBlock], x[kBlock];
+        const q15 *in = p.in[0];
+        if (mc && fmq_ == FLTQ_EVERY2) coefs_every<2>(mc, frames, a, c);
+        else if (mc && fmq_ == FLTQ_EVERY4) coefs_every<4>(mc, frames, a, c);
+        else if (mc) { last_ok_ = false; coefs_per_sample(mc, frames, a, c); }
+        else {                                                          // (no modulation, a knob's move without the glide: one set)
+            last_ok_ = false;
+            coefs(c, pitch_to_inc(cut_s_, a4_));
+            for (int i = 0; i < frames; i++) for (int s = 0; s < n_; s++) { a[s][0][i] = c[s].a1; a[s][1][i] = c[s].a2; a[s][2][i] = c[s].a3; }
+        }
+        for (int i = 0; i < frames; i++) x[i] = static_cast<float>(in[i]) * (1.0f / 32768.0f);
+        for (int s = 0; s < n_; s++) svf_section_per_sample(mode_, c[s].k, a[s][0], a[s][1], a[s][2], st_[s], x, frames);
+        q15 *out = p.out[0];
+        for (int i = 0; i < frames; i++) out[i] = svf_out_f(x[i]);
     }
 private:
     // The light low-passes (FLT_ALGO). Float, one coefficient per block end, interpolated.
@@ -479,9 +643,62 @@ private:
     }
     // Coefficients are computed in integer (table + reciprocal) and converted; the per-sample filter itself runs in single-precision float,
     // which the ESP32-S3's FPU does in about 25 cycles against 200 for the saturating fixed-point version.
-    void coefs(SvfCoefF *c, uint32_t inc) const {
+    // (the body, inlined into the two below; left out of line it ran from flash, twice a block and every sample under fast modulation,
+    // 2026-11-20)
+    SC_INLINE void coefs_body(SvfCoefF *c, uint32_t inc) const {
         const float g = static_cast<float>(static_cast<int32_t>(svf_g(inc))) * (1.0f / 268435456.0f);     // (signed convert: tan stays below 2^31)
         svf_coef_batch(g, kf_, n_, c);
+    }
+    SC_HOT void coefs(SvfCoefF *c, uint32_t inc) const { coefs_body(c, inc); }
+    // `groups` times four sets, four per divide (svf_fm_sets4), into dst[s][0..2][0 ..]; c[s].k with them (what the sections read of c)
+    template <int W>
+    SC_INLINE void coefs4(const q15 *mc, int i0, int step, int groups, float (*dst)[3][W], SvfCoefF *c) const {
+        const SvfFmSets f{mc, i0, step, groups, cut_s_, cmod_, a4_, kf_, &dst[0][0][0], W};
+        switch (n_) {
+            case 1: svf_fm_sets4<1>(f); break;
+            case 2: svf_fm_sets4<2>(f); break;
+            case 3: svf_fm_sets4<3>(f); break;
+            default: svf_fm_sets4<4>(f); break;
+        }
+        for (int s = 0; s < n_; s++) c[s].k = kf_[s];
+    }
+    // Fast modulation: a coefficient set per sample of the block, a1 / a2 / a3 of section s into a[s][0..2][i]; c[s].k with them.
+    // Four samples per divide (a block is a power of two of 8 or more, config.h: whole groups of four).
+    SC_HOT void coefs_per_sample(const q15 *mc, int frames, float (*a)[3][kBlock], SvfCoefF *c) const {
+        coefs4(mc, 0, 1, frames / 4, a, c);
+    }
+    // The same at every STEPth sample (the last of each group of STEP), straight lines in between from the set before (last_: the previous
+    // block's final one; on entering this path, the block's first sample's). Exact at those samples, no delay. The sets first, then each
+    // row in straight-line code (a general loop over groups of 2 or 4 cost about all that the skipped sets saved, 2026-11-20). A block is
+    // a power of two of 8 or more (config.h): always whole groups. (noinline: inlined into process, it cost the exact path 1.4 %.)
+    template <int STEP>
+    SC_HOT __attribute__((noinline)) void coefs_every(const q15 *mc, int frames, float (*a)[3][kBlock], SvfCoefF *c) {
+        const int n = n_, groups = frames / STEP;
+        if (!last_ok_) {
+            coefs_body(c, pitch_to_inc(cut_s_ + scaled(mc[0], cmod_), a4_));
+            for (int s = 0; s < n; s++) { last_[s][0] = c[s].a1; last_[s][1] = c[s].a2; last_[s][2] = c[s].a3; }
+            last_ok_ = true;
+        }
+        float pt[4][3][kBlock / STEP];
+        int k = groups / 4 * 4;
+        if (k > 0) coefs4(mc, STEP - 1, STEP, groups / 4, pt, c);      // four sets per divide
+        for (; k < groups; k++) {                                       // (fewer than four left: a block of 8 at every 4th)
+            coefs_body(c, pitch_to_inc(cut_s_ + scaled(mc[k * STEP + STEP - 1], cmod_), a4_));
+            for (int s = 0; s < n; s++) { pt[s][0][k] = c[s].a1; pt[s][1][k] = c[s].a2; pt[s][2][k] = c[s].a3; }
+        }
+        for (int s = 0; s < n; s++)
+            for (int q = 0; q < 3; q++) {
+                float l = last_[s][q], *row = a[s][q];
+                const float *p = pt[s][q];
+                for (int k = 0; k < groups; k++, row += STEP) {
+                    const float t = p[k], d = (t - l) * (1.0f / STEP);
+                    row[0] = l + d * 1.0f;
+                    if (STEP == 4) { row[1] = l + d * 2.0f; row[2] = l + d * 3.0f; }
+                    row[STEP - 1] = t;
+                    l = t;
+                }
+                last_[s][q] = l;
+            }
     }
     void update_k() {
         static const float q[4][4] = {{0.70711f}, {0.54120f, 1.30656f}, {0.51764f, 0.70711f, 1.93185f}, {0.50979f, 0.60134f, 0.89998f, 2.56292f}};
@@ -495,7 +712,9 @@ private:
     int32_t mode_ = FLTM_LP, n_ = 2, cutoff_ = 96 * kSemi, cut_s_ = 96 * kSemi, cut_q_ = 96 * kSemi << 8, cmod_ = 60 * kSemi, res_ = 0;
     float kf_[4] = {};
     SvfStateF st_[4];
-    int32_t algo_ = FLTA_SVF;
+    int32_t algo_ = FLTA_SVF, fmq_ = FLTQ_EXACT;
+    float last_[4][3] = {};                                         // fm_q EVERY2 / 4: the last coefficient set (a1 a2 a3 per section)
+    bool last_ok_ = false;
     float lad_[4] = {}, lp6_ = 0.0f, ch_lp_ = 0.0f, ch_bp_ = 0.0f;
     uint32_t a4_ = 0;
 };
@@ -613,8 +832,14 @@ public:
     void set_param(int, int32_t v) override { g_ = static_cast<q15>(v); }
     SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         const q15 *m = p.mod[VCA_LEVEL];
-        if (!m) { block_gain(p.out[0], p.in[0], g_, ctx.frames); return; }
-        for (int i = 0; i < ctx.frames; i++) p.out[0][i] = mul15(p.in[0][i], sat16(g_ + m[i]));
+        const q15 *in = p.in[0];
+        q15 *out = p.out[0];
+        const int32_t g = g_;                    // (a local: a store to `out` could alias g_, the compiler reloaded it every sample)
+        const int n = ctx.frames;
+        if (!m) { block_gain(out, in, static_cast<q15>(g), n); return; }
+        // level 0, the level all modulation (the Ritual Machine's amp VCAs: the envelope into a level of 0): sat16(0 + m) is m
+        if (g == 0) { for (int i = 0; i < n; i++) out[i] = mul15(in[i], m[i]); return; }
+        for (int i = 0; i < n; i++) out[i] = mul15(in[i], sat16(g + m[i]));
     }
 private:
     q15 g_ = kUnity;
@@ -630,6 +855,20 @@ public:
     void process(const ProcessCtx &ctx, const Ports &p) override { block_mul(p.out[0], p.in[0], p.in[1], ctx.frames); }
 };
 
+// N inputs at constant gains, the loop unrolled over them (direct pointers, no index table): the same terms as the general loop.
+// Outside the class template: one copy for both scopes.
+template <int N>
+SC_HOT void mix_n(q15 *out, const q15 *const *in, const int32_t *g, int n) {
+    const q15 *a = in[0], *b = in[N > 1 ? 1 : 0], *c = in[N > 2 ? 2 : 0], *d = in[N > 3 ? 3 : 0];
+    for (int i = 0; i < n; i++) {
+        int32_t acc = (a[i] * g[0] + (1 << 14)) >> 15;
+        if (N > 1) acc += (b[i] * g[1] + (1 << 14)) >> 15;
+        if (N > 2) acc += (c[i] * g[2] + (1 << 14)) >> 15;
+        if (N > 3) acc += (d[i] * g[3] + (1 << 14)) >> 15;
+        out[i] = sat16(acc);
+    }
+}
+
 template <Scope S>
 class Mix4 : public Module {
 public:
@@ -642,19 +881,16 @@ public:
     SC_HOT void process(const ProcessCtx &ctx, const Ports &p) override {
         const q15 *mod[4] = {p.mod[0], p.mod[1], p.mod[2], p.mod[3]};
         if (!(mod[0] || mod[1] || mod[2] || mod[3])) {                  // the usual case: constant gains, and unused inputs (gain 0) cost nothing
-            int act[4], na = 0;
-            for (int k = 0; k < 4; k++) if (g_[k] != 0) act[na++] = k;
-            if (na == 0) { for (int i = 0; i < ctx.frames; i++) p.out[0][i] = 0; return; }
-            if (na == 2) {
-                const q15 *a = p.in[act[0]], *b = p.in[act[1]];
-                const int32_t ga = g_[act[0]], gb = g_[act[1]];
-                for (int i = 0; i < ctx.frames; i++) p.out[0][i] = sat16(((a[i] * ga + (1 << 14)) >> 15) + ((b[i] * gb + (1 << 14)) >> 15));
-                return;
-            }
-            for (int i = 0; i < ctx.frames; i++) {
-                int32_t acc = 0;
-                for (int j = 0; j < na; j++) acc += (p.in[act[j]][i] * g_[act[j]] + (1 << 14)) >> 15;
-                p.out[0][i] = sat16(acc);
+            const q15 *in[4];
+            int32_t g[4];
+            int na = 0;
+            for (int k = 0; k < 4; k++) if (g_[k] != 0) { in[na] = p.in[k]; g[na++] = g_[k]; }
+            switch (na) {
+                case 0: for (int i = 0; i < ctx.frames; i++) p.out[0][i] = 0; break;
+                case 1: mix_n<1>(p.out[0], in, g, ctx.frames); break;
+                case 2: mix_n<2>(p.out[0], in, g, ctx.frames); break;
+                case 3: mix_n<3>(p.out[0], in, g, ctx.frames); break;
+                default: mix_n<4>(p.out[0], in, g, ctx.frames); break;
             }
             return;
         }

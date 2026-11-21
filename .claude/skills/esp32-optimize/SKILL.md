@@ -38,6 +38,19 @@ C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py 
 C:/.platformio/penv/Scripts/python.exe apps/ritual_machine/tools/serial_test.py --raw --seconds 3     # just read the board (also a safe way to see which firmware runs)
 ```
 
+**HWV2 (the current board): the live perf stream.** Firmware env `hwv2_perf` (`.\upload.ps1 -Env hwv2_perf -Port COM12`), then
+`tools/perf_view/perf_view.py` reads COM13. The user watches the page (http://localhost:8765); you use the headless form, which gives the
+same numbers as a table plus the core's performance counters per module:
+```
+C:/.platformio/penv/Scripts/python.exe tools/perf_view/perf_view.py --summary 5 --cmd "patch startup" --cmd "chord 6" --save before.json
+C:/.platformio/penv/Scripts/python.exe tools/perf_view/perf_view.py --summary 5 --cmd "patch startup" --cmd "chord 6" --baseline before.json
+C:/.platformio/penv/Scripts/python.exe tools/perf_view/perf_view.py --summary 5 --cmd "perf pmu insn"      # IPC / bubbles instead of stalls
+```
+Counters (tools/perf_view/README.md): `stalls` = % of a module's cycles spent waiting on code (flash, I-cache) / on data (PSRAM, store buffer);
+`insn` = IPC and pipeline bubbles. They tell which fix applies **before** you change code: code stalls -> IRAM / smaller hot code; data stalls
+-> internal RAM, sequential access; low IPC with few stalls -> latency chains (batch independent work). The stream also reports the slowest
+render split by module (spikes) and audio stalls (real dropouts). It replaces the `[PROF]` text in that build; `serial_test.py` stays for HWV1.
+
 Budget: 160000 cycles per 32-frame block at 240 MHz / 48 kHz (`[PROF] ... budget`). The render line says `blocks over budget` (a 64-frame render slower than real time), and `[AUDIO] DMA underruns` counts the **real dropouts** (the I2S ring of 6 x 64 frames ran empty).
 A steady load over budget gives both; a peaky load (an STFT frame every 128 samples) can show hundreds of slow renders and 0 underruns, because the ring absorbs them (measured 2026-10-07: 1 pitch shifter 0, 4 of them 260-340 per second). Judge by the underruns; every graph rebuild gives about 10.
 
@@ -73,7 +86,8 @@ Go from coarse to fine, one level at a time:
 
 | Level | Tool | Gives |
 |---|---|---|
-| module | `[PROF]` line (cycles per block, summed over voices, `xN` = instances) | which module type dominates; divide by voices for per-voice cost |
+| module | `[PROF]` line (cycles per block, summed over voices, `xN` = instances); on HWV2 `perf_view.py --summary` | which module type dominates; divide by voices for per-voice cost |
+| why (HWV2) | `perf_view` counters per module (`perf pmu stalls / cache / insn`) | waiting on flash, on PSRAM, or computing: which kind of fix |
 | stage inside a module | `SEC_BEGIN()/SEC_MARK(n)` (`fx_modules.h`), printed as `[SEC]`; `g_osc_prof[]` per oscillator engine, printed as `[OSC]` | where inside Reverb / Delay / OscEngines the cycles go. Add marks for what you investigate, remove or keep them under `ENGINE_PROFILE` |
 | memory | `[HEAP]` line: fast heap used / spilled bytes | whether module state fell into PSRAM (see lesson 7) |
 | primitive | `bench_esp32.cpp` (`HWV1_BENCH`, printed at boot as `[BENCH]`) | cycles of one operation or one candidate formulation, RAM vs PSRAM. Add a line for any new idea BEFORE implementing it |

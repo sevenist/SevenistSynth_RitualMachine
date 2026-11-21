@@ -7,7 +7,21 @@
 
 namespace sc {
 
-inline void block_clear(q15 *dst, int n = kBlock) { for (int i = 0; i < n; i++) dst[i] = 0; }
+// dst[0 .. n) = v: two samples a 32-bit store when dst is 4-byte aligned (the plan's blocks are: 16), else one at a time. The same values
+// either way; the 32-bit word through a may_alias type (it writes q15 storage).
+typedef uint32_t __attribute__((may_alias)) q15_pair_t;
+SC_INLINE bool pairs_ok(const void *p, int n) { return ((reinterpret_cast<uintptr_t>(p) & 3u) | (static_cast<unsigned>(n) & 1u)) == 0; }
+SC_INLINE uint32_t q15_pair(q15 v) { return static_cast<uint32_t>(static_cast<uint16_t>(v)) * 0x00010001u; }
+SC_INLINE void block_fill(q15 *dst, q15 v, int n = kBlock) {
+    if (pairs_ok(dst, n)) {
+        const uint32_t w = q15_pair(v);
+        q15_pair_t *d = reinterpret_cast<q15_pair_t *>(dst);
+        for (int k = 0; k < n / 2; k++) d[k] = w;
+        return;
+    }
+    for (int i = 0; i < n; i++) dst[i] = v;
+}
+SC_INLINE void block_clear(q15 *dst, int n = kBlock) { block_fill(dst, 0, n); }
 inline void block_copy(q15 *dst, const q15 *src, int n = kBlock) { for (int i = 0; i < n; i++) dst[i] = src[i]; }
 
 inline void block_add(q15 *dst, const q15 *a, const q15 *b, int n = kBlock) { for (int i = 0; i < n; i++) dst[i] = add15(a[i], b[i]); }

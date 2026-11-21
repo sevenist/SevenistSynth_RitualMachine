@@ -335,12 +335,12 @@ void app_run_action(app_t *app, const binding_t *b, input_event_t e) {
             break;
         }
         case ACT_MASTER_VOLUME:
-            if (synth_ui_set_volume(&app->ui, &app->rack, e.value)) { audio_set_params(&app->rack, &app->params); app->dirty = true; }
+            if (synth_ui_set_volume(&app->ui, &app->rack, e.value)) { audio_set_master(&app->rack); app->dirty = true; }
             break;
         case ACT_VOLUME_STEP: {
             changed = false;
             for (int k = 0; k < (n < 0 ? -n : n) && k < 40; k++) changed |= synth_config_adjust(&app->rack.cfg, CFGP_VOLUME, n < 0 ? -1 : 1) != CFG_UNCHANGED;
-            if (changed) { audio_set_params(&app->rack, &app->params); app->dirty = true; }
+            if (changed) { audio_set_master(&app->rack); app->dirty = true; }
             snprintf(app->status, sizeof app->status, "Volume %.2f", (double)app->rack.cfg.volume);
             break;
         }

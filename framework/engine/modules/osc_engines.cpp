@@ -347,6 +347,8 @@ private:
             case OSCX_WIND: {
                 const float m = static_cast<float>(morph) * (1.0f / 32768.0f);
                 wd_a_ = 0.25f + 0.7f * m;                                                              // the bore's low pass: dull .. bright
+                // (the coefficient as at 48 kHz, made a cutoff in Hz at any rate: 1 - (1 - a)^(48000 / fs); the same at 48 kHz)
+                if (kSampleRate != 48000) wd_a_ = 1.0f - std::pow(1.0f - wd_a_, 48000.0f / static_cast<float>(kSampleRate));
                 const float d = static_cast<float>(kSampleRate) / (2.0f * inc_to_hz(inc > 1 ? inc : 1)) - (1.0f / wd_a_ - 1.0f) - 1.0f;
                 wd_len_ = d < 2.0f ? 2.0f : (d > static_cast<float>(kWgLen - 3) ? static_cast<float>(kWgLen - 3) : d);
                 wd_breath_ = 0.3f + 0.6f * static_cast<float>(timbre) * (1.0f / 32768.0f);
@@ -806,6 +808,9 @@ private:
 
     // WIND: a reed instrument on a waveguide (a clarinet's bore: one delay line of half a period with an inverting, low-passed reflection, the reed's
     // table at its end). The gate is the breath (a 10 ms ramp), Timbre the breath pressure, Morph the brightness of the bore.
+    // The same at any sample rate: the reflection works once per round trip (per period), the bore's low pass and the output's DC blocker
+    // are cutoffs in Hz (their 48 kHz values converted). Lowest note: kWgLen bounds the bore, 23 Hz at 48 kHz, 47 Hz at 96 kHz.
+    static inline const float kWindDc = kSampleRate == 48000 ? 0.995f : std::pow(0.995f, 48000.0f / static_cast<float>(kSampleRate));
     int32_t wind() {
         float *buf = fs();
         wd_env_ += ((gate_ ? 1.0f : 0.0f) - wd_env_) * (1.0f / (0.01f * static_cast<float>(kSampleRate)));
@@ -824,7 +829,7 @@ private:
         in = in > 4.0f ? 4.0f : (in < -4.0f ? -4.0f : in);
         buf[wd_w_] = in;
         wd_w_ = (wd_w_ + 1) & (kWgLen - 1);
-        const float o = d - wd_dx_ + 0.995f * wd_dy_;
+        const float o = d - wd_dx_ + kWindDc * wd_dy_;
         wd_dx_ = d; wd_dy_ = o;
         return static_cast<int32_t>(o * 16000.0f);
     }

@@ -65,9 +65,16 @@ void ui_clear(u8g2_t *g) {
     u8g2_ClearBuffer(g);                       // (the canvas keeps u8g2's one-bit buffer for its bookkeeping: cleared too)
 }
 
+// An indexed canvas of the screen's size is handed over without a copy (display_swap_indexed): every frame of this app starts with
+// ui_clear, so the buffer given back for the next one needs no content (20 KB less copied in PSRAM a frame on HWV2).
 void ui_frame_send(u8g2_t *g) {
-    if (ui_colour(g)) canvas_send(g_canvas);
-    else display_send(g);
+    if (!ui_colour(g)) { display_send(g); return; }
+    if (g_canvas->idx && g_canvas->w == DISPLAY_WIDTH && g_canvas->h == DISPLAY_HEIGHT) {
+        uint8_t *next = display_swap_indexed(g_canvas->idx, g_canvas->palette);
+        if (next) g_canvas->idx = next;
+        return;
+    }
+    canvas_send(g_canvas);
 }
 
 ui_colour_t ui_family(module_type_t t) {

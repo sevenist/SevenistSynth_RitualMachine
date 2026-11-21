@@ -12,21 +12,40 @@ static inline uint32_t prof_now() { return esp_cpu_get_cycle_count(); }
 #include <chrono>
 static inline uint32_t prof_now() { return static_cast<uint32_t>(std::chrono::steady_clock::now().time_since_epoch().count()); }   // ns on the desktop
 #endif
+#if defined(ARDUINO_ARCH_ESP32) && defined(ENGINE_PROFILE_PMU)
+// The core's performance counters PM0 / PM1, read straight from the ERI bus (an inline `rer`: the ESP-IDF eri_read is a call into flash,
+// which would add its own cache misses to every module). What they count is set by the board (apps' perf stream, xtensa_perfmon_init).
+#include <xtensa-debug-module.h>
+static inline uint32_t prof_ev(uint32_t addr) {
+    uint32_t v;
+    __asm__ __volatile__("rer %0, %1" : "=r"(v) : "r"(addr));
+    return v;
+}
+#define PROF_EV0() prof_ev(ERI_PERFMON_PM0)
+#define PROF_EV1() prof_ev(ERI_PERFMON_PM1)
+#else
+#define PROF_EV0() 0u
+#define PROF_EV1() 0u
+#endif
 #endif
 
 namespace sc {
 
 #ifdef ENGINE_PROFILE
-void Engine::prof_add(const char *name, uint32_t cycles) {
+// (in internal RAM: called after every module and step, ~50 times a block; from flash it was most of the profile's "outside")
+SC_HOT void Engine::prof_add(const char *name, uint32_t cycles, uint32_t ev0, uint32_t ev1) {
     for (int i = 0; i < prof_n_; i++)
-        if (prof_[i].name == name) { prof_[i].cycles += cycles; prof_[i].calls++; return; }       // names are string literals: compare the pointers
-    if (prof_n_ < kProfMax) prof_[prof_n_++] = ProfEntry{name, cycles, 1};
+        if (prof_[i].name == name) {                                        // names are string literals: compare the pointers
+            prof_[i].cycles += cycles; prof_[i].calls++; prof_[i].ev[0] += ev0; prof_[i].ev[1] += ev1;
+            return;
+        }
+    if (prof_n_ < kProfMax) prof_[prof_n_++] = ProfEntry{name, cycles, 1, {ev0, ev1}};
 }
 
 int Engine::prof_take(ProfEntry *out, int max, uint32_t *blocks) {
     const int n = prof_n_ < max ? prof_n_ : max;
     for (int i = 0; i < n; i++) out[i] = prof_[i];
-    for (int i = 0; i < prof_n_; i++) prof_[i].cycles = 0, prof_[i].calls = 0;
+    for (int i = 0; i < prof_n_; i++) prof_[i].cycles = 0, prof_[i].calls = 0, prof_[i].ev[0] = 0, prof_[i].ev[1] = 0;
     *blocks = prof_blocks_;
     prof_blocks_ = 0;
     return n;
@@ -363,7 +382,7 @@ bool Engine::pseq_hits(int first, int count, const PadHit *hits, int total, bool
 
 // The metronome click (a 1.5 kHz sine burst, 3 kHz on beat 1 of the bar, decaying in a few ms, at about -12 dBFS) is added after the
 // master output: the master volume does not change it. Then the position moves by the block.
-void Engine::transport_block(q15 *l, q15 *r) {
+SC_HOT void Engine::transport_block(q15 *l, q15 *r) {   // (every block: in internal RAM)
     if (tr_.running && click_on_) {
         const uint64_t next = (tr_.beat_q32 + 0xFFFFFFFFull) & ~0xFFFFFFFFull;    // the first beat at or after the block start
         const int k = tr_.sample_at(next, kBlock);
@@ -465,10 +484,17 @@ SC_HOT void Engine::run(const Plan *pl, int first, int count, int voice, Process
     for (int i = first; i < first + count; i++) {
         const Step &s = pl->steps[i];
         const bool move = s.fb && voice > 0;
+#ifdef ENGINE_PROFILE
+        // the steps between the modules, timed by kind (a module times itself below): what the profile's "outside" holds
+        static const char *const kStepName[] = {"(module)", "(mix)", "(copy)", "(mix f)", "(copy f)", "(to float)", "(to q15)"};
+        const bool step_timed = s.kind != StepKind::Module;
+        const uint32_t step_t0 = step_timed ? prof_now() : 0;
+#endif
         switch (s.kind) {
         case StepKind::Module: {
             Module *m = pl->inst(s.node, voice > 0 ? voice : 0);
 #ifdef ENGINE_PROFILE
+            const uint32_t e0 = PROF_EV0(), e1 = PROF_EV1();
             const uint32_t t0 = prof_now();
 #endif
             if (!move && !s.dyn_nodes) {
@@ -489,7 +515,9 @@ SC_HOT void Engine::run(const Plan *pl, int first, int count, int voice, Process
             // (the time taken before info() is called: the order of a call's arguments is not fixed, and info() is a virtual call into
             // flash, through the cache: inside the window it added a build-dependent cost to every module)
             const uint32_t dt = prof_now() - t0;
-            prof_add(m->info().name, dt);
+            const uint32_t d0 = PROF_EV0() - e0, d1 = PROF_EV1() - e1;
+            const ModuleType *mt = reg_.get(pl->node_type[s.node]);              // (the name from the registry: info() is a virtual call into flash)
+            prof_add(mt ? mt->info->name : m->info().name, dt, d0, d1);
 #endif
             if (s.dyn_src) {
                 const uint64_t bit = 1ull << s.node;
@@ -499,9 +527,25 @@ SC_HOT void Engine::run(const Plan *pl, int first, int count, int voice, Process
         }
         case StepKind::Mix: {
             q15 *dst = move ? const_cast<q15 *>(rel(s.dst)) : s.dst;
-            int32_t acc[kBlock] = {};
-            for (int k = 0; k < s.n; k++) {
-                if (s.gain[k] == 0) continue;                                    // a muted source (a modulating oscillator with Mute on)
+            // (the same sums as clearing an accumulator and adding every source: the first source that plays starts it, and a single
+            // one goes straight to the output; a muted source, gain 0, adds nothing: a modulating oscillator with Mute on)
+            int first = 0;
+            while (first < s.n && s.gain[first] == 0) first++;
+            int more = 0;
+            for (int k = first + 1; k < s.n; k++) more += s.gain[k] != 0;
+            if (first == s.n) { block_clear(dst); break; }
+            const q15 *src0 = move ? rel(s.src[first]) : s.src[first];
+            const int32_t g0 = s.gain[first];
+            if (!more) {
+                if (g0 == kUnity) block_copy(dst, src0);
+                else for (int j = 0; j < kBlock; j++) dst[j] = sat16((src0[j] * g0 + (1 << 14)) >> 15);
+                break;
+            }
+            int32_t acc[kBlock];
+            if (g0 == kUnity) for (int j = 0; j < kBlock; j++) acc[j] = src0[j];
+            else for (int j = 0; j < kBlock; j++) acc[j] = (src0[j] * g0 + (1 << 14)) >> 15;
+            for (int k = first + 1; k < s.n; k++) {
+                if (s.gain[k] == 0) continue;
                 const q15 *src = move ? rel(s.src[k]) : s.src[k];
                 if (s.gain[k] == kUnity) for (int j = 0; j < kBlock; j++) acc[j] += src[j];
                 else for (int j = 0; j < kBlock; j++) acc[j] += (src[j] * s.gain[k] + (1 << 14)) >> 15;
@@ -543,6 +587,9 @@ SC_HOT void Engine::run(const Plan *pl, int first, int count, int voice, Process
             break;
         }
         }
+#ifdef ENGINE_PROFILE
+        if (step_timed) prof_add(kStepName[static_cast<int>(s.kind)], prof_now() - step_t0, 0, 0);
+#endif
     }
 }
 
@@ -605,8 +652,10 @@ SC_HOT void Engine::render(q15 *l, q15 *r) {
 
     block_clear(l);
     block_clear(r);
-    for (int i = 0; i < kBlock; i++) { bus_l_[i] = 0; bus_r_[i] = 0; bus2_l_[i] = 0; bus2_r_[i] = 0; }
-    for (int b = 0; b < kSendBuses; b++) for (int i = 0; i < kBlock; i++) { send_l_[b][i] = 0; send_r_[b][i] = 0; }
+    // (only the left buses: every right one starts as a copy of its left one, ProcessCtx::bus_mono)
+    for (int i = 0; i < kBlock; i++) { bus_l_[i] = 0; bus2_l_[i] = 0; }
+    for (int b = 0; b < kSendBuses; b++) for (int i = 0; i < kBlock; i++) send_l_[b][i] = 0;
+    bus_mono_ = static_cast<uint8_t>((1u << (2 + kSendBuses)) - 1);
     const uint64_t t = time_.fetch_add(1, std::memory_order_relaxed) + 1;
 #ifdef ENGINE_PROFILE
     prof_blocks_++;
@@ -626,6 +675,7 @@ SC_HOT void Engine::render(q15 *l, q15 *r) {
     ProcessCtx ctx{kBlock, t, nullptr, bus_l_, bus_r_, l, r};
     ctx.bus2_l = bus2_l_; ctx.bus2_r = bus2_r_;
     for (int b = 0; b < kSendBuses; b++) { ctx.send_l[b] = send_l_[b]; ctx.send_r[b] = send_r_[b]; }
+    ctx.bus_mono = &bus_mono_;
     ctx.transport = &tr_;
     ctx.silence = pl->silence;
     ctx.fsilence = pl->fsilence;
@@ -650,7 +700,10 @@ SC_HOT void Engine::render(q15 *l, q15 *r) {
     }
     ctx.voice = nullptr;
     run(pl, pl->n_pre + pl->n_voice, pl->n_post, -1, ctx);
-    if (!pl->has_master) for (int i = 0; i < kBlock; i++) { l[i] = sat16(bus_l_[i]); r[i] = sat16(bus_r_[i]); }
+    if (!pl->has_master) {
+        const int32_t *br = (bus_mono_ & 1u) ? bus_l_ : bus_r_;
+        for (int i = 0; i < kBlock; i++) { l[i] = sat16(bus_l_[i]); r[i] = sat16(br[i]); }
+    }
     transport_block(l, r);
 }
 

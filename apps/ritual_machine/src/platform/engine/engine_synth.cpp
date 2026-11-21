@@ -2,8 +2,13 @@
 #include "platform/engine/engine_synth.h"
 #include <chrono>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <mutex>
+#include <new>
+#if defined(ARDUINO_ARCH_ESP32)
+#include <esp_heap_caps.h>
+#endif
 #include <thread>
 #include "engine/core/host.h"
 #include "engine/modules/builtin.h"
@@ -26,6 +31,23 @@ using namespace sc;
 
 namespace {
 
+// One T made where the control data goes: PSRAM on the ESP32 (internal RAM if there is none), the heap elsewhere; never freed. For what the
+// audio thread reads at a note-on at most, not block by block: the sample bank's bookkeeping (21.5 KB) and the catalog (6.4 KB) leave
+// internal RAM to the audio's fast heap (2026-11-19). Made at their first use (Synth::bank, cat), not with s_synth: the Arduino core adds
+// the PSRAM to the heap after the static constructors (made there, they landed in internal RAM: measured).
+template <typename T> T &made_outside() {
+#if defined(ARDUINO_ARCH_ESP32)
+    void *p = heap_caps_aligned_alloc(alignof(T), sizeof(T), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+    if (!p) p = heap_caps_aligned_alloc(alignof(T), sizeof(T), MALLOC_CAP_8BIT);
+#else
+    void *p = std::malloc(sizeof(T));
+#endif
+    if (!p) std::abort();
+    return *new (p) T();
+}
+
+struct Catalog { audio_sample_info_t at[AUDIO_SAMPLES_MAX]; };
+
 struct Synth {
     EngineHost host;                          // the heaps, the engine, the hand-out of its blocks (engine/core/host.h)
     Engine &eng = host.engine;
@@ -33,9 +55,9 @@ struct Synth {
     bool have_last = false;
     bool pads_have_last = false;              // `last` holds the pads graph (the Pads section; have_last stays false: the synth's is gone)
     bool (*importer)(int) = nullptr;
-    SampleBank bank;
+    SampleBank &bank() { static SampleBank &b = made_outside<SampleBank>(); return b; }
     bool bank_on = false;
-    audio_sample_info_t cat[AUDIO_SAMPLES_MAX];
+    audio_sample_info_t *cat() { static audio_sample_info_t *const c = made_outside<Catalog>().at; return c; }
     int cat_n = 0;
     int16_t slot_of[AUDIO_SAMPLES_MAX];       // catalog index -> bank slot (-1 = not loaded; samples stay loaded once used)
     std::mutex mx;                            // control calls (build, params, catalog) vs the loader thread; never taken by the audio thread
@@ -72,7 +94,7 @@ void prepare_samples(const rack_t &rack) {
         bool pending = false;
         {
             std::lock_guard<std::mutex> lk(s.mx);
-            pending = f >= 0 && f < s.cat_n && s.cat[f].pending;
+            pending = f >= 0 && f < s.cat_n && s.cat()[f].pending;
         }
         if (pending) s.importer(f);
     }
@@ -85,10 +107,10 @@ void resolve_samples(const rack_t &rack) {
     for (int i = 0; i < rack.count; i++) {
         if (rack.slot[i].type != MOD_SAMPLER) continue;
         const int f = static_cast<int>(rack.slot[i].v[MP_SM_FILE]) - 1;
-        if (f < 0 || f >= s.cat_n || s.slot_of[f] >= 0 || s.cat[f].pending) continue;
+        if (f < 0 || f >= s.cat_n || s.slot_of[f] >= 0 || s.cat()[f].pending) continue;
         char path[AUDIO_NAME_MAX + 8];
-        std::snprintf(path, sizeof path, "%s.smp", s.cat[f].name);
-        s.slot_of[f] = static_cast<int16_t>(s.bank.load(path, 150));
+        std::snprintf(path, sizeof path, "%s.smp", s.cat()[f].name);
+        s.slot_of[f] = static_cast<int16_t>(s.bank().load(path, 150));
     }
 }
 
@@ -138,7 +160,7 @@ constexpr size_t kPadResidentBudget = 768 * 1024;      // ... while they stay un
 
 int catalog_find(const char *name) {                    // [lock held]
     if (!name || !name[0]) return -1;
-    for (int i = 0; i < s_synth.cat_n; i++) if (!std::strcmp(s_synth.cat[i].name, name)) return i;
+    for (int i = 0; i < s_synth.cat_n; i++) if (!std::strcmp(s_synth.cat()[i].name, name)) return i;
     return -1;
 }
 
@@ -151,7 +173,7 @@ void pad_prepare(const pad_t &p) {
     {
         std::lock_guard<std::mutex> lk(s.mx);
         f = catalog_find(p.file);
-        pending = f >= 0 && s.cat[f].pending;
+        pending = f >= 0 && s.cat()[f].pending;
     }
     if (pending) s.importer(f);
 }
@@ -162,17 +184,17 @@ PadBlob pad_blob(int idx, const pad_t &p) {
     PadBlob b;
     b.pad = static_cast<uint8_t>(idx);
     const int f = catalog_find(p.file);
-    if (f >= 0 && s.bank_on && !s.cat[f].pending) {
+    if (f >= 0 && s.bank_on && !s.cat()[f].pending) {
         if (s.slot_of[f] < 0) {
-            const size_t bytes = static_cast<size_t>(s.cat[f].frames) * sizeof(q15);
+            const size_t bytes = static_cast<size_t>(s.cat()[f].frames) * sizeof(q15);
             const bool whole = bytes <= kPadResidentMax && s.resident_bytes + bytes <= kPadResidentBudget;
             char path[AUDIO_NAME_MAX + 8];
-            std::snprintf(path, sizeof path, "%s.smp", s.cat[f].name);
-            s.slot_of[f] = static_cast<int16_t>(s.bank.load(path, whole ? 0 : 150));
+            std::snprintf(path, sizeof path, "%s.smp", s.cat()[f].name);
+            s.slot_of[f] = static_cast<int16_t>(s.bank().load(path, whole ? 0 : 150));
             if (whole && s.slot_of[f] >= 0) s.resident_bytes += bytes;
         }
         b.slot = s.slot_of[f];
-        const audio_sample_info_t &in = s.cat[f];
+        const audio_sample_info_t &in = s.cat()[f];
         const uint32_t frames = in.frames, end = pad_end(&p, frames);
         b.start = static_cast<int32_t>(p.start + 2 <= frames ? p.start : (frames > 2 ? frames - 2 : 0));
         b.end = end >= frames ? 0 : static_cast<int32_t>(end);
@@ -185,9 +207,9 @@ PadBlob pad_blob(int idx, const pad_t &p) {
     b.loop = p.loop == PAD_LOOP_FILE ? 2 : p.loop == PAD_LOOP_TRIM ? 1 : 0;
     b.choke = p.choke;
     b.grid = static_cast<uint8_t>(pad_grid_beats(p.grid));
-    if (f >= 0 && s.bank_on && !s.cat[f].pending && p.sync && p.loop != PAD_LOOP_OFF && b.lstart > b.start) {
+    if (f >= 0 && s.bank_on && !s.cat()[f].pending && p.sync && p.loop != PAD_LOOP_OFF && b.lstart > b.start) {
         b.sync = 1;                                                             // the anchor: the loop start, reached after the pre-roll
-        const double ratio = std::pow(2.0, (p.tune * 100 + p.fine) / 1200.0) * s.cat[f].rate / kSampleRate;
+        const double ratio = std::pow(2.0, (p.tune * 100 + p.fine) / 1200.0) * s.cat()[f].rate / kSampleRate;
         b.preroll = p.from ? 0 : static_cast<int32_t>((b.lstart - b.start) / ratio);
     }
     if (p.next) {                                                               // a neighbour on the bank's 4 x 4 grid (none past an edge)
@@ -252,13 +274,15 @@ void free_old_graph(Synth &s) {
     for (int i = 0; i < 5 && !s.eng.switching() && !s.eng.gc(); i++) std::this_thread::sleep_for(std::chrono::milliseconds(1));
 }
 
+void build(const rack_t *rack, const synth_params_t *params, bool patch);
+
 }  // namespace
 
 extern "C" {
 
 int engine_synth_init(void *fast, size_t fast_bytes, void *bulk, size_t bulk_bytes) {
     Synth &s = s_synth;
-    s.host.init_memory(fast, fast_bytes, bulk, bulk_bytes, &s.bank);  // (a full fast heap falls back to the big one instead of failing to create a module)
+    s.host.init_memory(fast, fast_bytes, bulk, bulk_bytes, &s.bank());  // (a full fast heap falls back to the big one instead of failing to create a module)
     s.last = s.host.bulk_heap().make<RackGraph>();
     s.cur = s.host.bulk_heap().make<RackGraph>();
     if (!s.last || !s.cur) return -1;
@@ -290,7 +314,7 @@ void engine_synth_shutdown(void) {
     if (!ready()) return;
     std::lock_guard<std::mutex> lk(s_synth.mx);
     s_synth.host.shutdown();          // (the platform stops its audio callback before calling this)
-    if (s_synth.bank_on) s_synth.bank.shutdown();
+    if (s_synth.bank_on) s_synth.bank().shutdown();
     s_synth.bank_on = false;
 }
 
@@ -313,14 +337,14 @@ static void retire_samples() {
     for (int i = 0; i < AUDIO_SAMPLES_MAX; i++) {
         if (!s.retire[i] || now - s.retire_blk[i] < 4) continue;
         const int slot = s.slot_of[i];
-        if (slot >= 0 && !s.bank.can_unload(slot)) continue;
+        if (slot >= 0 && !s.bank().can_unload(slot)) continue;
         if (slot >= 0) {
-            const SampleSlot *sl = s.bank.slot(slot);
+            const SampleSlot *sl = s.bank().slot(slot);
             if (sl && sl->state != SLOT_FREE && sl->head_ms == 0) {             // it was counted as a whole pad sample (pad_blob)
-                const size_t bytes = static_cast<size_t>(s.cat[i].frames) * sizeof(q15);
+                const size_t bytes = static_cast<size_t>(s.cat()[i].frames) * sizeof(q15);
                 s.resident_bytes -= bytes < s.resident_bytes ? bytes : s.resident_bytes;
             }
-            s.bank.unload(slot);
+            s.bank().unload(slot);
             s.slot_of[i] = -1;
         }
         s.retire[i] = false;
@@ -359,11 +383,22 @@ void engine_synth_set_osc_engine(int index, int engine) {
     }
 }
 
-void engine_synth_build(const rack_t *rack, const synth_params_t *params) {
+void engine_synth_build(const rack_t *rack, const synth_params_t *params) { build(rack, params, false); }
+void engine_synth_build_patch(const rack_t *rack, const synth_params_t *params) { build(rack, params, true); }
+
+}  // extern "C"
+
+namespace {
+// patch: a sound loaded whole (a preset, the card's sound at the start). With the fast heap apart from the bulk one (internal RAM on the
+// board) the old graph is freed first, so the new one is built in the fast heap instead of spilling into PSRAM behind the old one's
+// modules (HWV2, 2026-11-19: 3 696 of 26 592 bytes in use, 54 994 spilled after the start's two builds); the price is silence while it is
+// built. A rack edit (patch = false) keeps the old graph playing and the state of the modules it keeps (tails), as before (the user's choice).
+void build(const rack_t *rack, const synth_params_t *params, bool patch) {
     if (!ready()) return;
     s_builds++;
     Synth &s = s_synth;
     const bool from_pads = s.pads_mode;
+    const bool fresh = patch && s.have_last && &s.host.fast_heap() != &s.host.bulk_heap();
     s.pads_mode = false;                                    // an explicit build brings the synth back (from the Pads section)
     s.pads_have_last = false;
     prepare_samples(*rack);
@@ -371,7 +406,7 @@ void engine_synth_build(const rack_t *rack, const synth_params_t *params) {
     resolve_samples(*rack);
     if (!rack_graph_build(*rack, *params, s.eng.registry(), *s.cur, s.slot_of, s.cat_n)) return;
     const int nv = synth_config_voices(&rack->cfg);
-    if (from_pads) free_old_graph(s);
+    if (from_pads || fresh) free_old_graph(s);
     if (!load_graph(s, s.cur->g, nv, "synth")) return;
     s.gc_due = true;
     s.last_nv = nv;
@@ -381,6 +416,9 @@ void engine_synth_build(const rack_t *rack, const synth_params_t *params) {
     s.have_last = true;
     s.eng.gc();
 }
+}  // namespace
+
+extern "C" {
 
 void engine_synth_set_params(const rack_t *rack, const synth_params_t *params) {
     if (!ready()) return;
@@ -419,6 +457,27 @@ void engine_synth_set_params(const rack_t *rack, const synth_params_t *params) {
     for (int k = 0; k < s.cur->conv_count; k++)                         // (same graph: the same Convolver nodes in the same order)
         if (s.cur->conv_ir[k] != s.last->conv_ir[k] || s.cur->conv_len[k] != s.last->conv_len[k]) send_conv(*s.cur, k);
     *s.last = *s.cur;
+}
+
+// The master volume alone: MasterOut's three values (computed as rack_graph_build does, so the next set_params finds nothing to send),
+// without building the rack's graph again (6.4 KB written and copied in the bulk heap at every step of the knob).
+void engine_synth_set_master(const rack_t *rack) {
+    if (!ready()) return;
+    Synth &s = s_synth;
+    if (s.pads_mode) { pads_master(*rack); return; }
+    if (!s.have_last) return;                                          // no synth graph yet: its build takes the volume
+    const synth_config_t &cfg = rack->cfg;
+    const bool boost = cfg.volume > 1.0f;
+    const double lvl = static_cast<double>(boost ? cfg.volume * 0.5f : cfg.volume);
+    const int32_t v[3] = {static_cast<int32_t>(std::lround(std::fmax(-1.0, std::fmin(1.0, lvl)) * 32767.0)), boost ? 1 : 0, cfg.mono};
+    std::lock_guard<std::mutex> lk(s.mx);
+    for (int i = 0; i < s.last->g.n_nodes; i++) {
+        NodeDesc &n = s.last->g.node[i];
+        if (n.id != RN_MASTER) continue;
+        for (int p = 0; p < 3; p++)
+            if (n.param[p] != v[p]) { s.eng.set_param(RN_MASTER, p, v[p]); n.param[p] = v[p]; }
+        return;
+    }
 }
 
 void engine_synth_set_clock(int bpm, int running) {
@@ -662,24 +721,24 @@ int64_t engine_synth_sample_zero(int index, uint32_t frame, int dir) {
     if (!ready()) return -1;
     std::lock_guard<std::mutex> lk(s_synth.mx);
     if (index < 0 || index >= s_synth.cat_n || s_synth.slot_of[index] < 0) return -1;
-    return s_synth.bank.zero_near(s_synth.slot_of[index], frame, dir);
+    return s_synth.bank().zero_near(s_synth.slot_of[index], frame, dir);
 }
 
 int engine_synth_sample_onsets(int index, uint32_t *frames, uint16_t *strength, int max) {
     if (!ready()) return 0;
     Synth &s = s_synth;
     std::lock_guard<std::mutex> lk(s.mx);
-    if (!s.bank_on || index < 0 || index >= s.cat_n || s.cat[index].pending) return 0;
+    if (!s.bank_on || index < 0 || index >= s.cat_n || s.cat()[index].pending) return 0;
     if (s.slot_of[index] < 0) {                                                 // not loaded yet: load it (a head) to scan it
         char path[AUDIO_NAME_MAX + 8];
-        std::snprintf(path, sizeof path, "%s.smp", s.cat[index].name);
-        s.slot_of[index] = static_cast<int16_t>(s.bank.load(path, 150));
+        std::snprintf(path, sizeof path, "%s.smp", s.cat()[index].name);
+        s.slot_of[index] = static_cast<int16_t>(s.bank().load(path, 150));
         if (s.slot_of[index] < 0) return 0;
     }
     const int slot = s.slot_of[index];
     Onset o[kMaxOnsets];
-    const int n = s.bank.onsets(slot, o, max < kMaxOnsets ? max : kMaxOnsets);
-    if (n < 0) { s.bank.scan(slot); return -1; }
+    const int n = s.bank().onsets(slot, o, max < kMaxOnsets ? max : kMaxOnsets);
+    if (n < 0) { s.bank().scan(slot); return -1; }
     for (int i = 0; i < n; i++) { frames[i] = o[i].frame; strength[i] = o[i].strength; }
     return n;
 }
@@ -702,7 +761,7 @@ bool engine_synth_sample_info(int index, audio_sample_info_t *out) {
     if (!ready()) return false;
     std::lock_guard<std::mutex> lk(s_synth.mx);
     if (index < 0 || index >= s_synth.cat_n) return false;
-    *out = s_synth.cat[index];
+    *out = s_synth.cat()[index];
     return true;
 }
 
@@ -711,8 +770,8 @@ bool engine_synth_io_pump(void) {
     Synth &s = s_synth;
     std::lock_guard<std::mutex> lk(s.mx);
     if (!s.bank_on) return false;
-    s.bank.pump(s.eng.blocks() * static_cast<uint64_t>(kBlock) * 1000000ull / static_cast<uint64_t>(kSampleRate));
-    return !s.bank.idle();
+    s.bank().pump(s.eng.blocks() * static_cast<uint64_t>(kBlock) * 1000000ull / static_cast<uint64_t>(kSampleRate));
+    return !s.bank().idle();
 }
 
 void engine_synth_catalog_reset(void) {
@@ -726,7 +785,7 @@ void engine_synth_catalog_reset(void) {
 
 void engine_synth_sampler_stats(uint32_t *underruns, uint32_t *block_reads) {
     const bool on = ready() && s_synth.bank_on;
-    const SamplerStats &st = s_synth.bank.stats;
+    const SamplerStats &st = s_synth.bank().stats;
     if (underruns) *underruns = on ? st.underruns.load(std::memory_order_relaxed) : 0;
     if (block_reads) *block_reads = on ? st.block_reads.load(std::memory_order_relaxed) : 0;
 }
@@ -738,6 +797,15 @@ void engine_synth_profile(void (*cb)(const char *, uint32_t, uint32_t, void *), 
     if (!n) { *blocks = 0; return; }
     const uint32_t b = *blocks ? *blocks : 1;
     for (int i = 0; i < n; i++) cb(e[i].name, static_cast<uint32_t>(e[i].cycles / b), e[i].calls / b, user);
+}
+
+int engine_synth_profile_take(engine_prof_row_t *out, int max, uint32_t *blocks) {
+    Engine::ProfEntry e[Engine::kProfMax];
+    const int n = ready() ? s_synth.eng.prof_take(e, max < Engine::kProfMax ? max : Engine::kProfMax, blocks) : 0;
+    if (!n) *blocks = 0;
+    for (int i = 0; i < n; i++)
+        out[i] = engine_prof_row_t{e[i].name, static_cast<uint32_t>(e[i].cycles), e[i].calls, e[i].ev[0], e[i].ev[1]};
+    return n;
 }
 #endif
 
@@ -752,7 +820,7 @@ uint32_t engine_synth_millis(void) {
 bool engine_synth_attach_storage(StorageDevice *dev) {
     if (!ready() || !dev) return false;
     std::lock_guard<std::mutex> lk(s_synth.mx);
-    s_synth.bank_on = s_synth.bank.init(*dev, s_synth.host.memory());
+    s_synth.bank_on = s_synth.bank().init(*dev, s_synth.host.memory());
     return s_synth.bank_on;
 }
 
@@ -765,7 +833,7 @@ void engine_synth_catalog_set(const audio_sample_info_t *infos, int n) {
     if (!ready()) return;
     std::lock_guard<std::mutex> lk(s_synth.mx);
     if (n > AUDIO_SAMPLES_MAX) n = AUDIO_SAMPLES_MAX;
-    for (int i = 0; i < n; i++) s_synth.cat[i] = infos[i];
+    for (int i = 0; i < n; i++) s_synth.cat()[i] = infos[i];
     if (n > s_synth.cat_n) s_synth.cat_n = n;
 }
 
@@ -780,10 +848,10 @@ int engine_synth_catalog_add(const audio_sample_info_t *info) {
     Synth &s = s_synth;
     std::lock_guard<std::mutex> lk(s.mx);
     int i = catalog_find(info->name);
-    for (int k = 0; k < s.cat_n && i < 0; k++) if (!s.cat[k].name[0] && s.slot_of[k] < 0 && !s.retire[k]) i = k;   // a removed entry, unloaded
+    for (int k = 0; k < s.cat_n && i < 0; k++) if (!s.cat()[k].name[0] && s.slot_of[k] < 0 && !s.retire[k]) i = k;   // a removed entry, unloaded
     if (i < 0 && s.cat_n < AUDIO_SAMPLES_MAX) i = s.cat_n++;
     if (i < 0) return -1;
-    s.cat[i] = *info;
+    s.cat()[i] = *info;
     return i;
 }
 
@@ -792,7 +860,7 @@ void engine_synth_catalog_remove(int index) {
     Synth &s = s_synth;
     std::lock_guard<std::mutex> lk(s.mx);
     if (index < 0 || index >= s.cat_n) return;
-    s.cat[index].name[0] = 0;
+    s.cat()[index].name[0] = 0;
     if (s.slot_of[index] >= 0 && !s.retire[index]) {
         s.retire[index] = true;
         s.retire_blk[index] = static_cast<uint32_t>(s.eng.blocks());

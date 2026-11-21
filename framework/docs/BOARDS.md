@@ -133,3 +133,7 @@ If something new needs the CPU on core 0, give it a priority by its deadline, no
 - Do not change the graph's shape from a parameter (nodes, cables, a cable at exactly unity): it rebuilds the plan and stalls the audio.
 - Prefer int32 + `mulh` over 64-bit math; use float32 only where the benchmark shows a chain of multiply-adds on state (the filters); no float divide or bit tricks in per-sample code.
 - The recipe for a new optimization round is the project skill `.claude/skills/esp32-optimize/SKILL.md`.
+- The live view: `tools/perf_view` (env `hwv2_perf` of the Ritual Machine). Every render's load against the budget, the modules over time, the slowest render
+  split by module, and per module the core's performance counters: instruction stalls (code from flash missing the cache) and data stalls (PSRAM), or IPC.
+  `perf_view.py --summary S --cmd ... --save/--baseline` gives the same numbers as a table, for before/now comparisons. No emulator is used for these numbers:
+  none models the S3's caches, PSRAM or FPU latencies.

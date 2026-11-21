@@ -31,6 +31,7 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "engine/dsp/config.h"   // (SC_HOT)
 #include "engine/dsp/fdsp.h"
 #include "engine/dsp/fdsp_random.h"
 
@@ -91,7 +92,8 @@ uint32_t DigitalOscillator::ComputeDelay(int16_t midi_pitch) {
   return delay;
 }
 
-void DigitalOscillator::Render(
+// (SC_HOT: internal RAM, with RenderVosim: the Vosim model's path, the Ritual Machine's sound of 2026-11-20 ran it from flash)
+SC_HOT void DigitalOscillator::Render(
     const uint8_t* sync,
     int16_t* buffer,
     size_t size) {
@@ -408,7 +410,7 @@ void DigitalOscillator::RenderDigitalFilter(
   state_.res.modulator_phase_increment = modulator_phase_increment;
 }
 
-void DigitalOscillator::RenderVosim(
+SC_HOT void DigitalOscillator::RenderVosim(
     const uint8_t* sync,
     int16_t* buffer,
     size_t size) {

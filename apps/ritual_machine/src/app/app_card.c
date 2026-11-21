@@ -33,7 +33,7 @@ void app_check_sd(app_t *app) {
         history_load(&app->history);
     }
     if (in_pads(app)) audio_pads_build(&app->pads, &app->rack);         // the samples are looked up again by name
-    else audio_build(&app->rack, &app->params);
+    else audio_build_patch(&app->rack, &app->params);                  // (the card's sound: a patch of its own)
     app->dirty = true;
 }
 

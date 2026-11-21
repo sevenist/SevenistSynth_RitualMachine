@@ -93,7 +93,9 @@ public:
 
 #ifdef ENGINE_PROFILE
     // Optional profiler (-DENGINE_PROFILE): CPU cycles spent in each module type, summed over voices. Read and reset it from the audio thread.
-    struct ProfEntry { const char *name; uint64_t cycles; uint32_t calls; };
+    // ev[0..1]: what the core's two performance counters counted in the same windows (ESP32 with -DENGINE_PROFILE_PMU, the board
+    // chooses what they count; 0 elsewhere).
+    struct ProfEntry { const char *name; uint64_t cycles; uint32_t calls; uint32_t ev[2]; };
     static constexpr int kProfMax = 40;
     int prof_take(ProfEntry *out, int max, uint32_t *blocks);       // copies and clears; *blocks = blocks rendered since the last call
 #endif
@@ -139,6 +141,7 @@ private:
     alignas(16) int32_t bus_l_[kBlock] = {}, bus_r_[kBlock] = {};     // the voice sum, 32 bits: saturated once when read (BusIn)
     alignas(16) int32_t bus2_l_[kBlock] = {}, bus2_r_[kBlock] = {};   // the second voice bus (branch 2 of the rack, ADR-041)
     alignas(16) int32_t send_l_[kSendBuses][kBlock] = {}, send_r_[kSendBuses][kBlock] = {};   // the send buses (VoiceOut inputs 3, 4)
+    uint8_t bus_mono_ = 0;                              // the buses whose right half is the left one this block (ProcessCtx::bus_mono)
     uint64_t dyn_fast_ = ~0ull;                         // ADR-050: the Rate::Dynamic nodes (bit = node index) whose last block was fast
     std::atomic<uint64_t> time_{0};
     Transport tr_;                                      // audio thread
@@ -164,7 +167,7 @@ private:
     ProfEntry prof_[kProfMax] = {};
     int prof_n_ = 0;
     uint32_t prof_blocks_ = 0;
-    void prof_add(const char *name, uint32_t cycles);
+    void prof_add(const char *name, uint32_t cycles, uint32_t ev0, uint32_t ev1);
 #endif
 };
 

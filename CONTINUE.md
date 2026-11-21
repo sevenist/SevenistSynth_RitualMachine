@@ -21,6 +21,200 @@ For any CPU / memory optimization work on the board, use the project skill `.cla
   numbers in the storage's units instead); `int32_t` is `long` there (`std::max(int32_t, int)` does not compile).
 - `chaos_periodic_at_low_morph_follows_the_pitch_roughly` fails at 32 kHz and 96 kHz in the library's matrix (an oscillator engine's
   test; unrelated to the reverb, seen in this run).
+- Also in the RM engine matrix at 96 kHz / 128 only (seen 2026-11-20): `every_mi_model_sounds_and_stays_in_range` (PNoise peaks at
+  32767; still open) and `rack_oscillator_engines_play_and_follow_the_keyboard` (engine 17 = id 23 = **Wind**; fixed 2026-11-20).
+- Wind, the user's go "make it sample rate independent": the bore's low pass and the DC blocker are now cutoffs in Hz (their 48 kHz
+  values converted, bit for bit the same at 48 kHz); 48 and 96 kHz now measure within a few % over a Timbre x Morph grid. The rack test
+  measured samples 2000..12000, a different span per rate: now 42..250 ms. Sound note for the user: at the rack's default Timbre (~0.5)
+  the reed is just above its threshold and takes about half a second to speak; below Timbre ~0.35 it stays silent.
+
+## 2026-11-19: the module campaign (QEMU first, the board now and then; ADR-050 step 3, the user's choice "a")
+
+The user's direction: most rounds on QEMU (repeatable instruction counts), the board from time to time; the Studio's float ways into
+the board's modules, keeping their features (null / checksum against the q15 originals); every Studio float module measurable on the
+board. **Blocked:** the auto-mode classifier refused downloading QEMU and `C:\.platformio\penv\Scripts\pio.exe run` (even with
+board-session): the user installs QEMU (tools/module_bench/README.md) and / or adds permission rules. **Nothing of this is built by
+PlatformIO, run in QEMU or on the board yet.**
+- **tools/module_bench** (new): one firmware (envs `qemu`, `hwv2`) timing every registered engine type alone, the board's and the F
+  types, cases def / driven / modramp / modslow, a checksum of the outputs per module (exactness), a 1024-NOP calibration (QEMU's
+  counter in instructions); `module_bench.py --qemu | --port COM13 [--only ...] [--save] [--baseline]`. xtensa syntax check only.
+- **framework/tests/test_exact.cpp** (new): a module driven alone through its settings and modulations, a checksum pinned per module
+  from the committed code before each rewrite. A deliberate break must change it (checked for Env: a first version of the test
+  missed the sustain path; now a live sustain edit while held).
+- **Exact rewrites (pinned checksums unchanged; all host suites pass):**
+  | module | change | static estimate (xtensa objdump) |
+  |---|---|---|
+  | Filter | section by section over the block, one loop per mode, no glide branch per sample | low pass, 2 sections: ~40 -> 15 instructions a sample a section |
+  | Mix4 | an unrolled loop per number of inputs in use (no index table) | 4 inputs: 29 instructions a sample |
+  | MasterOut | `CaptureTap::feed` (flash) called only while armed / recording; steady and ramp loops, mono at compile time | |
+  | Env | Sustain / Idle with a steady gate: a loop without the gate tests and the stage switch | |
+  Code: +2.5 KB SC_HOT (internal RAM): check the Ritual Machine still links.
+- **Not done, why:** EQ3 (already float; a 0 dB band could be skipped but its state would be stale when it comes back: a tolerance
+  trade for the user; a section-by-section loop saves stalls, which QEMU cannot see: a board round). MiOsc and the Mutable models:
+  their cost is code in flash, a board question (IRAM room).
+- **Trap: an `asm` statement inside a loop stops GCC from using the zero-overhead LOOP** (doloop refuses it): `sat16` as CLAMPS made
+  the 4-input mix a counted branch loop, worse than MIN / MAX. Reverted. Write such loops whole in assembly (as dsp/block.h does).
+  GCC 14 does not make CLAMPS from any C form of the clamp.
+
+## 2026-11-19: the volume knob's cost found on HWV2 (board session: built, flashed and measured by Claude; nothing audible changed)
+
+The user's sound at 6 notes (Osc, Env, Vca, VoiceOut x5, Hadamard; hwv2_perf, `perf_view.py --summary 5`): **48 966 cycles a block
+still, 68 196 while the volume knob turns** (`volsweep ui`: an event every 20 ms). Split with `volsweep` (serial; the volume put back
+at the end):
+| on each step | core 0 a step | audio core, cycles a block |
+|---|---|---|
+| MasterOut's values only (`direct`) | 0.08 ms | +731 |
+| the rack's graph built again (`params`) | 1.7 ms | +5 259 |
+| a redraw, the sound the same (`draw`) | **25 ms** | **+20 600** |
+| a real knob step (`ui`) | 30.8 ms | +19 600 |
+- **The cost is the redraw**: 25 ms of core 0 each, and during it the audio core's data stalls go up on every module (Hadamard 4 % ->
+  58 % of its cycles, BusIn 3 -> 39 %): the engine's fast heap is in PSRAM on this board (`fast heap 121616 of 1867280`, the one-heap
+  fallback of 2026-11-16) and the redraw's PSRAM traffic (the palette canvas, the frame copies of display_esp32.cpp) competes with it.
+  Any control that redraws as often does the same; the volume knob redraws at every detent.
+- Not the LEDs (`leds off`: no change), not the card (`nosave 1`: no change).
+- Done (exact): the volume actions call `audio_set_master` (engine_synth_set_master: MasterOut's values, no graph built).
+- Done, the user's choices ("cap the redraw rate", "fast heap in internal RAM"): **a frame at most every 40 ms** (`APP_FRAME_MIN_MS`,
+  app.c; the first after a pause at once; UI test `a_fast_knob_turn_draws_at_most_one_frame_every_40_ms`); **kFastMinBytes 64 -> 16 KB**
+  and the bulk heap capped as the one heap was (audio_esp32.cpp): on HWV2 the fast heap is 26 612 bytes of internal RAM, the bulk 1.87 MB
+  as before. Measured (6 notes): still 48 807, redraw on every step 61 792 (was 69 563), real knob 62 569 (was 68 196). **HWV1 not tried
+  with it** (its largest block was 73 KB: a ~57 KB internal fast heap now).
+- Found: **after a rebuild the new graph spills**: the old graph holds the internal heap while the new one is built (`fast heap 3696 of
+  26592, spilled 54994` after the two builds of the start). **The user's choice: free the old graph first on patch loads only**
+  (`audio_build_patch` / `engine_synth_build_patch`: a preset, the card's sound at the start, the serial `patch`; silence while it is
+  built); a rack edit keeps playing and keeps its modules' state (tails), its new modules may spill. Test
+  `a_new_patch_is_built_in_the_fast_heap_not_behind_the_old_one`. On the board after it: fast heap 13 696 of 26 592 in use; **still
+  48 396, redraw every step 54 983, a real knob turn 55 728** (the knob's extra cost +19.6k -> +7.3k); Hadamard's data stalls during a
+  turn 56 % -> 34 % (its lines are in PSRAM by design).
+- Internal RAM at the audio start on HWV2: 83 160 free, largest block 42 996. Static holders (firmware.elf): `s_synth` 38.9 KB, of which
+  the SampleBank 21.5 KB (zone maps, jobs, slots) and the catalog 6.4 KB; `app` 20.3 KB; four one-colour frames of display_esp32 10 KB
+  (colour mode); the perf stream's buffers 11.5 KB (hwv2_perf only); IRAM code 142 KB.
+- **The redraw, profiled** (`DRAW_MARK` in app.c under DEV_PERF_STREAM, printed by `volsweep`): the synth's page 0 on HWV2, core 0 a
+  frame: the page 9.6 ms, the knob legend 2.9 ms, popups ~0, the handover 3.3 ms -> **0.04 ms** after two exact changes:
+  display_esp32.cpp's task swaps the pending and work buffers instead of copying them (indexed and RGB565), and the new HAL call
+  `display_swap_indexed` (hal_display.h) hands the canvas's buffer over and gives a free one back (the Ritual Machine only:
+  `ui_frame_send`, every frame starts with ui_clear; other apps keep display_send_indexed). Audio core at 6 notes after them: still
+  49 202, redraw every step 53 558, knob turn 54 654 (the start of the day: 48 966 / 69 563 / 68 196). Looked at by the user on HWV2
+  (volume knob fast, menu, map, Pads, browser): "looks right".
+- Left: the page's 9.6 ms and the legend's 2.9 ms (core 0, UI speed); the canvas clear and writes in PSRAM (what remains of the
+  audio core's +4..5k during redraws).
+
+**Code in flash on the audio path (2026-11-19, found with the perf stream's code stalls, then the ELF):** my Filter rewrite had put its
+loops in flash (svf_section_mode not SC_HOT; 29 % code stalls; fixed, 3 570 -> 3 095). An `inline` header function the compiler leaves
+out of line gets its one copy in flash: `SC_INLINE` (dsp/config.h, always_inline) for `DelayLine::read_hermite` (once a sample in the
+Delay, Chorus, Flanger, TunedComb) and `svf_coef_batch`; `Engine::transport_block` SC_HOT. Exact (QEMU checksums the same; Chorus
+-8.5 %, Flanger -6 %, TunedComb -6 % in instructions). On HWV2 a Delay added for the test: 8 551 -> 7 912 cycles, code stalls 11 -> 2.5 %.
+Every code byte moved to internal RAM comes out of the fast heap (26 612 -> 24 560 bytes). The profiler's counters cost nothing
+measurable (pmu stalls 69 976, off 70 021). Still in flash and audible in some sounds: Sampler::process (10 KB), SpectralFx, Granular,
+TunedComb, Phaser, Vocoder, Compressor, Flanger, Shifter, MotionSeq, Tremolo, Convolver, MiOsc, OscEngines::prepare, Engine::apply,
+StepSeq::step_due. The Filter still waits 19 % on code (not found yet).
+
+**The profile's "outside" (same day):** the profiling build itself costs ~6 200 cycles a block: the user's sound at 6 notes renders in
+502 us / 64 frames in the normal build (hwv2 + `-DHWV1_DEBUG_AUDIO`: ~60 240 cycles a block) against 66 464 in hwv2_perf. Of that,
+prof_add from flash and the virtual info() for each module's name were ~2.4k (now SC_HOT, the name from the registry). The steps between
+modules are timed now (`(mix)`, `(copy)`, `(to float)` ... lines in the profile). **Mix steps rewritten (exact: the first source starts
+the sum, a single one goes straight to the output; test `mix_steps_render_bit_for_bit_the_pinned_one`): 3 600 -> 2 726 cycles a block.**
+What is left outside (~8k in a normal build): the sequencers' `advance` (flash, every block, the stopped case a few lines), the bus
+clears, the plan walk per voice. Profile-build numbers are ~9 % above the normal build.
+
+**Internal RAM freed for the fast heap (same day):** on a colour-screen board the three one-colour frames of display_esp32.cpp (7.5 KB,
+only the boot animation uses them) are in PSRAM; the sample bank's bookkeeping (21.5 KB) and the catalog (6.4 KB) are made in PSRAM at
+their first use (engine_synth.cpp `made_outside`; made with the static `s_synth` they landed in internal RAM: the Arduino core adds the
+PSRAM to the heap after the static constructors). HWV2, the user's sound: **fast heap 24 560 -> 57 328 bytes, spilled 38 900 -> 0**;
+6 notes 65 525 -> 65 069 cycles a block (the spilled data was not on this sound's hot path: the gain is headroom for bigger patches).
+PSRAM free after start 73 840 -> 45 764 bytes: watch it. HWV1 (one-colour screen) keeps its static frames; not measured there.
+
+**Osc (same day):** no per-sample pitch, PW or level (a held or slow pitch: the usual case) -> one loop per wave without the wave
+switch and the per-sample tests (exact: test `osc_output_is_bit_for_bit_the_pinned_one` 0x120facfd, every wave / quality / way the
+pitch, PW and level move). QEMU 1 276 -> 663 instructions a block; HWV2 the user's sound **2 511 -> 1 166 cycles a call** (x 5..6 voices).
+Next per voice: VoiceOut 1 501 a call on the board against 513 instructions in the bench (the sound must use in2 / the sends: the bench
+drives one bus), Vca 485 x 13, Env 484, NoteIn 286. (The board came back after this flash with another sound: a Delay instead of the
+Hadamard, 6 voices; compare per call, not totals.)
+
+**Mono voice buses (same day):** `ProcessCtx::bus_mono` (module.h): a bit per voice bus, set by the engine each block: the right half
+of the bus is its left one while every voice added was centred (the Ritual Machine's voices always are). The engine clears only the
+left buses, a centred VoiceOut adds to the left one only, a panned one copies left to right first and clears the bit, BusIn and the
+no-MasterOut path read left for both. nullptr (tests, benches): both halves written as before. Exact: test
+`voice_buses_read_the_same_with_and_without_the_mono_bit` (three voices, every order of centred / panned, the four buses; a removed
+copy fails it), the engine renders' checksums unchanged. QEMU (module bench, `-DMB_NO_MONO` for the old path): **VoiceOut 507 -> 382
+instructions a bus, BusIn 414 -> 320**. Board: BusIn 434 -> 340 a call; VoiceOut not compared (the sound on the board changed again
+after the flash: 4 voices, one bus).
+
+**Crash fixed (same day, the user's log):** core 0 LoadProhibited at address 0 while editing the rack: `ports()` (scr_map.c, the map's
+strip) named a modulation cable by its source's first-target parameter (`tgt_param`, an index into another module's parameters); past
+the node's own names `rack_param_name` gave NULL and the board's snprintf("%s") read it. Now the cable's own parameter, and
+`rack_param_name` / `rack_param_long` return "?" for an index past the type's parameters (a stale one). Test
+`the_strip_names_a_cables_own_parameter_and_a_stale_one_never_crashes` (the host's snprintf prints "(null)": the draw alone would not
+have crashed there; the "?" checks hold it). Not from the optimizations: UI code of the gui-nodes steps.
+
+**Small per-voice modules (2026-11-20):** `block_fill` (dsp/block.h: two samples a 32-bit store through a may_alias type when the block
+is 4-byte aligned and n even, the plan's are; else the plain loop) under `block_clear` (now SC_INLINE: it could have gone out of line,
+to flash), NoteIn's three outputs in one paired loop, Env's idle and its sustain once arrived (0 <= sus - y < 256: y cannot move) as
+fills, Vca with g_ in a local (a store to `out` could alias it) and level 0 + modulation as mul15(in, m) (sat16(0 + m) is m). Exact:
+test `vca_output_is_bit_for_bit_the_pinned_one` 0x094657c1 (pinned from the old loop), every other pin and every module's output in
+the QEMU bench. QEMU: NoteIn -29 %, Vca modulated -6.6 %; board per call **Env 483 -> 341, Vca 486 -> 359, NoteIn 286 -> 206**.
+The user's sound of the day (4 voices, an LFO on the filter and the saturator): **Filter 11 051 cycles a call** (2 819 in the sound
+before: the cutoff moved per sample?) and **MiOsc (Vosim) 6 800 a call with 39 % code stalls (flash)**: the next leads.
+
+**The user's sound, read with the new `patch print` (dev serial):** a Braids Vosim MiOsc aimed at the filter's cutoff (`mod 1 OC ... 2 0`:
+its audio modulates the cutoff), an LFO on the oscillator's Mrph with cables into the filter (2.5) and the saturator (2). Audio-rate
+cutoff FM: the Filter's exact per-sample coefficients are right, not a bug (a host probe: the LFO alone always glides).
+- Filter per-sample path restructured (exact, the Filter pin holds): the block's coefficient sets first (`coefs_per_sample`, one IRAM
+  body, no call per sample), then section by section with one loop per mode (`svf_section_arr`). `coefs` was in flash (422 bytes,
+  out of line): SC_HOT now. Board 11 051 -> 10 333 a call (code stalls 11 % -> 2 %): the coefficients themselves are the cost
+  (~300 cycles a sample). **Left for the user: a quality trade** (coefficients every 2 or 4 samples, interpolated, under fast modulation).
+- MiOsc: `MiOsc::process` (now defined outside its class: sc::MiOsc has external linkage, an in-class SC_HOT body is a comdat whose
+  literal pool lands after it, "l32r: literal placed after use"), `MacroOscillator::Render` / `RenderDigital`, `DigitalOscillator::Render`,
+  `RenderVosim` in IRAM (~1.6 KB). **6 438 -> 4 460 cycles a call, code stalls 36 % -> 7 %**; the user's sound 131 781 -> 123 892 a block.
+- Trap met: a 12 KB static buffer (the first `patch print`) took 12 KB of internal RAM, so 16 KB of fast heap with the new IRAM code: now a
+  PSRAM buffer while the command runs. Fast heap now 45 040 (53 232 before today's IRAM code), 28.8 KB spilled in this sound.
+- Trap met: `app_step` clears `app->dirty` on entry; a test that wants a redraw sets `app->redraw_owed`.
+
+**Cost settings, the user's go (2026-11-20), behind the modules' cog; host suites pass, QEMU measured, not yet built for the board:**
+- Filter **FMq** Hi / Mid / Lo (`MP_FL_FMQ` -> engine `FLT_FM_Q`): under audio-rate cutoff FM only, the coefficients every 1 / 2 / 4
+  samples, exact there, interpolated between (`coefs_every<STEP>`, noinline: inlined it cost the exact path 1.4 %). QEMU under a 1.5 kHz
+  FM: 10 094 / 6 631 / 4 859 a block (-34 / -52 %); exact path and every pin unchanged. The sound: a slow FM unheard (-59 / -46 dB from
+  exact), a fast deep one loses its top sidebands and level (test `filter_fm_quality_stays_close_to_exact_and_stable`). The user's ear decides.
+- Reverb **Qual** Hi / Lo, **Out** Mono / Stereo (`MP_RV_QUAL`, `MP_RV_OUT` -> `RVB_QUALITY`, `RVB_STEREO`): Lo = the tank at 12 kHz on
+  the board (two half-band stages each way, `Down2` / `Up2`; lines sized for 24 kHz, no reallocation), 17 452 -> 9 347 a block (-46 %),
+  decay and level kept; Stereo +19 %. A change clears the tank (only on a change: the rack resends every value). Rack default Mono = as
+  before on the board (the sim's reverb is now mono too). The Hi path's output is unchanged (QEMU sum) and 3 % cheaper.
+- Then (the user's go): the per-sample coefficients **four per divide** (`svf_a1_batch4`, `svf_fm_sets4<N>` out of line, one copy per
+  section count, ~3 KB IRAM): QEMU exact 10 094 -> 7 130 (-29 %), Mid 5 676, Lo 4 412. Float rounding only (-118 dB, test
+  `filter_four_sets_per_divide_equal_the_single_ones_to_rounding`); the Filter pin re-taken (0x6125d371). The user listens to it next.
+- Bench: `--only Filter audiomod fm_q=2` (README). Test margins moved: the patch-load spill test allows the empty graph's few bytes.
+- Next: build + flash HWV2 from VS Code (the shell build was refused this session), check the fast heap (new IRAM: the reverb's quarter
+  path, the filter's two fills and four set routines), the user tries FMq and Qual by ear on their sound. HWV2's audio parts arrived
+  2026-11-20: the board will play too.
+
+## 2026-11-18 (later): the master volume knob costs the audio core more (the user's report); being measured
+
+- The engine's side is not it: a volume step is one queued `set_param` on MasterOut (a one-block ramp, one integer divide a block), and
+  it never rebuilds the graph (host test `the_master_volume_never_rebuilds_the_graph_whatever_the_cables`: demo rack, cables, a send
+  bus, a loose module). What a step does on core 0: `audio_set_params` builds the whole RackGraph again (6.4 KB in the bulk heap = PSRAM,
+  then a 6.4 KB copy, double math in rack_graph.cpp) and the screen is redrawn. Hypothesis: core 0's PSRAM / cache traffic slows core 1
+  (the S3's cache is shared by both cores).
+- Built for the measurement (host tests pass, xtensa syntax check; **not built by PlatformIO, not flashed**): serial `volsweep
+  ui|params|draw|direct` (docs/SERIAL_COMMANDS.md) and `engine_synth_set_master` (MasterOut's values alone; bit-identical render to
+  set_params, test `the_master_volume_alone_renders_as_the_full_parameter_push`). Not wired into the app yet: that waits on the numbers.
+
+## 2026-11-18: the live performance view (tools/perf_view), not yet run on the board
+
+The user wants to optimize a great deal and asked for an emulator plus a real performance graph. Decided with the user: **measure on the board,
+not in an emulator** (none models the S3's flash cache, PSRAM or FPU stalls, which are most of the cost: code from flash up to 2.5x its cycles);
+**a QEMU instruction-count check comes later**, as a check without the board (instructions, not cycles); the viewer is a **local web page**;
+**HWV2 first**.
+- Firmware: env `hwv2_perf` (`ENGINE_PROFILE` + `ENGINE_PROFILE_PMU` + `DEV_PERF_STREAM`). `apps/ritual_machine/src/platform/esp32/perf_stream_esp32.cpp`
+  times every render, takes the engine's profile per render, and sends 20 packets a second (`@PF ` + base64 lines; format in tools/perf_view/README.md).
+  The engine reads the core's two performance counters around every module (inline `rer` in `engine.cpp`, `ProfEntry::ev`); serial `perf pmu
+  stalls|cache|insn|off` chooses what they count. New bridge call `engine_synth_profile_take` (raw sums).
+- Host: `tools/perf_view/perf_view.py` (page on http://localhost:8765, `--demo`, `--summary S --cmd ... --save / --baseline`).
+- Verified: the four changed firmware files compile with the xtensa g++ (`-fsyntax-only`, the HWV2 perf defines; no pio run: see the trap); host
+  tests pass, default and with `-DENGINE_PROFILE`; the decoder round-trips a packet built in the firmware's byte order; the page ran on demo data
+  (headless Edge screenshot, plus its script in Node on live demo events).
+- **Not verified: nothing built by PlatformIO, nothing run on the board.** Next: the user flashes `hwv2_perf`; check the packets arrive, that the
+  counters give sane numbers (`stalls` < 100 % of a module's cycles; `insn` IPC <= 1), and the cost of the per-module counter reads (compare the
+  total with `perf pmu off`). Then the optimization campaign with it, then the QEMU check.
+- Uses `board_audio_stalls()` from the uncommitted audio_out_esp32.cpp change of the gui-nodes working tree.
 
 ## Session todo (updated 2026-11-10)
 

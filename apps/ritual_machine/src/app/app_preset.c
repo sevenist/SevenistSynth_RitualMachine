@@ -32,7 +32,7 @@ static void sound_replaced(app_t *app, bool fresh) {
         app->in.latched[c] = false;
     }
     if (fresh) synth_ui_sound_new(&app->ui, &app->rack); else synth_ui_sound_loaded(&app->ui, &app->rack);
-    if (!in_pads(app)) audio_build(&app->rack, &app->params);
+    if (!in_pads(app)) audio_build_patch(&app->rack, &app->params);
     app_catch_stale = true;
     app->dirty = true;
 }

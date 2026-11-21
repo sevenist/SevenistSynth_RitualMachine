@@ -44,6 +44,9 @@ const char *const kLfoShapes[] = {"Sine", "Tri", "SawDn", "SawUp", "Square", "S&
 const char *const kFilterModes[] = {"LP", "BP", "HP", "Notch", "AP"};                                    // FLTM_*
 const char *const kFilterSlopes[] = {"12dB", "24dB", "36dB", "48dB"};                                    // sections 1..4
 const char *const kFilterAlgos[] = {"SVF", "LP6", "Ladder", "Cham"};                                     // FLTA_*
+const char *const kFilterFmQ[] = {"Exact", "Every 2", "Every 4"};                                        // FLTQ_*
+const char *const kReverbQuality[] = {"Hi", "Lo"};                                                       // RVB_QUALITY
+const char *const kMonoStereo[] = {"Mono", "Stereo"};                                                    // RVB_STEREO
 const char *const kShaperModes[] = {"Tanh", "Clip", "Fold", "Crush", "Tube", "Tape", "Diode", "Cheb", "Rect", "Decim"};   // SHPM_*
 const char *const kEgTrig[] = {"Gate", "Shot"};                                                         // oneshot
 const char *const kSpectral[] = {"Thru", "Freeze", "Gate", "Robot", "Whisper", "Pitch"};                 // fx_modules.h SPXM_*
@@ -67,6 +70,7 @@ const Names kNames[] = {
     {"Strings", "wave", NAMES(kStrWaves)}, {"Strings", "osc", NAMES(kStrOsc)},
     {"Lfo", "shape", NAMES(kLfoShapes)},
     {"Filter", "mode", NAMES(kFilterModes)}, {"Filter", "sections", NAMES(kFilterSlopes)}, {"Filter", "algo", NAMES(kFilterAlgos)},
+    {"Filter", "fm_q", NAMES(kFilterFmQ)}, {"Reverb", "quality", NAMES(kReverbQuality)}, {"Reverb", "stereo", NAMES(kMonoStereo)},
     {"Shaper", "mode", NAMES(kShaperModes)},
     {"Eg", "oneshot", NAMES(kEgTrig)},
     {"SpectralFx", "mode", NAMES(kSpectral)},

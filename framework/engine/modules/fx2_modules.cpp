@@ -55,7 +55,7 @@ public:
         const int n = ctx.frames;
         const int32_t tl = tri_q15(ph_), tr = tri_q15(ph_ + 0x40000000u);
         const int32_t sweep = 4 * 12 * kSemi;
-        const int64_t al = coef(center_ + scaled(static_cast<q15>(tl), scaled(depth_, sweep))), ar = coef(center_ + scaled(static_cast<q15>(tr), scaled(depth_, sweep)));
+        const int32_t al = coef(center_ + scaled(static_cast<q15>(tl), scaled(depth_, sweep))), ar = coef(center_ + scaled(static_cast<q15>(tr), scaled(depth_, sweep)));
         for (int i = 0; i < n; i++) {
             p.out[0][i] = run(p.in[0][i], al, zl_, fl_);
             if constexpr (CH == 2) p.out[1][i] = run(p.in[1][i], ar, zr_, fr_);
@@ -64,16 +64,17 @@ public:
     }
 private:
     // first-order all-pass H = (a + z^-1) / (1 + a z^-1) with its 90 degree point at f: a = (g - 1) / (g + 1), g = tan(pi f / fs) (Q28); returned as Q30
-    int64_t coef(int32_t pitch) const {
+    // (g >= 0: a is in [-2^30, 2^30), an int32, so each stage's products are 32 x 32 -> 64 multiplies, not 64 x 64)
+    int32_t coef(int32_t pitch) const {
         const int64_t g = svf_g(pitch_to_inc(pitch, a4_));
-        return ((g - (1ll << 28)) * (1ll << 30)) / ((1ll << 28) + g);
+        return static_cast<int32_t>(((g - (1ll << 28)) * (1ll << 30)) / ((1ll << 28) + g));
     }
-    q15 run(q15 x, int64_t a, int32_t *z, int32_t &fbstate) const {
+    q15 run(q15 x, int32_t a, int32_t *z, int32_t &fbstate) const {
         int32_t v = (static_cast<int32_t>(x) + static_cast<int32_t>((static_cast<int64_t>(fbstate) * fb_) >> 15)) * 256;        // Q23, with the feedback of the last stage
         v = clampi(v, -(1 << 30), (1 << 30));
         for (int s = 0; s < stages_; s++) {
-            const int32_t y = static_cast<int32_t>((a * v) >> 30) + z[s];
-            z[s] = v - static_cast<int32_t>((a * y) >> 30);
+            const int32_t y = static_cast<int32_t>((static_cast<int64_t>(a) * v) >> 30) + z[s];
+            z[s] = v - static_cast<int32_t>((static_cast<int64_t>(a) * y) >> 30);
             v = y;
         }
         fbstate = v >> 8;

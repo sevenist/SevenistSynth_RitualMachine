@@ -2,6 +2,9 @@
 // later one (it sums what comes in), the chain's own cable cut or at a level, a modulator with more than one target. Each rack below must
 // load (the plan refuses a loop or a voice module feeding a shared one) and sound as its cables say.
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <thread>
 #include <cmath>
 #include <string>
 #include <vector>
@@ -196,4 +199,100 @@ TEST(a_loose_module_joins_no_chain_until_cabled) {
     const int dl = rack_add_loose(&r, ROW_M, MOD_DELAY);                // row M: loose too, the MIX goes on to the output past it
     CHECK(dl != RACK_NONE);
     CHECK(loads(r, p, rg));
+}
+
+// The master volume knob (5 % steps, 0 .. 2, through the boost at 1): a live write of MasterOut's level, never a rebuild, whatever the
+// rack's cables (a rebuild stalls the audio 100 .. 170 ms on the board).
+TEST(the_master_volume_never_rebuilds_the_graph_whatever_the_cables) {
+    for (int k = 0; k < 4; k++) {
+        rack_t r; synth_params_t p;
+        if (k == 0) { synth_params_default(&p); rack_init(&r); }            // the demo rack, its row M effects on
+        else make_rack(r, p);
+        if (k >= 2) {                                                       // a send bus: a voice module into row M
+            CHECK(rack_insert_row(&r, 3, ROW_M, MOD_FILTER));
+            CHECK(rack_audio_connect(&r, 0, 3));
+        }
+        if (k == 3) { CHECK(rack_add_loose(&r, ROW_M, MOD_DELAY) != RACK_NONE); r.slot[0].cut = 1; }
+        std::vector<uint8_t> fast(6u << 20), bulk(6u << 20);
+        CHECK_EQ(engine_synth_init(fast.data(), fast.size(), bulk.data(), bulk.size()), 0);
+        engine_synth_build(&r, &p);
+        int16_t buf[2 * 256];
+        engine_synth_render(buf, 256);
+        const unsigned before = engine_synth_build_count();
+        for (int pass = 0; pass < 2; pass++)
+            for (int s = 0; s <= 40; s++) {
+                r.cfg.volume = static_cast<float>(pass ? 40 - s : s) / 20.0f;
+                engine_synth_set_params(&r, &p);
+                engine_synth_render(buf, 64);
+            }
+        std::printf("    rack %d: %u rebuilds (last: %s)\n", k, engine_synth_build_count() - before, engine_synth_build_reason());
+        CHECK_EQ(engine_synth_build_count(), before);
+        engine_synth_shutdown();
+    }
+}
+
+// engine_synth_set_master (the volume alone, no graph built) sends what set_params would: the same render, sample for sample, through
+// the boost at 1 and back, with a note held.
+TEST(the_master_volume_alone_renders_as_the_full_parameter_push) {
+    std::vector<int16_t> out[2];
+    for (int way = 0; way < 2; way++) {
+        rack_t r; synth_params_t p;
+        synth_params_default(&p); rack_init(&r);
+        std::vector<uint8_t> fast(6u << 20), bulk(6u << 20);
+        CHECK_EQ(engine_synth_init(fast.data(), fast.size(), bulk.data(), bulk.size()), 0);
+        engine_synth_build(&r, &p);
+        engine_synth_note_on(57);
+        const unsigned before = engine_synth_build_count();
+        int16_t buf[2 * 64];
+        for (int s = 0; s <= 80; s++) {
+            const int k = s <= 20 ? 20 + s : s <= 60 ? 60 - s : s - 60;     // in 5 % steps: 1.0 -> 2.0 -> 0 -> 1.0
+            r.cfg.volume = static_cast<float>(k) / 20.0f;
+            if (way) engine_synth_set_master(&r); else engine_synth_set_params(&r, &p);
+            engine_synth_render(buf, 64);
+            out[way].insert(out[way].end(), buf, buf + 128);
+        }
+        engine_synth_set_params(&r, &p);                                    // (after set_master: nothing left to send, no rebuild)
+        CHECK_EQ(engine_synth_build_count(), before);
+        engine_synth_shutdown();
+    }
+    CHECK(out[0].size() == out[1].size());
+    size_t diff = 0, loud = 0;
+    for (size_t i = 0; i < out[0].size() && i < out[1].size(); i++) { diff += out[0][i] != out[1][i]; loud += out[0][i] != 0; }
+    std::printf("    %zu samples, %zu not silent, %zu differ\n", out[0].size(), loud, diff);
+    CHECK(loud > out[0].size() / 4);
+    CHECK_EQ(diff, static_cast<size_t>(0));
+}
+
+// With the fast heap apart (internal RAM on the board), a patch loaded whole is built after the old graph is freed: it lands in the fast heap
+// instead of spilling into the bulk one behind the old graph's modules (HWV2, 2026-11-19). A rack edit (engine_synth_build) keeps playing.
+TEST(a_new_patch_is_built_in_the_fast_heap_not_behind_the_old_one) {
+    std::vector<uint8_t> fast(96u << 10), bulk(6u << 20);
+    CHECK_EQ(engine_synth_init(fast.data(), fast.size(), bulk.data(), bulk.size()), 0);
+    std::atomic<bool> stop{false};
+    std::thread audio([&] {                                           // the audio thread takes each new graph at its next block
+        int16_t buf[64 * 2];
+        while (!stop.load()) { engine_synth_render(buf, 64); std::this_thread::sleep_for(std::chrono::microseconds(200)); }
+    });
+    auto settle = [] {
+        for (int i = 0; i < 400 && engine_synth_switching(); i++) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+        engine_synth_housekeeping();
+    };
+    rack_t a, b; synth_params_t pa, pb;
+    synth_params_default(&pa); rack_init(&a); rack_m_dry(a);         // the demo rack, dry
+    make_rack(b, pb);                                                 // another: an oscillator into a filter, a filter alone
+    engine_synth_build(&a, &pa);
+    settle();
+    size_t spilled0 = 0, used_a = 0, spilled1 = 0, used_b = 0;
+    engine_synth_heap_stats(&used_a, nullptr, nullptr, nullptr, &spilled0);
+    engine_synth_build_patch(&b, &pb);                                // a new patch: the old graph freed first
+    settle();
+    engine_synth_heap_stats(&used_b, nullptr, nullptr, nullptr, &spilled1);
+    std::printf("    fast heap: A %zu bytes, B %zu bytes, spilled by B %zu\n", used_a, used_b, spilled1 - spilled0);
+    CHECK(used_b > 0);
+    // (B whole behind A would spill all of it; the empty graph loaded in between, while A still fills the heap, may spill its few bytes)
+    CHECK(spilled1 - spilled0 < 1024u && spilled1 - spilled0 < used_b / 8);
+    stop = true;
+    audio.join();
+    engine_synth_shutdown();
 }

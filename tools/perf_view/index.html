@@ -1,0 +1,568 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SynthCore Perf</title>
+<style>
+:root {
+  color-scheme: light;
+  --page: #f9f9f7; --surface: #fcfcfb; --ink: #0b0b0b; --ink2: #52514e; --muted: #898781;
+  --grid: #e1e0d9; --axis: #c3c2b7; --ring: rgba(11,11,11,0.10); --hover: rgba(11,11,11,0.05);
+  --s1: #2a78d6; --s2: #eb6834; --s3: #1baf7a; --s4: #eda100; --s5: #e87ba4; --s6: #008300; --s7: #6250d6; --s8: #e34948;
+  --other: #b9b8b0;
+  --good: #0ca30c; --warning: #fab219; --serious: #ec835a; --critical: #d03b3b;
+  --seq: #2a78d6; --seq-soft: #b7d3f6;
+}
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    color-scheme: dark;
+    --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+    --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10); --hover: rgba(255,255,255,0.06);
+    --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+    --other: #5a5955; --seq: #3987e5; --seq-soft: #184f95;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --page: #0d0d0d; --surface: #1a1a19; --ink: #f0efec; --ink2: #c3c2b7; --muted: #898781;
+  --grid: #2c2c2a; --axis: #383835; --ring: rgba(255,255,255,0.10); --hover: rgba(255,255,255,0.06);
+  --s1: #3987e5; --s2: #d95926; --s3: #199e70; --s4: #c98500; --s5: #d55181; --s6: #008300; --s7: #9085e9; --s8: #e66767;
+  --other: #5a5955; --seq: #3987e5; --seq-soft: #184f95;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--page); color: var(--ink); font: 13px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; padding: 10px 16px; border-bottom: 1px solid var(--ring); position: sticky; top: 0; background: var(--page); z-index: 5; }
+header h1 { font-size: 15px; margin: 0 8px 0 0; font-weight: 600; }
+.group { display: flex; align-items: center; gap: 4px; }
+.group > span { color: var(--muted); margin-right: 2px; }
+button, select, input { font: inherit; color: var(--ink); background: var(--surface); border: 1px solid var(--ring); border-radius: 6px; padding: 3px 9px; }
+button { cursor: pointer; }
+button:hover { background: var(--hover); }
+button.on { border-color: var(--seq); box-shadow: inset 0 0 0 1px var(--seq); }
+.dot { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--muted); }
+.dot.live { background: var(--good); }
+main { padding: 12px 16px 24px; display: grid; gap: 12px; grid-template-columns: repeat(12, minmax(0, 1fr)); }
+.card { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+.card h2 { font-size: 13px; font-weight: 600; margin: 0 0 6px; display: flex; gap: 8px; align-items: baseline; }
+.card h2 small { font-weight: 400; color: var(--muted); }
+.w12 { grid-column: span 12; } .w8 { grid-column: span 8; } .w7 { grid-column: span 7; } .w5 { grid-column: span 5; } .w4 { grid-column: span 4; } .w6 { grid-column: span 6; }
+@media (max-width: 1100px) { .w8, .w7, .w5, .w4, .w6 { grid-column: span 12; } }
+.tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.tile { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 8px 12px; }
+.tile .k { color: var(--ink2); font-size: 12px; }
+.tile .v { font-size: 22px; font-weight: 600; margin-top: 2px; }
+.tile .s { color: var(--muted); font-size: 12px; }
+.status { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.status i { width: 8px; height: 8px; border-radius: 2px; display: inline-block; }
+canvas { display: block; width: 100%; }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin-top: 6px; color: var(--ink2); font-size: 12px; }
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+.sw { width: 10px; height: 10px; border-radius: 3px; display: inline-block; flex: none; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th { text-align: right; font-weight: 500; color: var(--ink2); font-size: 12px; padding: 4px 6px; border-bottom: 1px solid var(--axis); cursor: pointer; white-space: nowrap; user-select: none; }
+th:first-child, td:first-child { text-align: left; }
+td { text-align: right; padding: 3px 6px; border-bottom: 1px solid var(--grid); white-space: nowrap; }
+tr:hover td { background: var(--hover); }
+td .bar { display: inline-block; height: 8px; border-radius: 0 4px 4px 0; background: var(--seq); vertical-align: middle; margin-right: 6px; }
+.neg { color: var(--good); } .pos { color: var(--critical); }
+.muted { color: var(--muted); }
+.scroll { overflow-x: auto; }
+#console { height: 220px; overflow: auto; font: 12px/1.35 ui-monospace, "Cascadia Mono", Consolas, monospace; background: var(--page); border: 1px solid var(--ring); border-radius: 6px; padding: 6px 8px; white-space: pre-wrap; word-break: break-all; }
+#console .cmd { color: var(--seq); }
+.row { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.row input { flex: 1; min-width: 160px; }
+#tip { position: fixed; pointer-events: none; background: var(--surface); color: var(--ink); border: 1px solid var(--ring); border-radius: 6px; padding: 6px 8px; font-size: 12px; box-shadow: 0 4px 14px rgba(0,0,0,.18); display: none; z-index: 10; font-variant-numeric: tabular-nums; max-width: 320px; }
+#tip b { font-weight: 600; }
+#tip .tr { display: flex; justify-content: space-between; gap: 14px; align-items: center; }
+.hint { color: var(--muted); font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>SynthCore Perf</h1>
+  <span class="status"><span class="dot" id="live"></span><span id="link">waiting for the board</span></span>
+  <div class="group"><span>Averages over</span>
+    <select id="win"><option value="1">1 s</option><option value="5" selected>5 s</option><option value="30">30 s</option><option value="0">since reset</option></select>
+  </div>
+  <div class="group" id="pmu"><span>Counters</span>
+    <button data-m="off">off</button><button data-m="stalls">stalls</button><button data-m="cache">cache</button><button data-m="insn">insn</button>
+  </div>
+  <div class="group">
+    <button id="pause">Pause</button><button id="reset">Reset</button>
+    <button id="setbase">Set baseline</button><button id="loadbase">Load baseline</button><button id="clearbase">Clear baseline</button><button id="export">Export</button>
+    <input type="file" id="file" accept=".json" hidden>
+  </div>
+  <span class="hint" id="basehint"></span>
+</header>
+<main>
+  <div class="w12 tiles" id="tiles"></div>
+
+  <section class="card w12">
+    <h2>Render load <small>each render (64 frames) as % of its budget, last <span id="tlsec">20</span> s · the dashed line is the budget</small></h2>
+    <canvas id="cTl" height="190"></canvas>
+  </section>
+
+  <section class="card w12">
+    <h2>Where the cycles go <small>cycles per engine block as % of the budget, per module type (all voices), each point = one packet</small></h2>
+    <canvas id="cStack" height="230"></canvas>
+    <div class="legend" id="lgStack"></div>
+  </section>
+
+  <section class="card w8">
+    <h2>Modules <small id="modsub"></small></h2>
+    <div class="scroll"><table id="tMods"></table></div>
+  </section>
+
+  <section class="card w4">
+    <h2>Slowest render <small id="worstsub">since reset</small></h2>
+    <canvas id="cWorst" height="260"></canvas>
+  </section>
+
+  <section class="card w6">
+    <h2>Render load distribution <small>renders since reset, by % of budget (log count)</small></h2>
+    <canvas id="cHist" height="200"></canvas>
+  </section>
+
+  <section class="card w6">
+    <h2>Inside modules <small>stage timers, oscillator engines, MI models: cycles per engine block</small></h2>
+    <div class="scroll"><table id="tSubs"></table></div>
+  </section>
+
+  <section class="card w12">
+    <h2>Console <small>the board's text output · commands go to its serial port</small></h2>
+    <div id="console"></div>
+    <div class="row">
+      <input id="cmd" placeholder="serial command (ping, patch startup, chord 6, release, voices 8, mi next, perf pmu insn ...)" autocomplete="off">
+      <button id="send">Send</button>
+      <button class="q">patch startup</button><button class="q">chord 1</button><button class="q">chord 3</button><button class="q">chord 6</button><button class="q">release</button><button class="q">status</button>
+      <input id="filter" placeholder="filter lines" style="flex:0 1 160px">
+    </div>
+  </section>
+</main>
+<div id="tip"></div>
+<script>
+"use strict";
+window.onerror = (msg, src, line, col) => { try { addLog(`[viewer] error: ${msg} (index.html line ${line}:${col})`); } catch (e) {} };
+// ------------------------------------------------------------ state
+const TL_SECONDS = 20, RING_PACKETS = 20 * 600, MAX_SLOTS = 8;
+const PMU_LABELS = { off: [null, null], stalls: ["code stalls", "data stalls"], cache: ["I-cache miss", "D-cache miss"], insn: ["IPC", "bubbles"] };
+let S;
+function freshState() {
+  return {
+    packets: [],                 // [{t (s), ...packet}]
+    tl: [],                      // [{t, pct}] per render, last TL_SECONDS
+    hist: new Array(41).fill(0), // 0..200 % in 5 % bins, the last one is "200 % and more"
+    total: { blocks: 0, renders: 0, sum: 0, over: 0, mods: {}, subs: {} },
+    worst: null,                 // {t, pct, budget, mods: {name: cycles}}
+    stalls0: null, builds0: null, stallMarks: [], lastStalls: null,
+    color: {}, slotsUsed: 0,     // module -> slot (kept until Reset)
+  };
+}
+S = freshState();
+const names = { module: {}, osc: {}, mi: {}, sec: {} };
+let last = null, paused = false, dirty = true, baseline = null, bad = 0, pkts = 0, lastRx = 0;
+let sort = { key: "cyc", dir: -1 };
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const nm = (k, i) => names[k][i] ?? `${k} ${i}`;
+const fmt = (v, d = 0) => v == null || !isFinite(v) ? "–" : v.toLocaleString("en-US", { minimumFractionDigits: d, maximumFractionDigits: d });
+const kfmt = v => v >= 100000 ? fmt(v / 1000, 0) + "k" : v >= 10000 ? fmt(v / 1000, 1) + "k" : fmt(v);
+function colorOf(mod) {
+  if (mod === "Other") return css("--other");
+  if (!(mod in S.color)) S.color[mod] = S.slotsUsed < MAX_SLOTS - 1 ? S.slotsUsed++ : -1;   // 7 slots for modules, the 8th colour stays unused: "Other" is gray
+  const s = S.color[mod];
+  return s < 0 ? css("--other") : css("--s" + (s + 1));
+}
+
+// ------------------------------------------------------------ the stream
+function ingest(p) {
+  pkts++; lastRx = performance.now();
+  const t = p.t / 1000;
+  const prev = S.packets.length ? S.packets[S.packets.length - 1] : null;
+  if (prev && t < prev.t - 1) { addLog("[viewer] the board restarted: statistics reset"); S = freshState(); }
+  p.t = t;
+  S.packets.push(p);
+  if (S.packets.length > RING_PACKETS) S.packets.splice(0, S.packets.length - RING_PACKETS);
+  const t0 = prev ? prev.t : t - 0.05;
+  p.tl.forEach((c, i) => {
+    const pct = 100 * c / p.budget;
+    S.tl.push({ t: t0 + (t - t0) * (i + 1) / p.tl.length, pct });
+    S.hist[Math.min(40, Math.floor(pct / 5))]++;
+  });
+  while (S.tl.length && S.tl[0].t < t - TL_SECONDS) S.tl.shift();
+  const T = S.total;
+  T.blocks += p.blocks; T.renders += p.renders; T.sum += p.sum; T.over += p.over;
+  for (const m of p.mods) {
+    const n = nm("module", m.id), a = T.mods[n] ??= { cyc: 0, calls: 0, ev0: 0, ev1: 0, worst: 0 };
+    a.cyc += m.cyc; a.calls += m.calls; a.ev0 += m.ev0; a.ev1 += m.ev1; a.worst = Math.max(a.worst, m.worst);
+  }
+  for (const s of p.subs) { const k = s.kind + ":" + nm(s.kind, s.idx); T.subs[k] = (T.subs[k] || 0) + s.cyc; }
+  if (S.stalls0 == null) { S.stalls0 = p.stalls; S.builds0 = p.builds; }
+  if (S.lastStalls != null && p.stalls > S.lastStalls) S.stallMarks.push({ t, n: p.stalls - S.lastStalls });
+  S.lastStalls = p.stalls;
+  if (!S.worst || p.max > S.worst.pct * S.worst.budget / 100) {
+    const mods = {};
+    for (const m of p.mods) if (m.worst) mods[nm("module", m.id)] = m.worst;
+    S.worst = { t, pct: 100 * p.max / p.budget, budget: p.budget, cyc: p.max, mods };
+  }
+  last = p;
+  dirty = true;
+}
+const es = new EventSource("/events");
+es.onmessage = e => {
+  const ev = JSON.parse(e.data);
+  if (ev.type === "S") ingest(ev);
+  else if (ev.type === "N") Object.assign(names[ev.kind], ev.names);
+  else if (ev.type === "names") for (const k in ev.names) Object.assign(names[k], ev.names[k]);
+  else if (ev.type === "log") addLog(ev.text);
+  else if (ev.type === "status") addLog("[viewer] " + ev.text);
+  else if (ev.type === "bad") bad++;
+};
+es.onerror = () => { document.getElementById("link").textContent = "viewer server not reachable"; };
+
+// ------------------------------------------------------------ windows and aggregates
+function windowAgg() {
+  const w = +document.getElementById("win").value;
+  if (!w) return { ...S.total, label: "since reset", seconds: S.packets.length ? S.packets.at(-1).t - S.packets[0].t : 0 };
+  const end = S.packets.length ? S.packets.at(-1).t : 0;
+  const a = { blocks: 0, renders: 0, sum: 0, over: 0, max: 0, mods: {}, subs: {}, label: `last ${w} s`, seconds: w, stalls: 0 };
+  let first = null;
+  for (let i = S.packets.length - 1; i >= 0 && S.packets[i].t > end - w; i--) {
+    const p = S.packets[i]; first = p;
+    a.blocks += p.blocks; a.renders += p.renders; a.sum += p.sum; a.over += p.over; a.max = Math.max(a.max, p.max / p.budget);
+    for (const m of p.mods) {
+      const n = nm("module", m.id), x = a.mods[n] ??= { cyc: 0, calls: 0, ev0: 0, ev1: 0, worst: 0 };
+      x.cyc += m.cyc; x.calls += m.calls; x.ev0 += m.ev0; x.ev1 += m.ev1; x.worst = Math.max(x.worst, m.worst);
+    }
+    for (const s of p.subs) { const k = s.kind + ":" + nm(s.kind, s.idx); a.subs[k] = (a.subs[k] || 0) + s.cyc; }
+  }
+  if (first) a.stalls = S.packets.at(-1).stalls - first.stalls;
+  return a;
+}
+const budgetBlock = () => last ? last.budget * (last.renders / Math.max(1, last.blocks)) : 0;
+function summary(a) {        // the same shape as perf_view.py --save, so a page export and a headless run compare with each other
+  const bb = budgetBlock(), blocks = Math.max(1, a.blocks), mods = {};
+  for (const [n, m] of Object.entries(a.mods))
+    mods[n] = { cyc_block: m.cyc / blocks, calls_block: m.calls / blocks, ev0_pct: m.cyc ? 100 * m.ev0 / m.cyc : 0, ev1_pct: m.cyc ? 100 * m.ev1 / m.cyc : 0, worst_render: m.worst };
+  const subs = {};
+  for (const [k, v] of Object.entries(a.subs)) subs[k] = v / blocks;
+  return { seconds: a.seconds, pmu: last?.pmu, budget_block: bb, blocks: a.blocks, renders: a.renders, block_avg: a.sum / blocks,
+           over: a.over, heap: last?.heap, modules: mods, subs };
+}
+
+// ------------------------------------------------------------ drawing kit
+function setup(cv) {
+  const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1, h = +cv.getAttribute("height");
+  if (cv.width !== Math.round(r.width * dpr) || cv.height !== Math.round(h * dpr)) { cv.width = Math.round(r.width * dpr); cv.height = Math.round(h * dpr); cv.style.height = h + "px"; }
+  const g = cv.getContext("2d");
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, r.width, h);
+  g.font = "11px system-ui, -apple-system, 'Segoe UI', sans-serif";
+  return { g, w: r.width, h };
+}
+function yAxis(g, x0, x1, y, top, bottom, ticks, unit) {
+  g.textAlign = "right"; g.textBaseline = "middle";
+  for (const v of ticks) {
+    const yy = y(v);
+    if (yy < top - 1 || yy > bottom + 1) continue;
+    g.strokeStyle = v === 0 ? css("--axis") : css("--grid"); g.lineWidth = 1;
+    g.beginPath(); g.moveTo(x0, Math.round(yy) + .5); g.lineTo(x1, Math.round(yy) + .5); g.stroke();
+    g.fillStyle = css("--muted"); g.fillText(v + unit, x0 - 6, yy);
+  }
+}
+function niceMax(v, min) { const m = Math.max(v, min); const step = m <= 50 ? 10 : m <= 120 ? 25 : m <= 300 ? 50 : 100; return Math.ceil(m / step) * step; }
+function ticksTo(max) { const step = max <= 50 ? 10 : max <= 120 ? 25 : max <= 300 ? 50 : 100; const r = []; for (let v = 0; v <= max; v += step) r.push(v); return r; }
+const hovers = {};               // canvas id -> (x, y) => tooltip html | null
+const tip = document.getElementById("tip");
+document.querySelectorAll("canvas").forEach(cv => {
+  cv.addEventListener("mousemove", e => {
+    const r = cv.getBoundingClientRect(), f = hovers[cv.id];
+    const html = f && f(e.clientX - r.left, e.clientY - r.top);
+    cv._hx = e.clientX - r.left; dirty = true;
+    if (!html) { tip.style.display = "none"; return; }
+    tip.innerHTML = html; tip.style.display = "block";
+    const tw = tip.offsetWidth, th = tip.offsetHeight;
+    tip.style.left = Math.min(window.innerWidth - tw - 8, e.clientX + 14) + "px";
+    tip.style.top = Math.max(8, Math.min(window.innerHeight - th - 8, e.clientY - th - 10)) + "px";
+  });
+  cv.addEventListener("mouseleave", () => { tip.style.display = "none"; cv._hx = null; dirty = true; });
+});
+const sw = c => `<i class="sw" style="background:${c}"></i>`;
+
+// ------------------------------------------------------------ the render-load timeline (one series)
+function drawTimeline() {
+  const cv = document.getElementById("cTl"), { g, w, h } = setup(cv);
+  const L = 44, R = 10, T = 8, B = 20, pw = w - L - R, ph = h - T - B;
+  const end = S.tl.length ? S.tl.at(-1).t : 0, start = end - TL_SECONDS;
+  let mx = 0; for (const p of S.tl) mx = Math.max(mx, p.pct);
+  const ymax = niceMax(mx * 1.05, 110), y = v => T + ph - ph * v / ymax, x = t => L + pw * (t - start) / TL_SECONDS;
+  yAxis(g, L, w - R, y, T, T + ph, ticksTo(ymax), " %");
+  g.fillStyle = css("--muted"); g.textAlign = "center"; g.textBaseline = "top";
+  for (let s = 0; s <= TL_SECONDS; s += 5) g.fillText(s === TL_SECONDS ? "now" : `−${TL_SECONDS - s} s`, L + pw * s / TL_SECONDS, T + ph + 5);
+  // per pixel column: the band from the lowest to the highest render, and the mean as the line
+  const cols = Math.max(1, Math.floor(pw)), lo = new Float32Array(cols).fill(Infinity), hi = new Float32Array(cols).fill(-Infinity), sm = new Float32Array(cols), ct = new Uint16Array(cols);
+  for (const p of S.tl) { const c = Math.floor(x(p.t) - L); if (c < 0 || c >= cols) continue; lo[c] = Math.min(lo[c], p.pct); hi[c] = Math.max(hi[c], p.pct); sm[c] += p.pct; ct[c]++; }
+  g.fillStyle = css("--seq-soft");
+  for (let c = 0; c < cols; c++) if (ct[c]) g.fillRect(L + c, y(hi[c]), 1, Math.max(1, y(lo[c]) - y(hi[c])));
+  g.strokeStyle = css("--seq"); g.lineWidth = 2; g.lineJoin = "round"; g.beginPath();
+  let pen = false;
+  for (let c = 0; c < cols; c++) { if (!ct[c]) { pen = false; continue; } const yy = y(sm[c] / ct[c]); pen ? g.lineTo(L + c, yy) : g.moveTo(L + c, yy); pen = true; }
+  g.stroke();
+  // the budget
+  g.setLineDash([5, 4]); g.strokeStyle = css("--ink2"); g.lineWidth = 1;
+  g.beginPath(); g.moveTo(L, Math.round(y(100)) + .5); g.lineTo(w - R, Math.round(y(100)) + .5); g.stroke(); g.setLineDash([]);
+  g.fillStyle = css("--ink2"); g.textAlign = "left"; g.textBaseline = "bottom"; g.fillText("budget", L + 4, y(100) - 2);
+  // audio stalls: a mark with its count (status colour + label, never colour alone)
+  for (const m of S.stallMarks) {
+    if (m.t < start) continue;
+    const xx = x(m.t);
+    g.fillStyle = css("--critical"); g.fillRect(Math.round(xx) - 1, T, 2, ph);
+    g.textAlign = "center"; g.textBaseline = "top"; g.fillStyle = css("--ink"); g.fillText(`stall ×${m.n}`, Math.min(w - R - 24, Math.max(L + 24, xx)), T);
+  }
+  const hx = cv._hx;
+  if (hx != null && hx >= L && hx < L + pw) { g.strokeStyle = css("--axis"); g.lineWidth = 1; g.beginPath(); g.moveTo(Math.round(hx) + .5, T); g.lineTo(Math.round(hx) + .5, T + ph); g.stroke(); }
+  hovers.cTl = (mx_, my_) => {
+    const c = Math.floor(mx_ - L);
+    if (c < 0 || c >= cols) return null;
+    let k = c; while (k > 0 && !ct[k] && c - k < 4) k--;
+    if (!ct[k]) return null;
+    const ago = TL_SECONDS * (1 - (k + .5) / cols);
+    return `<b>${ago.toFixed(1)} s ago</b><div class="tr"><span>${sw(css("--seq"))} mean render</span><b>${fmt(sm[k] / ct[k], 1)} %</b></div>` +
+      `<div class="tr"><span>slowest</span><b>${fmt(hi[k], 1)} %</b></div><div class="tr"><span>fastest</span><b>${fmt(lo[k], 1)} %</b></div><div class="tr muted"><span>renders in this pixel</span><span>${ct[k]}</span></div>`;
+  };
+}
+
+// ------------------------------------------------------------ stacked modules over time
+function stackKeys(a) {
+  const ranked = Object.entries(a.mods).sort((x, y) => y[1].cyc - x[1].cyc).map(e => e[0]);
+  for (const n of ranked) colorOf(n);           // a module keeps the colour it got first
+  const keys = ranked.filter(n => S.color[n] >= 0);
+  return keys;
+}
+function drawStack(agg) {
+  const cv = document.getElementById("cStack"), { g, w, h } = setup(cv);
+  const L = 44, R = 10, T = 8, B = 20, pw = w - L - R, ph = h - T - B;
+  const span = 60, end = S.packets.length ? S.packets.at(-1).t : 0, start = end - span;
+  const pk = S.packets.filter(p => p.t >= start);
+  const all = {}; for (const p of pk) for (const m of p.mods) { const n = nm("module", m.id); all[n] = (all[n] || 0) + m.cyc; }
+  const keys = stackKeys({ mods: Object.fromEntries(Object.entries(all).map(([n, c]) => [n, { cyc: c }])) });
+  const series = [...keys, "Other"];
+  const rows = pk.map(p => {
+    const bb = p.budget * p.renders / Math.max(1, p.blocks), v = {};
+    let tot = 0;
+    for (const m of p.mods) { const n = nm("module", m.id), k = keys.includes(n) ? n : "Other"; const pct = 100 * m.cyc / Math.max(1, p.blocks) / bb; v[k] = (v[k] || 0) + pct; tot += pct; }
+    v._outside = Math.max(0, 100 * p.sum / Math.max(1, p.blocks) / bb - tot);
+    return { t: p.t, v };
+  });
+  let mx = 0; for (const r of rows) mx = Math.max(mx, Object.values(r.v).reduce((a, b) => a + b, 0));
+  const ymax = niceMax(mx * 1.05, 50), y = v => T + ph - ph * v / ymax, x = t => L + pw * (t - start) / span;
+  yAxis(g, L, w - R, y, T, T + ph, ticksTo(ymax), " %");
+  g.fillStyle = css("--muted"); g.textAlign = "center"; g.textBaseline = "top";
+  for (let s = 0; s <= span; s += 10) g.fillText(s === span ? "now" : `−${span - s} s`, L + pw * s / span, T + ph + 5);
+  // the bands, bottom up, with a 2px surface gap between them
+  const base = rows.map(() => 0);
+  for (const k of [...series, "_outside"]) {
+    const top = rows.map((r, i) => base[i] + (r.v[k] || 0));
+    if (rows.length > 1) {
+      g.beginPath();
+      rows.forEach((r, i) => i ? g.lineTo(x(r.t), y(top[i])) : g.moveTo(x(r.t), y(top[i])));
+      for (let i = rows.length - 1; i >= 0; i--) g.lineTo(x(rows[i].t), y(base[i]));
+      g.closePath();
+      if (k === "_outside") { g.fillStyle = css("--grid"); g.fill(); }
+      else { g.fillStyle = colorOf(k); g.fill(); }
+      g.strokeStyle = css("--surface"); g.lineWidth = 2; g.beginPath();
+      rows.forEach((r, i) => i ? g.lineTo(x(r.t), y(top[i])) : g.moveTo(x(r.t), y(top[i]))); g.stroke();
+    }
+    top.forEach((v, i) => base[i] = v);
+  }
+  g.setLineDash([5, 4]); g.strokeStyle = css("--ink2"); g.lineWidth = 1;
+  g.beginPath(); g.moveTo(L, Math.round(y(100)) + .5); g.lineTo(w - R, Math.round(y(100)) + .5); g.stroke(); g.setLineDash([]);
+  const hx = cv._hx;
+  if (hx != null && hx >= L && hx < L + pw) { g.strokeStyle = css("--ink2"); g.lineWidth = 1; g.beginPath(); g.moveTo(Math.round(hx) + .5, T); g.lineTo(Math.round(hx) + .5, T + ph); g.stroke(); }
+  hovers.cStack = mx_ => {
+    if (!rows.length || mx_ < L || mx_ > L + pw) return null;
+    const t = start + span * (mx_ - L) / pw;
+    let best = rows[0]; for (const r of rows) if (Math.abs(r.t - t) < Math.abs(best.t - t)) best = r;
+    const items = [...series, "_outside"].filter(k => best.v[k] > 0.05).sort((a, b) => best.v[b] - best.v[a]);
+    const tot = Object.values(best.v).reduce((a, b) => a + b, 0);
+    return `<b>${(end - best.t).toFixed(1)} s ago · ${fmt(tot, 1)} %</b>` + items.map(k =>
+      `<div class="tr"><span>${sw(k === "_outside" ? css("--grid") : colorOf(k))} ${k === "_outside" ? "outside modules" : k}</span><b>${fmt(best.v[k], 1)} %</b></div>`).join("");
+  };
+  document.getElementById("lgStack").innerHTML = series.filter(k => k !== "Other" || rows.some(r => r.v.Other)).map(k => `<span>${sw(colorOf(k))}${k}</span>`).join("") +
+    `<span>${sw(css("--grid"))}outside modules (mixing, voices, commands)</span><span class="muted">- - budget</span>`;
+}
+
+// ------------------------------------------------------------ the slowest render (bars, direct labels)
+function drawWorst() {
+  const cv = document.getElementById("cWorst"), { g, w, h } = setup(cv), W = S.worst;
+  if (!W) { g.fillStyle = css("--muted"); g.fillText("no data yet", 8, 16); return; }
+  document.getElementById("worstsub").textContent = `${fmt(W.pct, 0)} % of its budget, ${(S.packets.at(-1).t - W.t).toFixed(0)} s ago (since reset)`;
+  const items = Object.entries(W.mods).sort((a, b) => b[1] - a[1]);
+  const inside = items.reduce((a, b) => a + b[1], 0);
+  if (W.cyc > inside) items.push(["outside modules", W.cyc - inside]);
+  const shown = items.slice(0, 11), rowH = Math.min(22, (h - 8) / Math.max(1, shown.length)), L = 104, R = 58;
+  const mx = Math.max(...shown.map(e => e[1]), 1);
+  g.textBaseline = "middle";
+  shown.forEach(([n, c], i) => {
+    const yy = 4 + i * rowH, bw = Math.max(2, (w - L - R) * c / mx), bh = Math.max(6, rowH - 8);
+    g.fillStyle = css("--ink2"); g.textAlign = "right"; g.fillText(n.length > 15 ? n.slice(0, 14) + "…" : n, L - 8, yy + rowH / 2);
+    g.fillStyle = n === "outside modules" ? css("--grid") : colorOf(n);
+    roundBar(g, L, yy + (rowH - bh) / 2, bw, bh);
+    g.fillStyle = css("--ink"); g.textAlign = "left"; g.fillText(fmt(100 * c / W.budget, 1) + " %", L + bw + 6, yy + rowH / 2);
+  });
+  hovers.cWorst = (x_, y_) => {
+    const i = Math.floor((y_ - 4) / rowH); if (i < 0 || i >= shown.length) return null;
+    const [n, c] = shown[i];
+    return `<b>${n}</b><div class="tr"><span>cycles in that render</span><b>${fmt(c)}</b></div><div class="tr"><span>of the render budget</span><b>${fmt(100 * c / W.budget, 1)} %</b></div>`;
+  };
+}
+function roundBar(g, x, y, w, h) { const r = Math.min(4, w / 2, h / 2); g.beginPath(); g.moveTo(x, y); g.lineTo(x + w - r, y); g.arcTo(x + w, y, x + w, y + r, r); g.lineTo(x + w, y + h - r); g.arcTo(x + w, y + h, x + w - r, y + h, r); g.lineTo(x, y + h); g.closePath(); g.fill(); }
+
+// ------------------------------------------------------------ histogram (one series)
+function drawHist() {
+  const cv = document.getElementById("cHist"), { g, w, h } = setup(cv);
+  const L = 44, R = 10, T = 8, B = 20, pw = w - L - R, ph = h - T - B, n = S.hist.length;
+  let last_ = 0; S.hist.forEach((c, i) => { if (c) last_ = i; });
+  const bins = Math.max(24, last_ + 2), mx = Math.max(1, ...S.hist), lmax = Math.log10(mx + 1);
+  const y = c => T + ph - ph * Math.log10(c + 1) / Math.max(lmax, 1);
+  const dec = []; for (let d = 1; d <= mx * 10; d *= 10) dec.push(d);
+  g.textAlign = "right"; g.textBaseline = "middle";
+  for (const d of [0, ...dec]) { const yy = y(d); if (yy < T - 1) continue; g.strokeStyle = d ? css("--grid") : css("--axis"); g.beginPath(); g.moveTo(L, Math.round(yy) + .5); g.lineTo(w - R, Math.round(yy) + .5); g.stroke(); g.fillStyle = css("--muted"); g.fillText(d >= 1000 ? d / 1000 + "k" : d, L - 6, yy); }
+  const bw = pw / bins;
+  for (let i = 0; i < Math.min(bins, n); i++) {
+    if (!S.hist[i]) continue;
+    g.fillStyle = i >= 20 ? css("--critical") : css("--seq");
+    const yy = y(S.hist[i]);
+    roundTop(g, L + i * bw + 1, yy, Math.max(1, bw - 2), T + ph - yy);
+  }
+  g.setLineDash([5, 4]); g.strokeStyle = css("--ink2"); g.beginPath(); g.moveTo(L + 20 * bw + .5, T); g.lineTo(L + 20 * bw + .5, T + ph); g.stroke(); g.setLineDash([]);
+  g.fillStyle = css("--muted"); g.textAlign = "center"; g.textBaseline = "top";
+  for (let i = 0; i <= bins; i += 4) g.fillText(i * 5 + " %", L + i * bw, T + ph + 5);
+  hovers.cHist = x_ => {
+    const i = Math.floor((x_ - L) / bw); if (i < 0 || i >= Math.min(bins, n)) return null;
+    const tot = S.hist.reduce((a, b) => a + b, 0) || 1;
+    return `<b>${i * 5}${i === n - 1 ? "+ %" : "–" + (i * 5 + 5) + " %"} of budget</b><div class="tr"><span>renders</span><b>${fmt(S.hist[i])}</b></div><div class="tr"><span>share</span><b>${fmt(100 * S.hist[i] / tot, 2)} %</b></div>` +
+      (i >= 20 ? `<div class="muted">over budget: the DMA ring absorbs a few; a stall is a dropout</div>` : "");
+  };
+}
+function roundTop(g, x, y, w, h) { const r = Math.min(4, w / 2, h); g.beginPath(); g.moveTo(x, y + h); g.lineTo(x, y + r); g.arcTo(x, y, x + r, y, r); g.lineTo(x + w - r, y); g.arcTo(x + w, y, x + w, y + r, r); g.lineTo(x + w, y + h); g.closePath(); g.fill(); }
+
+// ------------------------------------------------------------ tiles and tables
+function tile(k, v, s, status) {
+  const st = status ? `<span class="status"><i style="background:var(--${status[0]})"></i>${status[1]}</span> ` : "";
+  return `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="s">${st}${s || ""}</div></div>`;
+}
+function drawTiles(a) {
+  const bb = budgetBlock(), blocks = Math.max(1, a.blocks), load = bb ? 100 * a.sum / blocks / bb : null;
+  const peak = a.max != null ? 100 * a.max : S.worst?.pct;
+  const H = last?.heap || {};
+  const stalls = a.stalls ?? (last && S.stalls0 != null ? last.stalls - S.stalls0 : 0);
+  const loadSt = load == null ? null : load > 90 ? ["critical", "near the limit"] : load > 70 ? ["warning", "tight"] : ["good", "headroom"];
+  const b = baseline ? ` · before ${fmt(100 * baseline.block_avg / baseline.budget_block, 1)} %` : "";
+  document.getElementById("tiles").innerHTML =
+    tile("Average load", load == null ? "–" : fmt(load, 1) + " %", `${fmt(a.sum / blocks)} of ${fmt(bb)} cycles a block${b}`, loadSt) +
+    tile("Slowest render", peak == null ? "–" : fmt(peak, 0) + " %", a.label) +
+    tile("Renders over budget", fmt(a.over), `of ${fmt(a.renders)} (${a.label})`, a.over ? ["warning", "late"] : null) +
+    tile("Audio stalls", fmt(stalls), `${a.label} · ${fmt(last?.stalls)} since boot`, stalls ? ["critical", "dropouts"] : ["good", "none"]) +
+    tile("Graph builds", last ? fmt(last.builds - (S.builds0 ?? last.builds)) : "–", `since reset · ${fmt(last?.builds)} since boot`) +
+    tile("Fast heap", H.fast_cap ? fmt(100 * H.fast_used / H.fast_cap, 0) + " %" : "–", `${kfmt(H.fast_used)} of ${kfmt(H.fast_cap)} B, high ${kfmt(H.fast_high)}`) +
+    tile("Spilled to PSRAM", H.spilled != null ? kfmt(H.spilled) + " B" : "–", "module data that did not fit in internal RAM", H.spilled ? ["serious", "slower"] : null) +
+    tile("Memory free", H.int_free != null ? kfmt(H.int_free) + " B" : "–", `internal (largest ${kfmt(H.int_largest)}) · PSRAM ${kfmt(H.psram_free)}`) +
+    tile("Link", last ? `${last.mhz} MHz` : "–", `${last ? fmt(last.sr) + " Hz · block " + last.block : ""} · ${fmt(last?.drops)} dropped, ${bad} bad`);
+}
+function drawMods(a) {
+  const s = summary(a), bb = s.budget_block, lab = PMU_LABELS[last?.pmu] || [null, null], ipc = last?.pmu === "insn";
+  document.getElementById("modsub").textContent = `${a.label} · per engine block, all voices summed · counters: ${last?.pmu ?? "–"}`;
+  const outside = s.block_avg - Object.values(s.modules).reduce((x, m) => x + m.cyc_block, 0);
+  const rows = Object.entries(s.modules).map(([n, m]) => ({ n, ...m, base: baseline?.modules?.[n]?.cyc_block }));
+  const key = sort.key, k = r => key === "n" ? r.n : key === "cyc" ? r.cyc_block : key === "calls" ? r.calls_block : key === "per" ? r.cyc_block / (r.calls_block || 1) :
+    key === "e0" ? r.ev0_pct : key === "e1" ? r.ev1_pct : key === "worst" ? r.worst_render : key === "d" ? r.cyc_block - (r.base ?? r.cyc_block) : 0;
+  rows.sort((x, y) => (k(x) > k(y) ? 1 : k(x) < k(y) ? -1 : 0) * sort.dir);
+  const mx = Math.max(1, ...rows.map(r => r.cyc_block));
+  const th = (id, t) => `<th data-k="${id}">${t}${sort.key === id ? (sort.dir < 0 ? " ▾" : " ▴") : ""}</th>`;
+  let html = `<tr>${th("n", "Module")}${th("calls", "× / block")}${th("cyc", "Cycles / block")}<th>% of budget</th>${th("per", "Per call")}` +
+    (lab[0] ? th("e0", lab[0]) + th("e1", lab[1]) : "") + th("worst", "In slowest render") + (baseline ? th("d", "Δ vs baseline") : "") + "</tr>";
+  for (const r of rows) {
+    const pct = 100 * r.cyc_block / bb, d = r.base != null ? r.cyc_block - r.base : null;
+    html += `<tr><td>${sw(colorOf(r.n))} ${r.n}</td><td>${fmt(r.calls_block, 1)}</td><td>${fmt(r.cyc_block)}</td>` +
+      `<td><span class="bar" style="width:${Math.max(2, 90 * r.cyc_block / mx)}px"></span>${fmt(pct, 1)} %</td><td>${fmt(r.cyc_block / (r.calls_block || 1))}</td>` +
+      (lab[0] ? `<td>${ipc ? fmt(r.ev0_pct / 100, 2) : fmt(r.ev0_pct, 1) + " %"}</td><td>${fmt(r.ev1_pct, 1)} %</td>` : "") +
+      `<td>${fmt(r.worst_render)}</td>` + (baseline ? `<td class="${d == null ? "muted" : d < -0.5 ? "neg" : d > 0.5 ? "pos" : ""}">${d == null ? "new" : (d > 0 ? "+" : "") + fmt(d)}</td>` : "") + "</tr>";
+  }
+  const bo = baseline ? baseline.block_avg - Object.values(baseline.modules).reduce((x, m) => x + m.cyc_block, 0) : null;
+  html += `<tr class="muted"><td>outside modules</td><td></td><td>${fmt(outside)}</td><td>${fmt(100 * outside / bb, 1)} %</td><td></td>${lab[0] ? "<td></td><td></td>" : ""}<td></td>${baseline ? `<td>${(outside - bo > 0 ? "+" : "") + fmt(outside - bo)}</td>` : ""}</tr>`;
+  html += `<tr><td><b>total</b></td><td></td><td><b>${fmt(s.block_avg)}</b></td><td><b>${fmt(100 * s.block_avg / bb, 1)} %</b></td><td></td>${lab[0] ? "<td></td><td></td>" : ""}<td></td>${baseline ? `<td><b>${(s.block_avg - baseline.block_avg > 0 ? "+" : "") + fmt(s.block_avg - baseline.block_avg)}</b></td>` : ""}</tr>`;
+  const t = document.getElementById("tMods"); t.innerHTML = html;
+  t.querySelectorAll("th[data-k]").forEach(e => e.onclick = () => { sort = { key: e.dataset.k, dir: sort.key === e.dataset.k ? -sort.dir : (e.dataset.k === "n" ? 1 : -1) }; dirty = true; });
+  if (lab[0]) t.title = ipc ? "IPC: instructions per cycle (1.0 = no stall at all); bubbles: % of the module's cycles" : `${lab[0]} / ${lab[1]}: % of the module's own cycles spent waiting`;
+}
+function drawSubs(a) {
+  const blocks = Math.max(1, a.blocks), bb = budgetBlock();
+  const rows = Object.entries(a.subs).map(([k, v]) => [k.split(":")[0], k.slice(k.indexOf(":") + 1), v / blocks]).sort((x, y) => y[2] - x[2]);
+  const kinds = { sec: "stage", osc: "osc engine", mi: "MI model" };
+  document.getElementById("tSubs").innerHTML = `<tr><th>Counter</th><th>Kind</th><th>Cycles / block</th><th>% of budget</th></tr>` +
+    (rows.length ? rows.map(r => `<tr><td>${r[1]}</td><td class="muted">${kinds[r[0]] || r[0]}</td><td>${fmt(r[2])}</td><td>${fmt(100 * r[2] / bb, 1)} %</td></tr>`).join("")
+      : `<tr><td colspan="4" class="muted">none in this window (reverb, delay, spectral, pads, oscillator engines and MI models report here when they run)</td></tr>`);
+}
+
+// ------------------------------------------------------------ console and controls
+const con = document.getElementById("console"), logs = [];
+function addLog(text) {
+  logs.push(text); if (logs.length > 1000) logs.shift();
+  const f = document.getElementById("filter").value.toLowerCase();
+  if (f && !text.toLowerCase().includes(f)) return;
+  const atEnd = con.scrollTop + con.clientHeight >= con.scrollHeight - 4, d = document.createElement("div");
+  d.textContent = text; if (text.startsWith("> ")) d.className = "cmd";
+  con.appendChild(d); while (con.childNodes.length > 1000) con.removeChild(con.firstChild);
+  if (atEnd) con.scrollTop = con.scrollHeight;
+}
+document.getElementById("filter").oninput = () => { con.innerHTML = ""; const keep = logs.slice(); logs.length = 0; keep.forEach(addLog); };
+const hist = []; let hi_ = 0;
+function send(text) { if (!text.trim()) return; fetch("/cmd", { method: "POST", body: text }); hist.push(text); hi_ = hist.length; }
+const cmd = document.getElementById("cmd");
+cmd.onkeydown = e => {
+  if (e.key === "Enter") { send(cmd.value); cmd.value = ""; }
+  else if (e.key === "ArrowUp" && hi_ > 0) { cmd.value = hist[--hi_]; e.preventDefault(); }
+  else if (e.key === "ArrowDown") { hi_ = Math.min(hist.length, hi_ + 1); cmd.value = hist[hi_] || ""; }
+};
+document.getElementById("send").onclick = () => { send(cmd.value); cmd.value = ""; };
+document.querySelectorAll("button.q").forEach(b => b.onclick = () => send(b.textContent));
+document.querySelectorAll("#pmu button").forEach(b => b.onclick = () => send("perf pmu " + b.dataset.m));
+document.getElementById("pause").onclick = e => { paused = !paused; e.target.textContent = paused ? "Resume" : "Pause"; e.target.classList.toggle("on", paused); dirty = true; };
+document.getElementById("reset").onclick = () => { S = freshState(); last = null; dirty = true; };
+document.getElementById("win").onchange = () => dirty = true;
+function setBaseline(b, label) { baseline = b; document.getElementById("basehint").textContent = b ? `baseline: ${label} (${fmt(b.block_avg)} cycles a block)` : ""; dirty = true; }
+document.getElementById("setbase").onclick = () => { if (last) setBaseline(summary(windowAgg()), "snapshot " + new Date().toLocaleTimeString()); };
+document.getElementById("clearbase").onclick = () => setBaseline(null);
+document.getElementById("loadbase").onclick = () => document.getElementById("file").click();
+document.getElementById("file").onchange = e => {
+  const f = e.target.files[0]; if (!f) return;
+  f.text().then(t => { try { setBaseline(JSON.parse(t), f.name); } catch (err) { addLog("[viewer] not a perf JSON: " + err); } });
+  e.target.value = "";
+};
+document.getElementById("export").onclick = () => {
+  if (!last) return;
+  const blob = new Blob([JSON.stringify(summary(windowAgg()), null, 1)], { type: "application/json" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `perf_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`; a.click();
+};
+window.addEventListener("resize", () => dirty = true);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => dirty = true);
+
+// ------------------------------------------------------------ the draw loop: 10 times a second (a timer, not animation frames: it goes on in a background tab)
+function frame() {
+  const now = performance.now();     // (not the frame's timestamp: it can lag behind performance.now(), which lastRx uses)
+  const live = lastRx && now - lastRx < 1500;
+  document.getElementById("live").classList.toggle("live", !!live);
+  document.getElementById("link").textContent = live ? `live · ${last?.pmu ? "counters " + last.pmu : ""}` : lastRx ? "no packets for a while (board reset? stream off?)" : "waiting for the board";
+  document.querySelectorAll("#pmu button").forEach(b => b.classList.toggle("on", b.dataset.m === last?.pmu));
+  if (!dirty || paused) return;
+  dirty = false;
+  const a = windowAgg();
+  drawTiles(a); drawTimeline(); drawStack(a); drawMods(a); drawWorst(); drawHist(); drawSubs(a);
+}
+document.getElementById("tlsec").textContent = TL_SECONDS;
+document.querySelectorAll("canvas").forEach(cv => cv.style.height = cv.getAttribute("height") + "px");   // (before the first draw: no tall empty boxes)
+setInterval(frame, 100);
+</script>
+</body>
+</html>

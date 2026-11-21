@@ -28,12 +28,14 @@ ModuleType imp_type() { static TImp probe; return {&probe.info(), &create_module
 // impulse -> reverb -> master; returns L and R impulse responses (dry removed by mix = 100 %)
 struct ReverbBench {
     DspRig rig;
-    explicit ReverbBench(bool sep_bulk = false) : rig(4, sep_bulk) {
+    explicit ReverbBench(bool sep_bulk = false, int quality = 0, int stereo = 1) : rig(4, sep_bulk) {
         rig.eng.registry().add(T_IMP, imp_type());
         GraphDesc g;
         rig.add(g, 1, T_IMP);
         NodeDesc *r = rig.add(g, 2, T_REVERB);
         r->param[RVB_MIX] = kUnity;
+        r->param[RVB_QUALITY] = quality;
+        r->param[RVB_STEREO] = stereo;                                // (stereo unless asked: whatever the build's ENGINE_FX_MONO)
         rig.add(g, 3, T_MASTER_OUT);
         g.connect(1, 0, 2, Dst::In, 0);
         g.connect(1, 0, 2, Dst::In, 1);
@@ -239,6 +241,54 @@ TEST(reverb_size_and_modulation_changes_are_smooth) {
     double us = std::chrono::duration<double, std::micro>(std::chrono::steady_clock::now() - t0).count() / blocks;
     double budget = 1e6 * kBlock / kSampleRate;
     std::printf("    host cost: %.1f us per block (%.1f %% of real time on this PC)\n", us, 100.0 * us / budget);
+}
+
+// The cost settings: Lo runs the tank at half the build's rate (decay, level and density kept, the top octave lost), Mono sends the
+// left taps to both sides. A change of either clears the tank and starts again cleanly.
+TEST(reverb_quality_lo_keeps_the_tail_and_mono_is_one_side) {
+    double rate[2], level[2], hi[2], c_st = 0;
+    for (int q = 0; q < 2; q++) {
+        ReverbBench b(false, q, 1);
+        std::vector<double> l, r;
+        b.ir(8.0, &l, &r);
+        rate[q] = decay_rate_db(l);
+        std::vector<double> late(l.begin() + static_cast<long>(0.2 * kSampleRate), l.begin() + static_cast<long>(1.0 * kSampleRate));
+        level[q] = 20 * std::log10(rms(late) + 1e-9);
+        const double nyq = kSampleRate / 2.0 / (ENGINE_REVERB_HALF ? 2.0 : 1.0);   // the build's tank band: Lo keeps half of it
+        hi[q] = 10 * std::log10((seg_power(l, 0.05, 0.15, 0.6 * nyq, 0.9 * nyq) + 1e-9) / (seg_power(l, 0.05, 0.15, 200, 2000) + 1e-9));
+        if (q == 0) c_st = corr(l, r, static_cast<size_t>(0.2 * kSampleRate), static_cast<size_t>(1.0 * kSampleRate));
+    }
+    std::printf("    Hi / Lo: decay %.1f / %.1f dB/s, tail level %.1f / %.1f dB, top of the band %.1f / %.1f dB\n", rate[0], rate[1], level[0], level[1],
+                hi[0], hi[1]);
+    CHECK(std::fabs(rate[1] - rate[0]) < 0.15 * rate[0]);
+    CHECK(std::fabs(level[1] - level[0]) < 3.0);
+    CHECK(hi[1] < hi[0] - 10.0);
+    CHECK(std::fabs(c_st) < 0.4);
+    for (int q = 0; q < 2; q++) {                                     // Mono: the same on both sides, at either quality
+        ReverbBench b(false, q, 0);
+        std::vector<double> l, r;
+        b.ir(1.0, &l, &r);
+        size_t diff = 0;
+        for (size_t i = 0; i < l.size(); i++) diff += l[i] != r[i];
+        std::printf("    Mono, %s: rms %.0f, %zu samples differ L / R\n", q ? "Lo" : "Hi", rms(l), diff);
+        CHECK(rms(l) > 50.0);
+        CHECK_EQ(diff, static_cast<size_t>(0));
+    }
+    ReverbBench b(false, 0, 1);                                       // switched in the middle of a tail: cleared, then a clean response
+    std::vector<double> a, x, y;
+    b.ir(0.5, &a, nullptr);
+    b.rig.eng.set_param(2, RVB_QUALITY, 1);
+    b.rig.run(1, &x);
+    b.ir(0.5, &y, nullptr);
+    double pk = 0;
+    for (double v : y) pk = std::fmax(pk, std::fabs(v));
+    std::printf("    tail before the switch rms %.0f; the block after it %.0f; the next response peak %.0f\n", rms(a), rms(x), pk);
+    CHECK(rms(x) < 0.05 * rms(a) + 2.0);
+    CHECK(rms(y) > 0.3 * rms(a) && pk < 32767.0);                  // (a response again: relative, it is quieter at 32 kHz)
+    b.rig.eng.set_param(2, RVB_QUALITY, 1);                           // the same value again (the rack sends every value on any edit): no clear
+    std::vector<double> z;
+    b.rig.run(DspRig::blocks_for(0.05), &z);
+    CHECK(rms(z) > 0.05 * rms(y));
 }
 
 namespace {

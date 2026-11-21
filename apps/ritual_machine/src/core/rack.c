@@ -28,6 +28,9 @@ static const char *const trig_names[]   = {"Gate", "Shot"};
 static const char *const smode_names[]  = {"On", "Stop"};
 static const char *const out_names[]    = {"On", "Mute"};
 static const char *const lfo_names[]    = {"Sine", "Tri", "SawDn", "Pulse"};
+static const char *const hml_names[]    = {"Hi", "Mid", "Lo"};
+static const char *const hl_names[]     = {"Hi", "Lo"};
+static const char *const mst_names[]    = {"Mono", "Stereo"};
 
 static const mp_t osc_mp[] = {
     [MP_OC_WAVE]   = {"Wav", 0, OC_WAVE_COUNT - 1, 2, "", PARAM_ENUM, wave_names, 1, 0, PARAM_TEXT_FIXED},
@@ -59,6 +62,7 @@ static const mp_t flt_mp[] = {
     [MP_FL_ACV]    = {"ACv", -100, 100, 55, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},
     [MP_FL_DCV]    = {"DCv", -100, 100, 60, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},
     [MP_FL_RCV]    = {"RCv", -100, 100, 60, "%", PARAM_LIN, NULL, 5, 0, PARAM_TEXT_FIXED},
+    [MP_FL_FMQ]    = {"FMq", 0, 2, 0, "", PARAM_ENUM, hml_names, 1, 0, PARAM_TEXT_FIXED},     // audio-rate cutoff FM: exact, or cheaper (a quality trade)
 };
 static const mp_t sat_mp[] = {
     [MP_SA_MODE]  = {"Mod", 0, 9, 1, "", PARAM_ENUM, sat_names, 1, 0, PARAM_TEXT_FIXED},
@@ -169,6 +173,8 @@ static const mp_t rv_mp[] = {
     [MP_RV_DEC]  = {"Dec", 0, 0.98f, 0.6f, "", PARAM_LIN, NULL, 0.02f, 2, PARAM_TEXT_FIXED},
     [MP_RV_SIZE] = {"Size", 0, 1, 0.6f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
     [MP_RV_DAMP] = {"Damp", 0, 1, 0.5f, "", PARAM_LIN, NULL, 0.05f, 2, PARAM_TEXT_FIXED},
+    [MP_RV_QUAL] = {"Qual", 0, 1, 0, "", PARAM_ENUM, hl_names, 1, 0, PARAM_TEXT_FIXED},       // Lo: the tank at half the rate, about half the cost
+    [MP_RV_OUT]  = {"Out", 0, 1, 0, "", PARAM_ENUM, mst_names, 1, 0, PARAM_TEXT_FIXED},       // Stereo: both sides' taps, about half again of the tank's output cost
 };
 static const mp_t ch_mp[] = {
     [MP_CH_MODE] = {"Mode", 0, 3, 1, "", PARAM_ENUM, ch_modes, 1, 0, PARAM_TEXT_FIXED},
@@ -218,7 +224,7 @@ typedef struct {
 
 static const type_info_t info[MOD_TYPE_COUNT] = {
     [MOD_OSC]    = {"OC", "Oscillator", true,  false, 4, {"Pit", "Lvl", "PW", "Mrph"},   {"Pitch", "Level", "Pulse width", "Morph"}, osc_mp, (int)(sizeof osc_mp / sizeof osc_mp[0])},
-    [MOD_FILTER] = {"FL", "Filter",     true,  false, 2, {"Cut", "Res"},         {"Cutoff", "Resonance"}, flt_mp, 11},
+    [MOD_FILTER] = {"FL", "Filter",     true,  false, 2, {"Cut", "Res"},         {"Cutoff", "Resonance"}, flt_mp, NMP(flt_mp)},
     [MOD_SAT]    = {"SA", "Saturation", true,  false, 2, {"Drv", "Mix"},         {"Drive", "Mix"}, sat_mp, 3},
     [MOD_LFO]    = {"LF", "LFO",        false, true,  2, {"Rate", "Dpth"},       {"Rate", "Depth"}, lfo_mp, 3},
     [MOD_MSEQ]   = {"MS", "Motion Seq", false, true,  1, {"Dpth"},              {"Depth"}, NULL, 0},
@@ -254,8 +260,9 @@ bool rack_is_audio(module_type_t t)         { return info[t].audio; }
 bool rack_is_modulator(module_type_t t)     { return info[t].modulator; }
 bool rack_can_target(module_type_t t)       { return (info[t].modulator && t != MOD_MSEQ) || t == MOD_OSC; }
 int  rack_param_count(module_type_t t)      { return info[t].nparams; }
-const char *rack_param_name(module_type_t t, int p) { return info[t].pshort[p]; }
-const char *rack_param_long(module_type_t t, int p) { return info[t].plong[p]; }
+// (an index past the type's parameters, a stale one: "?", never NULL, which a "%s" crashed on the board, 2026-11-19)
+const char *rack_param_name(module_type_t t, int p) { return (unsigned)t < MOD_TYPE_COUNT && p >= 0 && p < info[t].nparams && info[t].pshort[p] ? info[t].pshort[p] : "?"; }
+const char *rack_param_long(module_type_t t, int p) { return (unsigned)t < MOD_TYPE_COUNT && p >= 0 && p < info[t].nparams && info[t].plong[p] ? info[t].plong[p] : "?"; }
 
 void rack_clear(rack_t *r) {
     memset(r, 0, sizeof *r);

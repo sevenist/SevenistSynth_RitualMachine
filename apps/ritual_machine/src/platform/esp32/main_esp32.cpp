@@ -27,6 +27,9 @@ size_t getArduinoLoopTaskStackSize(void) { return 16384; }
 
 void setup() {
     board_power_init();                        // before anything slow: the board must keep itself powered
+#ifdef DEV_PERF_STREAM
+    Serial.setTxBufferSize(8192);              // a perf packet (up to ~4 KB as text) is written whole or not at all (perf_stream_esp32.cpp)
+#endif
     Serial.begin(115200);
     Serial.setTxTimeoutMs(0);                  // never wait for a host: debug prints from the audio and input tasks must not block them when nobody reads the port
     if (board_power_started_off()) board_card_reader();   // the power button is up, the cable feeds the board: the card reader's firmware (back only when there is none)

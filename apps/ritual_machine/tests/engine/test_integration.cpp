@@ -402,7 +402,10 @@ TEST(rack_oscillator_engines_play_and_follow_the_keyboard) {
         a.build();
         engine_synth_note_on(57);
         std::vector<double> y = a.run(0.4);
-        const double r = rms(std::vector<double>(y.begin() + 2000, y.begin() + 12000));
+        // 42 .. 250 ms (2000 .. 12000 samples at 48 kHz), in seconds so every rate measures the same span: a slow starter (Wind at the
+        // default Timbre builds up over half a second) is otherwise quieter at 96 kHz
+        const long t0 = std::lround(0.042 * kSampleRate), t1 = std::lround(0.25 * kSampleRate);
+        const double r = rms(std::vector<double>(y.begin() + t0, y.begin() + t1));
         std::printf("    engine %d through the rack: rms %.0f, peak %.0f\n", wave - OC_FIRST_ENGINE, r, peak_of(y));
         CHECK(r > 60.0);
         CHECK(peak_of(y) < 32767.0);

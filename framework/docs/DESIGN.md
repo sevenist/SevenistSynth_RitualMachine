@@ -454,12 +454,23 @@ Rules that follow (each one cost a wrong turn to learn): the FPU wins on a **cha
 2. **Float exception to guideline 2** (user decision): the filter tick (`svf_tick_f`) and the vowel / dust filters use float32 on the FPU (202 -> 25 cycles). Coefficients stay integer (`svf_coef`), converted by `svf_to_float`.
    When the cutoff modulation is a straight line over the block (checked at 3 points, tolerance 6/256 semitone) the coefficients are computed at both ends of the block and interpolated per sample (no stepping);
    anything else (audio-rate FM of the cutoff, sample and hold) keeps the exact per-sample computation. `ENGINE_FILTER_EXACT=1` forces exact. 11.4k -> 4.4k cycles per voice.
+   Under that fast modulation the `fm_q` value (`FLT_FM_Q`, a quality trade the user picks per filter, 2026-11-20) computes the coefficients at every 2nd or 4th sample only, exact there and interpolated
+   linearly in between (an interpolated set is still a contraction: stable at any modulation). QEMU, 2 sections under a 1.5 kHz FM: exact 10.1k, every 2 6.6k (-34 %), every 4 4.9k (-52 %) instructions a block.
+   Then four sets per divide (`svf_a1_batch4`, the sections' batch inversion carried across four samples: 1 / (P0 P1 P2 P3) once, each 1 / P_j by
+   multiplies; a float divide is 68 cycles, a multiply 6): exact 7.1k (-29 %), every 2 5.7k, every 4 4.4k. Not bit for bit (float rounding: coefficients
+   within 4.8e-7, the output -118 dB from one divide per set; the Filter pin re-taken). The section count a template parameter and the routine out of
+   line, one copy per count (`svf_fm_sets4`): a run-time count left the values on the stack and cost more than the divides it saved, and inlined into
+   each caller the 24 copies overflowed the internal RAM. (SIMD does not apply: the S3's vector unit multiplies 8 / 16-bit integers only.)
+   What it costs: nothing heard for a slow FM (220 Hz over 2 octaves: -59 / -46 dB from exact); a fast, deep one loses its brightest sidebands and some level (1.3 kHz over 4 octaves, resonant: -14 / -5 dB).
 3. **Bypass of idle effects**: Chorus mode off, Delay mix 0 and Reverb mix 0 copy the input (state cleared once on entering bypass). -40k cycles at idle.
 4. **Delay-line primitives**: `lerp15` uses a 15-bit fraction (the 16-bit one overflowed int32 when neighbours differed by more than 32768); `read_lerp` / `read_hermite` have a one-wrap-check fast path; the one-pole low-pass,
    `mul31` and the DC blocker use `mulh` (`mul31` now floors); `mul15n` skips the saturation when the gain is below 1.
 5. **Reverb** (user choices): `ENGINE_REVERB_HALF=1` runs the Dattorro tank at 24 kHz (half-band FIR -1 9 16 9 -1 / 32 down, cubic midpoint up; delays defined in seconds so decay and size are unchanged; combined response about
    -3 dB at 8 kHz, -6 dB at 10 kHz, -12 dB at 12 kHz): 38k -> 20.5k cycles and 91 -> 49 KB of internal RAM. `ENGINE_FX_MONO=1` computes one channel in the delay (one line, half the cost, -192 KB PSRAM) and the left taps only in the
-   reverb. Both are build flags, on in the prototype's `platformio.ini`; the stereo-specific tests fail with MONO on by design.
+   reverb. Both are build flags, on in the prototype's `platformio.ini`; the stereo-specific delay tests fail with MONO on by design.
+   Since 2026-11-20 the reverb's two are also values of the module, picked per reverb (the rack's cog: Qual, Out): `quality` 1 runs the tank at half the build's rate (a second half-band stage each way, the
+   lines still sized for the full one: no reallocation; QEMU 17.5k -> 9.3k instructions a block, the decay and the level kept, the band above about 5 kHz lost at 12 kHz), `stereo` 1 adds the right side's taps
+   (+19 %). Their default is the build's rate and ENGINE_FX_MONO; a change of either clears the tank. With only the build flags, ENGINE_FX_MONO now means the delay and the reverb's default.
 6. **Memory** (internal RAM for the engine is the "fast heap", about 106 KB then; 73.7 KB since item 10): when it is full, allocations **spill** to PSRAM (`Heap::set_spill`) and everything touching them gets slower (a mixer went from 88 to ~20 cycles per sample once
    the oscillators stopped taking the space). Oscillator engine tables are shared (`Tabs`), the Karplus string buffers (4 KB x 32 instances) live in the bulk heap, the command ring is 128 entries. `[HEAP]` reports used / spilled bytes.
 7. **Oscillator engines**: the per-block setup is cached on (engine, pitch step, timbre, morph); a **fast path** runs a tight loop per engine when the pitch is steady and the gate does not change inside the block (the loop around the

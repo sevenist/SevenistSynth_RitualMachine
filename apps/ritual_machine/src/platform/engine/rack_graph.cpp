@@ -43,6 +43,7 @@ void filter_params(NodeDesc *f, int type, double cut_hz, double res_q) {
         f->param[FLT_RES] = q(boost > 0.0 ? boost : 0.0);
     }
 }
+int32_t filter_fmq(const rack_slot_t &s) { const int q = static_cast<int>(s.v[MP_FL_FMQ]); return q < FLTQ_EXACT ? FLTQ_EXACT : (q > FLTQ_EVERY4 ? FLTQ_EVERY4 : q); }   // Hi Mid Lo = the engine's order
 int32_t ms_i(double ms) { return static_cast<int32_t>(std::lround(ms < 1 ? 1 : ms)); }
 
 struct B {
@@ -184,6 +185,8 @@ void fx_params(NodeDesc *n, const rack_slot_t &s) {
             n->param[RVB_SIZE] = q(v[MP_RV_SIZE]);
             n->param[RVB_DAMP] = 130 * kSemi - static_cast<int32_t>(std::lround(v[MP_RV_DAMP] * 75.0 * kSemi));
             n->param[RVB_PREDELAY] = 20;
+            n->param[RVB_QUALITY] = v[MP_RV_QUAL] > 0.5f ? 1 : 0;
+            n->param[RVB_STEREO] = v[MP_RV_OUT] > 0.5f ? 1 : 0;
             break;
         case MOD_HADAMARD:
             n->param[HDM_MIX] = q(v[MP_HD_MIX]);
@@ -345,7 +348,7 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
             NodeDesc *l = b.add(id, nt), *rr = r.mono ? l : b.add(id + 1, nt);
             if (!l || !rr) return;
             for (NodeDesc *n : {l, rr}) {
-                if (flt) { filter_params(n, type < FILT_COUNT ? type : FILT_LP, s.v[MP_FL_CUT], s.v[MP_FL_RES]); n->param[FLT_CUT_MOD] = 96 * kSemi; }
+                if (flt) { filter_params(n, type < FILT_COUNT ? type : FILT_LP, s.v[MP_FL_CUT], s.v[MP_FL_RES]); n->param[FLT_CUT_MOD] = 96 * kSemi; n->param[FLT_FM_Q] = filter_fmq(s); }
                 else sat_params(n, s);
             }
             take(r.L, r.n, id, 0);
@@ -600,6 +603,7 @@ bool rack_graph_build(const rack_t &rack, const synth_params_t &params, const Re
                     if (!f) break;
                     filter_params(f, type < FILT_COUNT ? type : FILT_LP, s.v[MP_FL_CUT], s.v[MP_FL_RES]);
                     f->param[FLT_CUT_MOD] = 96 * kSemi;                   // full-scale modulation = 8 octaves
+                    f->param[FLT_FM_Q] = filter_fmq(s);
                     feed_into(i, id);
                     tgt[i] = Target{id, FLT_CUTOFF, true};
                     // The filter's own envelope (an ENV module aimed at the cutoff replaces it). Always present (amount 0 = a cable with gain 0):

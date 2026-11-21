@@ -12,6 +12,7 @@
 //   and can run per sample when the cutoff is audio-rate modulated.
 #include <cstdint>
 #include <cstring>
+#include "engine/dsp/config.h"
 #include "engine/dsp/q.h"
 #include "engine/dsp/tables.h"
 
@@ -108,28 +109,58 @@ inline SvfCoefF svf_coef_f(uint32_t g_q28, int32_t k_q29) {
 // Float coefficients for n sections that share one g (tan, 0..~6) and have their own 1/Q (k[]): the per-sample path of the filter module.
 // On the ESP32-S3 a float divide costs 68 cycles and a bit cast 62, but a multiply-add 6 and an int->float convert 4, so one divide serves all the
 // sections: with d_i = 1 + g (g + k_i) and a1_i = 1 / d_i, the batch inversion r = 1 / (d_1 d_2 ...) gives each a1_i as r times the others' product.
-inline void svf_coef_batch(float g, const float *k, int n, SvfCoefF *c) {
+// The product of the n sections' denominators, and each a1_i back from r = 1 / that product (the two halves of the batch inversion).
+SC_INLINE float svf_den_prod(const float *d, int n) {
+    if (n == 1) return d[0];
+    if (n == 2) return d[0] * d[1];
+    if (n == 3) return (d[0] * d[1]) * d[2];
+    return (d[0] * d[1]) * (d[2] * d[3]);
+}
+SC_INLINE void svf_a1_spread(const float *d, int n, float r, float *a1) {
+    if (n == 1) {
+        a1[0] = r;
+    } else if (n == 2) {
+        a1[0] = d[1] * r; a1[1] = d[0] * r;
+    } else if (n == 3) {
+        const float p12 = d[0] * d[1], t = d[2] * r;
+        a1[2] = p12 * r; a1[0] = d[1] * t; a1[1] = d[0] * t;
+    } else {
+        const float p12 = d[0] * d[1], p34 = d[2] * d[3], u = p34 * r, v = p12 * r;     // u = 1/p12, v = 1/p34
+        a1[0] = d[1] * u; a1[1] = d[0] * u; a1[2] = d[3] * v; a1[3] = d[2] * v;
+    }
+}
+SC_INLINE void svf_coef_batch(float g, const float *k, int n, SvfCoefF *c) {
     float d[4];
     for (int s = 0; s < n; s++) d[s] = 1.0f + g * (g + k[s]);
     float a1[4];
-    if (n == 1) {
-        a1[0] = 1.0f / d[0];
-    } else if (n == 2) {
-        const float r = 1.0f / (d[0] * d[1]);
-        a1[0] = d[1] * r; a1[1] = d[0] * r;
-    } else if (n == 3) {
-        const float p12 = d[0] * d[1], r = 1.0f / (p12 * d[2]), t = d[2] * r;
-        a1[2] = p12 * r; a1[0] = d[1] * t; a1[1] = d[0] * t;
-    } else {
-        const float p12 = d[0] * d[1], p34 = d[2] * d[3], r = 1.0f / (p12 * p34), u = p34 * r, v = p12 * r;     // u = 1/p12, v = 1/p34
-        a1[0] = d[1] * u; a1[1] = d[0] * u; a1[2] = d[3] * v; a1[3] = d[2] * v;
-    }
+    svf_a1_spread(d, n, 1.0f / svf_den_prod(d, n), a1);
     for (int s = 0; s < n; s++) {
         c[s].a1 = a1[s];
         c[s].a2 = g * a1[s];
         c[s].a3 = g * c[s].a2;
         c[s].k = k[s];
     }
+}
+
+// Four coefficient sets (four g, the same sections) for one divide: the same inversion across the four sets' products. P_j = the product of
+// set j's denominators; 1 / (P0 P1 P2 P3) once, then each 1 / P_j by multiplies (9 in all against 3 divides of 68 cycles). Equal to four
+// svf_coef_batch calls to the last bit of float rounding, not bit for bit. Range: g <= tan(0.45 pi) = 6.3 and k <= 2 keep d <= 53, so the
+// product of 16 stays below 1e28 (float: 3e38); d >= 1, no underflow. a1[j][s]: set j, section s (a2 = g a1, a3 = g a2 as above).
+// N sections as a template parameter: with it known, the 4 x N values stay in registers (a run-time count put them on the stack and
+// cost more than the three divides, 2026-11-20).
+template <int N>
+SC_INLINE void svf_a1_batch4(const float *g, const float *k, float (*a1)[N]) {
+    float d[4][N], p[4];
+    for (int j = 0; j < 4; j++) {
+        for (int s = 0; s < N; s++) d[j][s] = 1.0f + g[j] * (g[j] + k[s]);
+        p[j] = svf_den_prod(d[j], N);
+    }
+    const float q1 = p[0] * p[1], q2 = q1 * p[2], q3 = q2 * p[3];
+    float r = 1.0f / q3, inv[4];
+    inv[3] = r * q2; r *= p[3];                                      // r = 1 / q2
+    inv[2] = r * q1; r *= p[2];                                      // r = 1 / q1
+    inv[1] = r * p[0]; inv[0] = r * p[1];
+    for (int j = 0; j < 4; j++) svf_a1_spread(d[j], N, inv[j], a1[j]);
 }
 
 // Float copy of an integer coefficient set (the integer routine stays the one that computes them: cheaper than a float divide on the ESP32).

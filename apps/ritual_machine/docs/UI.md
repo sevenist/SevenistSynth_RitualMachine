@@ -516,7 +516,8 @@ slot). Both `synth_ui_handle` and `synth_ui_draw` call it, which is how the two 
 - **The cog**: every module's first page has one (`type_has_cog`: not the motion sequencer's nor the EG's, drawn by hand). It is
   the row after the last one; a push, left or right on it opens the hidden settings in place of the page's rows
   (`ui->cog_page`, the title gets " SET"), Back closes them. They are the rarely used settings (`mod_hidden[]`: the oscillator's
-  Qual / Mute / Harm, Spectral's Hold / Lo / Hi), then **Reset** (`PRM_RESET`, ADR-046 phase 5): a push sets `ui->reset_id`, the
+  Qual / Mute / Harm, Spectral's Hold / Lo / Hi, Hadamard's Diff / Mod, the costs: the filter's FMq Hi / Mid / Lo under audio-rate
+  cutoff FM, the reverb's Qual Hi / Lo and Out Mono / Stereo), then **Reset** (`PRM_RESET`, ADR-046 phase 5): a push sets `ui->reset_id`, the
   app asks (`app_module_reset_ask`), then `rack_slot_reset` puts every value back to its default (the sampler's File kept).
 - **One value's default**: the action Reset (`ACT_VALUE_RESET`, a key function and a layer entry; Shift + push while a value is
   latched) = `synth_ui_target_reset` on `synth_ui_target_at_cursor`: a module's value (`rack_mparam_reset`) or a global one

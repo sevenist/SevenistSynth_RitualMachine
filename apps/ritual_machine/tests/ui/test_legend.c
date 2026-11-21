@@ -56,7 +56,8 @@ TEST(legend_names_the_page_rows_with_their_values) {
     for (int x = 0; x < 128; x += 8) CHECK(px(x, DISPLAY_HEIGHT - 21));            // the zone's rule across the screen
 }
 
-// The tick follows the knob while it has not caught the value: every move redraws (the value itself does not change then).
+// The tick follows the knob while it has not caught the value: every move redraws (the value itself does not change then), at
+// most APP_FRAME_MIN_MS later (the frame rate cap: a move right after a frame is drawn by the next one).
 TEST(legend_tick_follows_a_knob_that_has_not_caught) {
     extern int ui_stub_frames;
     bind_hwv1();
@@ -65,10 +66,28 @@ TEST(legend_tick_follows_a_knob_that_has_not_caught) {
     for (int v = 100; v <= 400; v += 150) {
         const int before = ui_stub_frames;
         ev_knob(CTL_COL_KNOB_1, v);                                     // Timb sits at 0.5: from below, never caught
+        ev_idle(6);                                                     // (the stub clock: 10 ms a reading)
         cells(c);
         CHECK_EQ(c[1].state, 0);
         CHECK(ui_stub_frames > before);
     }
+}
+
+// The frame rate cap: a knob turned without pause draws at most a frame every APP_FRAME_MIN_MS, and its last position is drawn.
+TEST(a_fast_knob_turn_draws_at_most_one_frame_every_40_ms) {
+    extern int ui_stub_frames;
+    bind_hwv1();
+    ui_fresh();
+    ev_idle(6);
+    const int before = ui_stub_frames;
+    const uint32_t t0 = audio_millis();
+    for (int v = 100; v <= 700; v += 20) ev_knob(CTL_COL_KNOB_1, v);   // 31 moves, one a step
+    const uint32_t t1 = audio_millis();
+    const int frames = ui_stub_frames - before;
+    CHECK(frames >= 1);
+    CHECK(frames <= (int)((t1 - t0) / APP_FRAME_MIN_MS) + 1);
+    ev_idle(6);
+    CHECK(!ui_app.redraw_owed);                                         // the owed frame came once the turn stopped
 }
 
 TEST(legend_shows_the_sequencer_step_and_the_curve_point) {

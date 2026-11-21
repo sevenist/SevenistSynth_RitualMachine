@@ -23,8 +23,14 @@
 
 namespace {
 constexpr int kTilesX = DISPLAY_WIDTH / 8, kTilesY = DISPLAY_HEIGHT / 8, kBytes = kTilesX * kTilesY * 8;
+#if HW_DISPLAY_RGB565
+// A board with a colour screen shows one-colour frames for its boot animation only (and a one-colour frame an application would send):
+// in PSRAM, made by display_init, so their 7.5 KB of internal RAM go to the audio's fast heap (2026-11-19).
+uint8_t *pending = nullptr, *work = nullptr, *sent = nullptr;
+#else
 uint8_t pending[kBytes];                       // the newest frame from the application (guarded by mtx)
 uint8_t work[kBytes], sent[kBytes];            // the frame being sent, and what the panel shows
+#endif
 SemaphoreHandle_t mtx;
 TaskHandle_t task;
 volatile bool have_frame = false;              // the application has sent a frame
@@ -45,6 +51,7 @@ void show_work() {
 constexpr size_t kColorBytes = (size_t)DISPLAY_WIDTH * DISPLAY_HEIGHT * sizeof(uint16_t);
 uint16_t *pending565 = nullptr, *work565 = nullptr, *sent565 = nullptr;   // PSRAM; made at the first colour frame (none: frames go one-colour)
 volatile bool color_frame = false;             // the newest frame the application sent is a colour one (guarded by mtx with pending565)
+bool fresh565 = false;                         // pending565 holds a frame the task has not taken yet (guarded by mtx)
 bool sent565_valid = false;                    // `sent565` is what the panel shows (false: the next colour frame goes whole)
 
 bool color_buffers() {
@@ -66,6 +73,7 @@ constexpr size_t kIndexBytes = (size_t)DISPLAY_WIDTH * DISPLAY_HEIGHT;
 uint8_t *pending8 = nullptr, *work8 = nullptr, *sent8 = nullptr;
 const uint16_t *pending_pal = nullptr, *sent_pal = nullptr;   // the palette of each
 volatile bool indexed_frame = false;           // the newest frame is an indexed one (guarded by mtx with pending8)
+bool fresh8 = false;                           // pending8 holds a frame the task has not taken yet (guarded by mtx)
 bool sent8_valid = false;
 
 bool indexed_buffers() {
@@ -100,8 +108,15 @@ void display_task(void *) {
         if (boot_playing || !have_frame) continue;                // (the boot task wakes this one when it is done)
 #if HW_DISPLAY_RGB565
         if (indexed_frame) {
+            // the newest frame taken by swapping it with the work buffer, not copied: the application's next frame is copied whole
+            // into the other one (display_send_indexed). 20 KB less read and written in PSRAM a frame, which the audio core's data
+            // shares (2026-11-19). No new frame (a wake-up at the boot's end): nothing to show again.
             xSemaphoreTake(mtx, portMAX_DELAY);
-            memcpy(work8, pending8, kIndexBytes);
+            if (!fresh8) { xSemaphoreGive(mtx); continue; }
+            uint8_t *const newest = pending8;
+            pending8 = work8;
+            work8 = newest;
+            fresh8 = false;
             const uint16_t *pal = pending_pal;
             xSemaphoreGive(mtx);
             display_panel_show_indexed(work8, sent8_valid && pal == sent_pal ? sent8 : nullptr, pal);
@@ -116,8 +131,12 @@ void display_task(void *) {
         }
         sent8_valid = false;
         if (color_frame) {
-            xSemaphoreTake(mtx, portMAX_DELAY);
-            memcpy(work565, pending565, kColorBytes);
+            xSemaphoreTake(mtx, portMAX_DELAY);                   // (swapped, not copied: as the indexed frames above)
+            if (!fresh565) { xSemaphoreGive(mtx); continue; }
+            uint16_t *const newest = pending565;
+            pending565 = work565;
+            work565 = newest;
+            fresh565 = false;
             xSemaphoreGive(mtx);
             display_panel_show_rgb565(work565, sent565_valid ? sent565 : nullptr);
             uint16_t *const shown = work565;                      // what the panel shows now: no copy, the two frames swap
@@ -234,6 +253,14 @@ void boot_task(void *arg) {
 
 extern "C" u8g2_t *display_init(void) {
     u8g2_t *const g = display_panel_init();
+#if HW_DISPLAY_RGB565
+    uint8_t *const mono = static_cast<uint8_t *>(heap_caps_malloc_prefer(3 * (size_t)kBytes, 2, MALLOC_CAP_SPIRAM, MALLOC_CAP_DEFAULT));
+    if (!mono) { Serial.println("[LCD] no memory for the one-colour frames"); abort(); }   // (7.5 KB at the very start: never seen)
+    pending = mono;
+    work = mono + kBytes;
+    sent = mono + 2 * kBytes;
+    memset(pending, 0, kBytes);
+#endif
     memset(sent, 0, kBytes);                // the panel is blank
     mtx = xSemaphoreCreateMutex();
     xTaskCreatePinnedToCore(display_task, "display", 4096, nullptr, 1, &task, 0);   // core 0 with the UI; the I2C waits let the UI loop run
@@ -274,6 +301,29 @@ bool display_esp32_colour_reserve(bool indexed) {
 #endif
 }
 
+// The frame handed over as it is (hal_display.h): it becomes the pending one, and the pending one it replaces (a frame the task never
+// took, or the old work buffer the task swapped out) is free: the caller draws the next frame into it. The task only reads work8 / sent8
+// outside the mutex, so the buffer given back is never one it is showing or comparing.
+extern "C" uint8_t *display_swap_indexed(uint8_t *frame, const uint16_t *palette) {
+#if HW_DISPLAY_RGB565
+    if (frame && palette && indexed_buffers()) {
+        xSemaphoreTake(mtx, portMAX_DELAY);
+        uint8_t *const free_buf = pending8;
+        pending8 = frame;
+        pending_pal = palette;
+        fresh8 = true;
+        indexed_frame = true;
+        color_frame = false;
+        xSemaphoreGive(mtx);
+        have_frame = true;
+        xTaskNotifyGive(task);
+        return free_buf;
+    }
+#endif
+    display_send_indexed(frame, palette);
+    return frame;
+}
+
 extern "C" void display_send_indexed(const uint8_t *frame, const uint16_t *palette) {
     if (!frame || !palette) return;
 #if HW_DISPLAY_RGB565
@@ -286,6 +336,7 @@ extern "C" void display_send_indexed(const uint8_t *frame, const uint16_t *palet
         xSemaphoreTake(mtx, portMAX_DELAY);
         memcpy(pending8, frame, kIndexBytes);
         pending_pal = palette;
+        fresh8 = true;
         indexed_frame = true;
         color_frame = false;
         xSemaphoreGive(mtx);
@@ -322,6 +373,7 @@ extern "C" void display_send_rgb565(const uint16_t *frame) {
     if (color_buffers()) {
         xSemaphoreTake(mtx, portMAX_DELAY);
         memcpy(pending565, frame, kColorBytes);
+        fresh565 = true;
         color_frame = true;
         indexed_frame = false;
         xSemaphoreGive(mtx);

@@ -17,6 +17,8 @@ void audio_shutdown(void) {}
 int ui_stub_builds;                                                  // audio_build calls (the UI tests check the section switch)
 void audio_build(const rack_t *r, const synth_params_t *p) { (void)r; (void)p; ui_stub_builds++; }
 void audio_set_params(const rack_t *r, const synth_params_t *p) { (void)r; (void)p; }
+void audio_set_master(const rack_t *r) { (void)r; }
+void audio_build_patch(const rack_t *r, const synth_params_t *p) { (void)r; (void)p; ui_stub_builds++; }
 // The library: demo0..2, then the files the processing "wrote" (stub_extra: their names and lengths; a hidden one has no name).
 #define STUB_EXTRA 24
 static char stub_extra[STUB_EXTRA][AUDIO_NAME_MAX];
@@ -337,6 +339,7 @@ int ui_stub_frames;                                                     // frame
 void display_send(u8g2_t *g) { (void)g; ui_stub_frames++; }
 void display_send_rgb565(const uint16_t *frame) { (void)frame; ui_stub_frames++; }   // (the colour canvas of the library, ui/canvas.c: core/ui_theme.h)
 void display_send_indexed(const uint8_t *frame, const uint16_t *palette) { (void)frame; (void)palette; ui_stub_frames++; }
+uint8_t *display_swap_indexed(uint8_t *frame, const uint16_t *palette) { (void)palette; ui_stub_frames++; return frame; }
 int ui_stub_boot_ends;                       // the application said its start is over (hal_display.h)
 void display_boot_end(void) { ui_stub_boot_ends++; }
 int ui_stub_boot_progress = -1, ui_stub_boot_progress_back;   // the last progress reported, and how often it went back

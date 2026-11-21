@@ -454,8 +454,9 @@ demo samples (never the user's `samples/`), a readme (`tools/release/README-simu
 | `HWV1_SD_CALM_PRIO=N` | its priority for card work without a deadline: a header, a folder's list, a sample's load (default 1 = the UI's) | keep |
 | `HWV1_SD_IDF` | use ESP-IDF's sdspi host instead of the own SPI driver: on HWV1 it costs about 40 ms before EVERY command, kept for comparison only | do not use |
 | `HWV1_DEBUG_AUDIO`, `ENGINE_PROFILE` | once a second: `[AUDIO]` render time / blocks over budget / graph builds / DMA underruns (the real dropouts), `[PROF]` cycles per module, `[SEC]`, `[OSC]`, `[HEAP]` | remove |
+| `DEV_PERF_STREAM` (+ `ENGINE_PROFILE`, `ENGINE_PROFILE_PMU`) | the live performance stream for `tools/perf_view` (env `hwv2_perf`): every render's cycles, the per-module profile and the core's two performance counters, 20 packets a second on the native USB port (`perf_stream_esp32.cpp`; serial `perf`). Takes the profile instead of the `[PROF]` text lines | remove |
 | `HWV1_DEBUG_INPUT`, `HWV1_BENCH`, `HWV1_TEST_TONE` | raw key log; boot benchmark; 440 Hz test tone instead of the engine | remove |
-| `ENGINE_FX_MONO=1` | delay and reverb compute one channel (user choice) | decision |
+| `ENGINE_FX_MONO=1` | the delay computes one channel; the reverb's default (the rack sets it from the reverb's Out value) (user choice) | decision |
 | `ENGINE_REVERB_HALF=1` | reverb tank at half rate (user choice) | decision |
 | `ENGINE_FILTER_EXACT=1` | (not set) filter coefficients exact per sample even for smooth modulation | |
 | `ENGINE_CMD_RING=128` | command ring entries (270 bytes each, taken from the bulk heap, PSRAM, since 2026-10-28) | keep |
@@ -464,7 +465,7 @@ demo samples (never the user's `samples/`), a readme (`tools/release/README-simu
 | `ENGINE_NO_IRAM` | (not set) keep module code in flash instead of IRAM | |
 
 The framework appends `-Os` after the project's `-O2`, so `build_src_flags` carries `-O2 -fno-stack-protector` for the project sources. Check `compile_commands.json` if the optimization level is ever in doubt.
-The host tests take the same engine flags: `.\test.ps1 -Defs "-DENGINE_REVERB_HALF=1"` (the stereo-specific reverb and delay tests fail with `ENGINE_FX_MONO=1` by design).
+The host tests take the same engine flags: `.\test.ps1 -Defs "-DENGINE_REVERB_HALF=1"` (the stereo-specific delay test fails with `ENGINE_FX_MONO=1` by design; the reverb's tests ask for stereo, and its pinned checksum is checked only at the full tank rate).
 
 ### Reading the serial log
 

@@ -88,6 +88,8 @@ static const struct { int n; int p[4]; } mod_hidden[MOD_TYPE_COUNT] = {
     [MOD_OSC] = {3, {MP_OC_QUAL, MP_OC_MUTE, MP_OC_HARM}},   // Harm: the MI models' third control
     [MOD_SPECTRAL] = {3, {MP_SP_HOLD, MP_SP_LO, MP_SP_HI}},   // ADR-040: Freeze's hold, the Gate band
     [MOD_HADAMARD] = {2, {MP_HD_DIFF, MP_HD_MOD}},            // the input diffusion, the two modulated lines
+    [MOD_FILTER] = {1, {MP_FL_FMQ}},                          // its cost under audio-rate cutoff FM
+    [MOD_REVERB] = {2, {MP_RV_QUAL, MP_RV_OUT}},              // its cost: the tank's rate, one side or both
 };
 
 int module_hidden_count(int type) { return type >= 0 && type < MOD_TYPE_COUNT ? mod_hidden[type].n : 0; }

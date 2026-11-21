@@ -120,6 +120,11 @@ struct ProcessCtx {
                                                     //   catalog's modules read a default there: framework/modular/engine_modules.h)
     const float *fsilence = nullptr;                // the same for a Sig::F32 module (Ports::fin)
     const SeqPos *seq = nullptr;                    // the step sequencer's place at the end of this block
+    // The voice buses whose right half is the left one this block (bit 0 bus_l / bus_r, 1 bus2, 2 + k send k): every voice added so far was
+    // centred, so the right buffer was not written (it is stale) and reads as the left one. VoiceOut copies left to right and clears the bit
+    // before it adds a panned voice. nullptr: both buffers always written (the tests, the benches). The engine's (2026-11-19): a voice's
+    // add to a bus is a third cheaper, the right buses are not cleared.
+    uint8_t *bus_mono = nullptr;
 };
 
 // The module's blocks: in / mod / out for a Sig::Q15 module, fin / fmod / fout (the same pointers, as float blocks) for a Sig::F32 one.

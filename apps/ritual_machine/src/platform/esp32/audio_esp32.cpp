@@ -15,6 +15,7 @@
 #include "engine/dsp/config.h"
 #include "platform/esp32/bench_esp32.h"
 #include "platform/esp32/samples_esp32.h"
+#include "platform/esp32/perf_stream_esp32.h"
 #include "boards/esp32/board_esp32.h"
 #include <atomic>
 
@@ -24,7 +25,10 @@ namespace {
 // the boot log's "running" line shows the largest block untouched after them.
 constexpr size_t kFastMarginBytes = 16 * 1024;
 constexpr size_t kFastMaxBytes = 256 * 1024;       // no point in taking more than this
-constexpr size_t kFastMinBytes = 64 * 1024;        // below this the internal block is not worth it: the fast heap goes to PSRAM
+// Below this the internal block is not worth it: the fast heap goes to PSRAM. 16 KB (was 64): on HWV2 the largest block at the start is
+// ~43 KB, and even a small internal fast heap (what does not fit spills into the bulk one) keeps the first modules' state out of the PSRAM
+// that the screen's redraws load (2026-11-19, the user's choice: the fast heap in internal RAM).
+constexpr size_t kFastMinBytes = 16 * 1024;
 constexpr size_t kFastSpiramBytes = 400 * 1024;    // the fast heap when it has to live in PSRAM
 constexpr size_t kBulkHeadroomBytes = 128 * 1024;  // PSRAM left for the rest of the firmware (sample cache, SD buffers, display)
 constexpr size_t kBulkMaxBytes = 1600 * 1024;      // PSRAM: delay lines, the pre-delay, the spill of the fast heap
@@ -48,7 +52,13 @@ void capture(const int16_t *stereo, int frames) {
 
 // What the board's audio task calls for every buffer.
 void render(int16_t *buf, int frames) {
+#ifdef DEV_PERF_STREAM
+    perf_render_begin();
     engine_synth_render(buf, frames);
+    perf_render_end(frames);
+#else
+    engine_synth_render(buf, frames);
+#endif
 #ifdef DEV_SERIAL_CMD
     capture(buf, frames);
 #endif
@@ -62,7 +72,7 @@ void report(const audio_out_stats_t *s) {
             Serial.printf("[AUDIO] render avg %u us, worst %u us, budget %u us per %d frames, %u blocks over budget of %u, graph builds %u (last: %s)\n", (unsigned)s->avg_us,
                           (unsigned)s->worst_us, (unsigned)s->budget_us, (int)s->frames, (unsigned)s->late, (unsigned)s->blocks, engine_synth_build_count(), engine_synth_build_reason());
             Serial.printf("[AUDIO] DMA underruns %u in the last second\n", (unsigned)s->underruns);
-#ifdef ENGINE_PROFILE
+#if defined(ENGINE_PROFILE) && !defined(DEV_PERF_STREAM)     // (the perf stream takes the profile itself: both would get half of it)
             {   // CPU cycles per rendered block, per module type; the block budget is cpu_hz * block / sample_rate
                 struct Row { const char *name; uint32_t cyc, calls; };
                 struct Acc { Row row[40]; int n; uint32_t sum; } acc = {{}, 0, 0};
@@ -143,7 +153,8 @@ extern "C" void audio_init(void) {
     if (fast) {
         bulk_bytes = heap_caps_get_free_size(MALLOC_CAP_SPIRAM);
         bulk_bytes = bulk_bytes > kBulkHeadroomBytes ? bulk_bytes - kBulkHeadroomBytes : 0;
-        if (bulk_bytes > kBulkMaxBytes) bulk_bytes = kBulkMaxBytes;
+        // (as much as the one PSRAM heap below would have: a small internal fast heap spills here, the engine keeps its memory)
+        if (bulk_bytes > kBulkMaxBytes + kFastSpiramBytes) bulk_bytes = kBulkMaxBytes + kFastSpiramBytes;
         bulk = heap_caps_malloc(bulk_bytes, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
     } else {
         // Not enough internal RAM: the fast heap is PSRAM too, so ONE heap for both (the engine's host shares it: the same block twice).
@@ -165,7 +176,10 @@ extern "C" void audio_init(void) {
     audio_out_set_report(report);
 #endif
     if (!audio_out_start(render, engine_synth_sample_rate())) { Serial.println("[AUDIO] the output did not start"); return; }
-    samples_esp32_start();                              // TF card library + the sample loader (its own task on core 0)
+#ifdef DEV_PERF_STREAM
+    perf_stream_init();
+#endif
+    samples_esp32_start();                             // TF card library + the sample loader (its own task on core 0)
 }
 
 #ifdef DEV_SERIAL_CMD
@@ -212,7 +226,9 @@ extern "C" void audio_set_params(const rack_t *r, const synth_params_t *p) {
     if (dt > g_ui_params_max_us) g_ui_params_max_us = dt;
 #endif
 }
+extern "C" void audio_set_master(const rack_t *r)                          { engine_synth_set_master(r); }
 extern "C" void audio_build(const rack_t *r, const synth_params_t *p)      { apply_speaker(r); engine_synth_build(r, p); }
+extern "C" void audio_build_patch(const rack_t *r, const synth_params_t *p) { apply_speaker(r); engine_synth_build_patch(r, p); }
 extern "C" int audio_sample_count(void)                                     { return engine_synth_sample_count(); }   // the files in use (samples_esp32.cpp reads each when asked)
 extern "C" bool audio_sample_info(int i, audio_sample_info_t *out)         { return engine_synth_sample_info(i, out); }
 extern "C" int audio_osc_preview(int m, float t, float mo, float h, int period, int16_t *out, int n) { return engine_synth_osc_preview(m, t, mo, h, period, out, n); }

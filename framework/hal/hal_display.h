@@ -46,6 +46,11 @@ void display_send_rgb565(const uint16_t *frame);
 // colours, as many as the frame uses; it must stay valid). Half the memory of an RGB565 frame. Copied as display_send does; a board with a
 // colour screen converts it as it sends it, a one-colour one lights the bright pixels.
 void display_send_indexed(const uint8_t *frame, const uint16_t *palette);
+// The same without the copy, for an application that draws every frame from a cleared one: `frame` is handed over as it is (the caller
+// no longer touches it) and the function returns a buffer of the same size to draw the next frame into, its content undefined. A
+// platform that has no buffers to trade copies the frame as display_send_indexed does and returns `frame`. (On HWV2: 20 KB less copied
+// in PSRAM a frame, 3.3 ms of core 0, 2026-11-19.)
+uint8_t *display_swap_indexed(uint8_t *frame, const uint16_t *palette);
 
 // The application has finished starting (the card was read, its settings and the pads' samples are in). A platform that plays a boot
 // animation of its own until then (display_boot_config; the prototype loops it back and forth in a task) lets it end and then shows

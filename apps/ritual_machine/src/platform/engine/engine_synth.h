@@ -33,7 +33,11 @@ void engine_synth_set_osc_engine(int index, int engine);                        
 void engine_synth_heap_stats(size_t *fast_used, size_t *fast_cap, size_t *fast_high, size_t *bulk_used, size_t *spilled);   // dev: how full the two heaps are
 unsigned engine_synth_build_count(void);                                           // how many full graph (re)loads happened (a rebuild is slow: tests and diagnostics watch it)
 void engine_synth_build(const rack_t *rack, const synth_params_t *params);        // structure changed: (re)load the voice graph
+// A sound loaded whole (a preset, the card's sound at the start): as engine_synth_build, but with the fast heap apart from the bulk one
+// the old graph is freed first, so the new one is built in the fast heap (silence while it is built; a rack edit keeps playing).
+void engine_synth_build_patch(const rack_t *rack, const synth_params_t *params);
 void engine_synth_set_params(const rack_t *rack, const synth_params_t *params);   // a value changed: update live, rebuild only if needed
+void engine_synth_set_master(const rack_t *rack);                                  // only rack->cfg's volume / mono changed: MasterOut's values, no graph built
 // The synth's step sequencer (core/seq.h; ADR-042): seq_set hands the pattern and its settings to the engine's sequencer, which plays
 // them on the machine clock while seq->running (call it often: only the steps and settings that changed are sent, and before set_clock
 // when both start together). The motion sequencers follow it. seq_pos: the step that plays, -1 while none does.
@@ -135,6 +139,10 @@ bool engine_synth_capture_step(void);
 // [AUDIO THREAD] per-module CPU cost since the previous call: `cb` gets the module name, its cycles per rendered block (all voices summed) and its
 // calls per block; `blocks` is the number of blocks the figures cover. Only exists when built with -DENGINE_PROFILE.
 void engine_synth_profile(void (*cb)(const char *name, uint32_t cycles_per_block, uint32_t calls_per_block, void *user), void *user, uint32_t *blocks);
+// [AUDIO THREAD] the same, raw: the sums since the previous call (of either function) into `out`, at most `max` rows; returns the row count.
+// ev0 / ev1: the core's performance counters over the same windows (-DENGINE_PROFILE_PMU; 0 otherwise).
+typedef struct { const char *name; uint32_t cycles, calls, ev0, ev1; } engine_prof_row_t;
+int engine_synth_profile_take(engine_prof_row_t *out, int max, uint32_t *blocks);
 #endif
 
 int      engine_synth_sample_rate(void);

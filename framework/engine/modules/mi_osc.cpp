@@ -124,56 +124,7 @@ public:
         }
     }
 
-    // Not SC_HOT (IRAM): the work is in the Braids / Plaits render functions, which stay in flash; the adapter in IRAM alone gains nothing (and its
-    // literal pool would land after it: the link fails). Moving the models' code to IRAM is a decision for after the board measurements.
-    void process(const ProcessCtx &ctx, const Ports &p) override {
-#if defined(ENGINE_PROFILE) && defined(ARDUINO_ARCH_ESP32)
-        const uint32_t prof_t0 = esp_cpu_get_cycle_count();
-#endif
-        const int n = ctx.frames;
-        const q15 *cv = p.in[0], *gate = p.in[1], *mp = p.mod[MI_PITCH];
-        const q15 *mt = p.mod[MI_TIMBRE], *mm = p.mod[MI_MORPH_P], *mh = p.mod[MI_HARM];
-        const q15 timbre = clamp_unit(timbre_ + (mt ? mt[0] : 0)), morph = clamp_unit(morph_ + (mm ? mm[0] : 0));
-        const q15 harm = clamp_unit(harm_ + (mh ? mh[0] : 0));
-        const ModelDef &d = kModels[model_];
-        q15 *out = p.out[0];
-        for (int c = 0; c < n; c += kChunk) {
-            const int len = n - c < kChunk ? n - c : kChunk;
-            const int32_t pitch = pitch_ + scaled(cv[c], kPitchCvSpan) + (mp ? scaled(mp[c], pmod_) : 0);   // ours: 1/256 semitone, MIDI note * 256
-            bool rise = false;
-            for (int i = c; i < c + len; i++) { const bool g = gate[i] > 16384; rise |= g && !gate_; gate_ = g; }
-            if (d.src == BRAIDS) {
-                braids::MacroOscillator *o = braids_osc();
-                if (rise && d.perc) o->Strike();
-                o->set_pitch(static_cast<int16_t>(clamp_i32(pitch >> 1, 0, 32767)));             // Braids: 1/128 semitone
-                o->set_parameters(timbre, morph);
-                int16_t buf[kChunk];
-                o->Render(sync_, buf, static_cast<size_t>(len));
-                for (int i = 0; i < len; i++) out[c + i] = mul15(buf[i], level_);
-            } else {
-                plaits::EngineParameters ep;
-                ep.trigger = d.perc ? (rise ? plaits::TRIGGER_RISING_EDGE : plaits::TRIGGER_LOW) | (gate_ ? plaits::TRIGGER_HIGH : 0)
-                                    : plaits::TRIGGER_UNPATCHED;
-                ep.note = static_cast<float>(pitch) * (1.0f / 256.0f);
-                ep.timbre = q15_to_float(timbre);
-                ep.morph = q15_to_float(morph);
-                ep.harmonics = q15_to_float(harm);
-                ep.accent = ctx.voice ? 0.5f + 0.5f * q15_to_float(ctx.voice->velocity) : 0.8f;
-                float o[kChunk], aux[kChunk];
-                bool enveloped = d.perc;
-                if (d.aux) plaits_engine()->Render(ep, nullptr, o, static_cast<size_t>(len), &enveloped);
-                else plaits_engine()->Render(ep, o, d.perc ? nullptr : aux, static_cast<size_t>(len), &enveloped);   // a drum skips its other model
-                const float g = (d.gain < 0 ? -d.gain : d.gain) * q15_to_float(level_);
-                for (int i = 0; i < len; i++) {
-                    const float v = d.gain < 0 ? fdsp::SoftLimit(o[i] * g) : o[i] * g;
-                    out[c + i] = sat16(static_cast<int32_t>(v * 32767.0f));
-                }
-            }
-        }
-#if defined(ENGINE_PROFILE) && defined(ARDUINO_ARCH_ESP32)
-        g_mi_prof[model_] += esp_cpu_get_cycle_count() - prof_t0;
-#endif
-    }
+    void process(const ProcessCtx &ctx, const Ports &p) override;         // (below, outside the class: SC_HOT)
 
 private:
     braids::MacroOscillator *braids_osc() { return reinterpret_cast<braids::MacroOscillator *>(store_); }
@@ -215,6 +166,59 @@ private:
     q15 timbre_ = 16384, morph_ = 16384, harm_ = 16384, level_ = kUnity;
     bool gate_ = false;
 };
+
+// SC_HOT (IRAM) with the Braids path of the digital models (MacroOscillator::Render / RenderDigital, DigitalOscillator::Render) and
+// RenderVosim: on HWV2 a Vosim MiOsc waited on code 36 % of its cycles (2026-11-20). The other models' render functions stay in flash.
+// Outside the class: sc::MiOsc has external linkage, so a body in the class is a comdat function whose literal pool the linker places
+// after it in IRAM ("l32r: literal placed after use").
+SC_HOT void MiOsc::process(const ProcessCtx &ctx, const Ports &p) {
+#if defined(ENGINE_PROFILE) && defined(ARDUINO_ARCH_ESP32)
+    const uint32_t prof_t0 = esp_cpu_get_cycle_count();
+#endif
+    const int n = ctx.frames;
+    const q15 *cv = p.in[0], *gate = p.in[1], *mp = p.mod[MI_PITCH];
+    const q15 *mt = p.mod[MI_TIMBRE], *mm = p.mod[MI_MORPH_P], *mh = p.mod[MI_HARM];
+    const q15 timbre = clamp_unit(timbre_ + (mt ? mt[0] : 0)), morph = clamp_unit(morph_ + (mm ? mm[0] : 0));
+    const q15 harm = clamp_unit(harm_ + (mh ? mh[0] : 0));
+    const ModelDef &d = kModels[model_];
+    q15 *out = p.out[0];
+    for (int c = 0; c < n; c += kChunk) {
+        const int len = n - c < kChunk ? n - c : kChunk;
+        const int32_t pitch = pitch_ + scaled(cv[c], kPitchCvSpan) + (mp ? scaled(mp[c], pmod_) : 0);   // ours: 1/256 semitone, MIDI note * 256
+        bool rise = false;
+        for (int i = c; i < c + len; i++) { const bool g = gate[i] > 16384; rise |= g && !gate_; gate_ = g; }
+        if (d.src == BRAIDS) {
+            braids::MacroOscillator *o = braids_osc();
+            if (rise && d.perc) o->Strike();
+            o->set_pitch(static_cast<int16_t>(clamp_i32(pitch >> 1, 0, 32767)));             // Braids: 1/128 semitone
+            o->set_parameters(timbre, morph);
+            int16_t buf[kChunk];
+            o->Render(sync_, buf, static_cast<size_t>(len));
+            for (int i = 0; i < len; i++) out[c + i] = mul15(buf[i], level_);
+        } else {
+            plaits::EngineParameters ep;
+            ep.trigger = d.perc ? (rise ? plaits::TRIGGER_RISING_EDGE : plaits::TRIGGER_LOW) | (gate_ ? plaits::TRIGGER_HIGH : 0)
+                                : plaits::TRIGGER_UNPATCHED;
+            ep.note = static_cast<float>(pitch) * (1.0f / 256.0f);
+            ep.timbre = q15_to_float(timbre);
+            ep.morph = q15_to_float(morph);
+            ep.harmonics = q15_to_float(harm);
+            ep.accent = ctx.voice ? 0.5f + 0.5f * q15_to_float(ctx.voice->velocity) : 0.8f;
+            float o[kChunk], aux[kChunk];
+            bool enveloped = d.perc;
+            if (d.aux) plaits_engine()->Render(ep, nullptr, o, static_cast<size_t>(len), &enveloped);
+            else plaits_engine()->Render(ep, o, d.perc ? nullptr : aux, static_cast<size_t>(len), &enveloped);   // a drum skips its other model
+            const float g = (d.gain < 0 ? -d.gain : d.gain) * q15_to_float(level_);
+            for (int i = 0; i < len; i++) {
+                const float v = d.gain < 0 ? fdsp::SoftLimit(o[i] * g) : o[i] * g;
+                out[c + i] = sat16(static_cast<int32_t>(v * 32767.0f));
+            }
+        }
+    }
+#if defined(ENGINE_PROFILE) && defined(ARDUINO_ARCH_ESP32)
+    g_mi_prof[model_] += esp_cpu_get_cycle_count() - prof_t0;
+#endif
+}
 
 template <typename T>
 ModuleType type_of() { return module_type_of<T>(); }

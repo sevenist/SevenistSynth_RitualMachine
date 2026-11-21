@@ -30,6 +30,7 @@
 
 #include <algorithm>
 
+#include "engine/dsp/config.h"   // (SC_HOT)
 #include "engine/dsp/fdsp.h"
 
 #include "engine/mi/braids/parameter_interpolation.h"
@@ -39,7 +40,8 @@ namespace braids {
   
 using namespace sc::fdsp;
 
-void MacroOscillator::Render(
+// (SC_HOT: internal RAM, with RenderDigital: the path of every Braids digital model, 2026-11-20)
+SC_HOT void MacroOscillator::Render(
     const uint8_t* sync,
     int16_t* buffer,
     size_t size) {
@@ -349,7 +351,7 @@ void MacroOscillator::RenderBuzz(
   }
 }
 
-void MacroOscillator::RenderDigital(
+SC_HOT void MacroOscillator::RenderDigital(
     const uint8_t* sync,
     int16_t* buffer,
     size_t size) {

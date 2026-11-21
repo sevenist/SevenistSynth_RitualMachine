@@ -187,6 +187,7 @@ TEST(effects_inside_a_branch_per_voice_or_shared) {
         BrApp a;                                                              // OC RV FL: the reverb starts the shared part, the filter after it is a pair
         const int f = a.chain(0, 0);
         CHECK(rack_insert_row(&a.rack, f, 0, MOD_REVERB));
+        a.rack.slot[f].v[MP_RV_OUT] = 1;                                      // Out: Stereo (Mono, the default, sends its left taps to both)
         CHECK_EQ(rack_shared_start(&a.rack, 0), f);
         const RackGraph &rg = graph_of(a.rack, a.params);
         CHECK_EQ(count_type(rg, T_REVERB), 1);

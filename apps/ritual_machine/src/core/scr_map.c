@@ -524,13 +524,28 @@ static void ports(const ui_ctx_t *c, int node, char *in, char *out, char *mod, i
     if (prev != RACK_NONE) rack_slot_name(r, prev, in, n);
     if (next >= 0) rack_slot_name(r, next, out, n);
     else if (gr->node[NAV_MIX].kind == NODE_MIX && r->slot[nd->slot].row < RACK_BRANCHES) snprintf(out, (size_t)n, "MIX");
-    for (int e = 0; e < gr->n_edges; e++) {
-        if (gr->edge[e].kind != EDGE_MOD || gr->edge[e].to != node) continue;
-        const rack_slot_t *m = &r->slot[gr->edge[e].from];
-        char who[8];
-        rack_slot_name(r, gr->edge[e].from, who, sizeof who);
-        snprintf(mod, (size_t)n, "%s<-%s", m->type == MOD_MSEQ ? "MS" : rack_param_name((module_type_t)r->slot[nd->slot].type, m->tgt_param), who);
-        break;
+    // The first modulation into it, in the graph's order (nav_graph.c: the slots' first targets and sequencer lanes, then the cables), with
+    // the parameter of that modulation: a cable's own, not its source's first target's (that one indexed another module's parameters: a NULL
+    // name past this type's count crashed the snprintf, 2026-11-19).
+    const uint8_t id = r->slot[nd->slot].id;
+    const module_type_t t = (module_type_t)r->slot[nd->slot].type;
+    char who[8];
+    for (int j = 0; j < r->count && j < RACK_MAX && !mod[0]; j++) {
+        const rack_slot_t *m = &r->slot[j];
+        bool hit = false;
+        if (m->type == MOD_MSEQ) {
+            const ms_pattern_t *p = rack_ms_const(r, j);
+            for (int l = 0; p && l < MS_LANES; l++) hit = hit || p->lane[l].tgt_id == id;
+        } else hit = rack_can_target((module_type_t)m->type) && m->tgt_id == id;
+        if (!hit) continue;
+        rack_slot_name(r, j, who, sizeof who);
+        snprintf(mod, (size_t)n, "%s<-%s", m->type == MOD_MSEQ ? "MS" : rack_param_name(t, m->tgt_param), who);
+    }
+    for (int k = 0; k < r->n_cables && !mod[0]; k++) {
+        const int from = r->cable[k].kind == CABLE_MOD && r->cable[k].to == id ? rack_find(r, r->cable[k].from) : RACK_NONE;
+        if (from == RACK_NONE || from >= RACK_MAX) continue;
+        rack_slot_name(r, from, who, sizeof who);
+        snprintf(mod, (size_t)n, "%s<-%s", rack_param_name(t, r->cable[k].param), who);
     }
 }
 
